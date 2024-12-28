@@ -17,6 +17,7 @@
 package com.android.modules.utils.build;
 
 import android.os.Build;
+import android.util.ArraySet;
 import android.util.SparseArray;
 
 import androidx.annotation.NonNull;
@@ -50,10 +51,22 @@ public final class UnboundedSdkLevel {
     private static final SparseArray<Set<String>> PREVIOUS_CODENAMES = new SparseArray<>(4);
 
     static {
-        PREVIOUS_CODENAMES.put(29, Set.of("Q"));
-        PREVIOUS_CODENAMES.put(30, Set.of("Q", "R"));
-        PREVIOUS_CODENAMES.put(31, Set.of("Q", "R", "S"));
-        PREVIOUS_CODENAMES.put(32, Set.of("Q", "R", "S", "Sv2"));
+        PREVIOUS_CODENAMES.put(29, setOf("Q"));
+        PREVIOUS_CODENAMES.put(30, setOf("Q", "R"));
+        PREVIOUS_CODENAMES.put(31, setOf("Q", "R", "S"));
+        PREVIOUS_CODENAMES.put(32, setOf("Q", "R", "S", "Sv2"));
+    }
+
+    private static Set<String> setOf(String ... contents) {
+        if (SdkLevel.isAtLeastR()) {
+            return Set.of(contents);
+        }
+        // legacy code for Q
+        Set<String> set = new ArraySet(contents.length);
+        for (String codename : contents) {
+            set.add(codename);
+        }
+        return set;
     }
 
     private static final UnboundedSdkLevel sInstance =

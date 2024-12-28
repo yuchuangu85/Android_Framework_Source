@@ -42,7 +42,9 @@ import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyScanManager;
 import android.util.Log;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
+import com.android.internal.util.ArrayUtils;
 
 import java.util.Collection;
 import java.util.List;
@@ -131,7 +133,7 @@ public final class NetworkScanRequestTracker {
     }
 
     private boolean isValidScan(NetworkScanRequestInfo nsri) {
-        if (nsri.mRequest == null || nsri.mRequest.getSpecifiers() == null) {
+        if (nsri.mRequest == null || ArrayUtils.isEmpty(nsri.mRequest.getSpecifiers())) {
             return false;
         }
         if (nsri.mRequest.getSpecifiers().length > NetworkScanRequest.MAX_RADIO_ACCESS_NETWORKS) {
@@ -251,9 +253,10 @@ public final class NetworkScanRequestTracker {
     /**
     * Tracks info about the radio network scan.
      *
-    * Also used to notice when the calling process dies so we can self-expire.
+    * Also used to notice when the calling process dies, so we can self-expire.
     */
-    class NetworkScanRequestInfo implements IBinder.DeathRecipient {
+    @VisibleForTesting
+    public class NetworkScanRequestInfo implements IBinder.DeathRecipient {
         private final NetworkScanRequest mRequest;
         private final Messenger mMessenger;
         private final IBinder mBinder;
@@ -265,8 +268,9 @@ public final class NetworkScanRequestTracker {
         private final String mCallingPackage;
         private boolean mIsBinderDead;
 
-        NetworkScanRequestInfo(NetworkScanRequest r, Messenger m, IBinder b, int id, Phone phone,
-                int callingUid, int callingPid, String callingPackage,
+        @VisibleForTesting
+        public NetworkScanRequestInfo(NetworkScanRequest r, Messenger m, IBinder b, int id,
+                Phone phone, int callingUid, int callingPid, String callingPackage,
                 boolean renounceFineLocationAccess) {
             super();
             mRequest = r;
@@ -443,6 +447,10 @@ public final class NetworkScanRequestTracker {
             NetworkScanRequestInfo nsri = (NetworkScanRequestInfo) ar.userObj;
             if (nsri == null) {
                 Log.e(TAG, "EVENT_RECEIVE_NETWORK_SCAN_RESULT: nsri is null");
+                return;
+            }
+            if (nsri != mLiveRequestInfo) {
+                Log.e(TAG, "EVENT_RECEIVE_NETWORK_SCAN_RESULT received for inactive scan");
                 return;
             }
             LocationAccessPolicy.LocationPermissionQuery locationQuery =

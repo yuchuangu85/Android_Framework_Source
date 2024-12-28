@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.soundtrigger.types_interface/2/preprocessed.aidl -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/base/media/media_permission-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/base/media/soundtrigger_middleware-aidl-java-source/gen/android/media/soundtrigger_middleware/ISoundTriggerModule.java.d -o out/soong/.intermediates/frameworks/base/media/soundtrigger_middleware-aidl-java-source/gen -Nframeworks/base/media/aidl frameworks/base/media/aidl/android/media/soundtrigger_middleware/ISoundTriggerModule.aidl
  */
 package android.media.soundtrigger_middleware;
 /**
@@ -158,6 +159,7 @@ public interface ISoundTriggerModule extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.media.soundtrigger_middleware.ISoundTriggerModule
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -187,13 +189,9 @@ public interface ISoundTriggerModule extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -594,7 +592,8 @@ public interface ISoundTriggerModule extends android.os.IInterface
     static final int TRANSACTION_queryModelParameterSupport = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
     static final int TRANSACTION_detach = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
   }
-  public static final java.lang.String DESCRIPTOR = "android$media$soundtrigger_middleware$ISoundTriggerModule".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.media.soundtrigger_middleware.ISoundTriggerModule";
   /**
    * Load a sound model. Will return a handle to the model on success or will throw a
    * ServiceSpecificException with one of the {@link Status} error codes upon a recoverable error

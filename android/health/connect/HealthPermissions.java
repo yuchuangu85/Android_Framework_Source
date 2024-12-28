@@ -41,10 +41,12 @@ import static android.health.connect.HealthPermissionCategory.MENSTRUATION;
 import static android.health.connect.HealthPermissionCategory.NUTRITION;
 import static android.health.connect.HealthPermissionCategory.OVULATION_TEST;
 import static android.health.connect.HealthPermissionCategory.OXYGEN_SATURATION;
+import static android.health.connect.HealthPermissionCategory.PLANNED_EXERCISE;
 import static android.health.connect.HealthPermissionCategory.POWER;
 import static android.health.connect.HealthPermissionCategory.RESPIRATORY_RATE;
 import static android.health.connect.HealthPermissionCategory.RESTING_HEART_RATE;
 import static android.health.connect.HealthPermissionCategory.SEXUAL_ACTIVITY;
+import static android.health.connect.HealthPermissionCategory.SKIN_TEMPERATURE;
 import static android.health.connect.HealthPermissionCategory.SLEEP;
 import static android.health.connect.HealthPermissionCategory.SPEED;
 import static android.health.connect.HealthPermissionCategory.STEPS;
@@ -53,13 +55,19 @@ import static android.health.connect.HealthPermissionCategory.VO2_MAX;
 import static android.health.connect.HealthPermissionCategory.WEIGHT;
 import static android.health.connect.HealthPermissionCategory.WHEELCHAIR_PUSHES;
 
+import static com.android.healthfitness.flags.Flags.FLAG_PERSONAL_HEALTH_RECORD;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.content.Context;
+import android.content.pm.PackageInfo;
 import android.health.connect.datatypes.ExerciseRoute;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -99,12 +107,46 @@ public final class HealthPermissions {
             "android.permission.MANAGE_HEALTH_DATA";
 
     /**
+     * Allows an application to launch client onboarding activities responsible for connecting to
+     * Health Connect. This permission can only be held by the system. Client apps that choose to
+     * export an onboarding activity must guard it with this permission so that only the system can
+     * launch it.
+     *
+     * <p>See {@link HealthConnectManager#ACTION_SHOW_ONBOARDING} for the corresponding intent used
+     * by the system to launch onboarding activities.
+     *
+     * <p>Protection level: signature.
+     *
+     * @hide
+     */
+    public static final String START_ONBOARDING = "android.permission.health.START_ONBOARDING";
+
+    /**
      * Used for runtime permissions which grant access to Health Connect data.
      *
      * @hide
      */
     @SystemApi
     public static final String HEALTH_PERMISSION_GROUP = "android.permission-group.HEALTH";
+
+    /**
+     * Allows an application to read health data (of any type) in background.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi("com.android.healthconnect.flags.background_read")
+    public static final String READ_HEALTH_DATA_IN_BACKGROUND =
+            "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND";
+
+    /**
+     * Allows an application to read the entire history of health data (of any type).
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi("com.android.healthconnect.flags.history_read")
+    public static final String READ_HEALTH_DATA_HISTORY =
+            "android.permission.health.READ_HEALTH_DATA_HISTORY";
+
     /**
      * Allows an application to read the user's active calories burned data.
      *
@@ -112,12 +154,14 @@ public final class HealthPermissions {
      */
     public static final String READ_ACTIVE_CALORIES_BURNED =
             "android.permission.health.READ_ACTIVE_CALORIES_BURNED";
+
     /**
      * Allows an application to read the user's distance data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_DISTANCE = "android.permission.health.READ_DISTANCE";
+
     /**
      * Allows an application to read the user's elevation gained data.
      *
@@ -125,6 +169,7 @@ public final class HealthPermissions {
      */
     public static final String READ_ELEVATION_GAINED =
             "android.permission.health.READ_ELEVATION_GAINED";
+
     /**
      * Allows an application to read the user's exercise data.
      *
@@ -145,18 +190,36 @@ public final class HealthPermissions {
             "android.permission.health.READ_EXERCISE_ROUTE";
 
     /**
+     * Allows an application to read {@link ExerciseRoute}.
+     *
+     * <p>This permission can only be granted manually by a user in Health Connect settings or in
+     * the route request activity which can be launched using {@link ACTION_REQUEST_EXERCISE_ROUTE}.
+     * Attempts to request the permission by applications will be ignored.
+     *
+     * <p>Applications should check if the permission has been granted before reading {@link
+     * ExerciseRoute}.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi("com.android.healthconnect.flags.read_exercise_routes_all_enabled")
+    public static final String READ_EXERCISE_ROUTES =
+            "android.permission.health.READ_EXERCISE_ROUTES";
+
+    /**
      * Allows an application to read the user's floors climbed data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_FLOORS_CLIMBED =
             "android.permission.health.READ_FLOORS_CLIMBED";
+
     /**
      * Allows an application to read the user's steps data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_STEPS = "android.permission.health.READ_STEPS";
+
     /**
      * Allows an application to read the user's total calories burned data.
      *
@@ -164,12 +227,14 @@ public final class HealthPermissions {
      */
     public static final String READ_TOTAL_CALORIES_BURNED =
             "android.permission.health.READ_TOTAL_CALORIES_BURNED";
+
     /**
      * Allows an application to read the user's vo2 maximum data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_VO2_MAX = "android.permission.health.READ_VO2_MAX";
+
     /**
      * Allows an application to read the user's wheelchair pushes data.
      *
@@ -177,18 +242,21 @@ public final class HealthPermissions {
      */
     public static final String READ_WHEELCHAIR_PUSHES =
             "android.permission.health.READ_WHEELCHAIR_PUSHES";
+
     /**
      * Allows an application to read the user's power data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_POWER = "android.permission.health.READ_POWER";
+
     /**
      * Allows an application to read the user's speed data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_SPEED = "android.permission.health.READ_SPEED";
+
     /**
      * Allows an application to read the user's basal metabolic rate data.
      *
@@ -196,12 +264,14 @@ public final class HealthPermissions {
      */
     public static final String READ_BASAL_METABOLIC_RATE =
             "android.permission.health.READ_BASAL_METABOLIC_RATE";
+
     /**
      * Allows an application to read the user's body fat data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_BODY_FAT = "android.permission.health.READ_BODY_FAT";
+
     /**
      * Allows an application to read the user's body water mass data.
      *
@@ -209,18 +279,21 @@ public final class HealthPermissions {
      */
     public static final String READ_BODY_WATER_MASS =
             "android.permission.health.READ_BODY_WATER_MASS";
+
     /**
      * Allows an application to read the user's bone mass data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_BONE_MASS = "android.permission.health.READ_BONE_MASS";
+
     /**
      * Allows an application to read the user's height data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_HEIGHT = "android.permission.health.READ_HEIGHT";
+
     /**
      * Allows an application to read the user's lean body mass data.
      *
@@ -228,12 +301,14 @@ public final class HealthPermissions {
      */
     public static final String READ_LEAN_BODY_MASS =
             "android.permission.health.READ_LEAN_BODY_MASS";
+
     /**
      * Allows an application to read the user's weight data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_WEIGHT = "android.permission.health.READ_WEIGHT";
+
     /**
      * Allows an application to read the user's cervical mucus data.
      *
@@ -241,12 +316,14 @@ public final class HealthPermissions {
      */
     public static final String READ_CERVICAL_MUCUS =
             "android.permission.health.READ_CERVICAL_MUCUS";
+
     /**
      * Allows an application to read the user's menstruation data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_MENSTRUATION = "android.permission.health.READ_MENSTRUATION";
+
     /**
      * Allows an application to read the user's intermenstrual bleeding data.
      *
@@ -254,6 +331,7 @@ public final class HealthPermissions {
      */
     public static final String READ_INTERMENSTRUAL_BLEEDING =
             "android.permission.health.READ_INTERMENSTRUAL_BLEEDING";
+
     /**
      * Allows an application to read the user's ovulation test data.
      *
@@ -261,6 +339,7 @@ public final class HealthPermissions {
      */
     public static final String READ_OVULATION_TEST =
             "android.permission.health.READ_OVULATION_TEST";
+
     /**
      * Allows an application to read the user's sexual activity data.
      *
@@ -268,24 +347,28 @@ public final class HealthPermissions {
      */
     public static final String READ_SEXUAL_ACTIVITY =
             "android.permission.health.READ_SEXUAL_ACTIVITY";
+
     /**
      * Allows an application to read the user's hydration data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_HYDRATION = "android.permission.health.READ_HYDRATION";
+
     /**
      * Allows an application to read the user's nutrition data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_NUTRITION = "android.permission.health.READ_NUTRITION";
+
     /**
      * Allows an application to read the user's sleep data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_SLEEP = "android.permission.health.READ_SLEEP";
+
     /**
      * Allows an application to read the user's body temperature data.
      *
@@ -293,12 +376,14 @@ public final class HealthPermissions {
      */
     public static final String READ_BASAL_BODY_TEMPERATURE =
             "android.permission.health.READ_BASAL_BODY_TEMPERATURE";
+
     /**
      * Allows an application to read the user's blood glucose data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_BLOOD_GLUCOSE = "android.permission.health.READ_BLOOD_GLUCOSE";
+
     /**
      * Allows an application to read the user's blood pressure data.
      *
@@ -306,6 +391,7 @@ public final class HealthPermissions {
      */
     public static final String READ_BLOOD_PRESSURE =
             "android.permission.health.READ_BLOOD_PRESSURE";
+
     /**
      * Allows an application to read the user's body temperature data.
      *
@@ -313,12 +399,14 @@ public final class HealthPermissions {
      */
     public static final String READ_BODY_TEMPERATURE =
             "android.permission.health.READ_BODY_TEMPERATURE";
+
     /**
      * Allows an application to read the user's heart rate data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String READ_HEART_RATE = "android.permission.health.READ_HEART_RATE";
+
     /**
      * Allows an application to read the user's heart rate variability data.
      *
@@ -326,6 +414,7 @@ public final class HealthPermissions {
      */
     public static final String READ_HEART_RATE_VARIABILITY =
             "android.permission.health.READ_HEART_RATE_VARIABILITY";
+
     /**
      * Allows an application to read the user's oxygen saturation data.
      *
@@ -333,6 +422,7 @@ public final class HealthPermissions {
      */
     public static final String READ_OXYGEN_SATURATION =
             "android.permission.health.READ_OXYGEN_SATURATION";
+
     /**
      * Allows an application to read the user's respiratory rate data.
      *
@@ -340,6 +430,7 @@ public final class HealthPermissions {
      */
     public static final String READ_RESPIRATORY_RATE =
             "android.permission.health.READ_RESPIRATORY_RATE";
+
     /**
      * Allows an application to read the user's resting heart rate data.
      *
@@ -347,6 +438,25 @@ public final class HealthPermissions {
      */
     public static final String READ_RESTING_HEART_RATE =
             "android.permission.health.READ_RESTING_HEART_RATE";
+
+    /**
+     * Allows an application to read the user's skin temperature data.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi("com.android.healthconnect.flags.skin_temperature")
+    public static final String READ_SKIN_TEMPERATURE =
+            "android.permission.health.READ_SKIN_TEMPERATURE";
+
+    /**
+     * Allows an application to read the user's training plan data.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi("com.android.healthconnect.flags.training_plans")
+    public static final String READ_PLANNED_EXERCISE =
+            "android.permission.health.READ_PLANNED_EXERCISE";
+
     /**
      * Allows an application to write the user's calories burned data.
      *
@@ -354,12 +464,14 @@ public final class HealthPermissions {
      */
     public static final String WRITE_ACTIVE_CALORIES_BURNED =
             "android.permission.health.WRITE_ACTIVE_CALORIES_BURNED";
+
     /**
      * Allows an application to write the user's distance data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_DISTANCE = "android.permission.health.WRITE_DISTANCE";
+
     /**
      * Allows an application to write the user's elevation gained data.
      *
@@ -367,6 +479,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_ELEVATION_GAINED =
             "android.permission.health.WRITE_ELEVATION_GAINED";
+
     /**
      * Allows an application to write the user's exercise data. Additional permission {@link
      * HealthPermissions#WRITE_EXERCISE_ROUTE} is required to write user's exercise route.
@@ -374,6 +487,7 @@ public final class HealthPermissions {
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_EXERCISE = "android.permission.health.WRITE_EXERCISE";
+
     /**
      * Allows an application to write the user's exercise route.
      *
@@ -381,6 +495,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_EXERCISE_ROUTE =
             "android.permission.health.WRITE_EXERCISE_ROUTE";
+
     /**
      * Allows an application to write the user's floors climbed data.
      *
@@ -388,12 +503,14 @@ public final class HealthPermissions {
      */
     public static final String WRITE_FLOORS_CLIMBED =
             "android.permission.health.WRITE_FLOORS_CLIMBED";
+
     /**
      * Allows an application to write the user's steps data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_STEPS = "android.permission.health.WRITE_STEPS";
+
     /**
      * Allows an application to write the user's total calories burned data.
      *
@@ -401,12 +518,14 @@ public final class HealthPermissions {
      */
     public static final String WRITE_TOTAL_CALORIES_BURNED =
             "android.permission.health.WRITE_TOTAL_CALORIES_BURNED";
+
     /**
      * Allows an application to write the user's vo2 maximum data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_VO2_MAX = "android.permission.health.WRITE_VO2_MAX";
+
     /**
      * Allows an application to write the user's wheelchair pushes data.
      *
@@ -414,18 +533,21 @@ public final class HealthPermissions {
      */
     public static final String WRITE_WHEELCHAIR_PUSHES =
             "android.permission.health.WRITE_WHEELCHAIR_PUSHES";
+
     /**
      * Allows an application to write the user's power data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_POWER = "android.permission.health.WRITE_POWER";
+
     /**
      * Allows an application to write the user's speed data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_SPEED = "android.permission.health.WRITE_SPEED";
+
     /**
      * Allows an application to write the user's basal metabolic rate data.
      *
@@ -433,12 +555,14 @@ public final class HealthPermissions {
      */
     public static final String WRITE_BASAL_METABOLIC_RATE =
             "android.permission.health.WRITE_BASAL_METABOLIC_RATE";
+
     /**
      * Allows an application to write the user's body fat data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_BODY_FAT = "android.permission.health.WRITE_BODY_FAT";
+
     /**
      * Allows an application to write the user's body water mass data.
      *
@@ -446,18 +570,21 @@ public final class HealthPermissions {
      */
     public static final String WRITE_BODY_WATER_MASS =
             "android.permission.health.WRITE_BODY_WATER_MASS";
+
     /**
      * Allows an application to write the user's bone mass data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_BONE_MASS = "android.permission.health.WRITE_BONE_MASS";
+
     /**
      * Allows an application to write the user's height data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_HEIGHT = "android.permission.health.WRITE_HEIGHT";
+
     /**
      * Allows an application to write the user's lean body mass data.
      *
@@ -465,12 +592,14 @@ public final class HealthPermissions {
      */
     public static final String WRITE_LEAN_BODY_MASS =
             "android.permission.health.WRITE_LEAN_BODY_MASS";
+
     /**
      * Allows an application to write the user's weight data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_WEIGHT = "android.permission.health.WRITE_WEIGHT";
+
     /**
      * Allows an application to write the user's cervical mucus data.
      *
@@ -478,12 +607,14 @@ public final class HealthPermissions {
      */
     public static final String WRITE_CERVICAL_MUCUS =
             "android.permission.health.WRITE_CERVICAL_MUCUS";
+
     /**
      * Allows an application to write the user's menstruation data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_MENSTRUATION = "android.permission.health.WRITE_MENSTRUATION";
+
     /**
      * Allows an application to write the user's intermenstrual bleeding data.
      *
@@ -491,6 +622,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_INTERMENSTRUAL_BLEEDING =
             "android.permission.health.WRITE_INTERMENSTRUAL_BLEEDING";
+
     /**
      * Allows an application to write the user's ovulation test data.
      *
@@ -498,6 +630,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_OVULATION_TEST =
             "android.permission.health.WRITE_OVULATION_TEST";
+
     /**
      * Allows an application to write the user's sexual activity data.
      *
@@ -505,24 +638,28 @@ public final class HealthPermissions {
      */
     public static final String WRITE_SEXUAL_ACTIVITY =
             "android.permission.health.WRITE_SEXUAL_ACTIVITY";
+
     /**
      * Allows an application to write the user's hydration data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_HYDRATION = "android.permission.health.WRITE_HYDRATION";
+
     /**
      * Allows an application to write the user's nutrition data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_NUTRITION = "android.permission.health.WRITE_NUTRITION";
+
     /**
      * Allows an application to write the user's sleep data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_SLEEP = "android.permission.health.WRITE_SLEEP";
+
     /**
      * Allows an application to write the user's basal body temperature data.
      *
@@ -530,6 +667,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_BASAL_BODY_TEMPERATURE =
             "android.permission.health.WRITE_BASAL_BODY_TEMPERATURE";
+
     /**
      * Allows an application to write the user's blood glucose data.
      *
@@ -537,6 +675,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_BLOOD_GLUCOSE =
             "android.permission.health.WRITE_BLOOD_GLUCOSE";
+
     /**
      * Allows an application to write the user's blood pressure data.
      *
@@ -544,6 +683,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_BLOOD_PRESSURE =
             "android.permission.health.WRITE_BLOOD_PRESSURE";
+
     /**
      * Allows an application to write the user's body temperature data.
      *
@@ -551,12 +691,14 @@ public final class HealthPermissions {
      */
     public static final String WRITE_BODY_TEMPERATURE =
             "android.permission.health.WRITE_BODY_TEMPERATURE";
+
     /**
      * Allows an application to write the user's heart rate data.
      *
      * <p>Protection level: dangerous.
      */
     public static final String WRITE_HEART_RATE = "android.permission.health.WRITE_HEART_RATE";
+
     /**
      * Allows an application to write the user's heart rate variability data.
      *
@@ -564,6 +706,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_HEART_RATE_VARIABILITY =
             "android.permission.health.WRITE_HEART_RATE_VARIABILITY";
+
     /**
      * Allows an application to write the user's oxygen saturation data.
      *
@@ -571,6 +714,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_OXYGEN_SATURATION =
             "android.permission.health.WRITE_OXYGEN_SATURATION";
+
     /**
      * Allows an application to write the user's respiratory rate data.
      *
@@ -578,6 +722,7 @@ public final class HealthPermissions {
      */
     public static final String WRITE_RESPIRATORY_RATE =
             "android.permission.health.WRITE_RESPIRATORY_RATE";
+
     /**
      * Allows an application to write the user's resting heart rate data.
      *
@@ -585,6 +730,44 @@ public final class HealthPermissions {
      */
     public static final String WRITE_RESTING_HEART_RATE =
             "android.permission.health.WRITE_RESTING_HEART_RATE";
+
+    /**
+     * Allows an application to write the user's skin temperature data.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi("com.android.healthconnect.flags.skin_temperature")
+    public static final String WRITE_SKIN_TEMPERATURE =
+            "android.permission.health.WRITE_SKIN_TEMPERATURE";
+
+    /**
+     * Allows an application to write the user's training plan data.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi("com.android.healthconnect.flags.training_plans")
+    public static final String WRITE_PLANNED_EXERCISE =
+            "android.permission.health.WRITE_PLANNED_EXERCISE";
+
+    /** Personal Health Record permissions */
+
+    /**
+     * Allows an application to read the user's immunization data.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi(FLAG_PERSONAL_HEALTH_RECORD)
+    public static final String READ_MEDICAL_RESOURCES_IMMUNIZATION =
+            "android.permission.health.READ_MEDICAL_RESOURCES_IMMUNIZATION";
+
+    /**
+     * Allows an application to write the user's medical resources.
+     *
+     * <p>Protection level: dangerous.
+     */
+    @FlaggedApi(FLAG_PERSONAL_HEALTH_RECORD)
+    public static final String WRITE_MEDICAL_RESOURCES =
+            "android.permission.health.WRITE_MEDICAL_RESOURCES";
 
     private static final Set<String> sWritePermissionsSet =
             new ArraySet<>(
@@ -623,7 +806,9 @@ public final class HealthPermissions {
                             WRITE_HEART_RATE_VARIABILITY,
                             WRITE_OXYGEN_SATURATION,
                             WRITE_RESPIRATORY_RATE,
-                            WRITE_RESTING_HEART_RATE));
+                            WRITE_RESTING_HEART_RATE,
+                            WRITE_SKIN_TEMPERATURE,
+                            WRITE_PLANNED_EXERCISE));
 
     private static final Map<String, Integer> sWriteHealthPermissionToHealthDataCategoryMap =
             new ArrayMap<>();
@@ -647,12 +832,12 @@ public final class HealthPermissions {
     }
 
     /**
-     * @return {@link HealthDataCategory} for {@code permissionName}. -1 if permission category for
-     *     {@code permissionName} is not found
+     * @return {@link HealthDataCategory} for a WRITE {@code permissionName}. -1 if permission
+     *     category for {@code permissionName} is not found (or if {@code permissionName} is READ)
      * @hide
      */
     @HealthDataCategory.Type
-    public static int getHealthDataCategory(@Nullable String permissionName) {
+    public static int getHealthDataCategoryForWritePermission(@Nullable String permissionName) {
         if (sWriteHealthPermissionToHealthDataCategoryMap.isEmpty()) {
             populateWriteHealthPermissionToHealthDataCategoryMap();
         }
@@ -675,6 +860,7 @@ public final class HealthPermissions {
     }
 
     /** @hide */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public static String getHealthReadPermission(
             @HealthPermissionCategory.Type int permissionCategory) {
         if (sHealthCategoryToReadPermissionMap.isEmpty()) {
@@ -698,6 +884,50 @@ public final class HealthPermissions {
                         + "PermissionCategory : "
                         + permissionCategory);
         return healthWritePermission;
+    }
+
+    /**
+     * Returns a set of dataCategories for which this package has WRITE permissions
+     *
+     * @hide
+     */
+    @NonNull
+    public static Set<Integer> getDataCategoriesWithWritePermissionsForPackage(
+            @NonNull PackageInfo packageInfo, @NonNull Context context) {
+
+        Set<Integer> dataCategoriesWithPermissions = new HashSet<>();
+
+        for (int i = 0; i < packageInfo.requestedPermissions.length; i++) {
+            String currPerm = packageInfo.requestedPermissions[i];
+            if (!HealthConnectManager.isHealthPermission(context, currPerm)) {
+                continue;
+            }
+            if ((packageInfo.requestedPermissionsFlags[i]
+                            & PackageInfo.REQUESTED_PERMISSION_GRANTED)
+                    == 0) {
+                continue;
+            }
+
+            int dataCategory = getHealthDataCategoryForWritePermission(currPerm);
+            if (dataCategory >= 0) {
+                dataCategoriesWithPermissions.add(dataCategory);
+            }
+        }
+
+        return dataCategoriesWithPermissions;
+    }
+
+    /**
+     * Returns true if this package has at least one granted WRITE permission for this category.
+     *
+     * @hide
+     */
+    public static boolean getPackageHasWriteHealthPermissionsForCategory(
+            @NonNull PackageInfo packageInfo,
+            @HealthDataCategory.Type int dataCategory,
+            @NonNull Context context) {
+        return getDataCategoriesWithWritePermissionsForPackage(packageInfo, context)
+                .contains(dataCategory);
     }
 
     private static synchronized void populateHealthPermissionToHealthPermissionCategoryMap() {
@@ -745,6 +975,8 @@ public final class HealthPermissions {
         sHealthCategoryToWritePermissionMap.put(OXYGEN_SATURATION, WRITE_OXYGEN_SATURATION);
         sHealthCategoryToWritePermissionMap.put(RESPIRATORY_RATE, WRITE_RESPIRATORY_RATE);
         sHealthCategoryToWritePermissionMap.put(RESTING_HEART_RATE, WRITE_RESTING_HEART_RATE);
+        sHealthCategoryToWritePermissionMap.put(SKIN_TEMPERATURE, WRITE_SKIN_TEMPERATURE);
+        sHealthCategoryToWritePermissionMap.put(PLANNED_EXERCISE, WRITE_PLANNED_EXERCISE);
 
         // Populate permission category to read permission map
         sHealthCategoryToReadPermissionMap.put(ACTIVE_CALORIES_BURNED, READ_ACTIVE_CALORIES_BURNED);
@@ -783,6 +1015,8 @@ public final class HealthPermissions {
         sHealthCategoryToReadPermissionMap.put(OXYGEN_SATURATION, READ_OXYGEN_SATURATION);
         sHealthCategoryToReadPermissionMap.put(RESPIRATORY_RATE, READ_RESPIRATORY_RATE);
         sHealthCategoryToReadPermissionMap.put(RESTING_HEART_RATE, READ_RESTING_HEART_RATE);
+        sHealthCategoryToReadPermissionMap.put(SKIN_TEMPERATURE, READ_SKIN_TEMPERATURE);
+        sHealthCategoryToReadPermissionMap.put(PLANNED_EXERCISE, READ_PLANNED_EXERCISE);
     }
 
     private static synchronized void populateWriteHealthPermissionToHealthDataCategoryMap() {
@@ -799,6 +1033,8 @@ public final class HealthPermissions {
                 WRITE_ELEVATION_GAINED, HealthDataCategory.ACTIVITY);
         sWriteHealthPermissionToHealthDataCategoryMap.put(
                 WRITE_EXERCISE, HealthDataCategory.ACTIVITY);
+        sWriteHealthPermissionToHealthDataCategoryMap.put(
+                WRITE_PLANNED_EXERCISE, HealthDataCategory.ACTIVITY);
         sWriteHealthPermissionToHealthDataCategoryMap.put(
                 WRITE_FLOORS_CLIMBED, HealthDataCategory.ACTIVITY);
         sWriteHealthPermissionToHealthDataCategoryMap.put(WRITE_STEPS, HealthDataCategory.ACTIVITY);
@@ -846,6 +1082,8 @@ public final class HealthPermissions {
         sWriteHealthPermissionToHealthDataCategoryMap.put(
                 WRITE_BASAL_BODY_TEMPERATURE, HealthDataCategory.VITALS);
         sWriteHealthPermissionToHealthDataCategoryMap.put(
+                WRITE_SKIN_TEMPERATURE, HealthDataCategory.VITALS);
+        sWriteHealthPermissionToHealthDataCategoryMap.put(
                 WRITE_BLOOD_GLUCOSE, HealthDataCategory.VITALS);
         sWriteHealthPermissionToHealthDataCategoryMap.put(
                 WRITE_BLOOD_PRESSURE, HealthDataCategory.VITALS);
@@ -869,6 +1107,7 @@ public final class HealthPermissions {
                     WRITE_DISTANCE,
                     WRITE_ELEVATION_GAINED,
                     WRITE_EXERCISE,
+                    WRITE_PLANNED_EXERCISE,
                     WRITE_FLOORS_CLIMBED,
                     WRITE_STEPS,
                     WRITE_TOTAL_CALORIES_BURNED,

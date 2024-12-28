@@ -61,7 +61,7 @@ public final class TzDataSetVersion {
      * version to 1 when doing so.
      */
     // @VisibleForTesting : Keep this inline-able: it is used from CTS tests.
-    public static final int CURRENT_FORMAT_MAJOR_VERSION = 7; // Android U
+    public static final int CURRENT_FORMAT_MAJOR_VERSION = 8; // Android V
 
     /**
      * Returns the major tz data format version supported by this device.

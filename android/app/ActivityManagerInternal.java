@@ -35,6 +35,7 @@ import android.content.ServiceConnection;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ActivityPresentationInfo;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.IPackageDataObserver;
 import android.content.pm.UserInfo;
 import android.net.Uri;
 import android.os.Bundle;
@@ -45,7 +46,6 @@ import android.os.TransactionTooLargeException;
 import android.os.WorkSource;
 import android.util.ArraySet;
 import android.util.Pair;
-import android.util.StatsEvent;
 
 import com.android.internal.os.TimeoutRecord;
 
@@ -148,6 +148,13 @@ public abstract class ActivityManagerInternal {
     public abstract void onUserRemoved(@UserIdInt int userId);
 
     /**
+     * Start user, if it is not already running, but don't bring it to foreground.
+     * @param userId ID of the user to start
+     * @return true if the user has been successfully started
+     */
+    public abstract boolean startUserInBackground(int userId);
+
+    /**
      * Kill foreground apps from the specified user.
      */
     public abstract void killForegroundAppsForUser(@UserIdInt int userId);
@@ -224,12 +231,6 @@ public abstract class ActivityManagerInternal {
      * @return {@code true} if system is ready, {@code false} otherwise.
      */
     public abstract boolean isSystemReady();
-
-    /**
-     * @return {@code true} if system is using the "modern" broadcast queue,
-     *         {@code false} otherwise.
-     */
-    public abstract boolean isModernQueueEnabled();
 
     /**
      * Enforce capability restrictions on use of the given BroadcastOptions
@@ -537,8 +538,8 @@ public abstract class ActivityManagerInternal {
 
     /**
      * Returns whether the given user requires credential entry at this time. This is used to
-     * intercept activity launches for locked work apps due to work challenge being triggered or
-     * when the profile user is yet to be unlocked.
+     * intercept activity launches for apps corresponding to locked profiles due to separate
+     * challenge being triggered or when the profile user is yet to be unlocked.
      */
     public abstract boolean shouldConfirmCredentials(@UserIdInt int userId);
 
@@ -1164,6 +1165,30 @@ public abstract class ActivityManagerInternal {
      */
     public abstract void logFgsApiEnd(int apiType, int uid, int pid);
 
+    /**
+     * Checks whether an app will be able to start a foreground service or not.
+     *
+     * @param pid The process id belonging to the app to be checked.
+     * @param uid The UID of the app to be checked.
+     * @param packageName The package name of the app to be checked.
+     * @return whether the app will be able to start a foreground service or not.
+     */
+    public abstract boolean canStartForegroundService(
+            int pid, int uid, @NonNull String packageName);
+
+    /**
+     * Returns {@code true} if a foreground service started by an uid is allowed to have
+     * while-in-use permissions.
+     *
+     * @param pid The process id belonging to the app to be checked.
+     * @param uid The UID of the app to be checked.
+     * @param packageName The package name of the app to be checked.
+     * @return whether the foreground service is allowed to have while-in-use permissions.
+     * @hide
+     */
+    public abstract boolean canAllowWhileInUsePermissionInFgs(
+            int pid, int uid, @NonNull String packageName);
+
      /**
      * Temporarily allow foreground service started by an uid to have while-in-use permission
      * for durationMs.
@@ -1223,5 +1248,38 @@ public abstract class ActivityManagerInternal {
      * @return The stats event for the cached apps high watermark since last pull.
      */
     @NonNull
-    public abstract StatsEvent getCachedAppsHighWatermarkStats(int atomTag, boolean resetAfterPull);
+    // TODO: restore to android.util.StatsEvent once Ravenwood includes Mainline stubs
+    public abstract Object getCachedAppsHighWatermarkStats(int atomTag, boolean resetAfterPull);
+
+    /**
+     * Internal method for clearing app data, with the extra param that is used to indicate restore.
+     * Used by Backup service during restore operation.
+     *
+     * @hide
+     */
+    public abstract boolean clearApplicationUserData(String packageName, boolean keepState,
+            boolean isRestore, IPackageDataObserver observer, int userId);
+
+
+    /**
+     * Method that checks if system is Headless (don't delay launch) case in which it
+     * should also check if ThemeOverlayController is ready (don't delay) or not (delay).
+     *
+     * @param userId
+     * @return Boolean indicating if Home launch should wait for ThemeOverlayController signal
+     * @hide
+     */
+    public abstract boolean shouldDelayHomeLaunch(int userId);
+
+    /**
+     * Add a startup timestamp to the most recent start of the specified process.
+     *
+     * @param key The {@link ApplicationStartInfo} start timestamp key of the timestamp to add.
+     * @param timestampNs The clock monotonic timestamp to add in nanoseconds.
+     * @param uid The UID of the process to add this timestamp to.
+     * @param pid The process id of the process to add this timestamp to.
+     * @param userId The userId in the multi-user environment.
+     */
+    public abstract void addStartInfoTimestamp(int key, long timestampNs, int uid, int pid,
+            int userId);
 }

@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash 6b24e60ad261e3ff56106efd86ce6aa7ef5621b0 --stability vintf --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.soundtrigger.types_interface/2/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/soundtrigger/aidl/android.hardware.soundtrigger3-V2-java-source/gen/android/hardware/soundtrigger3/ISoundTriggerHwCallback.java.d -o out/soong/.intermediates/hardware/interfaces/soundtrigger/aidl/android.hardware.soundtrigger3-V2-java-source/gen -Nhardware/interfaces/soundtrigger/aidl/aidl_api/android.hardware.soundtrigger3/2 hardware/interfaces/soundtrigger/aidl/aidl_api/android.hardware.soundtrigger3/2/android/hardware/soundtrigger3/ISoundTriggerHwCallback.aidl
  */
 package android.hardware.soundtrigger3;
 public interface ISoundTriggerHwCallback extends android.os.IInterface
@@ -10,8 +11,8 @@ public interface ISoundTriggerHwCallback extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 1;
-  public static final String HASH = "7d8d63478cd50e766d2072140c8aa3457f9fb585";
+  public static final int VERSION = 2;
+  public static final String HASH = "6b24e60ad261e3ff56106efd86ce6aa7ef5621b0";
   /** Default implementation for ISoundTriggerHwCallback. */
   public static class Default implements android.hardware.soundtrigger3.ISoundTriggerHwCallback
   {
@@ -41,6 +42,7 @@ public interface ISoundTriggerHwCallback extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.soundtrigger3.ISoundTriggerHwCallback
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -71,25 +73,19 @@ public interface ISoundTriggerHwCallback extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -245,6 +241,7 @@ public interface ISoundTriggerHwCallback extends android.os.IInterface
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$soundtrigger3$ISoundTriggerHwCallback".replace('$', '.');
   public void modelUnloaded(int model) throws android.os.RemoteException;
   public void phraseRecognitionCallback(int model, android.media.soundtrigger.PhraseRecognitionEvent event) throws android.os.RemoteException;

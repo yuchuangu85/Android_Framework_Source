@@ -58,7 +58,7 @@ public class ProvisionMetricsStats {
     }
 
     /** Sets the resultCode for provision metrics */
-    public ProvisionMetricsStats setResultCode(@SatelliteManager.SatelliteError int error) {
+    public ProvisionMetricsStats setResultCode(@SatelliteManager.SatelliteResult int error) {
         mResultCode = error;
         return this;
     }
@@ -91,7 +91,7 @@ public class ProvisionMetricsStats {
                         .setIsCanceled(mIsCanceled)
                         .build();
         SatelliteStats.getInstance().onSatelliteProvisionMetrics(provisionParams);
-        logd(provisionParams.toString());
+        logd("reportProvisionMetrics: " + provisionParams.toString());
         initializeProvisionParams();
     }
 

@@ -18,6 +18,9 @@ package com.android.adservices;
 
 import android.util.Log;
 
+import com.google.errorprone.annotations.FormatMethod;
+import com.google.errorprone.annotations.FormatString;
+
 import java.util.Locale;
 
 /**
@@ -30,6 +33,7 @@ public class LoggerFactory {
     public static final String TAG = "adservices";
     public static final String TOPICS_TAG = "adservices.topics";
     public static final String FLEDGE_TAG = "adservices.fledge";
+    public static final String KANON_TAG = "adservices.kanon";
     public static final String MEASUREMENT_TAG = "adservices.measurement";
     public static final String UI_TAG = "adservices.ui";
     public static final String ADID_TAG = "adservices.adid";
@@ -38,6 +42,7 @@ public class LoggerFactory {
     private static final Logger sLogger = new Logger(TAG);
     private static final Logger sTopicsLogger = new Logger(TOPICS_TAG);
     private static final Logger sFledgeLogger = new Logger(FLEDGE_TAG);
+    private static final Logger sKAnonLogger = new Logger(KANON_TAG);
     private static final Logger sMeasurementLogger = new Logger(MEASUREMENT_TAG);
     private static final Logger sUILogger = new Logger(UI_TAG);
     private static final Logger sAdIDLogger = new Logger(ADID_TAG);
@@ -53,6 +58,10 @@ public class LoggerFactory {
 
     public static Logger getFledgeLogger() {
         return sFledgeLogger;
+    }
+
+    public static Logger getKAnonLogger() {
+        return sKAnonLogger;
     }
 
     public static Logger getMeasurementLogger() {
@@ -92,7 +101,8 @@ public class LoggerFactory {
         }
 
         /** Log the message as VERBOSE. Return The number of bytes written. */
-        public int v(String format, Object... params) {
+        @FormatMethod
+        public int v(@FormatString String format, Object... params) {
             if (Log.isLoggable(mTag, Log.VERBOSE)) {
                 String msg = format(format, params);
                 return Log.v(mTag, msg);
@@ -109,7 +119,8 @@ public class LoggerFactory {
         }
 
         /** Log the message as DEBUG. Return The number of bytes written. */
-        public int d(String format, Object... params) {
+        @FormatMethod
+        public int d(@FormatString String format, Object... params) {
             if (Log.isLoggable(mTag, Log.DEBUG)) {
                 String msg = format(format, params);
                 return Log.d(mTag, msg);
@@ -118,7 +129,8 @@ public class LoggerFactory {
         }
 
         /** Log the message as DEBUG. Return The number of bytes written. */
-        public int d(Throwable tr, String format, Object... params) {
+        @FormatMethod
+        public int d(Throwable tr, @FormatString String format, Object... params) {
             if (Log.isLoggable(mTag, Log.DEBUG)) {
                 String msg = format(format, params);
                 return Log.d(mTag, msg, tr);
@@ -135,7 +147,8 @@ public class LoggerFactory {
         }
 
         /** Log the message as INFO. Return The number of bytes written */
-        public int i(String format, Object... params) {
+        @FormatMethod
+        public int i(@FormatString String format, Object... params) {
             if (Log.isLoggable(mTag, Log.INFO)) {
                 String msg = format(format, params);
                 return Log.i(mTag, msg);
@@ -152,7 +165,8 @@ public class LoggerFactory {
         }
 
         /** Log the message as WARNING. Return The number of bytes written */
-        public int w(String format, Object... params) {
+        @FormatMethod
+        public int w(@FormatString String format, Object... params) {
             if (Log.isLoggable(mTag, Log.WARN)) {
                 String msg = format(format, params);
                 return Log.w(mTag, msg);
@@ -169,7 +183,8 @@ public class LoggerFactory {
         }
 
         /** Log the message as ERROR. Return The number of bytes written */
-        public int e(String format, Object... params) {
+        @FormatMethod
+        public int e(@FormatString String format, Object... params) {
             if (Log.isLoggable(mTag, Log.ERROR)) {
                 String msg = format(format, params);
                 return Log.e(mTag, msg);
@@ -192,12 +207,14 @@ public class LoggerFactory {
         }
 
         /** Log the message as ERROR. Return The number of bytes written */
-        public int e(Throwable tr, String format, Object... params) {
+        @FormatMethod
+        public int e(Throwable tr, @FormatString String format, Object... params) {
             return Log.isLoggable(mTag, Log.ERROR) ? e(tr, format(format, params)) : 0;
         }
 
         /** Log the message as WARNING. Return The number of bytes written */
-        public int w(Throwable tr, String format, Object... params) {
+        @FormatMethod
+        public int w(Throwable tr, @FormatString String format, Object... params) {
             if (Log.isLoggable(mTag, Log.WARN)) {
                 if (Log.isLoggable(mTag, Log.DEBUG)) {
                     String msg = format(format, params);
@@ -219,7 +236,9 @@ public class LoggerFactory {
          */
         @Deprecated
         public int d(String msg, Throwable tr) {
-            return d(tr, msg);
+            @SuppressWarnings("FormatStringAnnotation")
+            int result = d(tr, msg);
+            return result;
         }
 
         /**
@@ -230,7 +249,9 @@ public class LoggerFactory {
          */
         @Deprecated
         public int w(String msg, Throwable tr) {
-            return w(tr, msg);
+            @SuppressWarnings("FormatStringAnnotation")
+            int result = w(tr, msg);
+            return result;
         }
 
         /**
@@ -241,7 +262,9 @@ public class LoggerFactory {
          */
         @Deprecated
         public int e(String msg, Throwable tr) {
-            return e(tr, msg);
+            @SuppressWarnings("FormatStringAnnotation")
+            int result = e(tr, msg);
+            return result;
         }
 
         private static String format(String format, Object... args) {

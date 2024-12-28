@@ -177,15 +177,19 @@ import com.android.internal.net.ipsec.ike.shim.IIkeSessionStateMachineShim;
 import com.android.internal.net.ipsec.ike.shim.ShimUtils;
 import com.android.internal.net.ipsec.ike.utils.IkeAlarm;
 import com.android.internal.net.ipsec.ike.utils.IkeAlarmReceiver;
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
 import com.android.internal.net.ipsec.ike.utils.IkeSecurityParameterIndex;
 import com.android.internal.net.ipsec.ike.utils.IkeSpiGenerator;
 import com.android.internal.net.ipsec.ike.utils.IpSecSpiGenerator;
+import com.android.internal.net.ipsec.ike.utils.LivenessAssister;
 import com.android.internal.net.ipsec.ike.utils.RandomnessFactory;
 import com.android.internal.net.ipsec.ike.utils.Retransmitter;
 import com.android.internal.util.State;
 import com.android.modules.utils.build.SdkLevel;
 
+import java.io.FileDescriptor;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -227,7 +231,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class IkeSessionStateMachine extends AbstractSessionStateMachine
         implements IkeConnectionController.Callback,
                 IkeSocket.Callback,
-                IIkeSessionStateMachineShim {
+                IIkeSessionStateMachineShim,
+                LivenessAssister.IIkeMetricsCallback {
     // Package private
     static final String TAG = "IkeSessionStateMachine";
 
@@ -325,6 +330,12 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      * obj = Network : the underpinned network
      */
     static final int CMD_SET_UNDERPINNED_NETWORK = CMD_GENERAL_BASE + 19;
+    /** Initiate liveness check and sends callbacks. */
+    static final int CMD_REQUEST_LIVENESS_CHECK = CMD_GENERAL_BASE + 20;
+    /** Event for underlying network died with mobility */
+    static final int CMD_UNDERLYING_NETWORK_DIED_WITH_MOBILITY = CMD_GENERAL_BASE + 21;
+    /** Event for underlying network updated with mobility */
+    static final int CMD_UNDERLYING_NETWORK_UPDATED_WITH_MOBILITY = CMD_GENERAL_BASE + 22;
     /** Force state machine to a target state for testing purposes. */
     static final int CMD_FORCE_TRANSITION = CMD_GENERAL_BASE + 99;
 
@@ -335,6 +346,7 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
     static final int CMD_LOCAL_REQUEST_INFO = CMD_IKE_LOCAL_REQUEST_BASE + 4;
     static final int CMD_LOCAL_REQUEST_DPD = CMD_IKE_LOCAL_REQUEST_BASE + 5;
     static final int CMD_LOCAL_REQUEST_MOBIKE = CMD_IKE_LOCAL_REQUEST_BASE + 6;
+    static final int CMD_LOCAL_REQUEST_ON_DEMAND_DPD = CMD_IKE_LOCAL_REQUEST_BASE + 7;
 
     private static final SparseArray<String> CMD_TO_STR;
 
@@ -356,6 +368,12 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         CMD_TO_STR.put(CMD_ALARM_FIRED, "Alarm Fired");
         CMD_TO_STR.put(CMD_SET_NETWORK, "Update underlying Network");
         CMD_TO_STR.put(CMD_SET_UNDERPINNED_NETWORK, "Set underpinned Network");
+        CMD_TO_STR.put(CMD_REQUEST_LIVENESS_CHECK, "Request liveness check");
+        CMD_TO_STR.put(
+                CMD_UNDERLYING_NETWORK_DIED_WITH_MOBILITY, "UnderlyingNetwork died with mobility");
+        CMD_TO_STR.put(
+                CMD_UNDERLYING_NETWORK_UPDATED_WITH_MOBILITY,
+                "UnderlyingNetwork updated with mobility");
         CMD_TO_STR.put(CMD_IKE_FATAL_ERROR_FROM_CHILD, "IKE fatal error from Child");
         CMD_TO_STR.put(CMD_LOCAL_REQUEST_CREATE_IKE, "Create IKE");
         CMD_TO_STR.put(CMD_LOCAL_REQUEST_DELETE_IKE, "Delete IKE");
@@ -363,6 +381,7 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         CMD_TO_STR.put(CMD_LOCAL_REQUEST_INFO, "Info");
         CMD_TO_STR.put(CMD_LOCAL_REQUEST_DPD, "DPD");
         CMD_TO_STR.put(CMD_LOCAL_REQUEST_MOBIKE, "Mobility event");
+        CMD_TO_STR.put(CMD_LOCAL_REQUEST_ON_DEMAND_DPD, "On-demand DPD");
     }
 
     /** Package */
@@ -376,8 +395,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      * Child Session is doing Rekey.
      */
     private final SparseArray<ChildSessionStateMachine> mRemoteSpiToChildSessionMap;
-
-    @VisibleForTesting final IkeContext mIkeContext;
 
     private final int mIkeSessionId;
     private final IpSecManager mIpSecManager;
@@ -434,6 +451,12 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
 
     private final Ike3gppExtensionExchange mIke3gppExtensionExchange;
 
+    /** Package */
+    @VisibleForTesting LivenessAssister mLivenessAssister;
+
+    /** Package */
+    @VisibleForTesting boolean mIsRetransmitSuspended;
+
     // States
     @VisibleForTesting
     final KillIkeSessionParent mKillIkeSessionParent = new KillIkeSessionParent();
@@ -476,8 +499,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
     final DeleteIkeLocalDelete mDeleteIkeLocalDelete = new DeleteIkeLocalDelete();
     @VisibleForTesting
     final DpdIkeLocalInfo mDpdIkeLocalInfo = new DpdIkeLocalInfo();
+
     @VisibleForTesting
-    final MobikeLocalInfo mMobikeLocalInfo = new MobikeLocalInfo();
+    final DpdOnDemandIkeLocalInfo mDpdOnDemandIkeLocalInfo = new DpdOnDemandIkeLocalInfo();
+
+    @VisibleForTesting final MobikeLocalInfo mMobikeLocalInfo = new MobikeLocalInfo();
 
     /** Constructor for testing. */
     @VisibleForTesting
@@ -492,7 +518,10 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             IkeSessionCallback ikeSessionCallback,
             ChildSessionCallback firstChildSessionCallback,
             Dependencies deps) {
-        super(TAG, looper, userCbExecutor);
+        super(
+                TAG,
+                deps.newIkeContext(looper, context, ikeParams.getConfiguredNetwork()),
+                userCbExecutor);
 
         if (ikeParams.hasIkeOption(IkeSessionParams.IKE_OPTION_MOBIKE)
                 || ikeParams.hasIkeOption(IkeSessionParams.IKE_OPTION_REKEY_MOBILITY)) {
@@ -525,8 +554,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         mAlarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
 
         mDeps = deps;
-        mIkeContext =
-                mDeps.newIkeContext(looper, context, mIkeSessionParams.getConfiguredNetwork());
         mLocalRequestFactory = mDeps.newLocalRequestFactory();
         mIkeConnectionCtrl =
                 mDeps.newIkeConnectionController(
@@ -548,6 +575,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 new Ike3gppExtensionExchange(
                         mIkeSessionParams.getIke3gppExtension(), mUserCbExecutor);
 
+        mLivenessAssister = new LivenessAssister(mIkeSessionCallback, mUserCbExecutor, this);
+
         // CHECKSTYLE:OFF IndentationCheck
         addState(mKillIkeSessionParent);
             addState(mInitial, mKillIkeSessionParent);
@@ -567,6 +596,7 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             addState(mRekeyIkeRemoteDelete, mKillIkeSessionParent);
             addState(mDeleteIkeLocalDelete, mKillIkeSessionParent);
             addState(mDpdIkeLocalInfo, mKillIkeSessionParent);
+            addState(mDpdOnDemandIkeLocalInfo, mKillIkeSessionParent);
             addState(mMobikeLocalInfo, mKillIkeSessionParent);
         // CHECKSTYLE:ON IndentationCheck
 
@@ -926,6 +956,14 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         sendMessage(CMD_SET_UNDERPINNED_NETWORK, underpinnedNetwork);
     }
 
+    /**
+     * Schedules checking liveness procedure. The on-demand DPD may be triggered or check with
+     * existing any IKE message.
+     */
+    public void requestLivenessCheck() {
+        sendMessage(CMD_REQUEST_LIVENESS_CHECK, LivenessAssister.REQ_TYPE_INITIAL);
+    }
+
     private void scheduleRetry(LocalRequest localRequest) {
         sendMessageDelayed(localRequest.procedureType, localRequest, RETRY_INTERVAL_MS);
     }
@@ -991,6 +1029,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 loge("Fatal error", error);
 
                 closeAllSaRecords(false /*expectSaClosed*/);
+
+                recordMetricsEvent_sessionTerminated(wrapAsIkeException(error));
                 quitSessionNow();
             } else {
                 logWtf("Unknown message.what: " + msg.what);
@@ -1164,6 +1204,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                     () -> {
                         mIkeSessionCallback.onClosedWithException(wrapAsIkeException(e));
                     });
+
+            recordMetricsEvent_sessionTerminated(wrapAsIkeException(e));
             logWtf("Unexpected exception in " + getCurrentStateName(), e);
             quitSessionNow();
         }
@@ -1222,6 +1264,10 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
     }
 
     private void handleIkeFatalError(Exception error) {
+        handleIkeFatalError(error, false /* isFromChild */);
+    }
+
+    private void handleIkeFatalError(Exception error, boolean isFromChild) {
         IkeException ikeException = wrapAsIkeException(error);
         loge("IKE Session fatal error in " + getCurrentState().getName(), ikeException);
 
@@ -1237,6 +1283,12 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                     () -> {
                         mIkeSessionCallback.onClosedWithException(ikeException);
                     });
+
+            // Fatal child session event metrics gathered in ChildSessionStateMachine
+            if (!isFromChild) {
+                recordMetricsEvent_sessionTerminated(ikeException);
+            }
+
             quitSessionNow();
         }
     }
@@ -1252,11 +1304,17 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                             () -> {
                                 mIkeSessionCallback.onClosed();
                             });
+                    recordMetricsEvent_sessionTerminated(null);
                     quitSessionNow();
                     return HANDLED;
                 default:
                     return NOT_HANDLED;
             }
+        }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_KILL;
         }
     }
 
@@ -1349,6 +1407,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         public void exitState() {
             mInitialSetupData = null;
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_INITIAL;
+        }
     }
 
     /**
@@ -1365,38 +1428,43 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 mBusyWakeLock.release();
             }
 
-            int dpdDelaySeconds = mIkeSessionParams.getDpdDelaySeconds();
-            if (dpdDelaySeconds == IkeSessionParams.IKE_DPD_DELAY_SEC_DISABLED) {
-                return;
+            // If a liveness check has been requested but the success has not been marked yet,
+            // enqueue a on-demand DPD when entering to idle state.
+            if (mLivenessAssister.isLivenessCheckRequested()) {
+                sendMessage(CMD_REQUEST_LIVENESS_CHECK, LivenessAssister.REQ_TYPE_ON_DEMAND);
             }
 
-            long dpdDelayMs = TimeUnit.SECONDS.toMillis(dpdDelaySeconds);
-            long remoteIkeSpi = mCurrentIkeSaRecord.getRemoteSpi();
-            Message intentIkeMsg = getIntentIkeSmMsg(CMD_LOCAL_REQUEST_DPD, remoteIkeSpi);
-            PendingIntent dpdIntent =
-                    IkeAlarm.buildIkeAlarmIntent(
-                            mIkeContext.getContext(),
-                            ACTION_DPD,
-                            getIntentIdentifier(mIkeSessionId, remoteIkeSpi),
-                            intentIkeMsg);
+            int dpdDelaySeconds = mIkeSessionParams.getDpdDelaySeconds();
+            if (dpdDelaySeconds != IkeSessionParams.IKE_DPD_DELAY_SEC_DISABLED) {
+                long dpdDelayMs = TimeUnit.SECONDS.toMillis(dpdDelaySeconds);
+                long remoteIkeSpi = mCurrentIkeSaRecord.getRemoteSpi();
+                Message intentIkeMsg = getIntentIkeSmMsg(CMD_LOCAL_REQUEST_DPD, remoteIkeSpi);
+                PendingIntent dpdIntent =
+                        IkeAlarm.buildIkeAlarmIntent(
+                                mIkeContext.getContext(),
+                                ACTION_DPD,
+                                getIntentIdentifier(mIkeSessionId, remoteIkeSpi),
+                                intentIkeMsg);
 
-            // Initiating DPD is a way to detect the aliveness of the remote server and also a
-            // way to assert the aliveness of IKE library. Considering this, the alarm to
-            // trigger DPD needs to go off even when device is in doze mode to decrease the chance
-            // the remote server thinks IKE library is dead. Also, since DPD initiation is
-            // time-critical, we need to use "setExact" to avoid the batching alarm delay which
-            // can be at most 75% for the alarm timeout (@see AlarmManagerService#maxTriggerTime).
-            // Please check AlarmManager#setExactAndAllowWhileIdle for more details.
-            mDpdAlarm =
-                    mDeps.newExactAndAllowWhileIdleAlarm(
-                            new IkeAlarmConfig(
-                                    mIkeContext.getContext(),
-                                    ACTION_DPD,
-                                    dpdDelayMs,
-                                    dpdIntent,
-                                    intentIkeMsg));
-            mDpdAlarm.schedule();
-            logd("DPD Alarm scheduled with DPD delay: " + dpdDelayMs + "ms");
+                // Initiating DPD is a way to detect the aliveness of the remote server and also a
+                // way to assert the aliveness of IKE library. Considering this, the alarm to
+                // trigger DPD needs to go off even when device is in doze mode to decrease the
+                // chance the remote server thinks IKE library is dead. Also, since DPD initiation
+                // is time-critical, we need to use "setExact" to avoid the batching alarm delay
+                // which can be at most 75% for the alarm timeout
+                // (@see AlarmManagerService#maxTriggerTime).
+                // Please check AlarmManager#setExactAndAllowWhileIdle for more details.
+                mDpdAlarm =
+                        mDeps.newExactAndAllowWhileIdleAlarm(
+                                new IkeAlarmConfig(
+                                        mIkeContext.getContext(),
+                                        ACTION_DPD,
+                                        dpdDelayMs,
+                                        dpdIntent,
+                                        intentIkeMsg));
+                mDpdAlarm.schedule();
+                logd("DPD Alarm scheduled with DPD delay: " + dpdDelayMs + "ms");
+            }
         }
 
         @Override
@@ -1467,6 +1535,35 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                     }
                     return HANDLED;
 
+                case CMD_UNDERLYING_NETWORK_DIED_WITH_MOBILITY:
+                    // Set a flag in the IkeSessionStateMachine to suspend retransmission.
+                    mIsRetransmitSuspended = true;
+                    return HANDLED;
+
+                case CMD_UNDERLYING_NETWORK_UPDATED_WITH_MOBILITY:
+                    // Unset a flag to resume retransmission.
+                    mIsRetransmitSuspended = false;
+                    return HANDLED;
+
+                case CMD_REQUEST_LIVENESS_CHECK:
+                    // Since there is no other running requests in idle state, the on-demand DPD
+                    // can be taken place in the scheduler. At this time, the liveness check can be
+                    // performed through an on-demand DPD LocalRequest.
+                    if (!mLivenessAssister.isLivenessCheckRequested()
+                            || message.arg1 == LivenessAssister.REQ_TYPE_INITIAL) {
+                        // If this is the initial liveness check request has been made or a request
+                        // has been received from a client, it is marked as a request and notifies.
+                        mLivenessAssister.livenessCheckRequested(
+                                LivenessAssister.REQ_TYPE_ON_DEMAND);
+                    }
+                    handleLocalRequest(
+                            CMD_LOCAL_REQUEST_ON_DEMAND_DPD,
+                            mLocalRequestFactory.getIkeLocalRequest(
+                                    CMD_LOCAL_REQUEST_ON_DEMAND_DPD,
+                                    mCurrentIkeSaRecord.getRemoteSpi()));
+                    mScheduler.readyForNextProcedure();
+                    return HANDLED;
+
                 default:
                     // Queue local requests, and trigger next procedure
                     if (isLocalRequest(message.what)) {
@@ -1500,6 +1597,9 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                     break;
                 case CMD_LOCAL_REQUEST_DPD:
                     transitionTo(mDpdIkeLocalInfo);
+                    break;
+                case CMD_LOCAL_REQUEST_ON_DEMAND_DPD:
+                    transitionTo(mDpdOnDemandIkeLocalInfo);
                     break;
                 case CMD_LOCAL_REQUEST_CREATE_CHILD: // fallthrough
                 case CMD_LOCAL_REQUEST_REKEY_CHILD: // fallthrough
@@ -1537,6 +1637,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 }
             }
             return false;
+        }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_IDLE;
         }
     }
 
@@ -1693,7 +1798,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 case CMD_LOCAL_REQUEST_MOBIKE: // Fallthrough
                 case CMD_LOCAL_REQUEST_REKEY_IKE: // Fallthrough
                 case CMD_LOCAL_REQUEST_INFO: // Fallthrough
-                case CMD_LOCAL_REQUEST_DPD:
+                case CMD_LOCAL_REQUEST_DPD: // Fallthrough
+                case CMD_LOCAL_REQUEST_ON_DEMAND_DPD:
                     mScheduler.addRequest(req);
                     return;
 
@@ -1784,6 +1890,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      * IKE packet. Idle state will defer the received packet to a BusyState to process it.
      */
     private abstract class BusyState extends LocalRequestQueuer {
+        @Nullable protected Retransmitter mRetransmitter;
+
         @Override
         public boolean processStateMessage(Message message) {
             switch (message.what) {
@@ -1830,6 +1938,34 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                         mIkeConnectionCtrl.onUnderpinnedNetworkSetByUser((Network) message.obj);
                     } catch (IkeException e) {
                         handleIkeFatalError(e);
+                    }
+                    return HANDLED;
+
+                case CMD_REQUEST_LIVENESS_CHECK:
+                    if (mLivenessAssister.isLivenessCheckRequested()
+                            && message.arg1 == LivenessAssister.REQ_TYPE_ON_DEMAND) {
+                        return HANDLED;
+                    }
+                    mLivenessAssister.livenessCheckRequested(LivenessAssister.REQ_TYPE_BACKGROUND);
+                    return HANDLED;
+
+                case CMD_UNDERLYING_NETWORK_DIED_WITH_MOBILITY:
+                    // Sets a flag to suspend retransmission.
+                    mIsRetransmitSuspended = true;
+
+                    // Suspends retransmissions only if retransmission is in progress.
+                    if (mRetransmitter != null) {
+                        mRetransmitter.suspendRetransmitting();
+                    }
+                    return HANDLED;
+
+                case CMD_UNDERLYING_NETWORK_UPDATED_WITH_MOBILITY:
+                    // Unsets a flag to resume retransmission.
+                    mIsRetransmitSuspended = false;
+
+                    // Restarts retransmissions only when in suspend state.
+                    if (mRetransmitter != null) {
+                        mRetransmitter.restartRetransmitting();
                     }
                     return HANDLED;
 
@@ -1912,6 +2048,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                                 ikeSaRecord.getCollectedFragments(true /*isResp*/));
                 switch (decodeResult.status) {
                     case DECODE_STATUS_OK:
+                        mLivenessAssister.markPeerAsAlive();
+
                         ikeSaRecord.incrementLocalRequestMessageId();
                         ikeSaRecord.resetCollectedFragments(true /*isResp*/);
 
@@ -1989,6 +2127,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                                     ikeSaRecord.getCollectedFragments(false /*isResp*/));
                     switch (decodeResult.status) {
                         case DECODE_STATUS_OK:
+                            mLivenessAssister.markPeerAsAlive();
+
                             ikeSaRecord.incrementRemoteRequestMessageId();
                             ikeSaRecord.resetCollectedFragments(false /*isResp*/);
 
@@ -2247,7 +2387,12 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         }
 
         private EncryptedRetransmitter(IkeSaRecord ikeSaRecord, IkeMessage msg) {
-            super(getHandler(), msg, mIkeSessionParams.getRetransmissionTimeoutsMillis());
+            this(ikeSaRecord, msg, mIkeSessionParams.getRetransmissionTimeoutsMillis());
+        }
+
+        private EncryptedRetransmitter(
+                IkeSaRecord ikeSaRecord, IkeMessage msg, int[] retransmissionTimeouts) {
+            super(getHandler(), msg, retransmissionTimeouts);
             mIkePacketList =
                     msg.encryptAndEncode(
                             mIkeIntegrity,
@@ -2256,7 +2401,13 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                             mEnabledExtensions.contains(EXTENSION_TYPE_FRAGMENTATION),
                             DEFAULT_FRAGMENT_SIZE);
 
-            retransmit();
+            if (mIsRetransmitSuspended) {
+                // If already suspended retransmit, set as suspended.
+                suspendRetransmitting();
+            } else {
+                // start retransmit.
+                retransmit();
+            }
         }
 
         @Override
@@ -2266,6 +2417,7 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
 
         @Override
         public void handleRetransmissionFailure() {
+            mLivenessAssister.markPeerAsDead();
             handleIkeFatalError(
                     ShimUtils.getInstance()
                             .getRetransmissionFailedException("Retransmitting failure"));
@@ -2327,6 +2479,7 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 mCurrentIkeSaRecord.close();
                 mCurrentIkeSaRecord = null;
 
+                recordMetricsEvent_sessionTerminated(null);
                 quitSessionNow();
             } catch (InvalidSyntaxException e) {
                 // Got deletion of a non-Current IKE SA. Program error.
@@ -2491,6 +2644,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             buildAndSendNotificationResponse(
                     mCurrentIkeSaRecord, messageId, e.buildNotifyPayload());
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_RECEIVING;
+        }
     }
 
     /**
@@ -2533,8 +2691,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         private int mLastInboundRequestMsgId;
         private List<IkePayload> mOutboundRespPayloads;
         private Set<ChildSessionStateMachine> mAwaitingChildResponse;
-
-        private EncryptedRetransmitter mRetransmitter;
 
         @Override
         public void enterState() {
@@ -2624,7 +2780,7 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                     return NOT_HANDLED;
                 case CMD_IKE_FATAL_ERROR_FROM_CHILD:
                     IkeFatalErrorFromChild fatalError = (IkeFatalErrorFromChild) message.obj;
-                    handleIkeFatalError(fatalError.exception);
+                    handleIkeFatalError(fatalError.exception, true /* isFromChild */);
                     return HANDLED;
                 default:
                     return super.processStateMessage(message);
@@ -3019,6 +3175,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             // response of the first exchange won't be added to the response of the second exchange.
             mOutboundRespPayloads.clear();
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_CHILD_PROCEDURE_ONGOING;
+        }
     }
 
     /** CreateIkeLocalIkeInit represents state when IKE library initiates IKE_INIT exchange. */
@@ -3033,7 +3194,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
 
         private IkeSecurityParameterIndex mLocalIkeSpiResource;
         private IkeSecurityParameterIndex mRemoteIkeSpiResource;
-        private Retransmitter mRetransmitter;
 
         // TODO: Support negotiating IKE fragmentation
 
@@ -3510,7 +3670,14 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             private UnencryptedRetransmitter(IkeMessage msg) {
                 super(getHandler(), msg, mIkeSessionParams.getRetransmissionTimeoutsMillis());
                 mIkePacket = msg.encode();
-                retransmit();
+
+                if (mIsRetransmitSuspended) {
+                    // If already suspended retransmit, set as suspended.
+                    suspendRetransmitting();
+                } else {
+                    // start retransmit.
+                    retransmit();
+                }
             }
 
             @Override
@@ -3521,11 +3688,17 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
 
             @Override
             public void handleRetransmissionFailure() {
+                mLivenessAssister.markPeerAsDead();
                 handleIkeFatalError(
                         ShimUtils.getInstance()
                                 .getRetransmissionFailedException(
                                         "Retransmitting IKE INIT request failure"));
             }
+        }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_CREATE_LOCAL_IKE_INIT;
         }
     }
 
@@ -3639,7 +3812,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      */
     abstract class CreateIkeLocalIkeAuthBase<T extends IkeInitData> extends DeleteBase {
         protected T mSetupData;
-        protected Retransmitter mRetransmitter;
         protected EapInfo mEapInfo = null;
 
         @Override
@@ -4271,6 +4443,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             }
             super.exitState();
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_CREATE_LOCAL_IKE_AUTH;
+        }
     }
 
     /**
@@ -4444,6 +4621,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             }
             super.exitState();
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_CREATE_LOCAL_IKE_AUTH_IN_EAP;
+        }
     }
 
     /**
@@ -4580,6 +4762,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 CreateChildSaHelper.releaseSpiResources(mSetupData.firstChildReqList);
             }
             super.exitState();
+        }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_CREATE_LOCAL_IKE_AUTH_POST_EAP;
         }
     }
 
@@ -4805,8 +4992,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
 
     /** RekeyIkeLocalCreate represents state when IKE library initiates Rekey IKE exchange. */
     class RekeyIkeLocalCreate extends RekeyIkeHandlerBase {
-        protected Retransmitter mRetransmitter;
-
         @Override
         public void enterState() {
             try {
@@ -4929,6 +5114,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             sendEncryptedIkeMessage(buildIkeDeleteReq(mCurrentIkeSaRecord));
             handleIkeFatalError(exception);
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_REKEY_LOCAL_CREATE;
+        }
     }
 
     /**
@@ -5006,6 +5196,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             } catch (IOException e) {
                 // TODO: SPI allocation collided - delete new IKE SA, retry rekey.
             }
+        }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_SIMULTANEOUS_REKEY_LOCAL_CREATE;
         }
     }
 
@@ -5108,8 +5303,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      * rekeying when IKE library is waiting for both a Delete request and a Delete response.
      */
     class SimulRekeyIkeLocalDeleteRemoteDelete extends RekeyIkeDeleteBase {
-        private Retransmitter mRetransmitter;
-
         @Override
         public void enterState() {
             // Detemine surviving IKE SA. According to RFC 7296: "The new IKE SA containing the
@@ -5203,6 +5396,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             mRetransmitter.stopRetransmitting();
             // TODO: Stop awaiting delete request timer.
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_SIMULTANEOUS_REKEY_LOCAL_DELETE_REMOTE_DELETE;
+        }
     }
 
     /**
@@ -5210,8 +5408,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      * response during simultaneous rekeying.
      */
     class SimulRekeyIkeLocalDelete extends RekeyIkeDeleteBase {
-        private Retransmitter mRetransmitter;
-
         @Override
         public void enterState() {
             mRetransmitter = new EncryptedRetransmitter(mIkeSaRecordAwaitingLocalDel, null);
@@ -5268,6 +5464,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                         new IllegalStateException("Delete response received on incorrect SA"));
             }
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_SIMULTANEOUS_REKEY_LOCAL_DELETE;
+        }
     }
 
     /**
@@ -5305,6 +5506,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                             ERROR_TYPE_TEMPORARY_FAILURE);
             }
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_SIMULTANEOUS_REKEY_REMOTE_DELETE;
+        }
     }
 
     /**
@@ -5316,8 +5522,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      * methods for initiating and finishing the deleting stage for IKE rekeying.
      */
     class RekeyIkeLocalDelete extends SimulRekeyIkeLocalDelete {
-        private Retransmitter mRetransmitter;
-
         @Override
         public void enterState() {
             mIkeSaRecordSurviving = mLocalInitNewIkeSaRecord;
@@ -5336,6 +5540,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         @Override
         public void exitState() {
             mRetransmitter.stopRetransmitting();
+        }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_REKEY_LOCAL_DELETE;
         }
     }
 
@@ -5374,12 +5583,15 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         public void exitState() {
             removeMessages(TIMEOUT_REKEY_REMOTE_DELETE);
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_REKEY_REMOTE_DELETE;
+        }
     }
 
     /** DeleteIkeLocalDelete initiates a deletion request of the current IKE Session. */
     class DeleteIkeLocalDelete extends DeleteBase {
-        private Retransmitter mRetransmitter;
-
         @Override
         public void enterState() {
             mRetransmitter = new EncryptedRetransmitter(buildIkeDeleteReq(mCurrentIkeSaRecord));
@@ -5417,6 +5629,8 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
                 removeIkeSaRecord(mCurrentIkeSaRecord);
                 mCurrentIkeSaRecord.close();
                 mCurrentIkeSaRecord = null;
+
+                recordMetricsEvent_sessionTerminated(null);
                 quitSessionNow();
             } catch (InvalidSyntaxException e) {
                 handleResponseGenericProcessError(mCurrentIkeSaRecord, e);
@@ -5435,20 +5649,29 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         public void exitState() {
             mRetransmitter.stopRetransmitting();
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_DELETE_LOCAL_DELETE;
+        }
     }
 
     /** DpdIkeLocalInfo initiates a dead peer detection for IKE Session. */
     class DpdIkeLocalInfo extends DeleteBase {
-        private Retransmitter mRetransmitter;
-
         @Override
         public void enterState() {
             mRetransmitter =
                     new EncryptedRetransmitter(
+                            mCurrentIkeSaRecord,
                             buildEncryptedInformationalMessage(
                                     new IkeInformationalPayload[0],
                                     false /*isResp*/,
-                                    mCurrentIkeSaRecord.getLocalRequestMessageId()));
+                                    mCurrentIkeSaRecord.getLocalRequestMessageId()),
+                            getRetransmissionTimeoutsMillis());
+        }
+
+        protected int[] getRetransmissionTimeoutsMillis() {
+            return mIkeSessionParams.getRetransmissionTimeoutsMillis();
         }
 
         @Override
@@ -5482,6 +5705,7 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             // DPD response usually contains no payload. But since there is not any requirement of
             // it, payload validation will be skipped.
             if (ikeMessage.ikeHeader.exchangeType == IkeHeader.EXCHANGE_TYPE_INFORMATIONAL) {
+                mLivenessAssister.markPeerAsAlive();
                 transitionTo(mIdle);
                 return;
             }
@@ -5507,6 +5731,27 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
         public void exitState() {
             mRetransmitter.stopRetransmitting();
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_DPD_LOCAL_INFO;
+        }
+    }
+
+    /**
+     * DpdOnDemandIkeLocalInfo extends DpdIkeLocalInfo to initiate dead peer detection by using more
+     * aggressive retransmission timeouts for IKE sessions requested by the client.
+     */
+    class DpdOnDemandIkeLocalInfo extends DpdIkeLocalInfo {
+        @Override
+        protected int[] getRetransmissionTimeoutsMillis() {
+            return mIkeSessionParams.getLivenessRetransmissionTimeoutsMillis();
+        }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_DPD_ON_DEMAND_LOCAL_INFO;
+        }
     }
 
     /**
@@ -5516,8 +5761,6 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
      * UPDATE_SA_ADDRESSES exchange for the IKE Session.
      */
     class MobikeLocalInfo extends DeleteBase {
-        private Retransmitter mRetransmitter;
-
         @Override
         public void enterState() {
             if (!mEnabledExtensions.contains(EXTENSION_TYPE_MOBIKE)) {
@@ -5719,6 +5962,11 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
             executeUserCallback(
                     () -> mIkeSessionCallback.onIkeSessionConnectionInfoChanged(connectionInfo));
         }
+
+        @Override
+        protected @IkeMetrics.IkeState int getMetricsStateCode() {
+            return IkeMetrics.IKE_STATE_IKE_MOBIKE_LOCAL_INFO;
+        }
     }
 
     private static void addNatDetectionPayloadsToList(
@@ -5758,6 +6006,30 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
 
         payloadList.add(natdSrcIp);
         payloadList.add(natdDstIp);
+    }
+
+    /**
+     * Dumps the state of {@link IkeSessionStateMachine}
+     *
+     * @param pw {@link PrintWriter} to write the state of the object.
+     */
+    public void dump(PrintWriter pw) {
+        super.dump(new FileDescriptor(), pw, new String[0]);
+        // Please make sure that the dump is thread-safe
+        // so the client won't get a crash or exception when adding codes to the dump.
+
+        // TODO(b/310058405): To use IndentingPrintWriter Utility Class for Indentation purpose
+        String prefix = "    ";
+
+        // Dump ike session params data.
+        if (mIkeSessionParams != null) {
+            mIkeSessionParams.dump(pw, prefix);
+        }
+
+        // Dump ike connection controller data.
+        if (mIkeConnectionCtrl != null) {
+            mIkeConnectionCtrl.dump(pw, prefix);
+        }
     }
 
     private static class IkeEapOutboundMsgWrapper {
@@ -5893,7 +6165,10 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
     // This call will be only fired when mIkeConnectionCtrl.isMobilityEnabled() is true
     @Override
     public void onUnderlyingNetworkUpdated() {
-        // TODO(b/172013873): restart transmission timeouts on IKE SAs after changing networks
+        // Send event for mobility.
+        sendMessage(CMD_UNDERLYING_NETWORK_UPDATED_WITH_MOBILITY);
+
+        // UPDATE_SA
         sendMessage(
                 CMD_LOCAL_REQUEST_MOBIKE,
                 mLocalRequestFactory.getIkeLocalRequest(CMD_LOCAL_REQUEST_MOBIKE));
@@ -5902,6 +6177,9 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
     @Override
     public void onUnderlyingNetworkDied(Network network) {
         if (mIkeConnectionCtrl.isMobilityEnabled()) {
+            // Send event for mobility.
+            sendMessage(CMD_UNDERLYING_NETWORK_DIED_WITH_MOBILITY);
+
             // Do not tear down the session because 1) callers might want to migrate the IKE Session
             // when another network is available; 2) the termination from IKE Session might be
             // racing with the termination call from the callers.
@@ -5931,5 +6209,17 @@ public class IkeSessionStateMachine extends AbstractSessionStateMachine
     @Override
     public void onFatalError(Exception e) {
         handleIkeFatalError(e);
+    }
+
+    @Override
+    protected @IkeMetrics.IkeSessionType int getMetricsSessionType() {
+        return IkeMetrics.IKE_SESSION_TYPE_IKE;
+    }
+
+    @Override
+    public void onLivenessCheckCompleted(
+            int elapsedTimeInMillis, int numberOfOnGoing, boolean resultSuccess) {
+        recordMetricsEvent_LivenssCheckCompletion(
+                mIkeConnectionCtrl, elapsedTimeInMillis, numberOfOnGoing, resultSuccess);
     }
 }

@@ -105,6 +105,49 @@ public class MmTelFeatureConnection extends FeatureConnection {
         }
     }
 
+    private class ImsEmergencyRegistrationCallbackAdapter extends
+            ImsCallbackAdapterManager<IImsRegistrationCallback> {
+
+        public ImsEmergencyRegistrationCallbackAdapter(Context context, Object lock) {
+            super(context, lock, mSlotId, mSubId);
+        }
+
+        @Override
+        public void registerCallback(IImsRegistrationCallback localCallback) {
+            IImsRegistration imsRegistration = getRegistration();
+            if (imsRegistration != null) {
+                try {
+                    imsRegistration.addEmergencyRegistrationCallback(localCallback);
+                } catch (RemoteException e) {
+                    throw new IllegalStateException("ImsEmergencyRegistrationCallbackAdapter: "
+                            + "MmTelFeature binder is dead.");
+                }
+            } else {
+                Log.e(TAG + " [" + mSlotId + "]", "ImsEmergencyRegistrationCallbackAdapter: "
+                        + " ImsEmergencyRegistration is null");
+                throw new IllegalStateException("ImsEmergencyRegistrationCallbackAdapter: "
+                        + "MmTelFeature is not available!");
+            }
+        }
+
+        @Override
+        public void unregisterCallback(IImsRegistrationCallback localCallback) {
+            IImsRegistration imsRegistration = getRegistration();
+            if (imsRegistration != null) {
+                try {
+                    imsRegistration.removeEmergencyRegistrationCallback(localCallback);
+                } catch (RemoteException | IllegalStateException e) {
+                    Log.w(TAG + " [" + mSlotId + "]", "ImsEmergencyRegistrationCallbackAdapter -"
+                            + " unregisterCallback: couldn't remove emergency registration callback"
+                            + " Exception: " + e.getMessage());
+                }
+            } else {
+                Log.e(TAG + " [" + mSlotId + "]", "ImsEmergencyRegistrationCallbackAdapter: "
+                        + " ImsEmergencyRegistration is null");
+            }
+        }
+    }
+
     private class CapabilityCallbackManager extends ImsCallbackAdapterManager<IImsCapabilityCallback> {
         public CapabilityCallbackManager(Context context, Object lock) {
             super(context, lock, mSlotId, mSubId);
@@ -250,6 +293,7 @@ public class MmTelFeatureConnection extends FeatureConnection {
     private ImsUt mUt;
 
     private final ImsRegistrationCallbackAdapter mRegistrationCallbackManager;
+    private final ImsEmergencyRegistrationCallbackAdapter mEmergencyRegistrationCallbackManager;
     private final CapabilityCallbackManager mCapabilityCallbackManager;
     private final ProvisioningCallbackManager mProvisioningCallbackManager;
 
@@ -259,6 +303,8 @@ public class MmTelFeatureConnection extends FeatureConnection {
 
         setBinder((f != null) ? f.asBinder() : null);
         mRegistrationCallbackManager = new ImsRegistrationCallbackAdapter(context, mLock);
+        mEmergencyRegistrationCallbackManager = new ImsEmergencyRegistrationCallbackAdapter(context,
+                mLock);
         mCapabilityCallbackManager = new CapabilityCallbackManager(context, mLock);
         mProvisioningCallbackManager = new ProvisioningCallbackManager(context, mLock);
     }
@@ -267,6 +313,7 @@ public class MmTelFeatureConnection extends FeatureConnection {
     protected void onRemovedOrDied() {
         // Release all callbacks being tracked and unregister them from the connected MmTelFeature.
         mRegistrationCallbackManager.close();
+        mEmergencyRegistrationCallbackManager.close();
         mCapabilityCallbackManager.close();
         mProvisioningCallbackManager.close();
         // Close mUt interface separately from other listeners, as it is not tied directly to
@@ -351,6 +398,16 @@ public class MmTelFeatureConnection extends FeatureConnection {
     public void removeRegistrationCallbackForSubscription(IImsRegistrationCallback callback,
             int subId) {
         mRegistrationCallbackManager.removeCallback(callback);
+    }
+
+    public void addEmergencyRegistrationCallbackForSubscription(
+            IImsRegistrationCallback callback, int subId) {
+        mEmergencyRegistrationCallbackManager.addCallbackForSubscription(callback , subId);
+    }
+
+    public void removeEmergencyRegistrationCallbackForSubscription(
+            IImsRegistrationCallback callback, int subId) {
+        mEmergencyRegistrationCallbackManager.removeCallback(callback);
     }
 
     public void addCapabilityCallback(IImsCapabilityCallback callback) {

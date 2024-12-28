@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 74a538630d5d90f732f361a2313cbb69b09eb047 -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/security/secureclock/aidl/android.hardware.security.secureclock_interface/1/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint-V3-java-source/gen/android/hardware/security/keymint/IKeyMintOperation.java.d -o out/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint-V3-java-source/gen -Nhardware/interfaces/security/keymint/aidl/aidl_api/android.hardware.security.keymint/3 hardware/interfaces/security/keymint/aidl/aidl_api/android.hardware.security.keymint/3/android/hardware/security/keymint/IKeyMintOperation.aidl
  */
 package android.hardware.security.keymint;
 /** @hide */
@@ -47,6 +48,7 @@ public interface IKeyMintOperation extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.security.keymint.IKeyMintOperation
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -117,25 +119,19 @@ public interface IKeyMintOperation extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -350,6 +346,7 @@ public interface IKeyMintOperation extends android.os.IInterface
       return 16777214;
     }
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$security$keymint$IKeyMintOperation".replace('$', '.');
   public void updateAad(byte[] input, android.hardware.security.keymint.HardwareAuthToken authToken, android.hardware.security.secureclock.TimeStampToken timeStampToken) throws android.os.RemoteException;
   public byte[] update(byte[] input, android.hardware.security.keymint.HardwareAuthToken authToken, android.hardware.security.secureclock.TimeStampToken timeStampToken) throws android.os.RemoteException;

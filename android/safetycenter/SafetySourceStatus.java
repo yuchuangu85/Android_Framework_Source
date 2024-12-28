@@ -348,7 +348,8 @@ public final class SafetySourceStatus implements Parcelable {
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public Builder(@NonNull SafetySourceStatus safetySourceStatus) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             requireNonNull(safetySourceStatus);
             mTitle = safetySourceStatus.mTitle;

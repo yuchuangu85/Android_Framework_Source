@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,6 +25,13 @@
  */
 
 package java.util;
+
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.system.VMRuntime;
 
 import java.io.BufferedWriter;
 import java.io.Closeable;
@@ -137,7 +144,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  *   // -&gt; s == "Duke's Birthday: May 23, 1995"
  * </pre></blockquote>
  *
- * <h3><a id="org">Organization</a></h3>
+ * <h2><a id="org">Organization</a></h2>
  *
  * <p> This specification is divided into two sections.  The first section, <a
  * href="#summary">Summary</a>, covers the basic formatting concepts.  This
@@ -147,13 +154,13 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * details.  It is intended for users who want more precise specification of
  * formatting behavior.
  *
- * <h3><a id="summary">Summary</a></h3>
+ * <h2><a id="summary">Summary</a></h2>
  *
  * <p> This section is intended to provide a brief overview of formatting
  * concepts.  For precise behavioral details, refer to the <a
  * href="#detail">Details</a> section.
  *
- * <h4><a id="syntax">Format String Syntax</a></h4>
+ * <h3><a id="syntax">Format String Syntax</a></h3>
  *
  * <p> Every method which produces formatted output requires a <i>format
  * string</i> and an <i>argument list</i>.  The format string is a {@link
@@ -233,7 +240,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  *
  * </ul>
  *
- * <h4> Conversions </h4>
+ * <h3> Conversions </h3>
  *
  * <p> Conversions are divided into the following categories:
  *
@@ -274,7 +281,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  *
  * </ol>
  *
- * <p> For category <i>General</i>, <i>Character</i>, <i>Numberic</i>,
+ * <p> For category <i>General</i>, <i>Character</i>, <i>Numeric</i>,
  * <i>Integral</i> and <i>Date/Time</i> conversion, unless otherwise specified,
  * if the argument <i>arg</i> is {@code null}, then the result is "{@code null}".
  *
@@ -373,7 +380,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * <p> Any characters not explicitly defined as conversions are illegal and are
  * reserved for future extensions.
  *
- * <h4><a id="dt">Date/Time Conversions</a></h4>
+ * <h3><a id="dt">Date/Time Conversions</a></h3>
  *
  * <p> The following date and time conversion suffix characters are defined for
  * the {@code 't'} and {@code 'T'} conversions.  The types are similar to but
@@ -547,7 +554,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * <p> Any characters not explicitly defined as date/time conversion suffixes
  * are illegal and are reserved for future extensions.
  *
- * <h4> Flags </h4>
+ * <h3> Flags </h3>
  *
  * <p> The following table summarizes the supported flags.  <i>y</i> means the
  * flag is supported for the indicated argument types.
@@ -633,13 +640,13 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * <p> Any characters not explicitly defined as flags are illegal and are
  * reserved for future extensions.
  *
- * <h4> Width </h4>
+ * <h3> Width </h3>
  *
  * <p> The width is the minimum number of characters to be written to the
  * output.  For the line separator conversion, width is not applicable; if it
  * is provided, an exception will be thrown.
  *
- * <h4> Precision </h4>
+ * <h3> Precision </h3>
  *
  * <p> For general argument types, the precision is the maximum number of
  * characters to be written to the output.
@@ -654,7 +661,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * and line separator conversions, the precision is not applicable; if a
  * precision is provided, an exception will be thrown.
  *
- * <h4> Argument Index </h4>
+ * <h3> Argument Index </h3>
  *
  * <p> The argument index is a decimal integer indicating the position of the
  * argument in the argument list.  The first argument is referenced by
@@ -673,7 +680,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * </pre></blockquote>
  *
  * <hr>
- * <h3><a id="detail">Details</a></h3>
+ * <h2><a id="detail">Details</a></h2>
  *
  * <p> This section is intended to provide behavioral details for formatting,
  * including conditions and exceptions, supported data types, localization, and
@@ -689,18 +696,34 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * <p> If the format specifier contains a width or precision with an invalid
  * value or which is otherwise unsupported, then a {@link
  * IllegalFormatWidthException} or {@link IllegalFormatPrecisionException}
- * respectively will be thrown.
+ * respectively will be thrown. Similarly, values of zero for an argument
+ * index will result in an {@link IllegalFormatException}.
  *
  * <p> If a format specifier contains a conversion character that is not
  * applicable to the corresponding argument, then an {@link
  * IllegalFormatConversionException} will be thrown.
+ *
+ * <p> Values of <i>precision</i> must be in the range zero to
+ * {@link Integer#MAX_VALUE}, inclusive, otherwise
+ * {@link IllegalFormatPrecisionException} is thrown.</p>
+ *
+ * <p> Values of <i>width</i> must be in the range one to
+ * {@link Integer#MAX_VALUE}, inclusive, otherwise
+ * {@link IllegalFormatWidthException} will be thrown
+ * Note that widths can appear to have a negative value, but the negative sign
+ * is a <i>flag</i>. For example in the format string {@code "%-20s"} the
+ * <i>width</i> is <i>20</i> and the <i>flag</i> is "-".</p>
+ *
+ * <p> Values of <i>index</i> must be in the range one to
+ * {@link Integer#MAX_VALUE}, inclusive, otherwise
+ * {@link IllegalFormatException} will be thrown.</p>
  *
  * <p> All specified exceptions may be thrown by any of the {@code format}
  * methods of {@code Formatter} as well as by any {@code format} convenience
  * methods such as {@link String#format(String,Object...) String.format} and
  * {@link java.io.PrintStream#printf(String,Object...) PrintStream.printf}.
  *
- * <p> For category <i>General</i>, <i>Character</i>, <i>Numberic</i>,
+ * <p> For category <i>General</i>, <i>Character</i>, <i>Numeric</i>,
  * <i>Integral</i> and <i>Date/Time</i> conversion, unless otherwise specified,
  * if the argument <i>arg</i> is {@code null}, then the result is "{@code null}".
  *
@@ -714,7 +737,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * invocation, then the {@link java.util.Locale.Category#FORMAT default locale}
  * is used.
  *
- * <h4><a id="dgen">General</a></h4>
+ * <h3><a id="dgen">General</a></h3>
  *
  * <p> The following general conversions may be applied to any argument type:
  *
@@ -764,7 +787,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  *     {@code toString()} method.
  *
  *     <p> If the {@code '#'} flag is given and the argument is not a {@link
- *     Formattable} , then a {@link FormatFlagsConversionMismatchException}
+ *     Formattable}, then a {@link FormatFlagsConversionMismatchException}
  *     will be thrown.
  *
  * <tr><th scope="row" style="vertical-align:top"> {@code 'S'}
@@ -811,7 +834,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * the precision.  If the precision is not specified then there is no explicit
  * limit on the number of characters.
  *
- * <h4><a id="dchar">Character</a></h4>
+ * <h3><a id="dchar">Character</a></h3>
  *
  * This conversion may be applied to {@code char} and {@link Character}.  It
  * may also be applied to the types {@code byte}, {@link Byte},
@@ -850,7 +873,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * <p> The precision is not applicable.  If the precision is specified then an
  * {@link IllegalFormatPrecisionException} will be thrown.
  *
- * <h4><a id="dnum">Numeric</a></h4>
+ * <h3><a id="dnum">Numeric</a></h3>
  *
  * <p> Numeric conversions are divided into the following categories:
  *
@@ -1547,7 +1570,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * href="#floatDPrec">precision</a> is the same as defined for Float and
  * Double.
  *
- * <h4><a id="ddt">Date/Time</a></h4>
+ * <h3><a id="ddt">Date/Time</a></h3>
  *
  * <p> This conversion may be applied to {@code long}, {@link Long}, {@link
  * Calendar}, {@link Date} and {@link TemporalAccessor TemporalAccessor}
@@ -1796,7 +1819,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * <p> The precision is not applicable.  If the precision is specified then an
  * {@link IllegalFormatPrecisionException} will be thrown.
  *
- * <h4><a id="dper">Percent</a></h4>
+ * <h3><a id="dper">Percent</a></h3>
  *
  * <p> The conversion does not correspond to any argument.
  *
@@ -1816,7 +1839,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  *
  * <p> The {@code '-'} flag defined for <a href="#dFlags">General
  * conversions</a> applies.  If any other flags are provided, then a
- * {@link FormatFlagsConversionMismatchException} will be thrown.
+ * {@link IllegalFormatFlagsException } will be thrown.
  *
  * <p> The precision is not applicable.  If the precision is specified an
  * {@link IllegalFormatPrecisionException} will be thrown.
@@ -1824,7 +1847,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * </tbody>
  * </table>
  *
- * <h4><a id="dls">Line Separator</a></h4>
+ * <h3><a id="dls">Line Separator</a></h3>
  *
  * <p> The conversion does not correspond to any argument.
  *
@@ -1843,7 +1866,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * {@link IllegalFormatFlagsException}, {@link IllegalFormatWidthException},
  * and {@link IllegalFormatPrecisionException}, respectively will be thrown.
  *
- * <h4><a id="dpos">Argument Index</a></h4>
+ * <h3><a id="dpos">Argument Index</a></h3>
  *
  * <p> Format specifiers can reference arguments in three ways:
  *
@@ -1898,7 +1921,7 @@ import jdk.internal.math.FormattedFloatingDecimal;
  *
  * <p> The maximum number of arguments is limited by the maximum dimension of a
  * Java array as defined by
- * <cite>The Java&trade; Virtual Machine Specification</cite>.
+ * <cite>The Java Virtual Machine Specification</cite>.
  * If the argument index does not correspond to an
  * available argument, then a {@link MissingFormatArgumentException} is thrown.
  *
@@ -1912,18 +1935,17 @@ import jdk.internal.math.FormattedFloatingDecimal;
  * @author  Iris Clark
  * @since 1.5
  */
+// Android-added: errorprone crashes with NPE otherwise. See: https://github.com/google/error-prone/issues/2638
+@SuppressWarnings("FallThrough")
 public final class Formatter implements Closeable, Flushable {
     private Appendable a;
     private final Locale l;
 
     private IOException lastException;
 
-    private final char zero;
-    private static double scaleUp;
-
-    // 1 (sign) + 19 (max # sig digits) + 1 ('.') + 1 ('e') + 1 (sign)
-    // + 3 (max # exp digits) + 4 (error) = 30
-    private static final int MAX_FD_CHARS = 30;
+    // Non-character value used to mark zero as uninitialized
+    private static final char ZERO_SENTINEL = '\uFFFE';
+    private char zero = ZERO_SENTINEL;
 
     /**
      * Returns a charset object for the given charset name.
@@ -1953,7 +1975,6 @@ public final class Formatter implements Closeable, Flushable {
     private Formatter(Locale l, Appendable a) {
         this.a = a;
         this.l = l;
-        this.zero = getZero(l);
     }
 
     private Formatter(Charset charset, Locale l, File file)
@@ -2432,18 +2453,23 @@ public final class Formatter implements Closeable, Flushable {
         this(l, new BufferedWriter(new OutputStreamWriter(os, charset)));
     }
 
-    private static char getZero(Locale l) {
-        if ((l != null) && !l.equals(Locale.US)) {
-            // Android-changed: Improve the performance by 10x http://b/197788756
-            // Unclear if this mapping is needed but inherited from DecimalFormatSymbols
-            l = LocaleData.mapInvalidAndNullLocales(l);
-            DecimalFormatData decimalFormatData = DecimalFormatData.getInstance(l);
-            return decimalFormatData.getZeroDigit();
-            // DecimalFormatSymbols dfs = DecimalFormatSymbols.getInstance(l);
-            //  return dfs.getZeroDigit();
-        } else {
-            return '0';
+    private char zero() {
+        char zero = this.zero;
+        if (zero == ZERO_SENTINEL) {
+            if ((l != null) && !l.equals(Locale.US)) {
+                // Android-changed: Improve the performance by 10x http://b/197788756
+                // Unclear if this mapping is needed but inherited from DecimalFormatSymbols
+                DecimalFormatData decimalFormatData =
+                        DecimalFormatData.getInstance(LocaleData.mapInvalidAndNullLocales(l));
+                return decimalFormatData.getZeroDigit();
+                // DecimalFormatSymbols dfs = DecimalFormatSymbols.getInstance(l);
+                // zero = dfs.getZeroDigit();
+            } else {
+                zero = '0';
+            }
+            this.zero = zero;
         }
+        return zero;
     }
 
     /**
@@ -2594,7 +2620,7 @@ public final class Formatter implements Closeable, Flushable {
      *         string.  If there are more arguments than format specifiers, the
      *         extra arguments are ignored.  The maximum number of arguments is
      *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
+     *         <cite>The Java Virtual Machine Specification</cite>.
      *
      * @throws  IllegalFormatException
      *          If a format string contains an illegal syntax, a format
@@ -2633,7 +2659,7 @@ public final class Formatter implements Closeable, Flushable {
      *         string.  If there are more arguments than format specifiers, the
      *         extra arguments are ignored.  The maximum number of arguments is
      *         limited by the maximum dimension of a Java array as defined by
-     *         <cite>The Java&trade; Virtual Machine Specification</cite>.
+     *         <cite>The Java Virtual Machine Specification</cite>.
      *
      * @throws  IllegalFormatException
      *          If a format string contains an illegal syntax, a format
@@ -2658,31 +2684,31 @@ public final class Formatter implements Closeable, Flushable {
         int lasto = -1;
 
         List<FormatString> fsa = parse(format);
-        for (FormatString fs : fsa) {
+        for (int i = 0; i < fsa.size(); i++) {
+            var fs = fsa.get(i);
             int index = fs.index();
             try {
                 switch (index) {
-                case -2:  // fixed string, "%n", or "%%"
-                    fs.print(null, l);
-                    break;
-                case -1:  // relative index
-                    if (last < 0 || (args != null && last > args.length - 1))
-                        throw new MissingFormatArgumentException(fs.toString());
-                    fs.print((args == null ? null : args[last]), l);
-                    break;
-                case 0:  // ordinary index
-                    lasto++;
-                    last = lasto;
-                    if (args != null && lasto > args.length - 1)
-                        throw new MissingFormatArgumentException(fs.toString());
-                    fs.print((args == null ? null : args[lasto]), l);
-                    break;
-                default:  // explicit index
-                    last = index - 1;
-                    if (args != null && last > args.length - 1)
-                        throw new MissingFormatArgumentException(fs.toString());
-                    fs.print((args == null ? null : args[last]), l);
-                    break;
+                    case -2 ->  // fixed string, "%n", or "%%"
+                        fs.print(null, l);
+                    case -1 -> {  // relative index
+                        if (last < 0 || (args != null && last > args.length - 1))
+                            throw new MissingFormatArgumentException(fs.toString());
+                        fs.print((args == null ? null : args[last]), l);
+                    }
+                    case 0 -> {  // ordinary index
+                        lasto++;
+                        last = lasto;
+                        if (args != null && lasto > args.length - 1)
+                            throw new MissingFormatArgumentException(fs.toString());
+                        fs.print((args == null ? null : args[lasto]), l);
+                    }
+                    default -> {  // explicit index
+                        last = index - 1;
+                        if (args != null && last > args.length - 1)
+                            throw new MissingFormatArgumentException(fs.toString());
+                        fs.print((args == null ? null : args[last]), l);
+                    }
                 }
             } catch (IOException x) {
                 lastException = x;
@@ -2829,9 +2855,9 @@ public final class Formatter implements Closeable, Flushable {
     }
 
     private class FixedString implements FormatString {
-        private String s;
-        private int start;
-        private int end;
+        private final String s;
+        private final int start;
+        private final int end;
         FixedString(String s, int start, int end) {
             this.s = s;
             this.start = start;
@@ -2858,50 +2884,87 @@ public final class Formatter implements Closeable, Flushable {
         DECIMAL_FLOAT
     };
 
+    /**
+     * Prior to Android 15 (V), validations of argument index, flags, width, and precision
+     * were lax - it was allowed to use 0 and Integer.MAX_VALUE + 1 as argument index.
+     * <p> Now it will throw exception, as documentation says. Flag is enabled on Android 15+.
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.VANILLA_ICE_CREAM)
+    public static final long ENABLE_STRICT_FORMATTER_VALIDATION = 270674727L;
+
+    private static boolean isStrictValidationEnabled() {
+        return VMRuntime.getSdkVersion() >= VersionCodes.VANILLA_ICE_CREAM
+                && Compatibility.isChangeEnabled(ENABLE_STRICT_FORMATTER_VALIDATION);
+    }
+
     private class FormatSpecifier implements FormatString {
-        private int index = -1;
+
+        private int index = 0;
         private Flags f = Flags.NONE;
-        private int width;
-        private int precision;
+        private int width = -1;
+        private int precision = -1;
         private boolean dt = false;
         private char c;
 
-        // Android-changed: entire String is always consumed.
-        // private int index(String s, int start, int end) {
-        private int index(String s) {
-            // if (start >= 0) {
+        // BEGIN Android-changed: entire String is always consumed.
+        /*
+        private void index(String s, int start, int end) {
+            if (start >= 0) {
+                try {
+                    // skip the trailing '$'
+                    index = Integer.parseInt(s, start, end - 1, 10);
+                    if (index <= 0) {
+                       throw new IllegalFormatArgumentIndexException(index);
+                    }
+                } catch (NumberFormatException x) {
+                    throw new IllegalFormatArgumentIndexException(Integer.MIN_VALUE);
+                }
+            }
+        }
+        */
+        private void index(String s) {
             if (s != null) {
                 try {
-                    // Android-changed: FormatSpecifierParser passes in correct String.
-                    // skip the trailing '$'
-                    // index = Integer.parseInt(s, start, end - 1, 10);
+                    // FormatSpecifierParser passes in correct String.
                     index = Integer.parseInt(s);
+                    // Before V no exception was thrown by this method.
+                    if (isStrictValidationEnabled()) {
+                        if (index <= 0) {
+                           throw new IllegalFormatArgumentIndexException(index);
+                        }
+                    }
                 } catch (NumberFormatException x) {
-                    assert(false);
+                    // And this exception was swallowed.
+                    if (isStrictValidationEnabled()) {
+                        throw new IllegalFormatArgumentIndexException(Integer.MIN_VALUE);
+                    } else {
+                        // -1 is the default value of the old implementation. index value was left
+                        // untouched in NFE case.
+                        index = -1;
+                    }
                 }
-            } else {
-                index = 0;
             }
-            return index;
         }
+        // END Android-changed: entire String is always consumed.
 
         public int index() {
             return index;
         }
 
         // Android-changed: entire String is always consumed.
-        // private Flags flags(String s, int start, int end) {
-        private Flags flags(String s) {
+        // private void flags(String s, int start, int end) {
+        private void flags(String s) {
             // f = Flags.parse(s, start, end);
             f = Flags.parse(s, 0, s.length());
             if (f.contains(Flags.PREVIOUS))
                 index = -1;
-            return f;
         }
 
         // Android-changed: entire String is always consumed.
-        // private int width(String s, int start, int end) {
-        private int width(String s) {
+        // private void width(String s, int start, int end) {
+        private void width(String s) {
             width = -1;
             // if (start >= 0) {
             if (s != null) {
@@ -2911,15 +2974,18 @@ public final class Formatter implements Closeable, Flushable {
                     if (width < 0)
                         throw new IllegalFormatWidthException(width);
                 } catch (NumberFormatException x) {
-                    assert(false);
+                    // Android-changed: prior to V this exception was swallowed.
+                    // throw new IllegalFormatWidthException(Integer.MIN_VALUE);
+                    if (isStrictValidationEnabled()) {
+                        throw new IllegalFormatWidthException(Integer.MIN_VALUE);
+                    }
                 }
             }
-            return width;
         }
 
         // Android-changed: entire String is always consumed.
-        // private int precision(String s, int start, int end) {
-        private int precision(String s) {
+        // private void precision(String s, int start, int end) {
+        private void precision(String s) {
             precision = -1;
             // if (start >= 0) {
             if (s != null) {
@@ -2931,13 +2997,16 @@ public final class Formatter implements Closeable, Flushable {
                     if (precision < 0)
                         throw new IllegalFormatPrecisionException(precision);
                 } catch (NumberFormatException x) {
-                    assert(false);
+                    // Android-changed: prior to V this exception was swallowed.
+                    // throw new IllegalFormatPrecisionException(Integer.MIN_VALUE);
+                    if (isStrictValidationEnabled()) {
+                        throw new IllegalFormatPrecisionException(Integer.MIN_VALUE);
+                    }
                 }
             }
-            return precision;
         }
 
-        private char conversion(char conv) {
+        private void conversion(char conv) {
             c = conv;
             if (!dt) {
                 if (!Conversion.isValid(c)) {
@@ -2951,7 +3020,17 @@ public final class Formatter implements Closeable, Flushable {
                     index = -2;
                 }
             }
-            return c;
+        }
+
+        FormatSpecifier(char conv) {
+            c = conv;
+            if (Character.isUpperCase(conv)) {
+                f = Flags.UPPERCASE;
+                c = Character.toLowerCase(conv);
+            }
+            if (Conversion.isText(conv)) {
+                index = -2;
+            }
         }
 
         // BEGIN Android-changed: FormatSpecifierParser passes in the values instead of a Matcher.
@@ -3005,7 +3084,6 @@ public final class Formatter implements Closeable, Flushable {
                 printFloat(arg, l);
                 break;
             case Conversion.CHARACTER:
-            case Conversion.CHARACTER_UPPER:
                 printCharacter(arg, l);
                 break;
             case Conversion.BOOLEAN:
@@ -3100,19 +3178,19 @@ public final class Formatter implements Closeable, Flushable {
             if (arg instanceof Character) {
                 s = ((Character)arg).toString();
             } else if (arg instanceof Byte) {
-                byte i = ((Byte)arg).byteValue();
+                byte i = (Byte) arg;
                 if (Character.isValidCodePoint(i))
                     s = new String(Character.toChars(i));
                 else
                     throw new IllegalFormatCodePointException(i);
             } else if (arg instanceof Short) {
-                short i = ((Short)arg).shortValue();
+                short i = (Short) arg;
                 if (Character.isValidCodePoint(i))
                     s = new String(Character.toChars(i));
                 else
                     throw new IllegalFormatCodePointException(i);
             } else if (arg instanceof Integer) {
-                int i = ((Integer)arg).intValue();
+                int i = (Integer) arg;
                 if (Character.isValidCodePoint(i))
                     s = new String(Character.toChars(i));
                 else
@@ -3170,9 +3248,10 @@ public final class Formatter implements Closeable, Flushable {
                     Locale.getDefault(Locale.Category.FORMAT)));
         }
 
-        private Appendable appendJustified(Appendable a, CharSequence cs) throws IOException {
+        private void appendJustified(Appendable a, CharSequence cs) throws IOException {
              if (width == -1) {
-                 return a.append(cs);
+                 a.append(cs);
+                 return;
              }
              boolean padRight = f.contains(Flags.LEFT_JUSTIFY);
              int sp = width - cs.length();
@@ -3185,7 +3264,6 @@ public final class Formatter implements Closeable, Flushable {
              if (!padRight) {
                  a.append(cs);
              }
-             return a;
         }
 
         public String toString() {
@@ -3317,7 +3395,6 @@ public final class Formatter implements Closeable, Flushable {
                 && (c == Conversion.OCTAL_INTEGER
                     || c == Conversion.HEXADECIMAL_INTEGER)) {
                 v += (1L << 8);
-                assert v >= 0 : v;
             }
             print(v, l);
         }
@@ -3642,7 +3719,12 @@ public final class Formatter implements Closeable, Flushable {
                 sb.append(upper ? "0X" : "0x");
 
                 if (f.contains(Flags.ZERO_PAD)) {
-                    trailingZeros(sb, width - s.length() - 2);
+                    int leadingCharacters = 2;
+                    if(f.contains(Flags.LEADING_SPACE) ||
+                            f.contains(Flags.PLUS) || neg) {
+                        leadingCharacters = 3;
+                    }
+                    trailingZeros(sb, width - s.length() - leadingCharacters);
                 }
 
                 int idx = s.indexOf('p');
@@ -3711,7 +3793,7 @@ public final class Formatter implements Closeable, Flushable {
                 // If this is subnormal input so normalize (could be faster to
                 // do as integer operation).
                 if (subnormal) {
-                    scaleUp = Math.scalb(1.0, 54);
+                    double scaleUp = Math.scalb(1.0, 54);
                     d *= scaleUp;
                     // Calculate the exponent.  This is not just exponent + 54
                     // since the former is not the normalized exponent.
@@ -3904,11 +3986,10 @@ public final class Formatter implements Closeable, Flushable {
                 else if (precision == 0)
                     prec = 1;
 
-                BigDecimal tenToTheNegFour = BigDecimal.valueOf(1, 4);
-                BigDecimal tenToThePrec = BigDecimal.valueOf(1, -prec);
+                value = value.round(new MathContext(prec));
                 if ((value.equals(BigDecimal.ZERO))
-                    || ((value.compareTo(tenToTheNegFour) != -1)
-                        && (value.compareTo(tenToThePrec) == -1))) {
+                    || ((value.compareTo(BigDecimal.valueOf(1, 4)) != -1)
+                        && (value.compareTo(BigDecimal.valueOf(1, -prec)) == -1))) {
 
                     int e = - value.scale()
                         + (value.unscaledValue().toString().length() - 1);
@@ -4195,15 +4276,9 @@ public final class Formatter implements Closeable, Flushable {
                 int i = t.get(Calendar.YEAR);
                 int size = 2;
                 switch (c) {
-                case DateTime.CENTURY:
-                    i /= 100;
-                    break;
-                case DateTime.YEAR_2:
-                    i %= 100;
-                    break;
-                case DateTime.YEAR_4:
-                    size = 4;
-                    break;
+                    case DateTime.CENTURY -> i /= 100;
+                    case DateTime.YEAR_2  -> i %= 100;
+                    case DateTime.YEAR_4  -> size = 4;
                 }
                 Flags flags = Flags.ZERO_PAD;
                 sb.append(localizedMagnitude(null, i, flags, size, l));
@@ -4436,15 +4511,9 @@ public final class Formatter implements Closeable, Flushable {
                     int i = t.get(ChronoField.YEAR_OF_ERA);
                     int size = 2;
                     switch (c) {
-                    case DateTime.CENTURY:
-                        i /= 100;
-                        break;
-                    case DateTime.YEAR_2:
-                        i %= 100;
-                        break;
-                    case DateTime.YEAR_4:
-                        size = 4;
-                        break;
+                        case DateTime.CENTURY -> i /= 100;
+                        case DateTime.YEAR_2  -> i %= 100;
+                        case DateTime.YEAR_4  -> size = 4;
                     }
                     Flags flags = Flags.ZERO_PAD;
                     sb.append(localizedMagnitude(null, i, flags, size, l));
@@ -4549,7 +4618,7 @@ public final class Formatter implements Closeable, Flushable {
                 //  DecimalFormatSymbols dfs = DecimalFormatSymbols.getInstance(l);
                 //  return dfs.getZeroDigit();
             }
-            return zero;
+            return zero();
         }
 
         private StringBuilder localizedMagnitude(StringBuilder sb,
@@ -4728,18 +4797,17 @@ public final class Formatter implements Closeable, Flushable {
 
         // parse those flags which may be provided by users
         private static Flags parse(char c) {
-            switch (c) {
-            case '-': return LEFT_JUSTIFY;
-            case '#': return ALTERNATE;
-            case '+': return PLUS;
-            case ' ': return LEADING_SPACE;
-            case '0': return ZERO_PAD;
-            case ',': return GROUP;
-            case '(': return PARENTHESES;
-            case '<': return PREVIOUS;
-            default:
-                throw new UnknownFormatFlagsException(String.valueOf(c));
-            }
+            return switch (c) {
+                case '-' -> LEFT_JUSTIFY;
+                case '#' -> ALTERNATE;
+                case '+' -> PLUS;
+                case ' ' -> LEADING_SPACE;
+                case '0' -> ZERO_PAD;
+                case ',' -> GROUP;
+                case '(' -> PARENTHESES;
+                case '<' -> PREVIOUS;
+                default -> throw new UnknownFormatFlagsException(String.valueOf(c));
+            };
         }
 
         // Returns a string representation of the current {@code Flags}.
@@ -4805,74 +4873,85 @@ public final class Formatter implements Closeable, Flushable {
         static final char PERCENT_SIGN        = '%';
 
         static boolean isValid(char c) {
-            return (isGeneral(c) || isInteger(c) || isFloat(c) || isText(c)
-                    || c == 't' || isCharacter(c));
+            return switch (c) {
+                case BOOLEAN,
+                     BOOLEAN_UPPER,
+                     STRING,
+                     STRING_UPPER,
+                     HASHCODE,
+                     HASHCODE_UPPER,
+                     CHARACTER,
+                     CHARACTER_UPPER,
+                     DECIMAL_INTEGER,
+                     OCTAL_INTEGER,
+                     HEXADECIMAL_INTEGER,
+                     HEXADECIMAL_INTEGER_UPPER,
+                     SCIENTIFIC,
+                     SCIENTIFIC_UPPER,
+                     GENERAL,
+                     GENERAL_UPPER,
+                     DECIMAL_FLOAT,
+                     HEXADECIMAL_FLOAT,
+                     HEXADECIMAL_FLOAT_UPPER,
+                     LINE_SEPARATOR,
+                     PERCENT_SIGN -> true;
+                default -> false;
+            };
         }
 
         // Returns true iff the Conversion is applicable to all objects.
         static boolean isGeneral(char c) {
-            switch (c) {
-            case BOOLEAN:
-            case BOOLEAN_UPPER:
-            case STRING:
-            case STRING_UPPER:
-            case HASHCODE:
-            case HASHCODE_UPPER:
-                return true;
-            default:
-                return false;
-            }
+            return switch (c) {
+                case BOOLEAN,
+                     BOOLEAN_UPPER,
+                     STRING,
+                     STRING_UPPER,
+                     HASHCODE,
+                     HASHCODE_UPPER -> true;
+                default -> false;
+            };
         }
 
         // Returns true iff the Conversion is applicable to character.
         static boolean isCharacter(char c) {
-            switch (c) {
-            case CHARACTER:
-            case CHARACTER_UPPER:
-                return true;
-            default:
-                return false;
-            }
+            return switch (c) {
+                case CHARACTER,
+                     CHARACTER_UPPER -> true;
+                default -> false;
+            };
         }
 
         // Returns true iff the Conversion is an integer type.
         static boolean isInteger(char c) {
-            switch (c) {
-            case DECIMAL_INTEGER:
-            case OCTAL_INTEGER:
-            case HEXADECIMAL_INTEGER:
-            case HEXADECIMAL_INTEGER_UPPER:
-                return true;
-            default:
-                return false;
-            }
+            return switch (c) {
+                case DECIMAL_INTEGER,
+                     OCTAL_INTEGER,
+                     HEXADECIMAL_INTEGER,
+                     HEXADECIMAL_INTEGER_UPPER -> true;
+                default -> false;
+            };
         }
 
         // Returns true iff the Conversion is a floating-point type.
         static boolean isFloat(char c) {
-            switch (c) {
-            case SCIENTIFIC:
-            case SCIENTIFIC_UPPER:
-            case GENERAL:
-            case GENERAL_UPPER:
-            case DECIMAL_FLOAT:
-            case HEXADECIMAL_FLOAT:
-            case HEXADECIMAL_FLOAT_UPPER:
-                return true;
-            default:
-                return false;
-            }
+            return switch (c) {
+                case SCIENTIFIC,
+                     SCIENTIFIC_UPPER,
+                     GENERAL,
+                     GENERAL_UPPER,
+                     DECIMAL_FLOAT,
+                     HEXADECIMAL_FLOAT,
+                     HEXADECIMAL_FLOAT_UPPER -> true;
+                default -> false;
+            };
         }
 
         // Returns true iff the Conversion does not require an argument
         static boolean isText(char c) {
-            switch (c) {
-            case LINE_SEPARATOR:
-            case PERCENT_SIGN:
-                return true;
-            default:
-                return false;
-            }
+            return switch (c) {
+                case LINE_SEPARATOR, PERCENT_SIGN -> true;
+                default -> false;
+            };
         }
     }
 
@@ -4900,79 +4979,31 @@ public final class Formatter implements Closeable, Flushable {
         static final char CENTURY               = 'C'; // (00 - 99)
         static final char DAY_OF_MONTH_0        = 'd'; // (01 - 31)
         static final char DAY_OF_MONTH          = 'e'; // (1 - 31) -- like d
-// *    static final char ISO_WEEK_OF_YEAR_2    = 'g'; // cross %y %V
-// *    static final char ISO_WEEK_OF_YEAR_4    = 'G'; // cross %Y %V
         static final char NAME_OF_MONTH_ABBREV_X  = 'h'; // -- same b
         static final char DAY_OF_YEAR           = 'j'; // (001 - 366)
         static final char MONTH                 = 'm'; // (01 - 12)
-// *    static final char DAY_OF_WEEK_1         = 'u'; // (1 - 7) Monday
-// *    static final char WEEK_OF_YEAR_SUNDAY   = 'U'; // (0 - 53) Sunday+
-// *    static final char WEEK_OF_YEAR_MONDAY_01 = 'V'; // (01 - 53) Monday+
-// *    static final char DAY_OF_WEEK_0         = 'w'; // (0 - 6) Sunday
-// *    static final char WEEK_OF_YEAR_MONDAY   = 'W'; // (00 - 53) Monday
         static final char YEAR_2                = 'y'; // (00 - 99)
         static final char YEAR_4                = 'Y'; // (0000 - 9999)
 
         // Composites
         static final char TIME_12_HOUR  = 'r'; // (hh:mm:ss [AP]M)
         static final char TIME_24_HOUR  = 'R'; // (hh:mm same as %H:%M)
-// *    static final char LOCALE_TIME   = 'X'; // (%H:%M:%S) - parse format?
         static final char DATE_TIME             = 'c';
                                             // (Sat Nov 04 12:02:33 EST 1999)
         static final char DATE                  = 'D'; // (mm/dd/yy)
         static final char ISO_STANDARD_DATE     = 'F'; // (%Y-%m-%d)
-// *    static final char LOCALE_DATE           = 'x'; // (mm/dd/yy)
 
         static boolean isValid(char c) {
-            switch (c) {
-            case HOUR_OF_DAY_0:
-            case HOUR_0:
-            case HOUR_OF_DAY:
-            case HOUR:
-            case MINUTE:
-            case NANOSECOND:
-            case MILLISECOND:
-            case MILLISECOND_SINCE_EPOCH:
-            case AM_PM:
-            case SECONDS_SINCE_EPOCH:
-            case SECOND:
-            case TIME:
-            case ZONE_NUMERIC:
-            case ZONE:
-
-            // Date
-            case NAME_OF_DAY_ABBREV:
-            case NAME_OF_DAY:
-            case NAME_OF_MONTH_ABBREV:
-            case NAME_OF_MONTH:
-            case CENTURY:
-            case DAY_OF_MONTH_0:
-            case DAY_OF_MONTH:
-// *        case ISO_WEEK_OF_YEAR_2:
-// *        case ISO_WEEK_OF_YEAR_4:
-            case NAME_OF_MONTH_ABBREV_X:
-            case DAY_OF_YEAR:
-            case MONTH:
-// *        case DAY_OF_WEEK_1:
-// *        case WEEK_OF_YEAR_SUNDAY:
-// *        case WEEK_OF_YEAR_MONDAY_01:
-// *        case DAY_OF_WEEK_0:
-// *        case WEEK_OF_YEAR_MONDAY:
-            case YEAR_2:
-            case YEAR_4:
-
-            // Composites
-            case TIME_12_HOUR:
-            case TIME_24_HOUR:
-// *        case LOCALE_TIME:
-            case DATE_TIME:
-            case DATE:
-            case ISO_STANDARD_DATE:
-// *        case LOCALE_DATE:
-                return true;
-            default:
-                return false;
-            }
+            return switch (c) {
+                case HOUR_OF_DAY_0, HOUR_0, HOUR_OF_DAY, HOUR, MINUTE, NANOSECOND, MILLISECOND, MILLISECOND_SINCE_EPOCH,
+                     AM_PM, SECONDS_SINCE_EPOCH, SECOND, TIME, ZONE_NUMERIC, ZONE -> true;
+                // Date
+                case NAME_OF_DAY_ABBREV, NAME_OF_DAY, NAME_OF_MONTH_ABBREV, NAME_OF_MONTH, CENTURY, DAY_OF_MONTH_0,
+                     DAY_OF_MONTH, NAME_OF_MONTH_ABBREV_X, DAY_OF_YEAR, MONTH, YEAR_2, YEAR_4 -> true;
+                // Composites
+                case TIME_12_HOUR, TIME_24_HOUR, DATE_TIME, DATE, ISO_STANDARD_DATE -> true;
+                default -> false;
+            };
         }
     }
 }

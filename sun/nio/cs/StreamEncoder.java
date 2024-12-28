@@ -126,6 +126,18 @@ public class StreamEncoder extends Writer
         }
     }
 
+    public void write(CharBuffer cb) throws IOException {
+        int position = cb.position();
+        try {
+            synchronized (lock) {
+                ensureOpen();
+                implWrite(cb);
+            }
+        } finally {
+            cb.position(position);
+        }
+    }
+
     public void write(String str, int off, int len) throws IOException {
         /* Check the len before creating a char buffer */
         if (len < 0)
@@ -259,30 +271,36 @@ public class StreamEncoder extends Writer
         haveLeftoverChar = false;
     }
 
-    void implWrite(char cbuf[], int off, int len)
-        throws IOException
+    void implWrite(char[] cbuf, int off, int len)
+            throws IOException
     {
         CharBuffer cb = CharBuffer.wrap(cbuf, off, len);
+        implWrite(cb);
+    }
 
-        if (haveLeftoverChar)
-        flushLeftoverChar(cb, false);
+    void implWrite(CharBuffer cb)
+            throws IOException
+    {
+        if (haveLeftoverChar) {
+            flushLeftoverChar(cb, false);
+        }
 
         while (cb.hasRemaining()) {
-        CoderResult cr = encoder.encode(cb, bb, false);
-        if (cr.isUnderflow()) {
-           assert (cb.remaining() <= 1) : cb.remaining();
-           if (cb.remaining() == 1) {
-                haveLeftoverChar = true;
-                leftoverChar = cb.get();
+            CoderResult cr = encoder.encode(cb, bb, false);
+            if (cr.isUnderflow()) {
+                assert (cb.remaining() <= 1) : cb.remaining();
+                if (cb.remaining() == 1) {
+                    haveLeftoverChar = true;
+                    leftoverChar = cb.get();
+                }
+                break;
             }
-            break;
-        }
-        if (cr.isOverflow()) {
-            assert bb.position() > 0;
-            writeBytes();
-            continue;
-        }
-        cr.throwException();
+            if (cr.isOverflow()) {
+                assert bb.position() > 0;
+                writeBytes();
+                continue;
+            }
+            cr.throwException();
         }
     }
 

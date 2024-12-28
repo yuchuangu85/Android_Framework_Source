@@ -446,6 +446,7 @@ public class SimPhonebookRecordCache extends Handler {
                 notifyAdnLoadingWaiters();
                 tryFireUpdatePendingList();
             } else {
+                notifyAdnLoadingWaiters();
                 logd("ADN capacity is invalid");
             }
             mIsInitialized.set(true); // Let's say the whole process is ready
@@ -455,6 +456,9 @@ public class SimPhonebookRecordCache extends Handler {
                 mIsCacheInvalidated.set(false);
                 notifyAdnLoadingWaiters();
                 tryFireUpdatePendingList();
+            } else if (!newCapacity.isSimValid()) {
+                mIsCacheInvalidated.set(false);
+                notifyAdnLoadingWaiters();
             } else if (!mIsUpdateDone && !newCapacity.isSimEmpty()) {
                 invalidateSimPbCache();
                 fillCacheWithoutWaiting();

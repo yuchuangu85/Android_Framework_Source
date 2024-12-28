@@ -70,4 +70,30 @@ public interface UceRequest {
      * Execute the request.
      */
     void executeRequest();
+
+    /**
+     * @return The number of retries for the current request.
+     */
+    default int getRetryCount() {
+        return 0;
+    };
+
+    /**
+     * Set the number of retries for the current request.
+     */
+    default void setRetryCount(int retries) {
+    };
+
+    /**
+     * @return The whether to allow request retry.
+     */
+    default boolean isRetryEnabled() {
+        return false;
+    };
+
+    /**
+     * Set whether to allow request retry.
+     */
+    default void setRetryEnabled(boolean enabled) {
+    };
 }

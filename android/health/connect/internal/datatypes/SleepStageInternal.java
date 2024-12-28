@@ -46,6 +46,7 @@ public final class SleepStageInternal {
                 .setStageType(parcel.readInt());
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     static List<SleepStageInternal> populateStagesFromParcel(Parcel parcel) {
         int size = parcel.readInt();
         if (size == 0) {

@@ -114,6 +114,17 @@ public final class Compatibility {
     }
 
     /**
+     * Return the behavior change delegate
+     *
+     * @hide
+     */
+    // VisibleForTesting
+    @NonNull
+    public static BehaviorChangeDelegate getBehaviorChangeDelegate() {
+        return sCallbacks;
+    }
+
+    /**
      * For use by tests only. Causes values from {@code overrides} to be returned instead of the
      * real value.
      *
@@ -175,7 +186,8 @@ public final class Compatibility {
         @SystemApi(client = MODULE_LIBRARIES)
         default boolean isChangeEnabled(long changeId) {
             // Do not use String.format here (b/160912695)
-            System.logW("No Compatibility callbacks set! Querying change " + changeId);
+            // TODO(b/289900411): Rate limit this log if it's necessary in the release build.
+            // System.logW("No Compatibility callbacks set! Querying change " + changeId);
             return true;
         }
     }

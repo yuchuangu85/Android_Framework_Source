@@ -20,7 +20,13 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.Bundle;
 
-/** Exception thrown by {@link SdkSandboxManager#requestSurfacePackage} */
+/**
+ * Exception thrown by {@link SdkSandboxManager#requestSurfacePackage}
+ *
+ * @deprecated Exception is used at {@link SdkSandboxManager#requestSurfacePackage} which is getting
+ *     deprecated.
+ */
+@Deprecated
 public final class RequestSurfacePackageException extends Exception {
 
     private final @SdkSandboxManager.RequestSurfacePackageErrorCode int

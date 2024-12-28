@@ -16,35 +16,38 @@
 
 package android.app.appsearch;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
-import android.app.appsearch.util.BundleUtil;
-import android.os.Bundle;
+import android.app.appsearch.flags.Flags;
+import android.app.appsearch.safeparcel.AbstractSafeParcelable;
+import android.app.appsearch.safeparcel.SafeParcelable;
+import android.os.Parcel;
+import android.os.Parcelable;
 
 import com.android.internal.util.Preconditions;
 
 import java.util.Objects;
 
 /** The result class of the {@link AppSearchSession#searchSuggestion}. */
-public final class SearchSuggestionResult {
+@SafeParcelable.Class(creator = "SearchSuggestionResultCreator")
+@SuppressWarnings("HiddenSuperclass")
+public final class SearchSuggestionResult extends AbstractSafeParcelable {
 
-    private static final String SUGGESTED_RESULT_FIELD = "suggestedResult";
-    private final Bundle mBundle;
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @NonNull
+    public static final Parcelable.Creator<SearchSuggestionResult> CREATOR =
+            new SearchSuggestionResultCreator();
+
+    @Field(id = 1, getter = "getSuggestedResult")
+    private final String mSuggestedResult;
+
     @Nullable private Integer mHashCode;
 
-    SearchSuggestionResult(@NonNull Bundle bundle) {
-        mBundle = Objects.requireNonNull(bundle);
-    }
-
-    /**
-     * Returns the {@link Bundle} populated by this builder.
-     *
-     * @hide
-     */
-    @NonNull
-    public Bundle getBundle() {
-        return mBundle;
+    @Constructor
+    SearchSuggestionResult(@Param(id = 1) String suggestedResult) {
+        mSuggestedResult = Objects.requireNonNull(suggestedResult);
     }
 
     /**
@@ -57,7 +60,7 @@ public final class SearchSuggestionResult {
      */
     @NonNull
     public String getSuggestedResult() {
-        return Objects.requireNonNull(mBundle.getString(SUGGESTED_RESULT_FIELD));
+        return mSuggestedResult;
     }
 
     @Override
@@ -69,13 +72,13 @@ public final class SearchSuggestionResult {
             return false;
         }
         SearchSuggestionResult otherResult = (SearchSuggestionResult) other;
-        return BundleUtil.deepEquals(this.mBundle, otherResult.mBundle);
+        return mSuggestedResult.equals(otherResult.mSuggestedResult);
     }
 
     @Override
     public int hashCode() {
         if (mHashCode == null) {
-            mHashCode = BundleUtil.deepHashCode(mBundle);
+            mHashCode = mSuggestedResult.hashCode();
         }
         return mHashCode;
     }
@@ -102,9 +105,13 @@ public final class SearchSuggestionResult {
         /** Build a {@link SearchSuggestionResult} object */
         @NonNull
         public SearchSuggestionResult build() {
-            Bundle bundle = new Bundle();
-            bundle.putString(SUGGESTED_RESULT_FIELD, mSuggestedResult);
-            return new SearchSuggestionResult(bundle);
+            return new SearchSuggestionResult(mSuggestedResult);
         }
+    }
+
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        SearchSuggestionResultCreator.writeToParcel(this, dest, flags);
     }
 }

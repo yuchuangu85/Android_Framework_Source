@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash 2f49c78011338b42b43d5d0e250d9b520850cc1f -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen/android/hardware/thermal/IThermal.java.d -o out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen -Nhardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2 hardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2/android/hardware/thermal/IThermal.aidl
  */
 package android.hardware.thermal;
 /** @hide */
@@ -11,8 +12,8 @@ public interface IThermal extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 1;
-  public static final String HASH = "76e77ca374a7860f09aeac48e98b2ec61f576767";
+  public static final int VERSION = 2;
+  public static final String HASH = "2f49c78011338b42b43d5d0e250d9b520850cc1f";
   /** Default implementation for IThermal. */
   public static class Default implements android.hardware.thermal.IThermal
   {
@@ -49,6 +50,12 @@ public interface IThermal extends android.os.IInterface
     @Override public void unregisterThermalChangedCallback(android.hardware.thermal.IThermalChangedCallback callback) throws android.os.RemoteException
     {
     }
+    @Override public void registerCoolingDeviceChangedCallbackWithType(android.hardware.thermal.ICoolingDeviceChangedCallback callback, int type) throws android.os.RemoteException
+    {
+    }
+    @Override public void unregisterCoolingDeviceChangedCallback(android.hardware.thermal.ICoolingDeviceChangedCallback callback) throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -66,6 +73,7 @@ public interface IThermal extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.thermal.IThermal
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -131,6 +139,14 @@ public interface IThermal extends android.os.IInterface
         {
           return "unregisterThermalChangedCallback";
         }
+        case TRANSACTION_registerCoolingDeviceChangedCallbackWithType:
+        {
+          return "registerCoolingDeviceChangedCallbackWithType";
+        }
+        case TRANSACTION_unregisterCoolingDeviceChangedCallback:
+        {
+          return "unregisterCoolingDeviceChangedCallback";
+        }
         case TRANSACTION_getInterfaceVersion:
         {
           return "getInterfaceVersion";
@@ -156,25 +172,19 @@ public interface IThermal extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -255,6 +265,26 @@ public interface IThermal extends android.os.IInterface
           _arg0 = android.hardware.thermal.IThermalChangedCallback.Stub.asInterface(data.readStrongBinder());
           data.enforceNoDataAvail();
           this.unregisterThermalChangedCallback(_arg0);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_registerCoolingDeviceChangedCallbackWithType:
+        {
+          android.hardware.thermal.ICoolingDeviceChangedCallback _arg0;
+          _arg0 = android.hardware.thermal.ICoolingDeviceChangedCallback.Stub.asInterface(data.readStrongBinder());
+          int _arg1;
+          _arg1 = data.readInt();
+          data.enforceNoDataAvail();
+          this.registerCoolingDeviceChangedCallbackWithType(_arg0, _arg1);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_unregisterCoolingDeviceChangedCallback:
+        {
+          android.hardware.thermal.ICoolingDeviceChangedCallback _arg0;
+          _arg0 = android.hardware.thermal.ICoolingDeviceChangedCallback.Stub.asInterface(data.readStrongBinder());
+          data.enforceNoDataAvail();
+          this.unregisterCoolingDeviceChangedCallback(_arg0);
           reply.writeNoException();
           break;
         }
@@ -460,6 +490,43 @@ public interface IThermal extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void registerCoolingDeviceChangedCallbackWithType(android.hardware.thermal.ICoolingDeviceChangedCallback callback, int type) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeStrongInterface(callback);
+          _data.writeInt(type);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_registerCoolingDeviceChangedCallbackWithType, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method registerCoolingDeviceChangedCallbackWithType is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
+      @Override public void unregisterCoolingDeviceChangedCallback(android.hardware.thermal.ICoolingDeviceChangedCallback callback) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeStrongInterface(callback);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_unregisterCoolingDeviceChangedCallback, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method unregisterCoolingDeviceChangedCallback is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -504,6 +571,8 @@ public interface IThermal extends android.os.IInterface
     static final int TRANSACTION_registerThermalChangedCallback = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
     static final int TRANSACTION_registerThermalChangedCallbackWithType = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
     static final int TRANSACTION_unregisterThermalChangedCallback = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
+    static final int TRANSACTION_registerCoolingDeviceChangedCallbackWithType = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
+    static final int TRANSACTION_unregisterCoolingDeviceChangedCallback = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
     /** @hide */
@@ -512,6 +581,7 @@ public interface IThermal extends android.os.IInterface
       return 16777214;
     }
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$thermal$IThermal".replace('$', '.');
   public android.hardware.thermal.CoolingDevice[] getCoolingDevices() throws android.os.RemoteException;
   public android.hardware.thermal.CoolingDevice[] getCoolingDevicesWithType(int type) throws android.os.RemoteException;
@@ -522,6 +592,8 @@ public interface IThermal extends android.os.IInterface
   public void registerThermalChangedCallback(android.hardware.thermal.IThermalChangedCallback callback) throws android.os.RemoteException;
   public void registerThermalChangedCallbackWithType(android.hardware.thermal.IThermalChangedCallback callback, int type) throws android.os.RemoteException;
   public void unregisterThermalChangedCallback(android.hardware.thermal.IThermalChangedCallback callback) throws android.os.RemoteException;
+  public void registerCoolingDeviceChangedCallbackWithType(android.hardware.thermal.ICoolingDeviceChangedCallback callback, int type) throws android.os.RemoteException;
+  public void unregisterCoolingDeviceChangedCallback(android.hardware.thermal.ICoolingDeviceChangedCallback callback) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

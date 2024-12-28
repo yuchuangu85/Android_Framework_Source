@@ -19,12 +19,14 @@ package com.android.internal.telephony;
 import static android.telephony.TelephonyManager.HAL_SERVICE_MODEM;
 
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_HARDWARE_CONFIG_CHANGED;
+import static com.android.internal.telephony.RILConstants.RIL_UNSOL_IMEI_MAPPING_CHANGED;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_MODEM_RESTART;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_RADIO_CAPABILITY;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_RESPONSE_RADIO_STATE_CHANGED;
 import static com.android.internal.telephony.RILConstants.RIL_UNSOL_RIL_CONNECTED;
 
 import android.hardware.radio.modem.IRadioModemIndication;
+import android.hardware.radio.modem.ImeiInfo;
 import android.os.AsyncResult;
 
 import java.util.ArrayList;
@@ -131,5 +133,19 @@ public class ModemIndication extends IRadioModemIndication.Stub {
     @Override
     public int getInterfaceVersion() {
         return IRadioModemIndication.VERSION;
+    }
+
+    /**
+     * Indicates when there is a change in the IMEI with respect to the sim slot.
+     *
+     * @param imeiInfo IMEI information
+     */
+    public void onImeiMappingChanged(int indicationType, ImeiInfo imeiInfo) {
+        mRil.processIndication(HAL_SERVICE_MODEM, indicationType);
+
+        if (mRil.isLogOrTrace()) {
+            mRil.unsljLogMore(RIL_UNSOL_IMEI_MAPPING_CHANGED, "ImeiMappingChanged");
+        }
+        mRil.notifyRegistrantsImeiMappingChanged(imeiInfo);
     }
 }

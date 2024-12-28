@@ -92,4 +92,14 @@ public class AdId {
     public int hashCode() {
         return Objects.hash(mAdId, mLimitAdTrackingEnabled);
     }
+
+    @Override
+    public String toString() {
+        return "AdId{"
+                + "mAdId="
+                + mAdId
+                + ", mLimitAdTrackingEnabled='"
+                + mLimitAdTrackingEnabled
+                + '}';
+    }
 }

@@ -23,20 +23,21 @@ import android.content.AttributionSource;
 import java.util.List;
 
 /**
- * Marker interface for a class which can have an {@link AttributionSource}
- * assigned to it; these are typically {@link android.os.Parcelable} classes
- * which need to be updated after crossing Binder transaction boundaries.
+ * Marker interface for a class which can have an {@link AttributionSource} assigned to it; these
+ * are typically {@link android.os.Parcelable} classes which need to be updated after crossing
+ * Binder transaction boundaries.
  *
  * @hide
  */
 public interface Attributable {
     /** @hide */
+    @SuppressWarnings("AmbiguousMethodReference")
     void setAttributionSource(@NonNull AttributionSource attributionSource);
 
     /** @hide */
+    @SuppressWarnings("AmbiguousMethodReference")
     static @Nullable <T extends Attributable> T setAttributionSource(
-            @Nullable T attributable,
-            @NonNull AttributionSource attributionSource) {
+            @Nullable T attributable, @NonNull AttributionSource attributionSource) {
         if (attributable != null) {
             attributable.setAttributionSource(attributionSource);
         }
@@ -45,8 +46,7 @@ public interface Attributable {
 
     /** @hide */
     static @Nullable <T extends Attributable> List<T> setAttributionSource(
-            @Nullable List<T> attributableList,
-            @NonNull AttributionSource attributionSource) {
+            @Nullable List<T> attributableList, @NonNull AttributionSource attributionSource) {
         if (attributableList != null) {
             final int size = attributableList.size();
             for (int i = 0; i < size; i++) {

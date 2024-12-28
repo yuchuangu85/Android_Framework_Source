@@ -46,6 +46,7 @@ public final class RecordIdFiltersParcel implements Parcelable {
         mRecordIdFilters = recordIdFilters;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private RecordIdFiltersParcel(Parcel in) {
         int size = in.readInt();
         mRecordIdFilters = new ArrayList<>(size);

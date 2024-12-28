@@ -15,6 +15,7 @@
  */
 package com.android.adservices;
 
+import android.annotation.Nullable;
 import android.content.Context;
 import android.os.IBinder;
 
@@ -28,7 +29,10 @@ import java.util.function.Function;
  * @hide
  */
 public abstract class ServiceBinder<T> {
+
+    // TODO(b/336558146): document when it returns null or throws ServiceUnavailableException
     /** Get the binder service. */
+    @Nullable
     public abstract T getService();
 
     /**

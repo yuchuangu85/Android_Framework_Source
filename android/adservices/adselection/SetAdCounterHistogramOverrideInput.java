@@ -16,7 +16,6 @@
 
 package android.adservices.adselection;
 
-import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_AD_COUNTER_KEY_MESSAGE;
 import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_BUYER_MESSAGE;
 import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_CUSTOM_AUDIENCE_NAME_MESSAGE;
 import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_CUSTOM_AUDIENCE_OWNER_MESSAGE;
@@ -50,7 +49,7 @@ import java.util.Objects;
  */
 public final class SetAdCounterHistogramOverrideInput implements Parcelable {
     @FrequencyCapFilters.AdEventType private final int mAdEventType;
-    @NonNull private final String mAdCounterKey;
+    private final int mAdCounterKey;
     @NonNull private final List<Instant> mHistogramTimestamps;
     @NonNull private final AdTechIdentifier mBuyer;
     @NonNull private final String mCustomAudienceOwner;
@@ -87,7 +86,7 @@ public final class SetAdCounterHistogramOverrideInput implements Parcelable {
         Objects.requireNonNull(in);
 
         mAdEventType = in.readInt();
-        mAdCounterKey = in.readString();
+        mAdCounterKey = in.readInt();
         mHistogramTimestamps = AdServicesParcelableUtil.readInstantListFromParcel(in);
         mBuyer = AdTechIdentifier.fromString(in.readString());
         mCustomAudienceOwner = in.readString();
@@ -116,7 +115,7 @@ public final class SetAdCounterHistogramOverrideInput implements Parcelable {
      * represent a grouping to filter on.
      */
     @NonNull
-    public String getAdCounterKey() {
+    public int getAdCounterKey() {
         return mAdCounterKey;
     }
 
@@ -185,9 +184,9 @@ public final class SetAdCounterHistogramOverrideInput implements Parcelable {
         return "SetAdCounterHistogramOverrideInput{"
                 + "mAdEventType="
                 + mAdEventType
-                + ", mAdCounterKey='"
+                + ", mAdCounterKey="
                 + mAdCounterKey
-                + "', mHistogramTimestamps="
+                + ", mHistogramTimestamps="
                 + mHistogramTimestamps
                 + ", mBuyer="
                 + mBuyer
@@ -203,7 +202,7 @@ public final class SetAdCounterHistogramOverrideInput implements Parcelable {
         Objects.requireNonNull(dest);
 
         dest.writeInt(mAdEventType);
-        dest.writeString(mAdCounterKey);
+        dest.writeInt(mAdCounterKey);
         AdServicesParcelableUtil.writeInstantListToParcel(dest, mHistogramTimestamps);
         dest.writeString(mBuyer.toString());
         dest.writeString(mCustomAudienceOwner);
@@ -213,7 +212,7 @@ public final class SetAdCounterHistogramOverrideInput implements Parcelable {
     /** Builder for {@link SetAdCounterHistogramOverrideInput} objects. */
     public static final class Builder {
         @FrequencyCapFilters.AdEventType private int mAdEventType = AD_EVENT_TYPE_INVALID;
-        @Nullable private String mAdCounterKey;
+        private int mAdCounterKey;
         @NonNull private List<Instant> mHistogramTimestamps = new ArrayList<>();
         @Nullable private AdTechIdentifier mBuyer;
         @Nullable private String mCustomAudienceOwner;
@@ -238,8 +237,7 @@ public final class SetAdCounterHistogramOverrideInput implements Parcelable {
          * <p>See {@link #getAdCounterKey()} for more information.
          */
         @NonNull
-        public Builder setAdCounterKey(@NonNull String adCounterKey) {
-            Objects.requireNonNull(adCounterKey, NULL_AD_COUNTER_KEY_MESSAGE);
+        public Builder setAdCounterKey(int adCounterKey) {
             mAdCounterKey = adCounterKey;
             return this;
         }
@@ -305,7 +303,6 @@ public final class SetAdCounterHistogramOverrideInput implements Parcelable {
                 throws NullPointerException, IllegalArgumentException {
             Preconditions.checkArgument(
                     mAdEventType != AD_EVENT_TYPE_INVALID, UNSET_AD_EVENT_TYPE_MESSAGE);
-            Objects.requireNonNull(mAdCounterKey, NULL_AD_COUNTER_KEY_MESSAGE);
             Objects.requireNonNull(mBuyer, NULL_BUYER_MESSAGE);
             Objects.requireNonNull(mCustomAudienceOwner, NULL_CUSTOM_AUDIENCE_OWNER_MESSAGE);
             Objects.requireNonNull(mCustomAudienceName, NULL_CUSTOM_AUDIENCE_NAME_MESSAGE);

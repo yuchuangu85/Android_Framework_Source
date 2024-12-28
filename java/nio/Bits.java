@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -28,8 +28,11 @@ package java.nio;
 
 import java.security.AccessController;
 
-import sun.misc.Unsafe;
 import sun.misc.VM;
+import jdk.internal.access.SharedSecrets;
+import jdk.internal.misc.Unsafe;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Access to bits, native and otherwise.
@@ -58,7 +61,7 @@ class Bits {                            // package-private
         return Long.reverseBytes(x);
     }
 
-
+    // BEGIN Android-added: Getter / Setters needed due to unsupported ScopedMemoryAccess.
     // -- get/put char --
 
     static private char makeChar(byte b1, byte b0) {
@@ -544,85 +547,40 @@ class Bits {                            // package-private
             putDoubleL(a, x);
     }
 
-
-    // -- Unsafe access --
-
-    private static final Unsafe unsafe = Unsafe.getUnsafe();
-
     private static byte _get(long a) {
-        return unsafe.getByte(a);
+        return UNSAFE.getByte(a);
     }
 
     private static void _put(long a, byte b) {
-        unsafe.putByte(a, b);
+        UNSAFE.putByte(a, b);
     }
+    // END Android-added: Getter / Setters needed due to unsupported ScopedMemoryAccess.
 
-    static Unsafe unsafe() {
-        return unsafe;
-    }
+    // -- Unsafe access --
 
+    private static final Unsafe UNSAFE = Unsafe.getUnsafe();
 
     // -- Processor and memory-system properties --
 
-    private static final ByteOrder byteOrder;
-
-    static ByteOrder byteOrder() {
-        // Android-removed: Android is always little-endian.
-        /*
-        if (byteOrder == null)
-            throw new Error("Unknown byte order");
-        */
-        return byteOrder;
-    }
-
-    static {
-        // BEGIN Android-changed: Android is always little-endian.
-        /*
-        long a = unsafe.allocateMemory(8);
-        try {
-            unsafe.putLong(a, 0x0102030405060708L);
-            byte b = unsafe.getByte(a);
-            switch (b) {
-            case 0x01: byteOrder = ByteOrder.BIG_ENDIAN;     break;
-            case 0x08: byteOrder = ByteOrder.LITTLE_ENDIAN;  break;
-            default:
-                assert false;
-                byteOrder = null;
-            }
-        } finally {
-            unsafe.freeMemory(a);
-        }
-        */
-        byteOrder = ByteOrder.LITTLE_ENDIAN;
-        // END Android-changed: Android is always little-endian.
-    }
-
-
-    private static int pageSize = -1;
+    private static int PAGE_SIZE = -1;
 
     static int pageSize() {
-        if (pageSize == -1)
-            pageSize = unsafe().pageSize();
-        return pageSize;
+        if (PAGE_SIZE == -1)
+            PAGE_SIZE = UNSAFE.pageSize();
+        return PAGE_SIZE;
     }
 
-    static int pageCount(long size) {
-        return (int)(size + (long)pageSize() - 1L) / pageSize();
+    static long pageCount(long size) {
+        return (size + (long)pageSize() - 1L) / pageSize();
     }
-
-    private static boolean unaligned;
-    private static boolean unalignedKnown = false;
+    // Android-removed: Remove unused methods.
+    /*
+    private static boolean UNALIGNED = UNSAFE.unalignedAccess();
 
     static boolean unaligned() {
-        if (unalignedKnown)
-            return unaligned;
-        String arch = AccessController.doPrivileged(
-            new sun.security.action.GetPropertyAction("os.arch"));
-        unaligned = arch.equals("i386") || arch.equals("x86")
-            || arch.equals("amd64") || arch.equals("x86_64");
-        unalignedKnown = true;
-        return unaligned;
+        return UNALIGNED;
     }
+    */
 
 
     // -- Direct memory management --
@@ -632,11 +590,12 @@ class Bits {                            // package-private
     // A user-settable upper limit on the maximum amount of allocatable
     // direct buffer memory.  This value may be changed during VM
     // initialization if it is launched with "-XX:MaxDirectMemorySize=<size>".
-    private static volatile long maxMemory = VM.maxDirectMemory();
-    private static final AtomicLong reservedMemory = new AtomicLong();
-    private static final AtomicLong totalCapacity = new AtomicLong();
-    private static final AtomicLong count = new AtomicLong();
-    private static volatile boolean memoryLimitSet = false;
+    private static volatile long MAX_MEMORY = VM.maxDirectMemory();
+    private static final AtomicLong RESERVED_MEMORY = new AtomicLong();
+    private static final AtomicLong TOTAL_CAPACITY = new AtomicLong();
+    private static final AtomicLong COUNT = new AtomicLong();
+    private static volatile boolean MEMORY_LIMIT_SET;
+
     // max. number of sleeps during try-reserving with exponentially
     // increasing delay before throwing OutOfMemoryError:
     // 1, 2, 4, 8, 16, 32, 64, 128, 256 (total 511 ms ~ 0.5 s)
@@ -646,11 +605,11 @@ class Bits {                            // package-private
     // These methods should be called whenever direct memory is allocated or
     // freed.  They allow the user to control the amount of direct memory
     // which a process may access.  All sizes are specified in bytes.
-    static void reserveMemory(long size, int cap) {
+    static void reserveMemory(long size, long cap) {
 
-        if (!memoryLimitSet && VM.isBooted()) {
-            maxMemory = VM.maxDirectMemory();
-            memoryLimitSet = true;
+        if (!MEMORY_LIMIT_SET && VM.initLevel() >= 1) {
+            MAX_MEMORY = VM.maxDirectMemory();
+            MEMORY_LIMIT_SET = true;
         }
 
         // optimist!
@@ -659,23 +618,38 @@ class Bits {                            // package-private
         }
 
         final JavaLangRefAccess jlra = SharedSecrets.getJavaLangRefAccess();
-
-        // retry while helping enqueue pending Reference objects
-        // which includes executing pending Cleaner(s) which includes
-        // Cleaner(s) that free direct buffer memory
-        while (jlra.tryHandlePendingReference()) {
-            if (tryReserveMemory(size, cap)) {
-                return;
-            }
-        }
-
-        // trigger VM's Reference processing
-        System.gc();
-
-        // a retry loop with exponential back-off delays
-        // (this gives VM some time to do it's job)
         boolean interrupted = false;
         try {
+
+            // Retry allocation until success or there are no more
+            // references (including Cleaners that might free direct
+            // buffer memory) to process and allocation still fails.
+            boolean refprocActive;
+            do {
+                try {
+                    refprocActive = jlra.waitForReferenceProcessing();
+                } catch (InterruptedException e) {
+                    // Defer interrupts and keep trying.
+                    interrupted = true;
+                    refprocActive = true;
+                }
+                if (tryReserveMemory(size, cap)) {
+                    return;
+                }
+            } while (refprocActive);
+
+            // trigger VM's Reference processing
+            System.gc();
+
+            // A retry loop with exponential back-off delays.
+            // Sometimes it would suffice to give up once reference
+            // processing is complete.  But if there are many threads
+            // competing for memory, this gives more opportunities for
+            // any given thread to make progress.  In particular, this
+            // seems to be enough for a stress test like
+            // DirectBufferAllocTest to (usually) succeed, while
+            // without it that test likely fails.  Since failure here
+            // ends in OOME, there's no need to hurry.
             long sleepTime = 1;
             int sleeps = 0;
             while (true) {
@@ -685,19 +659,22 @@ class Bits {                            // package-private
                 if (sleeps >= MAX_SLEEPS) {
                     break;
                 }
-                if (!jlra.tryHandlePendingReference()) {
-                    try {
+                try {
+                    if (!jlra.waitForReferenceProcessing()) {
                         Thread.sleep(sleepTime);
                         sleepTime <<= 1;
                         sleeps++;
-                    } catch (InterruptedException e) {
-                        interrupted = true;
                     }
+                } catch (InterruptedException e) {
+                    interrupted = true;
                 }
             }
 
             // no luck
-            throw new OutOfMemoryError("Direct buffer memory");
+            throw new OutOfMemoryError
+                ("Cannot reserve "
+                 + size + " bytes of direct buffer memory (allocated: "
+                 + RESERVED_MEMORY.get() + ", limit: " + MAX_MEMORY +")");
 
         } finally {
             if (interrupted) {
@@ -707,16 +684,16 @@ class Bits {                            // package-private
         }
     }
 
-    private static boolean tryReserveMemory(long size, int cap) {
+    private static boolean tryReserveMemory(long size, long cap) {
 
         // -XX:MaxDirectMemorySize limits the total capacity rather than the
         // actual memory usage, which will differ when buffers are page
         // aligned.
         long totalCap;
-        while (cap <= maxMemory - (totalCap = totalCapacity.get())) {
-            if (totalCapacity.compareAndSet(totalCap, totalCap + cap)) {
-                reservedMemory.addAndGet(size);
-                count.incrementAndGet();
+        while (cap <= MAX_MEMORY - (totalCap = TOTAL_CAPACITY.get())) {
+            if (TOTAL_CAPACITY.compareAndSet(totalCap, totalCap + cap)) {
+                RESERVED_MEMORY.addAndGet(size);
+                COUNT.incrementAndGet();
                 return true;
             }
         }
@@ -725,157 +702,37 @@ class Bits {                            // package-private
     }
 
 
-    static void unreserveMemory(long size, int cap) {
-        long cnt = count.decrementAndGet();
-        long reservedMem = reservedMemory.addAndGet(-size);
-        long totalCap = totalCapacity.addAndGet(-cap);
+    static void unreserveMemory(long size, long cap) {
+        long cnt = COUNT.decrementAndGet();
+        long reservedMem = RESERVED_MEMORY.addAndGet(-size);
+        long totalCap = TOTAL_CAPACITY.addAndGet(-cap);
         assert cnt >= 0 && reservedMem >= 0 && totalCap >= 0;
     }
-    */
-    // END Android-removed: Direct memory management unused on Android.
 
-    // -- Monitoring of direct buffer usage --
-
-    // BEGIN Android-removed: Remove support for java.lang.management.
-    /*
-    static {
-        // setup access to this package in SharedSecrets
-        sun.misc.SharedSecrets.setJavaNioAccess(
-            new sun.misc.JavaNioAccess() {
-                @Override
-                public sun.misc.JavaNioAccess.BufferPool getDirectBufferPool() {
-                    return new sun.misc.JavaNioAccess.BufferPool() {
-                        @Override
-                        public String getName() {
-                            return "direct";
-                        }
-                        @Override
-                        public long getCount() {
-                            return Bits.count.get();
-                        }
-                        @Override
-                        public long getTotalCapacity() {
-                            return Bits.totalCapacity.get();
-                        }
-                        @Override
-                        public long getMemoryUsed() {
-                            return Bits.reservedMemory.get();
-                        }
-                    };
-                }
-                @Override
-                public ByteBuffer newDirectByteBuffer(long addr, int cap, Object ob) {
-                    return new DirectByteBuffer(addr, cap, ob);
-                }
-                @Override
-                public void truncate(Buffer buf) {
-                    buf.truncate();
-                }
-        });
-    }
-    */
-    // END Android-removed: Remove support for java.lang.management.
-
-    // BEGIN Android-removed: Bulk get/put methods are unused on Android.
-    /*
-
-    // -- Bulk get/put acceleration --
+    static final BufferPool BUFFER_POOL = new BufferPool() {
+        @Override
+        public String getName() {
+            return "direct";
+        }
+        @Override
+        public long getCount() {
+            return Bits.COUNT.get();
+        }
+        @Override
+        public long getTotalCapacity() {
+            return Bits.TOTAL_CAPACITY.get();
+        }
+        @Override
+        public long getMemoryUsed() {
+            return Bits.RESERVED_MEMORY.get();
+        }
+    };
 
     // These numbers represent the point at which we have empirically
     // determined that the average cost of a JNI call exceeds the expense
     // of an element by element copy.  These numbers may change over time.
     static final int JNI_COPY_TO_ARRAY_THRESHOLD   = 6;
     static final int JNI_COPY_FROM_ARRAY_THRESHOLD = 6;
-
-    // This number limits the number of bytes to copy per call to Unsafe's
-    // copyMemory method. A limit is imposed to allow for safepoint polling
-    // during a large copy
-    static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
-
-    // These methods do no bounds checking.  Verification that the copy will not
-    // result in memory corruption should be done prior to invocation.
-    // All positions and lengths are specified in bytes.
-
-    /**
-     * Copy from given source array to destination address.
-     *
-     * @param   src
-     *          source array
-     * @param   srcBaseOffset
-     *          offset of first element of storage in source array
-     * @param   srcPos
-     *          offset within source array of the first element to read
-     * @param   dstAddr
-     *          destination address
-     * @param   length
-     *          number of bytes to copy
-     *
-    static void copyFromArray(Object src, long srcBaseOffset, long srcPos,
-                              long dstAddr, long length)
-    {
-        long offset = srcBaseOffset + srcPos;
-        while (length > 0) {
-            long size = (length > UNSAFE_COPY_THRESHOLD) ? UNSAFE_COPY_THRESHOLD : length;
-            unsafe.copyMemory(src, offset, null, dstAddr, size);
-            length -= size;
-            offset += size;
-            dstAddr += size;
-        }
-    }
-
-    /**
-     * Copy from source address into given destination array.
-     *
-     * @param   srcAddr
-     *          source address
-     * @param   dst
-     *          destination array
-     * @param   dstBaseOffset
-     *          offset of first element of storage in destination array
-     * @param   dstPos
-     *          offset within destination array of the first element to write
-     * @param   length
-     *          number of bytes to copy
-     *
-    static void copyToArray(long srcAddr, Object dst, long dstBaseOffset, long dstPos,
-                            long length)
-    {
-        long offset = dstBaseOffset + dstPos;
-        while (length > 0) {
-            long size = (length > UNSAFE_COPY_THRESHOLD) ? UNSAFE_COPY_THRESHOLD : length;
-            unsafe.copyMemory(null, srcAddr, dst, offset, size);
-            length -= size;
-            srcAddr += size;
-            offset += size;
-        }
-    }
-
-    static void copyFromCharArray(Object src, long srcPos, long dstAddr,
-                                  long length)
-    {
-        copyFromShortArray(src, srcPos, dstAddr, length);
-    }
-
-    static void copyToCharArray(long srcAddr, Object dst, long dstPos,
-                                long length)
-    {
-        copyToShortArray(srcAddr, dst, dstPos, length);
-    }
-
-    static native void copyFromShortArray(Object src, long srcPos, long dstAddr,
-                                          long length);
-    static native void copyToShortArray(long srcAddr, Object dst, long dstPos,
-                                        long length);
-
-    static native void copyFromIntArray(Object src, long srcPos, long dstAddr,
-                                        long length);
-    static native void copyToIntArray(long srcAddr, Object dst, long dstPos,
-                                      long length);
-
-    static native void copyFromLongArray(Object src, long srcPos, long dstAddr,
-                                         long length);
-    static native void copyToLongArray(long srcAddr, Object dst, long dstPos,
-                                       long length);
     */
-    // END Android-removed: Bulk get/put methods are unused on Android.
+    // END Android-removed: Direct memory management unused on Android.
 }

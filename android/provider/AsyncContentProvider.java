@@ -37,7 +37,7 @@ import java.util.concurrent.TimeoutException;
  */
 public final class AsyncContentProvider {
 
-    private static final long TIMEOUT_IN_SECONDS = 5L;
+    private static final long TIMEOUT_IN_MINUTES = 3L;
 
     private final IAsyncContentProvider mAsyncContentProvider;
 
@@ -53,7 +53,7 @@ public final class AsyncContentProvider {
         CompletableFuture<ParcelFileDescriptor> future = new CompletableFuture<>();
         RemoteCallback callback = new RemoteCallback(result -> setResult(result, future));
         mAsyncContentProvider.openMedia(mediaId, callback);
-        return future.get(TIMEOUT_IN_SECONDS, TimeUnit.SECONDS);
+        return future.get(TIMEOUT_IN_MINUTES, TimeUnit.MINUTES);
     }
 
     private void setResult(Bundle result, CompletableFuture<ParcelFileDescriptor> future) {

@@ -19,6 +19,7 @@ package android.app.sdksandbox.sdkprovider;
 import android.annotation.NonNull;
 import android.app.Activity;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.view.View;
 
@@ -48,6 +49,16 @@ public interface SdkSandboxActivityHandler {
      *
      * <p>SDK is expected to call {@link Activity#setContentView(View)} to the passed {@link
      * Activity} object to populate the view.
+     *
+     * <p>If SDK registers lifecycle callbacks over the passed {@link Activity} object using {@link
+     * Activity#registerActivityLifecycleCallbacks(
+     * android.app.Application.ActivityLifecycleCallbacks)}, it is important to note that {@link
+     * android.app.Application.ActivityLifecycleCallbacks#onActivityPreCreated(Activity, Bundle)}
+     * and {@link android.app.Application.ActivityLifecycleCallbacks#onActivityCreated(Activity,
+     * Bundle)} will not be triggered as {@link #onActivityCreated(Activity)} is called at the
+     * {@link Activity} creation stage. Then to know about the Activity state, SDKs should override
+     * {@link android.app.Application.ActivityLifecycleCallbacks#onActivityPostCreated(Activity,
+     * Bundle)}.
      *
      * @param activity the {@link Activity} gets created
      */

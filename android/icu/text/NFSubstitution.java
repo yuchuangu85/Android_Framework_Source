@@ -12,6 +12,7 @@ package android.icu.text;
 import java.text.ParsePosition;
 
 import android.icu.impl.number.DecimalQuantity_DualStorageBCD;
+import android.icu.math.BigDecimal;
 
 //===================================================================
 // NFSubstitution (abstract base class)
@@ -306,16 +307,10 @@ abstract class NFSubstitution {
             ruleSet.format(numberToFormat, toInsertInto, position + pos, recursionCount);
         } else {
             if (number <= MAX_INT64_IN_DOUBLE) {
-                // or perform the transformation on the number (preserving
-                // the result's fractional part if the formatter it set
-                // to show it), then use that formatter's format() method
+                // or perform the transformation on the number,
+                // then use that formatter's format() method
                 // to format the result
-                double numberToFormat = transformNumber((double) number);
-                if (numberFormat.getMaximumFractionDigits() == 0) {
-                    numberToFormat = Math.floor(numberToFormat);
-                }
-
-                toInsertInto.insert(position + pos, numberFormat.format(numberToFormat));
+                toInsertInto.insert(position + pos, numberFormat.format(transformNumber((double) number)));
             }
             else {
                 // We have gone beyond double precision. Something has to give.
@@ -422,7 +417,7 @@ abstract class NFSubstitution {
      * @return If there's a match, this is the result of composing
      * baseValue with whatever was returned from matching the
      * characters.  This will be either a Long or a Double.  If there's
-     * no match this is new Long(0) (not null), and parsePosition
+     * no match this is Long.valueOf(0) (not null), and parsePosition
      * is left unchanged.
      */
     public Number doParse(String text, ParsePosition parsePosition, double baseValue,
@@ -485,9 +480,9 @@ abstract class NFSubstitution {
             // the result.
             result = composeRuleValue(result, baseValue);
             if (result == (long)result) {
-                return Long.valueOf((long)result);
+                return (long) result;
             } else {
-                return new Double(result);
+                return result;
             }
 
             // if the parse was UNsuccessful, return 0
@@ -667,6 +662,12 @@ class MultiplierSubstitution extends NFSubstitution {
      */
     long divisor;
 
+    /**
+     * A backpointer to the owning rule.  Used in the rounding logic to determine
+     * whether the owning rule also has a modulus substitution.
+     */
+    NFRule owningRule;
+
     //-----------------------------------------------------------------------
     // construction
     //-----------------------------------------------------------------------
@@ -690,6 +691,7 @@ class MultiplierSubstitution extends NFSubstitution {
         // substitution.  Rather than keeping a back-pointer to the
         // rule, we keep a copy of the divisor
         this.divisor = rule.getDivisor();
+        this.owningRule = rule;
 
         if (divisor == 0) { // this will cause recursion
             throw new IllegalStateException("Substitution with divisor 0 " + description.substring(0, pos) +
@@ -750,10 +752,25 @@ class MultiplierSubstitution extends NFSubstitution {
      */
     @Override
   public double transformNumber(double number) {
-        if (ruleSet == null) {
-            return number / divisor;
-        } else {
+        // Most of the time, when a number is handled by an NFSubstitution, we do a floor() on it, but
+        // if a substitution uses a DecimalFormat to format the number instead of a ruleset, we generally
+        // don't want to do a floor()-- we want to keep the value intact so that the DecimalFormat can
+        // either include the fractional part or round properly.  The big exception to this is here in
+        // MultiplierSubstitution.  If the rule includes two substitutions, the MultiplierSubstitution
+        // (which is handling the larger part of the number) really _does_ want to do a floor(), because
+        // the ModulusSubstitution (which is handling the smaller part of the number) will take
+        // care of the fractional part.  (Consider something like `1/12: <0< feet >0.0> inches;`.)
+        // But if there is no ModulusSubstitution, we're shortening the number in some way-- the "larger part"
+        // of the number is the only part we're keeping.  Even if the DecimalFormat doesn't include the
+        // fractional part in its output, we still want it to round.  (Consider something like `1/1000: <0<K;`.)
+        // (TODO: The ROUND_FLOOR thing is a kludge to preserve the previous floor-always behavior.  What we
+        // probably really want to do is just set the rounding mode on the DecimalFormat to match the rounding
+        // mode on the RuleBasedNumberFormat and then pass the number to it whole and let it do its own rounding.
+        // But before making that change, we'd have to make sure it didn't have undesirable side effects.)
+        if (ruleSet != null || owningRule.hasModulusSubstitution() || owningRule.formatter.getRoundingMode() == BigDecimal.ROUND_FLOOR) {
             return Math.floor(number / divisor);
+        } else {
+            return number / divisor;
         }
     }
 
@@ -978,7 +995,7 @@ class ModulusSubstitution extends NFSubstitution {
      */
     @Override
   public double transformNumber(double number) {
-        return Math.floor(number % divisor);
+        return number % divisor;
     }
 
     //-----------------------------------------------------------------------
@@ -1013,9 +1030,9 @@ class ModulusSubstitution extends NFSubstitution {
 
                 result = composeRuleValue(result, baseValue);
                 if (result == (long)result) {
-                    return Long.valueOf((long)result);
+                    return (long) result;
                 } else {
-                    return new Double(result);
+                    return result;
                 }
             } else {
                 return tempResult;
@@ -1296,7 +1313,7 @@ class FractionalPartSubstitution extends NFSubstitution {
      * @param lenientParse If true, try matching the text as numerals if
      * matching as words doesn't work
      * @return If the match was successful, the current partial parse
-     * result; otherwise new Long(0).  The result is either a Long or
+     * result; otherwise Long.valueOf(0).  The result is either a Long or
      * a Double.
      */
     @Override
@@ -1345,7 +1362,7 @@ class FractionalPartSubstitution extends NFSubstitution {
             result = fq.toDouble();
 
             result = composeRuleValue(result, baseValue);
-            return new Double(result);
+            return result;
         }
     }
 
@@ -1678,7 +1695,7 @@ class NumeratorSubstitution extends NFSubstitution {
                 --zeroCount;
             }
             // d is now our true denominator
-            result = new Double(n/(double)d);
+            result = (double)n/(double)d;
         }
 
         return result;

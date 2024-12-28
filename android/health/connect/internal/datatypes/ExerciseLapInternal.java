@@ -66,6 +66,7 @@ public class ExerciseLapInternal {
         return externalLaps;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     static List<ExerciseLapInternal> populateLapsFromParcel(Parcel parcel) {
         int lapsSize = parcel.readInt();
         if (lapsSize == 0) {

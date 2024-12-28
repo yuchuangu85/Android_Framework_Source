@@ -19,6 +19,7 @@ package com.android.internal.telephony;
 import static android.telephony.TelephonyManager.ACTION_MULTI_SIM_CONFIG_CHANGED;
 import static android.telephony.TelephonyManager.EXTRA_ACTIVE_SIM_SUPPORTED_COUNT;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncResult;
@@ -28,40 +29,82 @@ import android.os.Message;
 import android.os.PowerManager;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
+import android.provider.DeviceConfig;
 import android.sysprop.TelephonyProperties;
 import android.telephony.PhoneCapability;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.telephony.TelephonyRegistryManager;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.telephony.Rlog;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * This class manages phone's configuration which defines the potential capability (static) of the
  * phone and its current activated capability (current).
  * It gets and monitors static and current phone capability from the modem; send broadcast
- * if they change, and and sends commands to modem to enable or disable phones.
+ * if they change, and sends commands to modem to enable or disable phones.
  */
 public class PhoneConfigurationManager {
     public static final String DSDA = "dsda";
     public static final String DSDS = "dsds";
     public static final String TSTS = "tsts";
     public static final String SSSS = "";
+    /** DeviceConfig key for whether Virtual DSDA is enabled. */
+    private static final String KEY_ENABLE_VIRTUAL_DSDA = "enable_virtual_dsda";
     private static final String LOG_TAG = "PhoneCfgMgr";
     private static final int EVENT_SWITCH_DSDS_CONFIG_DONE = 100;
     private static final int EVENT_GET_MODEM_STATUS = 101;
     private static final int EVENT_GET_MODEM_STATUS_DONE = 102;
     private static final int EVENT_GET_PHONE_CAPABILITY_DONE = 103;
+    private static final int EVENT_DEVICE_CONFIG_CHANGED = 104;
+    private static final int EVENT_GET_SIMULTANEOUS_CALLING_SUPPORT_DONE = 105;
+    private static final int EVENT_SIMULTANEOUS_CALLING_SUPPORT_CHANGED = 106;
+
+    /**
+     * Listener interface for events related to the {@link PhoneConfigurationManager} which should
+     * be reported to the {@link SimultaneousCallingTracker}.
+     */
+    public interface Listener {
+        public void onPhoneCapabilityChanged();
+        public void onDeviceConfigChanged();
+    }
+
+    /**
+     * Base listener implementation.
+     */
+    public abstract static class ListenerBase implements Listener {
+        @Override
+        public void onPhoneCapabilityChanged() {}
+        @Override
+        public void onDeviceConfigChanged() {}
+    }
+
 
     private static PhoneConfigurationManager sInstance = null;
     private final Context mContext;
-    private PhoneCapability mStaticCapability;
+    // Static capability retrieved from the modem - may be null in the case where no info has been
+    // retrieved yet.
+    private PhoneCapability mStaticCapability = null;
+    private final Set<Integer> mSlotsSupportingSimultaneousCellularCalls = new HashSet<>(3);
+    private final Set<Integer> mSubIdsSupportingSimultaneousCellularCalls = new HashSet<>(3);
+    private final HashSet<Consumer<Set<Integer>>> mSimultaneousCellularCallingListeners =
+            new HashSet<>(1);
     private final RadioConfig mRadioConfig;
     private final Handler mHandler;
     // mPhones is obtained from PhoneFactory and can have phones corresponding to inactive modems as
@@ -70,6 +113,18 @@ public class PhoneConfigurationManager {
     private final Map<Integer, Boolean> mPhoneStatusMap;
     private MockableInterface mMi = new MockableInterface();
     private TelephonyManager mTelephonyManager;
+
+    /** Feature flags */
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
+    private final DefaultPhoneNotifier mNotifier;
+    public Set<Listener> mListeners = new CopyOnWriteArraySet<>();
+
+    /**
+     * True if 'Virtual DSDA' i.e., in-call IMS connectivity on both subs with only single logical
+     * modem, is enabled.
+     */
+    private boolean mVirtualDsdaEnabled;
     private static final RegistrantList sMultiSimConfigChangeRegistrants = new RegistrantList();
     private static final String ALLOW_MOCK_MODEM_PROPERTY = "persist.radio.allow_mock_modem";
     private static final String BOOT_ALLOW_MOCK_MODEM_PROPERTY = "ro.boot.radio.allow_mock_modem";
@@ -78,10 +133,11 @@ public class PhoneConfigurationManager {
      * Init method to instantiate the object
      * Should only be called once.
      */
-    public static PhoneConfigurationManager init(Context context) {
+    public static PhoneConfigurationManager init(Context context,
+            @NonNull FeatureFlags featureFlags) {
         synchronized (PhoneConfigurationManager.class) {
             if (sInstance == null) {
-                sInstance = new PhoneConfigurationManager(context);
+                sInstance = new PhoneConfigurationManager(context, featureFlags);
             } else {
                 Log.wtf(LOG_TAG, "init() called multiple times!  sInstance = " + sInstance);
             }
@@ -93,15 +149,25 @@ public class PhoneConfigurationManager {
      * Constructor.
      * @param context context needed to send broadcast.
      */
-    private PhoneConfigurationManager(Context context) {
+    private PhoneConfigurationManager(Context context, @NonNull FeatureFlags featureFlags) {
         mContext = context;
+        mFeatureFlags = featureFlags;
         // TODO: send commands to modem once interface is ready.
         mTelephonyManager = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-        //initialize with default, it'll get updated when RADIO is ON/AVAILABLE
-        mStaticCapability = getDefaultCapability();
         mRadioConfig = RadioConfig.getInstance();
         mHandler = new ConfigManagerHandler();
         mPhoneStatusMap = new HashMap<>();
+        mVirtualDsdaEnabled = DeviceConfig.getBoolean(
+                DeviceConfig.NAMESPACE_TELEPHONY, KEY_ENABLE_VIRTUAL_DSDA, false);
+        mNotifier = new DefaultPhoneNotifier(mContext, mFeatureFlags);
+        DeviceConfig.addOnPropertiesChangedListener(
+                DeviceConfig.NAMESPACE_TELEPHONY, Runnable::run,
+                properties -> {
+                    if (TextUtils.equals(DeviceConfig.NAMESPACE_TELEPHONY,
+                            properties.getNamespace())) {
+                        mHandler.sendEmptyMessage(EVENT_DEVICE_CONFIG_CHANGED);
+                    }
+                });
 
         notifyCapabilityChanged();
 
@@ -110,6 +176,43 @@ public class PhoneConfigurationManager {
         for (Phone phone : mPhones) {
             registerForRadioState(phone);
         }
+    }
+
+    /**
+     * Assign a listener to be notified of state changes.
+     *
+     * @param listener A listener.
+     */
+    public void addListener(Listener listener) {
+        mListeners.add(listener);
+    }
+
+    /**
+     * Removes a listener.
+     *
+     * @param listener A listener.
+     */
+    public final void removeListener(Listener listener) {
+        mListeners.remove(listener);
+    }
+
+    /**
+     * Updates the mapping between the slot IDs that support simultaneous calling and the
+     * associated sub IDs as well as notifies listeners.
+     */
+    private void updateSimultaneousSubIdsFromPhoneIdMappingAndNotify() {
+        if (!mFeatureFlags.simultaneousCallingIndications()) return;
+        Set<Integer> slotCandidates = mSlotsSupportingSimultaneousCellularCalls.stream()
+                .map(i -> mPhones[i].getSubId())
+                .filter(i ->i > SubscriptionManager.INVALID_SUBSCRIPTION_ID)
+                        .collect(Collectors.toSet());
+        if (mSubIdsSupportingSimultaneousCellularCalls.equals(slotCandidates))  return;
+        log("updateSimultaneousSubIdsFromPhoneIdMapping update: "
+                + mSubIdsSupportingSimultaneousCellularCalls + " -> " + slotCandidates);
+        mSubIdsSupportingSimultaneousCellularCalls.clear();
+        mSubIdsSupportingSimultaneousCellularCalls.addAll(slotCandidates);
+        mNotifier.notifySimultaneousCellularCallingSubscriptionsChanged(
+                mSubIdsSupportingSimultaneousCellularCalls);
     }
 
     private void registerForRadioState(Phone phone) {
@@ -124,18 +227,64 @@ public class PhoneConfigurationManager {
         }
     }
 
-    // If virtual DSDA is enabled for this UE, then updates maxActiveVoiceSubscriptions to 2.
-    private PhoneCapability maybeUpdateMaxActiveVoiceSubscriptions(
+    /**
+     * If virtual DSDA is enabled for this UE, then increase maxActiveVoiceSubscriptions to 2.
+     */
+    private PhoneCapability maybeOverrideMaxActiveVoiceSubscriptions(
             final PhoneCapability staticCapability) {
-        boolean enableVirtualDsda = mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_enable_virtual_dsda);
-
-        if (staticCapability.getLogicalModemList().size() > 1 && enableVirtualDsda) {
+        boolean isVDsdaEnabled = staticCapability.getLogicalModemList().size() > 1
+                && mVirtualDsdaEnabled;
+        boolean isBkwdCompatDsdaEnabled = mFeatureFlags.simultaneousCallingIndications()
+                && mMi.getMultiSimProperty().orElse(SSSS).equals(DSDA);
+        if (isVDsdaEnabled || isBkwdCompatDsdaEnabled) {
+            // Since we already initialized maxActiveVoiceSubscriptions to the count the
+            // modem is capable of, we are only able to increase that count via this method. We do
+            // not allow a decrease of maxActiveVoiceSubscriptions:
+            int updatedMaxActiveVoiceSubscriptions =
+                    Math.max(staticCapability.getMaxActiveVoiceSubscriptions(), 2);
             return new PhoneCapability.Builder(staticCapability)
-                    .setMaxActiveVoiceSubscriptions(2)
+                    .setMaxActiveVoiceSubscriptions(updatedMaxActiveVoiceSubscriptions)
                     .build();
         } else {
             return staticCapability;
+        }
+    }
+
+    private void maybeEnableCellularDSDASupport() {
+        boolean bkwdsCompatDsda = mFeatureFlags.simultaneousCallingIndications()
+                && getPhoneCount() > 1
+                && mMi.getMultiSimProperty().orElse(SSSS).equals(DSDA);
+        boolean halSupportSimulCalling = mRadioConfig != null
+                && mRadioConfig.getRadioConfigProxy(null).getVersion().greaterOrEqual(
+                        RIL.RADIO_HAL_VERSION_2_2)
+                && getPhoneCount() > 1
+                && getCellularStaticPhoneCapability().getMaxActiveVoiceSubscriptions() > 1;
+        // Register for simultaneous calling support changes in the modem if the HAL supports it
+        if (halSupportSimulCalling) {
+            updateSimultaneousCallingSupport();
+            mRadioConfig.registerForSimultaneousCallingSupportStatusChanged(mHandler,
+                    EVENT_SIMULTANEOUS_CALLING_SUPPORT_CHANGED, null);
+        } else if (bkwdsCompatDsda) {
+            // For older devices that only declare that they support DSDA via modem config,
+            // set DSDA as capable now statically.
+            log("DSDA modem config detected - setting DSDA enabled");
+            for (Phone p : mPhones) {
+                mSlotsSupportingSimultaneousCellularCalls.add(p.getPhoneId());
+            }
+            updateSimultaneousSubIdsFromPhoneIdMappingAndNotify();
+            notifySimultaneousCellularCallingSlotsChanged();
+        }
+        // Register for subId updates to notify listeners when simultaneous calling is configured
+        if (mFeatureFlags.simultaneousCallingIndications()
+                && (bkwdsCompatDsda || halSupportSimulCalling)) {
+            mContext.getSystemService(TelephonyRegistryManager.class)
+                    .addOnSubscriptionsChangedListener(
+                            new SubscriptionManager.OnSubscriptionsChangedListener() {
+                                @Override
+                                public void onSubscriptionsChanged() {
+                                    updateSimultaneousSubIdsFromPhoneIdMappingAndNotify();
+                                }
+                            }, mHandler::post);
         }
     }
 
@@ -171,7 +320,7 @@ public class PhoneConfigurationManager {
                         log("Unable to add phoneStatus to cache. "
                                 + "No phone object provided for event " + msg.what);
                     }
-                    getStaticPhoneCapability();
+                    updateRadioCapability();
                     break;
                 case EVENT_SWITCH_DSDS_CONFIG_DONE:
                     ar = (AsyncResult) msg.obj;
@@ -196,14 +345,69 @@ public class PhoneConfigurationManager {
                 case EVENT_GET_PHONE_CAPABILITY_DONE:
                     ar = (AsyncResult) msg.obj;
                     if (ar != null && ar.exception == null) {
-                        mStaticCapability = (PhoneCapability) ar.result;
-                        mStaticCapability =
-                                maybeUpdateMaxActiveVoiceSubscriptions(mStaticCapability);
+                        setStaticPhoneCapability((PhoneCapability) ar.result);
                         notifyCapabilityChanged();
+                        for (Listener l : mListeners) {
+                            l.onPhoneCapabilityChanged();
+                        }
+                        maybeEnableCellularDSDASupport();
                     } else {
                         log(msg.what + " failure. Not getting phone capability." + ar.exception);
                     }
                     break;
+                case EVENT_DEVICE_CONFIG_CHANGED:
+                    boolean isVirtualDsdaEnabled = DeviceConfig.getBoolean(
+                            DeviceConfig.NAMESPACE_TELEPHONY, KEY_ENABLE_VIRTUAL_DSDA, false);
+                    if (isVirtualDsdaEnabled != mVirtualDsdaEnabled) {
+                        log("EVENT_DEVICE_CONFIG_CHANGED: from " + mVirtualDsdaEnabled + " to "
+                                + isVirtualDsdaEnabled);
+                        mVirtualDsdaEnabled = isVirtualDsdaEnabled;
+                        for (Listener l : mListeners) {
+                            l.onDeviceConfigChanged();
+                        }
+                    }
+                    break;
+                case EVENT_SIMULTANEOUS_CALLING_SUPPORT_CHANGED:
+                case EVENT_GET_SIMULTANEOUS_CALLING_SUPPORT_DONE:
+                    log("Received EVENT_SLOTS_SUPPORTING_SIMULTANEOUS_CALL_CHANGED/DONE");
+                    if (getPhoneCount() < 2) {
+                        if (!mSlotsSupportingSimultaneousCellularCalls.isEmpty()) {
+                            mSlotsSupportingSimultaneousCellularCalls.clear();
+                        }
+                        break;
+                    }
+                    ar = (AsyncResult) msg.obj;
+                    if (ar != null && ar.exception == null) {
+                        List<Integer> returnedArrayList = (List<Integer>) ar.result;
+                        if (!mSlotsSupportingSimultaneousCellularCalls.isEmpty()) {
+                            mSlotsSupportingSimultaneousCellularCalls.clear();
+                        }
+                        int maxValidPhoneSlot = getPhoneCount() - 1;
+                        for (int i : returnedArrayList) {
+                            if (i < 0 || i > maxValidPhoneSlot) {
+                                loge("Invalid slot supporting DSDA =" + i + ". Disabling DSDA.");
+                                mSlotsSupportingSimultaneousCellularCalls.clear();
+                                break;
+                            }
+                            mSlotsSupportingSimultaneousCellularCalls.add(i);
+                        }
+                        // Ensure the slots supporting cellular DSDA does not exceed the phone count
+                        if (mSlotsSupportingSimultaneousCellularCalls.size() > getPhoneCount()) {
+                            loge("Invalid size of DSDA slots. Disabling cellular DSDA.");
+                            mSlotsSupportingSimultaneousCellularCalls.clear();
+                        }
+                    } else {
+                        log(msg.what + " failure. Not getting logical slots that support "
+                                + "simultaneous calling." + ar.exception);
+                        mSlotsSupportingSimultaneousCellularCalls.clear();
+                    }
+                    if (mFeatureFlags.simultaneousCallingIndications()) {
+                        updateSimultaneousSubIdsFromPhoneIdMappingAndNotify();
+                        notifySimultaneousCellularCallingSlotsChanged();
+                    }
+                    break;
+                default:
+                    log("Unknown event: " + msg.what);
             }
         }
     }
@@ -308,17 +512,64 @@ public class PhoneConfigurationManager {
     }
 
     /**
-     * get static overall phone capabilities for all phones.
+     * @return The updated list of logical slots that support simultaneous cellular calling from the
+     * modem based on current network conditions.
+     */
+    public Set<Integer> getSlotsSupportingSimultaneousCellularCalls() {
+        return mSlotsSupportingSimultaneousCellularCalls;
+    }
+
+    /**
+     * Get the current the list of logical slots supporting simultaneous cellular calling from the
+     * modem based on current network conditions.
+     */
+    @VisibleForTesting
+    public void updateSimultaneousCallingSupport() {
+        log("updateSimultaneousCallingSupport: sending the request for "
+                + "getting the list of logical slots supporting simultaneous cellular calling");
+        Message callback = Message.obtain(
+                mHandler, EVENT_GET_SIMULTANEOUS_CALLING_SUPPORT_DONE);
+        mRadioConfig.updateSimultaneousCallingSupport(callback);
+        log("updateSimultaneousCallingSupport: "
+                + "mSlotsSupportingSimultaneousCellularCalls = " +
+                mSlotsSupportingSimultaneousCellularCalls);
+    }
+
+    /**
+     * @return static overall phone capabilities for all phones, including voice overrides.
      */
     public synchronized PhoneCapability getStaticPhoneCapability() {
-        if (getDefaultCapability().equals(mStaticCapability)) {
-            log("getStaticPhoneCapability: sending the request for getting PhoneCapability");
-            Message callback = Message.obtain(
-                    mHandler, EVENT_GET_PHONE_CAPABILITY_DONE);
-            mRadioConfig.getPhoneCapability(callback);
-        }
-        log("getStaticPhoneCapability: mStaticCapability " + mStaticCapability);
+        boolean isDefault = mStaticCapability == null;
+        PhoneCapability caps = isDefault ? getDefaultCapability() : mStaticCapability;
+        caps = maybeOverrideMaxActiveVoiceSubscriptions(caps);
+        log("getStaticPhoneCapability: isDefault=" + isDefault + ", caps=" + caps);
+        return caps;
+    }
+
+    /**
+     * @return untouched capabilities returned from the modem
+     */
+    private synchronized PhoneCapability getCellularStaticPhoneCapability() {
+        log("getCellularStaticPhoneCapability: mStaticCapability " + mStaticCapability);
         return mStaticCapability;
+    }
+
+    /**
+     * Caches the static PhoneCapability returned by the modem
+     */
+    public synchronized void setStaticPhoneCapability(PhoneCapability capability) {
+        log("setStaticPhoneCapability: mStaticCapability " + capability);
+        mStaticCapability = capability;
+    }
+
+    /**
+     * Query the modem to return its static PhoneCapability and cache it
+     */
+    @VisibleForTesting
+    public void updateRadioCapability() {
+        log("updateRadioCapability: sending the request for getting PhoneCapability");
+        Message callback = Message.obtain(mHandler, EVENT_GET_PHONE_CAPABILITY_DONE);
+        mRadioConfig.getPhoneCapability(callback);
     }
 
     /**
@@ -329,13 +580,41 @@ public class PhoneConfigurationManager {
     }
 
     public int getNumberOfModemsWithSimultaneousDataConnections() {
-        return mStaticCapability.getMaxActiveDataSubscriptions();
+        return getStaticPhoneCapability().getMaxActiveDataSubscriptions();
+    }
+
+    public int getNumberOfModemsWithSimultaneousVoiceConnections() {
+        return getStaticPhoneCapability().getMaxActiveVoiceSubscriptions();
+    }
+
+    public boolean isVirtualDsdaEnabled() {
+        return mVirtualDsdaEnabled;
+    }
+
+    /**
+     * Register to listen to changes in the Phone slots that support simultaneous calling.
+     * @param consumer A consumer that will be used to consume the new slots supporting simultaneous
+     *                 cellular calling when it changes.
+     */
+    public void registerForSimultaneousCellularCallingSlotsChanged(
+            Consumer<Set<Integer>> consumer) {
+        mSimultaneousCellularCallingListeners.add(consumer);
+    }
+
+    private void notifySimultaneousCellularCallingSlotsChanged() {
+        log("notifying listeners of changes to simultaneous cellular calling - new state:"
+                + mSlotsSupportingSimultaneousCellularCalls);
+        for (Consumer<Set<Integer>> consumer : mSimultaneousCellularCallingListeners) {
+            try {
+                consumer.accept(new HashSet<>(mSlotsSupportingSimultaneousCellularCalls));
+            } catch (Exception e) {
+                log("Unexpected Exception encountered when notifying listener: " + e);
+            }
+        }
     }
 
     private void notifyCapabilityChanged() {
-        PhoneNotifier notifier = new DefaultPhoneNotifier(mContext);
-
-        notifier.notifyPhoneCapabilityChanged(mStaticCapability);
+        mNotifier.notifyPhoneCapabilityChanged(getStaticPhoneCapability());
     }
 
     /**
@@ -409,6 +688,20 @@ public class PhoneConfigurationManager {
                 Phone phone = mPhones[phoneId];
                 registerForRadioState(phone);
                 phone.mCi.onSlotActiveStatusChange(SubscriptionManager.isValidPhoneId(phoneId));
+            }
+
+            if (numOfActiveModems > 1) {
+                // Check if cellular DSDA is supported. If it is, then send a request to the
+                // modem to refresh the list of SIM slots that currently support DSDA based on
+                // current network conditions
+                maybeEnableCellularDSDASupport();
+            } else {
+                // The number of active modems is 0 or 1, disable cellular DSDA:
+                mSlotsSupportingSimultaneousCellularCalls.clear();
+                if (mFeatureFlags.simultaneousCallingIndications()) {
+                    updateSimultaneousSubIdsFromPhoneIdMappingAndNotify();
+                    notifySimultaneousCellularCallingSlotsChanged();
+                }
             }
 
             // When the user enables DSDS mode, the default VOICE and SMS subId should be switched
@@ -585,6 +878,13 @@ public class PhoneConfigurationManager {
         public void notifyPhoneFactoryOnMultiSimConfigChanged(
                 Context context, int numOfActiveModems) {
             PhoneFactory.onMultiSimConfigChanged(context, numOfActiveModems);
+        }
+
+        /**
+         * Wrapper function to query the sysprop for multi_sim_config
+         */
+        public Optional<String> getMultiSimProperty() {
+            return TelephonyProperties.multi_sim_config();
         }
     }
 

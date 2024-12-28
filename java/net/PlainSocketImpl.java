@@ -210,7 +210,7 @@ class PlainSocketImpl extends AbstractPlainSocketImpl
                 e.initCause(errnoException);
                 throw e;
             } else if (errnoException.errno == EINVAL || errnoException.errno == EBADF) {
-                throw new SocketException("Socket closed");
+                throw new SocketException("Socket closed", errnoException);
             }
             errnoException.rethrowAsSocketException();
         }

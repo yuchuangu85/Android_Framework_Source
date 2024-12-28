@@ -43,8 +43,7 @@
  * to these cryptographic provider developer guides:
  * <ul>
  *   <li>
- *     {@extLink security_guide_impl_provider
- *       How to Implement a Provider in the Java Cryptography Architecture}
+ *     <a href="{@docRoot}/../technotes/guides/security/crypto/HowToImplAProvider.html">How to Implement a Provider in the Java Cryptography Architecture</a>
  *   </li>
  * </ul>
  *
@@ -60,8 +59,8 @@
  *
  * For further documentation, please see:
  * <ul>
- *   <li> {extLink security_guide_jca
- *       Java Cryptography Architecture Reference Guide}</li>
+ *   <li>
+ *     <a href="{@docRoot}/../technotes/guides/security/crypto/CryptoSpec.html">Java Cryptography Architecture Reference Guide}</a></li>
  * </ul>
  *
  * @since 1.1

@@ -62,7 +62,14 @@ public final class FloorsClimbedRecord extends IntervalRecord {
             @NonNull ZoneOffset endZoneOffset,
             @FloatRange(from = 0f, to = 1000000f) double floors,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         if (!skipValidation) {
             ValidationUtils.requireInRange(floors, 0.0, 1000000.0, "floors");
         }
@@ -83,6 +90,7 @@ public final class FloorsClimbedRecord extends IntervalRecord {
      * @param o the reference object with which to compare.
      * @return {@code true} if this object is the same as the obj
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

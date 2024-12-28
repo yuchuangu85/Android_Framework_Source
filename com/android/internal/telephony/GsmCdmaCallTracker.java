@@ -21,6 +21,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Bundle;
@@ -47,6 +48,7 @@ import com.android.internal.telephony.PhoneInternalInterface.DialArgs;
 import com.android.internal.telephony.cdma.CdmaCallWaitingNotification;
 import com.android.internal.telephony.domainselection.DomainSelectionResolver;
 import com.android.internal.telephony.emergency.EmergencyStateTracker;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.telephony.Rlog;
 
@@ -155,7 +157,15 @@ public class GsmCdmaCallTracker extends CallTracker {
 
     //***** Constructors
 
-    public GsmCdmaCallTracker (GsmCdmaPhone phone) {
+    public GsmCdmaCallTracker(GsmCdmaPhone phone, FeatureFlags featureFlags) {
+        super(featureFlags);
+
+        if (mFeatureFlags.minimalTelephonyCdmCheck()
+                && !phone.getContext().getPackageManager().hasSystemFeature(
+                    PackageManager.FEATURE_TELEPHONY_CALLING)) {
+            throw new UnsupportedOperationException("GsmCdmaCallTracker requires calling");
+        }
+
         this.mPhone = phone;
         mCi = phone.mCi;
         mCi.registerForCallStateChanged(this, EVENT_CALL_STATE_CHANGE, null);
@@ -1489,7 +1499,7 @@ public class GsmCdmaCallTracker extends CallTracker {
 
         switch (msg.what) {
             case EVENT_POLL_CALLS_RESULT:
-                Rlog.d(LOG_TAG, "Event EVENT_POLL_CALLS_RESULT Received");
+                if (DBG_POLL) Rlog.d(LOG_TAG, "Event EVENT_POLL_CALLS_RESULT Received");
 
                 if (msg == mLastRelevantPoll) {
                     if (DBG_POLL) log(

@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen/android/media/INativeSpatializerCallback.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/INativeSpatializerCallback.aidl
  */
 package android.media;
 /**
@@ -37,6 +38,7 @@ public interface INativeSpatializerCallback extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.media.INativeSpatializerCallback
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -66,13 +68,9 @@ public interface INativeSpatializerCallback extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -150,7 +148,8 @@ public interface INativeSpatializerCallback extends android.os.IInterface
     static final int TRANSACTION_onLevelChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
     static final int TRANSACTION_onOutputChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
   }
-  public static final java.lang.String DESCRIPTOR = "android$media$INativeSpatializerCallback".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.media.INativeSpatializerCallback";
   /**
    * Called when the spatialization level applied by the spatializer changes
    * (e.g. when the spatializer is enabled or disabled)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1995, 2004, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,26 +25,23 @@
 
 package java.lang;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.ObjectStreamField;
+
 /**
  * Thrown when an application tries to load in a class through its
  * string name using:
  * <ul>
- * <li>The <code>forName</code> method in class <code>Class</code>.
- * <li>The <code>findSystemClass</code> method in class
- *     <code>ClassLoader</code> .
- * <li>The <code>loadClass</code> method in class <code>ClassLoader</code>.
+ * <li>The {@code forName} method in class {@code Class}.
+ * <li>The {@code findSystemClass} method in class
+ *     {@code ClassLoader} .
+ * <li>The {@code loadClass} method in class {@code ClassLoader}.
  * </ul>
  * <p>
  * but no definition for the class with the specified name could be found.
  *
- * <p>As of release 1.4, this exception has been retrofitted to conform to
- * the general purpose exception-chaining mechanism.  The "optional exception
- * that was raised while loading the class" that may be provided at
- * construction time and accessed via the {@link #getException()} method is
- * now known as the <i>cause</i>, and may be accessed via the {@link
- * Throwable#getCause()} method, as well as the aforementioned "legacy method."
- *
- * @author  unascribed
  * @see     java.lang.Class#forName(java.lang.String)
  * @see     java.lang.ClassLoader#findSystemClass(java.lang.String)
  * @see     java.lang.ClassLoader#loadClass(java.lang.String, boolean)
@@ -54,26 +51,18 @@ public class ClassNotFoundException extends ReflectiveOperationException {
     /**
      * use serialVersionUID from JDK 1.1.X for interoperability
      */
+     @java.io.Serial
      private static final long serialVersionUID = 9176873029745254542L;
 
     /**
-     * This field holds the exception ex if the
-     * ClassNotFoundException(String s, Throwable ex) constructor was
-     * used to instantiate the object
-     * @serial
-     * @since 1.2
-     */
-    private Throwable ex;
-
-    /**
-     * Constructs a <code>ClassNotFoundException</code> with no detail message.
+     * Constructs a {@code ClassNotFoundException} with no detail message.
      */
     public ClassNotFoundException() {
         super((Throwable)null);  // Disallow initCause
     }
 
     /**
-     * Constructs a <code>ClassNotFoundException</code> with the
+     * Constructs a {@code ClassNotFoundException} with the
      * specified detail message.
      *
      * @param   s   the detail message.
@@ -83,7 +72,7 @@ public class ClassNotFoundException extends ReflectiveOperationException {
     }
 
     /**
-     * Constructs a <code>ClassNotFoundException</code> with the
+     * Constructs a {@code ClassNotFoundException} with the
      * specified detail message and optional exception that was
      * raised while loading the class.
      *
@@ -92,34 +81,68 @@ public class ClassNotFoundException extends ReflectiveOperationException {
      * @since 1.2
      */
     public ClassNotFoundException(String s, Throwable ex) {
-        super(s, null);  //  Disallow initCause
-        this.ex = ex;
+        super(s, ex);  //  Disallow initCause
     }
 
     /**
      * Returns the exception that was raised if an error occurred while
      * attempting to load the class. Otherwise, returns {@code null}.
      *
-     * <p>This method predates the general-purpose exception chaining facility.
+     * @apiNote
+     * This method predates the general-purpose exception chaining facility.
      * The {@link Throwable#getCause()} method is now the preferred means of
      * obtaining this information.
      *
-     * @return the <code>Exception</code> that was raised while loading a class
+     * @return the {@code Exception} that was raised while loading a class
      * @since 1.2
      */
     public Throwable getException() {
-        return ex;
+        return super.getCause();
     }
 
     /**
-     * Returns the cause of this exception (the exception that was raised
-     * if an error occurred while attempting to load the class; otherwise
-     * {@code null}).
+     * Serializable fields for ClassNotFoundException.
      *
-     * @return  the cause of this exception.
-     * @since   1.4
+     * @serialField ex Throwable  the {@code Throwable}
      */
-    public Throwable getCause() {
-        return ex;
+    @java.io.Serial
+    private static final ObjectStreamField[] serialPersistentFields = {
+        new ObjectStreamField("ex", Throwable.class)
+    };
+
+    /**
+     * Reconstitutes the ClassNotFoundException instance from a stream
+     * and initialize the cause properly when deserializing from an older
+     * version.
+     *
+     * The getException and getCause method returns the private "ex" field
+     * in the older implementation and ClassNotFoundException::cause
+     * was set to null.
+     *
+     * @param  s the {@code ObjectInputStream} from which data is read
+     * @throws IOException if an I/O error occurs
+     * @throws ClassNotFoundException if a serialized class cannot be loaded
+     */
+    @java.io.Serial
+    private void readObject(ObjectInputStream s) throws IOException, ClassNotFoundException {
+        ObjectInputStream.GetField fields = s.readFields();
+        Throwable exception = (Throwable) fields.get("ex", null);
+        if (exception != null) {
+            setCause(exception);
+        }
+    }
+
+    /**
+     * To maintain compatibility with older implementation, write a serial
+     * "ex" field with the cause as the value.
+     *
+     * @param  out the {@code ObjectOutputStream} to which data is written
+     * @throws IOException if an I/O error occurs
+     */
+    @java.io.Serial
+    private void writeObject(ObjectOutputStream out) throws IOException {
+        ObjectOutputStream.PutField fields = out.putFields();
+        fields.put("ex", super.getCause());
+        out.writeFields();
     }
 }

@@ -48,7 +48,6 @@ import java.io.Serializable;
 import java.util.Currency;
 import java.util.Locale;
 import java.util.Objects;
-import sun.util.locale.provider.CalendarDataUtility;
 
 import libcore.icu.DecimalFormatData;
 import libcore.icu.ICU;
@@ -859,7 +858,7 @@ public class DecimalFormatSymbols implements Cloneable, Serializable {
         values[8] = decimalFormatData.getPerMill();
         values[9] = decimalFormatData.getInfinity();
         values[10] = decimalFormatData.getNaN();
-        values[11] = decimalFormatData.getMonetarySeparator();
+        values[11] = decimalFormatData.getMonetaryDecimalSeparator();
         values[12] = decimalFormatData.getMonetaryGroupSeparator();
         String[] numberElements = values;
         // END Android-changed: Removed use of DecimalFormatSymbolsProvider. Switched to ICU.

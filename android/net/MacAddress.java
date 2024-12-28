@@ -127,7 +127,7 @@ public final class MacAddress implements Parcelable {
     /**
      * Convert this MacAddress to a byte array.
      *
-     * The returned array is in network order. For example, if this MacAddress is 1:2:3:4:5:6,
+     * The returned array is in network order. For example, if this MacAddress is 01:02:03:04:05:06,
      * the returned array is [1, 2, 3, 4, 5, 6].
      *
      * @return a byte array representation of this MacAddress.

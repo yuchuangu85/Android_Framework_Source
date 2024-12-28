@@ -33,8 +33,8 @@ import java.util.Set;
 import sun.nio.ch.FileChannelImpl;
 import sun.nio.ch.ThreadPool;
 import sun.nio.ch.SimpleAsynchronousFileChannelImpl;
-import jdk.internal.misc.SharedSecrets;
-import jdk.internal.misc.JavaIOFileDescriptorAccess;
+import jdk.internal.access.SharedSecrets;
+import jdk.internal.access.JavaIOFileDescriptorAccess;
 
 import static sun.nio.fs.UnixNativeDispatcher.*;
 import static sun.nio.fs.UnixConstants.*;
@@ -134,7 +134,10 @@ class UnixChannelFactory {
             throw new IllegalArgumentException("APPEND + TRUNCATE_EXISTING not allowed");
 
         FileDescriptor fdObj = open(dfd, path, pathForPermissionCheck, flags, mode);
-        return FileChannelImpl.open(fdObj, path.toString(), flags.read, flags.write, flags.append, null);
+        return FileChannelImpl.open(fdObj, path.toString(), flags.read,
+                // Android-changed: TODO: Remove this patch when the direct flag is supported.
+                // flags.write, flags.direct, null);
+                flags.write, null);
     }
 
     /**

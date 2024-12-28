@@ -560,7 +560,7 @@ public class CarrierPrivilegesTracker extends Handler {
     }
 
     private void updateCertsForPackage(@NonNull PackageInfo pkg) {
-        Set<String> certs = new ArraySet<>();
+        Set<String> certs = new ArraySet<>(1);
         List<Signature> signatures = UiccAccessRule.getSignatures(pkg);
         for (Signature signature : signatures) {
             byte[] sha1 = UiccAccessRule.getCertHash(signature, SHA_1);
@@ -773,7 +773,7 @@ public class CarrierPrivilegesTracker extends Handler {
             return mCachedUids.get(pkgName);
         }
 
-        Set<Integer> uids = new ArraySet<>();
+        Set<Integer> uids = new ArraySet<>(1);
         List<UserInfo> users = mUserManager.getUsers();
         for (UserInfo user : users) {
             int userId = user.getUserHandle().getIdentifier();

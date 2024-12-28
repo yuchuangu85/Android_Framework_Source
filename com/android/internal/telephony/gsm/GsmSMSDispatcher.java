@@ -171,6 +171,7 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
             if(mPhone.getServiceState().getRilDataRadioTechnology()
                     != ServiceState.RIL_RADIO_TECHNOLOGY_NR) {
                 tracker.onFailed(mContext, getNotInServiceError(ss), NO_ERROR_CODE);
+                notifySmsSentFailedToEmergencyStateTracker(tracker, false);
                 return;
             }
         }

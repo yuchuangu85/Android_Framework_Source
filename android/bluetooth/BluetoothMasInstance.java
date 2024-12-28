@@ -22,6 +22,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 /** @hide */
+@SuppressWarnings("InconsistentHashCode") // TODO(b/314811467)
 public final class BluetoothMasInstance implements Parcelable {
     private final int mId;
     private final String mName;
@@ -50,7 +51,12 @@ public final class BluetoothMasInstance implements Parcelable {
 
     @Override
     public String toString() {
-        return Integer.toString(mId) + ":" + mName + ":" + mChannel + ":"
+        return Integer.toString(mId)
+                + ":"
+                + mName
+                + ":"
+                + mChannel
+                + ":"
                 + Integer.toHexString(mMsgTypes);
     }
 
@@ -59,10 +65,11 @@ public final class BluetoothMasInstance implements Parcelable {
         return 0;
     }
 
-    public static final @NonNull Creator<BluetoothMasInstance> CREATOR = new Creator<>() {
+    public static final @NonNull Creator<BluetoothMasInstance> CREATOR =
+            new Creator<>() {
                 public BluetoothMasInstance createFromParcel(Parcel in) {
-                    return new BluetoothMasInstance(in.readInt(), in.readString(),
-                            in.readInt(), in.readInt());
+                    return new BluetoothMasInstance(
+                            in.readInt(), in.readString(), in.readInt(), in.readInt());
                 }
 
                 public BluetoothMasInstance[] newArray(int size) {

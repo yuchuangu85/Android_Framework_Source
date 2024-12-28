@@ -1,17 +1,17 @@
 /*
-* Copyright (C) 2015 Samsung System LSI
-* Licensed under the Apache License, Version 2.0 (the "License");
-* you may not use this file except in compliance with the License.
-* You may obtain a copy of the License at
-*
-*      http://www.apache.org/licenses/LICENSE-2.0
-*
-* Unless required by applicable law or agreed to in writing, software
-* distributed under the License is distributed on an "AS IS" BASIS,
-* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-* See the License for the specific language governing permissions and
-* limitations under the License.
-*/
+ * Copyright (C) 2015 Samsung System LSI
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package android.bluetooth;
 
 import android.os.Parcel;
@@ -35,7 +35,8 @@ public class SdpMasRecord implements Parcelable {
         public static final int MMS = 0x08;
     }
 
-    public SdpMasRecord(int masInstanceId,
+    public SdpMasRecord(
+            int masInstanceId,
             int l2capPsm,
             int rfcommChannelNumber,
             int profileVersion,
@@ -139,13 +140,14 @@ public class SdpMasRecord implements Parcelable {
         return ret;
     }
 
-    public static final Parcelable.Creator CREATOR = new Parcelable.Creator() {
-        public SdpMasRecord createFromParcel(Parcel in) {
-            return new SdpMasRecord(in);
-        }
+    public static final Parcelable.Creator CREATOR =
+            new Parcelable.Creator() {
+                public SdpMasRecord createFromParcel(Parcel in) {
+                    return new SdpMasRecord(in);
+                }
 
-        public SdpRecord[] newArray(int size) {
-            return new SdpRecord[size];
-        }
-    };
+                public SdpRecord[] newArray(int size) {
+                    return new SdpRecord[size];
+                }
+            };
 }

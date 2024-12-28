@@ -190,7 +190,7 @@ public final class SafetyCenterIssue implements Parcelable {
     public CharSequence getAttributionTitle() {
         if (!SdkLevel.isAtLeastU()) {
             throw new UnsupportedOperationException(
-                    "Method not supported for versions lower than UPSIDE_DOWN_CAKE");
+                    "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
         }
         return mAttributionTitle;
     }
@@ -237,7 +237,7 @@ public final class SafetyCenterIssue implements Parcelable {
     public String getGroupId() {
         if (!SdkLevel.isAtLeastU()) {
             throw new UnsupportedOperationException(
-                    "Method not supported for versions lower than UPSIDE_DOWN_CAKE");
+                    "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
         }
         return mGroupId;
     }
@@ -404,7 +404,7 @@ public final class SafetyCenterIssue implements Parcelable {
         public Builder setAttributionTitle(@Nullable CharSequence attributionTitle) {
             if (!SdkLevel.isAtLeastU()) {
                 throw new UnsupportedOperationException(
-                        "Method not supported for versions lower than UPSIDE_DOWN_CAKE");
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             mAttributionTitle = attributionTitle;
             return this;
@@ -461,7 +461,7 @@ public final class SafetyCenterIssue implements Parcelable {
         public Builder setGroupId(@Nullable String groupId) {
             if (!SdkLevel.isAtLeastU()) {
                 throw new UnsupportedOperationException(
-                        "Method not supported for versions lower than UPSIDE_DOWN_CAKE");
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             mGroupId = groupId;
             return this;
@@ -599,7 +599,8 @@ public final class SafetyCenterIssue implements Parcelable {
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public ConfirmationDialogDetails getConfirmationDialogDetails() {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             return mConfirmationDialogDetails;
         }
@@ -811,7 +812,8 @@ public final class SafetyCenterIssue implements Parcelable {
             @RequiresApi(UPSIDE_DOWN_CAKE)
             public Builder(@NonNull Action action) {
                 if (!SdkLevel.isAtLeastU()) {
-                    throw new UnsupportedOperationException();
+                    throw new UnsupportedOperationException(
+                            "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
                 }
                 requireNonNull(action);
                 mId = action.mId;
@@ -890,7 +892,8 @@ public final class SafetyCenterIssue implements Parcelable {
             public Builder setConfirmationDialogDetails(
                     @Nullable ConfirmationDialogDetails confirmationDialogDetails) {
                 if (!SdkLevel.isAtLeastU()) {
-                    throw new UnsupportedOperationException();
+                    throw new UnsupportedOperationException(
+                            "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
                 }
                 mConfirmationDialogDetails = confirmationDialogDetails;
                 return this;

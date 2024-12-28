@@ -53,6 +53,7 @@ public final class AggregateRecordsResponse<T> {
     }
 
     /** @hide */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public static <U> ZoneOffset getZoneOffsetInternal(
             @NonNull AggregationType<U> aggregationType,
             Map<AggregationType<U>, AggregateResult<U>> mAggregateResults) {
@@ -83,6 +84,7 @@ public final class AggregateRecordsResponse<T> {
     }
 
     /** @hide */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public static <U> U getInternal(
             @NonNull AggregationType<U> aggregationType,
             Map<AggregationType<U>, AggregateResult<U>> mAggregateResults) {
@@ -128,6 +130,22 @@ public final class AggregateRecordsResponse<T> {
     @Nullable
     public ZoneOffset getZoneOffset(@NonNull AggregationType<T> aggregationType) {
         return getZoneOffsetInternal(aggregationType, mAggregateResults);
+    }
+
+    /**
+     * Returns {@link ZoneOffset} of the first {@link AggregationType}.
+     *
+     * @hide
+     */
+    @Nullable
+    public ZoneOffset getFirstZoneOffset() {
+        AggregationType<T> firstAggregationType = getFirstAggregationType();
+        return firstAggregationType != null ? getZoneOffset(firstAggregationType) : null;
+    }
+
+    @Nullable
+    private AggregationType<T> getFirstAggregationType() {
+        return mAggregateResults.keySet().stream().findFirst().orElse(null);
     }
 
     /**

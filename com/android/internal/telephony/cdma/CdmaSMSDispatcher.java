@@ -129,6 +129,7 @@ public class CdmaSMSDispatcher extends SMSDispatcher {
         // if sms over IMS is not supported on data and voice is not available...
         if (!isIms() && ss != ServiceState.STATE_IN_SERVICE) {
             tracker.onFailed(mContext, getNotInServiceError(ss), NO_ERROR_CODE);
+            notifySmsSentFailedToEmergencyStateTracker(tracker, false);
             return;
         }
 

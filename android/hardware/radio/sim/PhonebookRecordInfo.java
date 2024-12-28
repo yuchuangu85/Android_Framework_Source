@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash ea7be3035be8d4869237a6478d2e0bb0efcc1e87 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen/android/hardware/radio/sim/PhonebookRecordInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3/android/hardware/radio/sim/PhonebookRecordInfo.aidl
  */
 package android.hardware.radio.sim;
+/** @hide */
 public class PhonebookRecordInfo implements android.os.Parcelable
 {
   public int recordId = 0;
@@ -68,7 +70,7 @@ public class PhonebookRecordInfo implements android.os.Parcelable
     _aidl_sj.add("number: " + (java.util.Objects.toString(number)));
     _aidl_sj.add("emails: " + (java.util.Arrays.toString(emails)));
     _aidl_sj.add("additionalNumbers: " + (java.util.Arrays.toString(additionalNumbers)));
-    return "android.hardware.radio.sim.PhonebookRecordInfo" + _aidl_sj.toString()  ;
+    return "PhonebookRecordInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

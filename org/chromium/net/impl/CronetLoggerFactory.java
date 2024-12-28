@@ -12,10 +12,9 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.net.impl.CronetLogger.CronetSource;
+import org.chromium.net.telemetry.CronetLoggerImpl;
 
-/**
- * Takes care of instantiating the correct CronetLogger.
- */
+/** Takes care of instantiating the correct CronetLogger. */
 public final class CronetLoggerFactory {
     private static final String TAG = CronetLoggerFactory.class.getSimpleName();
     private static final int SAMPLE_RATE_PER_SECOND = 1;
@@ -24,10 +23,6 @@ public final class CronetLoggerFactory {
 
     private static final CronetLogger sDefaultLogger = new NoOpLogger();
     private static CronetLogger sTestingLogger;
-
-    // Class that is packaged for Cronet telemetry.
-    private static final String CRONET_LOGGER_IMPL_CLASS =
-            "com.google.net.cronet.telemetry.CronetLoggerImpl";
 
     /**
      * Bypasses CronetLoggerFactory logic and always creates a NoOpLogger.
@@ -38,9 +33,7 @@ public final class CronetLoggerFactory {
         return sDefaultLogger;
     }
 
-    /**
-     * @return The correct CronetLogger to be used for logging.
-     */
+    /** @return The correct CronetLogger to be used for logging. */
     public static CronetLogger createLogger(Context ctx, CronetSource source) {
         if (sTestingLogger != null) return sTestingLogger;
 
@@ -50,12 +43,8 @@ public final class CronetLoggerFactory {
             return sDefaultLogger;
         }
 
-        Class<? extends CronetLogger> cronetLoggerImplClass = fetchLoggerImplClass();
-        if (cronetLoggerImplClass == null) return sDefaultLogger;
-
         try {
-            return cronetLoggerImplClass.getConstructor(int.class).newInstance(
-                    SAMPLE_RATE_PER_SECOND);
+            return new CronetLoggerImpl(SAMPLE_RATE_PER_SECOND);
         } catch (Exception e) {
             // Pass - since we dont want any failure, catch any exception that might arise.
             Log.e(TAG, "Exception creating an instance of CronetLoggerImpl", e);
@@ -68,13 +57,23 @@ public final class CronetLoggerFactory {
         sTestingLogger = testingLogger;
     }
 
-    private static Class<? extends CronetLogger> fetchLoggerImplClass() {
-        ClassLoader loader = CronetLoggerFactory.class.getClassLoader();
-        try {
-            return loader.loadClass(CRONET_LOGGER_IMPL_CLASS).asSubclass(CronetLogger.class);
-        } catch (Exception e) { // catching all exceptions since we don't want to crash the client
-            Log.e(TAG, "Exception fetching LoggerImpl class", e);
-            return null;
+    /**
+     * Utility class to safely use a custom CronetLogger for the duration of a test.
+     * To be used within a try-with-resources statement within the test.
+     */
+    public static class SwapLoggerForTesting implements AutoCloseable {
+        /**
+         * Forces {@code CronetLoggerFactory#createLogger} to return @param testLogger instead of
+         * what it would have normally returned.
+         */
+        public SwapLoggerForTesting(CronetLogger testLogger) {
+            CronetLoggerFactory.setLoggerForTesting(testLogger);
+        }
+
+        /** Restores CronetLoggerFactory to its original state. */
+        @Override
+        public void close() {
+            CronetLoggerFactory.setLoggerForTesting(null);
         }
     }
 }

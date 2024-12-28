@@ -60,7 +60,7 @@ public abstract class FractionPrecision extends Precision {
      * not "3.0".
      *
      * <p>
-     * This is equivalent to `withSignificantDigits(1, minSignificantDigits, RELAXED)`.
+     * This is equivalent to {@code withSignificantDigits(1, minSignificantDigits, RELAXED)}.
      *
      * @param minSignificantDigits
      *            The number of significant figures to guarantee.
@@ -92,7 +92,7 @@ public abstract class FractionPrecision extends Precision {
      * 123.4 would become "120.00".
      *
      * <p>
-     * This is equivalent to `withSignificantDigits(1, maxSignificantDigits, STRICT)`.
+     * This is equivalent to {@code withSignificantDigits(1, maxSignificantDigits, STRICT)}.
      *
      * @param maxSignificantDigits
      *            Round the number to no more than this number of significant figures.

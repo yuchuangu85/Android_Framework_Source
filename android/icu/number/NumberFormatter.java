@@ -62,6 +62,9 @@ import android.icu.util.ULocale;
  * Guava. For extensive details on the design of this API, read <a href="https://goo.gl/szi5VB">the
  * design doc</a>.
  *
+ * <p>
+ * Note: To format monetary/currency values, specify the currency in the `.unit()` function.
+ *
  * @author Shane Carr
  */
 public final class NumberFormatter {
@@ -85,7 +88,7 @@ public final class NumberFormatter {
      * integer), Max-Significant = 2 (round to 2 significant digits), and priority RELAXED (choose
      * the constraint that results in more digits being displayed).
      *
-     * <p>Conflicting *minimum* fraction and significant digits are always resolved in the direction that
+     * <p>Conflicting <i>minimum</i> fraction and significant digits are always resolved in the direction that
      * results in more trailing zeros.
      *
      * <p>Example 1: Consider the number 3.141, with various different settings:

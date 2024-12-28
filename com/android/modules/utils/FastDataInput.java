@@ -18,8 +18,6 @@ package com.android.modules.utils;
 
 import android.annotation.NonNull;
 
-import dalvik.system.VMRuntime;
-
 import java.io.BufferedInputStream;
 import java.io.Closeable;
 import java.io.DataInput;
@@ -42,8 +40,6 @@ public class FastDataInput implements DataInput, Closeable {
 
     protected static final int DEFAULT_BUFFER_SIZE = 32_768;
 
-    protected final VMRuntime mRuntime;
-
     protected final byte[] mBuffer;
     protected final int mBufferCap;
 
@@ -58,13 +54,12 @@ public class FastDataInput implements DataInput, Closeable {
     private String[] mStringRefs = new String[32];
 
     public FastDataInput(@NonNull InputStream in, int bufferSize) {
-        mRuntime = VMRuntime.getRuntime();
         mIn = Objects.requireNonNull(in);
         if (bufferSize < 8) {
             throw new IllegalArgumentException();
         }
 
-        mBuffer = (byte[]) mRuntime.newNonMovableArray(byte.class, bufferSize);
+        mBuffer = newByteArray(bufferSize);
         mBufferCap = mBuffer.length;
     }
 
@@ -90,6 +85,10 @@ public class FastDataInput implements DataInput, Closeable {
         mBufferPos = 0;
         mBufferLim = 0;
         mStringRefCount = 0;
+    }
+
+    public byte[] newByteArray(int bufferSize) {
+        return new byte[bufferSize];
     }
 
     /**
@@ -173,7 +172,7 @@ public class FastDataInput implements DataInput, Closeable {
             mBufferPos += len;
             return res;
         } else {
-            final byte[] tmp = (byte[]) mRuntime.newNonMovableArray(byte.class, len + 1);
+            final byte[] tmp = newByteArray(len + 1);
             readFully(tmp, 0, len);
             return ModifiedUtf8.decode(tmp, new char[len], 0, len);
         }
@@ -207,6 +206,10 @@ public class FastDataInput implements DataInput, Closeable {
 
             return s;
         } else {
+            if (ref >= mStringRefs.length) {
+                throw new IOException("Invalid interned string reference " + ref + " for "
+                        + mStringRefs.length + " interned strings");
+            }
             return mStringRefs[ref];
         }
     }

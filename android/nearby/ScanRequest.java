@@ -22,6 +22,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.WorkSource;
@@ -215,8 +216,13 @@ public final class ScanRequest implements Parcelable {
         stringBuilder.append("Request[")
                 .append("scanType=").append(mScanType);
         stringBuilder.append(", scanMode=").append(scanModeToString(mScanMode));
-        stringBuilder.append(", bleEnabled=").append(mBleEnabled);
-        stringBuilder.append(", offloadOnly=").append(mOffloadOnly);
+        // TODO(b/286137024): Remove this when CTS R5 is rolled out.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            stringBuilder.append(", bleEnabled=").append(mBleEnabled);
+            stringBuilder.append(", offloadOnly=").append(mOffloadOnly);
+        } else {
+            stringBuilder.append(", enableBle=").append(mBleEnabled);
+        }
         stringBuilder.append(", workSource=").append(mWorkSource);
         stringBuilder.append(", scanFilters=").append(mScanFilters);
         stringBuilder.append("]");

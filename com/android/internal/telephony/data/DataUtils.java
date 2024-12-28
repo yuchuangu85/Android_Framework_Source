@@ -36,11 +36,11 @@ import android.telephony.data.ApnSetting;
 import android.telephony.data.ApnSetting.ApnType;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataCallResponse.LinkStatus;
-import android.telephony.data.DataProfile;
 import android.telephony.ims.feature.ImsFeature;
 import android.util.ArrayMap;
 
 import com.android.internal.telephony.data.DataNetworkController.NetworkRequestList;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.telephony.Rlog;
 
 import java.text.SimpleDateFormat;
@@ -48,7 +48,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -90,7 +89,10 @@ public class DataUtils {
                 return NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_BANDWIDTH;
             case "PRIORITIZE_LATENCY":
                 return NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_LATENCY;
+            case "RCS":
+                return NetworkCapabilities.NET_CAPABILITY_RCS;
             default:
+                loge("Illegal network capability: " + capabilityString);
                 return -1;
         }
     }
@@ -106,7 +108,7 @@ public class DataUtils {
     public static @NetCapability Set<Integer> getNetworkCapabilitiesFromString(
             @NonNull String capabilitiesString) {
         // e.g. "IMS|" is not allowed
-        if (!capabilitiesString.matches("(\\s*[a-zA-Z]+\\s*)(\\|\\s*[a-zA-Z]+\\s*)*")) {
+        if (!capabilitiesString.matches("(\\s*[a-zA-Z_]+\\s*)(\\|\\s*[a-zA-Z_]+\\s*)*")) {
             return Collections.singleton(-1);
         }
         return Arrays.stream(capabilitiesString.split("\\s*\\|\\s*"))
@@ -254,6 +256,8 @@ public class DataUtils {
                 return ApnSetting.TYPE_VSIM;
             case NetworkCapabilities.NET_CAPABILITY_BIP:
                 return ApnSetting.TYPE_BIP;
+            case NetworkCapabilities.NET_CAPABILITY_RCS:
+                return ApnSetting.TYPE_RCS;
             default:
                 return ApnSetting.TYPE_NONE;
         }
@@ -295,6 +299,8 @@ public class DataUtils {
                 return NetworkCapabilities.NET_CAPABILITY_VSIM;
             case ApnSetting.TYPE_ENTERPRISE:
                 return NetworkCapabilities.NET_CAPABILITY_ENTERPRISE;
+            case ApnSetting.TYPE_RCS:
+                return NetworkCapabilities.NET_CAPABILITY_RCS;
             default:
                 return -1;
         }
@@ -377,57 +383,62 @@ public class DataUtils {
     }
 
     /**
-     * Get the highest priority supported network capability from the specified data profile.
-     *
-     * @param dataConfigManager The data config that contains network priority information.
-     * @param dataProfile The data profile
-     * @return The highest priority network capability. -1 if cannot find one.
-     */
-    public static @NetCapability int getHighestPriorityNetworkCapabilityFromDataProfile(
-            @NonNull DataConfigManager dataConfigManager, @NonNull DataProfile dataProfile) {
-        if (dataProfile.getApnSetting() == null
-                || dataProfile.getApnSetting().getApnTypes().isEmpty()) return -1;
-        return dataProfile.getApnSetting().getApnTypes().stream()
-                .map(DataUtils::apnTypeToNetworkCapability)
-                .sorted(Comparator.comparing(dataConfigManager::getNetworkCapabilityPriority)
-                        .reversed())
-                .collect(Collectors.toList())
-                .get(0);
-    }
-
-    /**
      * Group the network requests into several list that contains the same network capabilities.
      *
      * @param networkRequestList The provided network requests.
+     * @param featureFlags The feature flag.
+     *
      * @return The network requests after grouping.
      */
     public static @NonNull List<NetworkRequestList> getGroupedNetworkRequestList(
-            @NonNull NetworkRequestList networkRequestList) {
-        // Key is the capabilities set.
-        Map<Set<Integer>, NetworkRequestList> requestsMap = new ArrayMap<>();
-        for (TelephonyNetworkRequest networkRequest : networkRequestList) {
-            requestsMap.computeIfAbsent(Arrays.stream(networkRequest.getCapabilities())
-                            .boxed().collect(Collectors.toSet()),
-                    v -> new NetworkRequestList()).add(networkRequest);
-        }
+            @NonNull NetworkRequestList networkRequestList, @NonNull FeatureFlags featureFlags) {
         List<NetworkRequestList> requests = new ArrayList<>();
-        // Create separate groups for enterprise requests with different enterprise IDs.
-        for (NetworkRequestList requestList : requestsMap.values()) {
-            List<TelephonyNetworkRequest> enterpriseRequests = requestList.stream()
-                    .filter(request ->
-                            request.hasCapability(NetworkCapabilities.NET_CAPABILITY_ENTERPRISE))
-                    .collect(Collectors.toList());
-            if (enterpriseRequests.isEmpty()) {
-                requests.add(requestList);
-                continue;
+        if (featureFlags.satelliteInternet()) {
+            record NetworkCapabilitiesKey(Set<Integer> caps, Set<Integer> enterpriseIds,
+                                          Set<Integer> transportTypes) { }
+
+            // Key is the combination of capabilities, enterprise ids, and transport types.
+            Map<NetworkCapabilitiesKey, NetworkRequestList> requestsMap = new ArrayMap<>();
+            for (TelephonyNetworkRequest networkRequest : networkRequestList) {
+                requestsMap.computeIfAbsent(new NetworkCapabilitiesKey(
+                                Arrays.stream(networkRequest.getCapabilities())
+                                        .boxed().collect(Collectors.toSet()),
+                                Arrays.stream(networkRequest.getNativeNetworkRequest()
+                                                .getEnterpriseIds())
+                                        .boxed().collect(Collectors.toSet()),
+                                Arrays.stream(networkRequest.getNativeNetworkRequest()
+                                                .getTransportTypes())
+                                        .boxed().collect(Collectors.toSet())
+                                ),
+                        v -> new NetworkRequestList()).add(networkRequest);
             }
-            // Key is the enterprise ID
-            Map<Integer, NetworkRequestList> enterpriseRequestsMap = new ArrayMap<>();
-            for (TelephonyNetworkRequest request : enterpriseRequests) {
-                enterpriseRequestsMap.computeIfAbsent(request.getCapabilityDifferentiator(),
-                        v -> new NetworkRequestList()).add(request);
+            requests.addAll(requestsMap.values());
+        } else {
+            // Key is the capabilities set.
+            Map<Set<Integer>, NetworkRequestList> requestsMap = new ArrayMap<>();
+            for (TelephonyNetworkRequest networkRequest : networkRequestList) {
+                requestsMap.computeIfAbsent(Arrays.stream(networkRequest.getCapabilities())
+                                .boxed().collect(Collectors.toSet()),
+                        v -> new NetworkRequestList()).add(networkRequest);
             }
-            requests.addAll(enterpriseRequestsMap.values());
+            // Create separate groups for enterprise requests with different enterprise IDs.
+            for (NetworkRequestList requestList : requestsMap.values()) {
+                List<TelephonyNetworkRequest> enterpriseRequests = requestList.stream()
+                        .filter(request -> request.hasCapability(
+                                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE))
+                        .toList();
+                if (enterpriseRequests.isEmpty()) {
+                    requests.add(requestList);
+                    continue;
+                }
+                // Key is the enterprise ID
+                Map<Integer, NetworkRequestList> enterpriseRequestsMap = new ArrayMap<>();
+                for (TelephonyNetworkRequest request : enterpriseRequests) {
+                    enterpriseRequestsMap.computeIfAbsent(request.getCapabilityDifferentiator(),
+                            v -> new NetworkRequestList()).add(request);
+                }
+                requests.addAll(enterpriseRequestsMap.values());
+            }
         }
         // Sort the requests so the network request list with higher priority will be at the front.
         return requests.stream()

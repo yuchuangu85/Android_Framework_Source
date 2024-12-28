@@ -33,6 +33,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.Pair;
 
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 
 import java.security.PublicKey;
@@ -297,7 +298,12 @@ public class CarrierInfoManager {
         final TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class)
                 .createForSubscriptionId(subId);
         int carrierId = telephonyManager.getSimCarrierId();
-        deleteCarrierInfoForImsiEncryption(context, subId, carrierId);
+        if (Flags.imsiKeyRetryDownloadOnPhoneUnlock()) {
+            String simOperator = telephonyManager.getSimOperator();
+            deleteCarrierInfoForImsiEncryption(context, subId, carrierId, simOperator);
+        } else {
+            deleteCarrierInfoForImsiEncryption(context, subId, carrierId);
+        }
         Intent resetIntent = new Intent(TelephonyIntents.ACTION_CARRIER_CERTIFICATE_DOWNLOAD);
         SubscriptionManager.putPhoneIdAndSubIdExtra(resetIntent, mPhoneId);
         context.sendBroadcastAsUser(resetIntent, UserHandle.ALL);
@@ -312,13 +318,29 @@ public class CarrierInfoManager {
      */
     public static void deleteCarrierInfoForImsiEncryption(Context context, int subId,
             int carrierId) {
+        deleteCarrierInfoForImsiEncryption(context, subId, carrierId, null);
+    }
+
+    /**
+     * Deletes all the keys for a given Carrier from the device keystore.
+     * @param context Context
+     * @param subId SubscriptionId
+     * @param carrierId delete the key which matches the carrierId
+     * @param simOperator delete the key which matches the MCCMNC
+     *
+     */
+    public static void deleteCarrierInfoForImsiEncryption(Context context, int subId,
+            int carrierId, String simOperator) {
         Log.i(LOG_TAG, "deleting carrier key from db for subId=" + subId);
         String mcc = "";
         String mnc = "";
 
-        final TelephonyManager telephonyManager = context.getSystemService(TelephonyManager.class)
-                .createForSubscriptionId(subId);
-        String simOperator = telephonyManager.getSimOperator();
+        if (TextUtils.isEmpty(simOperator)) {
+            final TelephonyManager telephonyManager = context.getSystemService(
+                            TelephonyManager.class)
+                    .createForSubscriptionId(subId);
+            simOperator = telephonyManager.getSimOperator();
+        }
         if (!TextUtils.isEmpty(simOperator)) {
             mcc = simOperator.substring(0, 3);
             mnc = simOperator.substring(3);

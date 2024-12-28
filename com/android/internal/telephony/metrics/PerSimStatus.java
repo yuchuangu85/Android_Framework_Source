@@ -32,6 +32,7 @@ import android.annotation.Nullable;
 import android.database.Cursor;
 import android.net.Uri;
 import android.provider.Telephony;
+import android.telephony.AnomalyReporter;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
@@ -46,15 +47,23 @@ import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.uicc.UiccSlot;
+import com.android.telephony.Rlog;
+
+import java.util.UUID;
 
 /** Stores the per SIM status. */
 public class PerSimStatus {
+    private static final String TAG = "PerSimStatus";
+
     private static final long BITMASK_2G =
             TelephonyManager.NETWORK_TYPE_BITMASK_GSM
                     | TelephonyManager.NETWORK_TYPE_BITMASK_GPRS
                     | TelephonyManager.NETWORK_TYPE_BITMASK_EDGE
                     | TelephonyManager.NETWORK_TYPE_BITMASK_CDMA
                     | TelephonyManager.NETWORK_TYPE_BITMASK_1xRTT;
+
+    private static final UUID CROSS_SIM_CALLING_STATUS_ANOMALY_UUID =
+            UUID.fromString("377e1a33-d4ac-4039-9cc0-f0d8396757f3");
 
     public final int carrierId;
     public final int phoneNumberSourceUicc;
@@ -73,6 +82,8 @@ public class PerSimStatus {
     public final int userModifiedApnTypes;
     public final long unmeteredNetworks;
     public final boolean vonrEnabled;
+
+    public final boolean crossSimCallingEnabled;
 
     /** Returns the current sim status of the given {@link Phone}. */
     @Nullable
@@ -105,7 +116,8 @@ public class PerSimStatus {
                 getMinimumVoltageClass(phone),
                 getUserModifiedApnTypes(phone),
                 persistAtomsStorage.getUnmeteredNetworks(phone.getPhoneId(), carrierId),
-                isVonrEnabled(phone));
+                isVonrEnabled(phone),
+                isCrossSimCallingEnabled(imsMmTelManager));
     }
 
     private PerSimStatus(
@@ -125,7 +137,8 @@ public class PerSimStatus {
             int minimumVoltageClass,
             int userModifiedApnTypes,
             long unmeteredNetworks,
-            boolean vonrEnabled) {
+            boolean vonrEnabled,
+            boolean crossSimCallingEnabled) {
         this.carrierId = carrierId;
         this.phoneNumberSourceUicc = phoneNumberSourceUicc;
         this.phoneNumberSourceCarrier = phoneNumberSourceCarrier;
@@ -143,6 +156,18 @@ public class PerSimStatus {
         this.userModifiedApnTypes = userModifiedApnTypes;
         this.unmeteredNetworks = unmeteredNetworks;
         this.vonrEnabled = vonrEnabled;
+        this.crossSimCallingEnabled = crossSimCallingEnabled;
+    }
+
+    private static boolean isCrossSimCallingEnabled(ImsMmTelManager imsMmTelManager) {
+        try {
+            return imsMmTelManager != null && imsMmTelManager.isCrossSimCallingEnabled();
+        } catch (Exception e) {
+            AnomalyReporter.reportAnomaly(CROSS_SIM_CALLING_STATUS_ANOMALY_UUID,
+                    "Failed to query ImsMmTelManager for cross-SIM calling status!");
+            Rlog.e(TAG, e.getMessage());
+        }
+        return false;
     }
 
     @Nullable
@@ -278,7 +303,7 @@ public class PerSimStatus {
     }
 
     /** Returns true if VoNR is enabled */
-    private static boolean isVonrEnabled(Phone phone) {
+    static boolean isVonrEnabled(Phone phone) {
         TelephonyManager telephonyManager =
                 phone.getContext()
                         .getSystemService(TelephonyManager.class);

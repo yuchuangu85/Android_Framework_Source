@@ -16,8 +16,7 @@
 package com.android.internal.net.ipsec.ike.ike3gpp;
 
 import static android.net.ipsec.ike.IkeManager.getIkeLog;
-import static android.net.ipsec.ike.ike3gpp.Ike3gppBackoffTimer.ERROR_TYPE_NETWORK_FAILURE;
-import static android.net.ipsec.ike.ike3gpp.Ike3gppBackoffTimer.ERROR_TYPE_NO_APN_SUBSCRIPTION;
+import static android.net.ipsec.ike.ike3gpp.Ike3gppBackoffTimer.isValidErrorNotifyCause;
 
 import static com.android.internal.net.ipsec.ike.ike3gpp.Ike3gppExtensionExchange.NOTIFY_TYPE_BACKOFF_TIMER;
 import static com.android.internal.net.ipsec.ike.ike3gpp.Ike3gppExtensionExchange.NOTIFY_TYPE_DEVICE_IDENTITY;
@@ -53,8 +52,6 @@ class Ike3gppIkeAuth extends Ike3gppExchangeBase {
         SUPPORTED_RESPONSE_NOTIFY_TYPES.add(NOTIFY_TYPE_N1_MODE_INFORMATION);
         SUPPORTED_RESPONSE_NOTIFY_TYPES.add(NOTIFY_TYPE_BACKOFF_TIMER);
         SUPPORTED_RESPONSE_NOTIFY_TYPES.add(NOTIFY_TYPE_DEVICE_IDENTITY);
-        SUPPORTED_RESPONSE_NOTIFY_TYPES.add(ERROR_TYPE_NETWORK_FAILURE);
-        SUPPORTED_RESPONSE_NOTIFY_TYPES.add(ERROR_TYPE_NO_APN_SUBSCRIPTION);
     }
 
     /** Initializes an Ike3gppIkeAuth. */
@@ -94,7 +91,8 @@ class Ike3gppIkeAuth extends Ike3gppExchangeBase {
             switch (payload.payloadType) {
                 case IkePayload.PAYLOAD_TYPE_NOTIFY:
                     IkeNotifyPayload notifyPayload = (IkeNotifyPayload) payload;
-                    if (SUPPORTED_RESPONSE_NOTIFY_TYPES.contains(notifyPayload.notifyType)) {
+                    if (SUPPORTED_RESPONSE_NOTIFY_TYPES.contains(notifyPayload.notifyType)
+                            || isValidErrorNotifyCause(notifyPayload)) {
                         ike3gppPayloads.add(notifyPayload);
                     }
                     break;
@@ -134,19 +132,17 @@ class Ike3gppIkeAuth extends Ike3gppExchangeBase {
                 case NOTIFY_TYPE_DEVICE_IDENTITY:
                     mIsDeviceIdentityRequestedByNetwork = true;
                     break;
-                case ERROR_TYPE_NO_APN_SUBSCRIPTION: // fallthrough
-                case ERROR_TYPE_NETWORK_FAILURE:
-                    if (backoffTimerCause == null) {
-                        backoffTimerCause = notifyPayload;
-                    } else {
-                        logw(
-                                "Received multiple potential causes for BACKOFF_TIMER: "
-                                        + notifyPayload.notifyType);
-                    }
-                    break;
                 default:
-                    // non-3GPP payload. Can be ignored.
-                    logd("Non-3GPP payload processed as 3GPP: " + notifyPayload.getTypeString());
+                    if (isValidErrorNotifyCause(notifyPayload)) {
+                        if (backoffTimerCause == null) {
+                            backoffTimerCause = notifyPayload;
+                        }
+                    } else {
+                        // non-3GPP payload. Can be ignored.
+                        logd(
+                                "Non-3GPP payload processed as 3GPP: "
+                                        + notifyPayload.getTypeString());
+                    }
                     break;
             }
         }

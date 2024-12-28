@@ -471,7 +471,7 @@ public final class SafetyCenterManager {
             @RefreshReason int refreshReason, @NonNull List<String> safetySourceIds) {
         if (!SdkLevel.isAtLeastU()) {
             throw new UnsupportedOperationException(
-                    "Method not supported for versions lower than UPSIDE_DOWN_CAKE");
+                    "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
         }
 
         requireNonNull(safetySourceIds, "safetySourceIds cannot be null");

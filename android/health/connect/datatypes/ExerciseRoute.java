@@ -164,6 +164,7 @@ public final class ExerciseRoute implements Parcelable {
          * @param skipValidation Boolean flag to skip validation of record values.
          * @see ExerciseRoute
          */
+        @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
         private Location(
                 @NonNull Instant time,
                 @FloatRange(from = MIN_LATITUDE, to = MAX_LATITUDE) double latitude,

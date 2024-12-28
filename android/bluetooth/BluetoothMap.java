@@ -16,8 +16,6 @@
 
 package android.bluetooth;
 
-import static android.bluetooth.BluetoothUtils.getSyncTimeout;
-
 import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.RequiresNoPermission;
@@ -38,15 +36,11 @@ import android.util.CloseGuard;
 import android.util.Log;
 import android.util.Pair;
 
-import com.android.modules.utils.SynchronousResultReceiver;
-
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
 
 /**
- * This class provides the APIs to control the Bluetooth MAP
- * Profile.
+ * This class provides the APIs to control the Bluetooth MAP Profile.
  *
  * @hide
  */
@@ -77,8 +71,10 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
 
     /** @hide */
     public static final int RESULT_FAILURE = 0;
+
     /** @hide */
     public static final int RESULT_SUCCESS = 1;
+
     /**
      * Connection canceled before completion.
      *
@@ -88,28 +84,21 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
 
     private final BluetoothAdapter mAdapter;
     private final AttributionSource mAttributionSource;
-    private final BluetoothProfileConnector<IBluetoothMap> mProfileConnector =
-            new BluetoothProfileConnector(this, BluetoothProfile.MAP,
-                    "BluetoothMap", IBluetoothMap.class.getName()) {
-                @Override
-                public IBluetoothMap getServiceInterface(IBinder service) {
-                    return IBluetoothMap.Stub.asInterface(service);
-                }
-    };
 
-    /**
-     * Create a BluetoothMap proxy object.
-     */
-    /* package */ BluetoothMap(Context context, ServiceListener listener,
-            BluetoothAdapter adapter) {
+    private IBluetoothMap mService;
+
+    /** Create a BluetoothMap proxy object. */
+    /* package */ BluetoothMap(Context context, BluetoothAdapter adapter) {
         if (DBG) Log.d(TAG, "Create BluetoothMap proxy object");
         mAdapter = adapter;
         mAttributionSource = adapter.getAttributionSource();
-        mProfileConnector.connect(context, listener);
+        mService = null;
         mCloseGuard = new CloseGuard();
         mCloseGuard.open("close");
     }
 
+    @Override
+    @SuppressWarnings("Finalize") // TODO(b/314811467)
     protected void finalize() {
         if (mCloseGuard != null) {
             mCloseGuard.warnIfOpen();
@@ -128,19 +117,36 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     @Override
     public void close() {
         if (VDBG) log("close()");
-        mProfileConnector.disconnect();
+        mAdapter.closeProfileProxy(this);
+    }
+
+    /** @hide */
+    @Override
+    public void onServiceConnected(IBinder service) {
+        mService = IBluetoothMap.Stub.asInterface(service);
+    }
+
+    /** @hide */
+    @Override
+    public void onServiceDisconnected() {
+        mService = null;
     }
 
     private IBluetoothMap getService() {
-        return mProfileConnector.getService();
+        return mService;
+    }
+
+    /** @hide */
+    @Override
+    public BluetoothAdapter getAdapter() {
+        return mAdapter;
     }
 
     /**
      * Get the current state of the BluetoothMap service.
      *
      * @return One of the STATE_ return codes, or STATE_ERROR if this proxy object is currently not
-     * connected to the Map service.
-     *
+     *     connected to the Map service.
      * @hide
      */
     @RequiresBluetoothConnectPermission
@@ -148,28 +154,24 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     public int getState() {
         if (VDBG) log("getState()");
         final IBluetoothMap service = getService();
-        final int defaultValue = BluetoothMap.STATE_ERROR;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getState(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getState(mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothMap.STATE_ERROR;
     }
 
     /**
      * Get the currently connected remote Bluetooth device (PCE).
      *
      * @return The remote Bluetooth device, or null if not in connected or connecting state, or if
-     * this proxy object is not connected to the Map service.
-     *
+     *     this proxy object is not connected to the Map service.
      * @hide
      */
     @RequiresBluetoothConnectPermission
@@ -177,29 +179,23 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     public BluetoothDevice getClient() {
         if (VDBG) log("getClient()");
         final IBluetoothMap service = getService();
-        final BluetoothDevice defaultValue = null;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<BluetoothDevice> recv =
-                        SynchronousResultReceiver.get();
-                service.getClient(mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
-                        mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+                        service.getClient(mAttributionSource), mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return null;
     }
 
     /**
-     * Returns true if the specified Bluetooth device is connected.
-     * Returns false if not connected, or if this proxy object is not
-     * currently connected to the Map service.
+     * Returns true if the specified Bluetooth device is connected. Returns false if not connected,
+     * or if this proxy object is not currently connected to the Map service.
      *
      * @hide
      */
@@ -208,25 +204,21 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     public boolean isConnected(BluetoothDevice device) {
         if (VDBG) log("isConnected(" + device + ")");
         final IBluetoothMap service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.isConnected(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.isConnected(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
-     * Initiate connection. Initiation of outgoing connections is not
-     * supported for MAP server.
+     * Initiate connection. Initiation of outgoing connections is not supported for MAP server.
      *
      * @hide
      */
@@ -241,7 +233,6 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
      *
      * @param device Remote Bluetooth Device
      * @return false on error, true otherwise
-     *
      * @hide
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -250,30 +241,25 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     public boolean disconnect(BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
         final IBluetoothMap service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.disconnect(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.disconnect(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
-     * Check class bits for possible Map support.
-     * This is a simple heuristic that tries to guess if a device with the
-     * given class bits might support Map. It is not accurate for all
-     * devices. It tries to err on the side of false positives.
+     * Check class bits for possible Map support. This is a simple heuristic that tries to guess if
+     * a device with the given class bits might support Map. It is not accurate for all devices. It
+     * tries to err on the side of false positives.
      *
      * @return True if this device might support Map.
-     *
      * @hide
      */
     public static boolean doesClassMatchSink(BluetoothClass btClass) {
@@ -293,42 +279,36 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
      * Get the list of connected devices. Currently at most one.
      *
      * @return list of connected devices
-     *
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @NonNull List<BluetoothDevice> getConnectedDevices() {
         if (DBG) log("getConnectedDevices()");
         final IBluetoothMap service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getConnectedDevices(mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
-                        mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+                        service.getConnectedDevices(mAttributionSource), mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
     /**
      * Get the list of devices matching specified states. Currently at most one.
      *
      * @return list of matching devices
-     *
      * @hide
      */
     @RequiresBluetoothConnectPermission
@@ -336,34 +316,32 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         if (DBG) log("getDevicesMatchingStates()");
         final IBluetoothMap service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getDevicesMatchingConnectionStates(states, mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
+                        service.getDevicesMatchingConnectionStates(states, mAttributionSource),
                         mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
     /**
-     * There are several instances of IpcDataCache used in this class.
-     * BluetoothCache wraps up the common code.  All caches are created with a maximum of
-     * eight entries, and the key is in the bluetooth module.  The name is set to the api.
+     * There are several instances of IpcDataCache used in this class. BluetoothCache wraps up the
+     * common code. All caches are created with a maximum of eight entries, and the key is in the
+     * bluetooth module. The name is set to the api.
      */
     private static class BluetoothCache<Q, R> extends IpcDataCache<Q, R> {
         BluetoothCache(String api, IpcDataCache.QueryHandler query) {
             super(8, IpcDataCache.MODULE_BLUETOOTH, api, api, query);
-        }};
+        }
+    }
+    ;
 
     /** @hide */
     public void disableBluetoothGetConnectionStateCache() {
@@ -376,44 +354,45 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     }
 
     /**
-     * Invalidate a bluetooth cache.  This method is just a short-hand wrapper that
-     * enforces the bluetooth module.
+     * Invalidate a bluetooth cache. This method is just a short-hand wrapper that enforces the
+     * bluetooth module.
      */
     private static void invalidateCache(@NonNull String api) {
         IpcDataCache.invalidateCache(IpcDataCache.MODULE_BLUETOOTH, api);
     }
 
-    private static final IpcDataCache
-            .QueryHandler<Pair<IBluetoothMap, Pair<AttributionSource, BluetoothDevice>>, Integer>
-            sBluetoothConnectionQuery = new IpcDataCache.QueryHandler<>() {
-                @RequiresBluetoothConnectPermission
-                @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-                @Override
-                public Integer apply(Pair<IBluetoothMap,
-                        Pair<AttributionSource, BluetoothDevice>> pairQuery) {
-                    IBluetoothMap service = pairQuery.first;
-                    AttributionSource source = pairQuery.second.first;
-                    BluetoothDevice device = pairQuery.second.second;
-                    if (DBG) {
-                        log("getConnectionState(" + device.getAnonymizedAddress() + ") uncached");
-                    }
-                    final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                    try {
-                        service.getConnectionState(device, source, recv);
-                        return recv.awaitResultNoInterrupt(getSyncTimeout())
-                            .getValue(BluetoothProfile.STATE_DISCONNECTED);
-                    } catch (RemoteException | TimeoutException e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-            };
+    private static final IpcDataCache.QueryHandler<
+                    Pair<IBinder, Pair<AttributionSource, BluetoothDevice>>, Integer>
+            sBluetoothConnectionQuery =
+                    new IpcDataCache.QueryHandler<>() {
+                        @RequiresBluetoothConnectPermission
+                        @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+                        @Override
+                        public Integer apply(
+                                Pair<IBinder, Pair<AttributionSource, BluetoothDevice>> pairQuery) {
+                            IBluetoothMap service = IBluetoothMap.Stub.asInterface(pairQuery.first);
+                            AttributionSource source = pairQuery.second.first;
+                            BluetoothDevice device = pairQuery.second.second;
+                            if (DBG) {
+                                log(
+                                        "getConnectionState("
+                                                + device.getAnonymizedAddress()
+                                                + ") uncached");
+                            }
+                            try {
+                                return service.getConnectionState(device, source);
+                            } catch (RemoteException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    };
 
     private static final String GET_CONNECTION_STATE_API = "BluetoothMap_getConnectionState";
 
-    private static final
-            BluetoothCache<Pair<IBluetoothMap, Pair<AttributionSource, BluetoothDevice>>, Integer>
-            sBluetoothConnectionCache = new BluetoothCache<>(GET_CONNECTION_STATE_API,
-                sBluetoothConnectionQuery);
+    private static final BluetoothCache<
+                    Pair<IBinder, Pair<AttributionSource, BluetoothDevice>>, Integer>
+            sBluetoothConnectionCache =
+                    new BluetoothCache<>(GET_CONNECTION_STATE_API, sBluetoothConnectionQuery);
 
     /**
      * Get connection state of device
@@ -432,10 +411,9 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
         } else if (isEnabled() && isValidDevice(device)) {
             try {
                 return sBluetoothConnectionCache.query(
-                        new Pair<>(service, new Pair<>(mAttributionSource, device)));
+                        new Pair<>(service.asBinder(), new Pair<>(mAttributionSource, device)));
             } catch (RuntimeException e) {
-                if (!(e.getCause() instanceof TimeoutException)
-                        && !(e.getCause() instanceof RemoteException)) {
+                if (!(e.getCause() instanceof RemoteException)) {
                     throw e;
                 }
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
@@ -447,19 +425,19 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     /**
      * Set priority of the profile
      *
-     * <p> The device should already be paired.
-     * Priority can be one of {@link #PRIORITY_ON} or {@link #PRIORITY_OFF},
+     * <p>The device should already be paired. Priority can be one of {@link #PRIORITY_ON} or {@link
+     * #PRIORITY_OFF},
      *
      * @param device Paired bluetooth device
-     * @param priority
      * @return true if priority is set, false on error
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean setPriority(BluetoothDevice device, int priority) {
         if (DBG) log("setPriority(" + device + ", " + priority + ")");
         return setConnectionPolicy(device, BluetoothAdapter.priorityToConnectionPolicy(priority));
@@ -468,9 +446,9 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     /**
      * Set connection policy of the profile
      *
-     * <p> The device should already be paired.
-     * Connection policy can be one of {@link #CONNECTION_POLICY_ALLOWED},
-     * {@link #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The device should already be paired. Connection policy can be one of {@link
+     * #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN}, {@link
+     * #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Paired bluetooth device
      * @param connectionPolicy is the connection policy to set to for this profile
@@ -479,47 +457,47 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
-    public boolean setConnectionPolicy(@NonNull BluetoothDevice device,
-            @ConnectionPolicy int connectionPolicy) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
+    public boolean setConnectionPolicy(
+            @NonNull BluetoothDevice device, @ConnectionPolicy int connectionPolicy) {
         if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
         final IBluetoothMap service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
-        } else if (isEnabled() && isValidDevice(device)
-                    && (connectionPolicy == BluetoothProfile.CONNECTION_POLICY_FORBIDDEN
+        } else if (isEnabled()
+                && isValidDevice(device)
+                && (connectionPolicy == BluetoothProfile.CONNECTION_POLICY_FORBIDDEN
                         || connectionPolicy == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setConnectionPolicy(device, connectionPolicy, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setConnectionPolicy(device, connectionPolicy, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Get the priority of the profile.
      *
-     * <p> The priority can be any of:
-     * {@link #PRIORITY_OFF}, {@link #PRIORITY_ON}, {@link #PRIORITY_UNDEFINED}
+     * <p>The priority can be any of: {@link #PRIORITY_OFF}, {@link #PRIORITY_ON}, {@link
+     * #PRIORITY_UNDEFINED}
      *
      * @param device Bluetooth device
      * @return priority of the device
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public int getPriority(BluetoothDevice device) {
         if (VDBG) log("getPriority(" + device + ")");
         return BluetoothAdapter.connectionPolicyToPriority(getConnectionPolicy(device));
@@ -528,9 +506,8 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
     /**
      * Get the connection policy of the profile.
      *
-     * <p> The connection policy can be any of:
-     * {@link #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN},
-     * {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The connection policy can be any of: {@link #CONNECTION_POLICY_ALLOWED}, {@link
+     * #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Bluetooth device
      * @return connection policy of the device
@@ -538,27 +515,25 @@ public final class BluetoothMap implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @ConnectionPolicy int getConnectionPolicy(@NonNull BluetoothDevice device) {
         if (VDBG) log("getConnectionPolicy(" + device + ")");
         final IBluetoothMap service = getService();
-        final int defaultValue = BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionPolicy(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getConnectionPolicy(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
     }
 
     private static void log(String msg) {

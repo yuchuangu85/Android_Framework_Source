@@ -79,14 +79,12 @@ public sealed interface ConstantDesc
         permits ClassDesc,
                 MethodHandleDesc,
                 MethodTypeDesc,
-                // Android-changed: Remove the below boxed types until they implement this.
-                // Double,
-                // DynamicConstantDesc,
-                // Float,
-                // Integer,
-                // Long,
-                // String {
-                DynamicConstantDesc {
+                Double,
+                DynamicConstantDesc,
+                Float,
+                Integer,
+                Long,
+                String {
 
     /**
      * Resolves this descriptor reflectively, emulating the resolution behavior

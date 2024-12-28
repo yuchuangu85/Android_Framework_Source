@@ -36,6 +36,7 @@ import java.lang.constant.Constable;
 import java.lang.constant.ConstantDescs;
 import java.lang.constant.DynamicConstantDesc;
 import java.lang.invoke.MethodHandles;
+import java.util.Optional;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import libcore.util.BasicLruCache;
@@ -76,7 +77,7 @@ import static java.util.Objects.requireNonNull;
 @SuppressWarnings("serial") // No serialVersionUID needed due to
                             // special-casing of enum classes.
 public abstract class Enum<E extends Enum<E>>
-        implements Comparable<E>, Serializable {
+        implements Constable, Comparable<E>, Serializable {
     /**
      * The name of this enum constant, as declared in the enum declaration.
      * Most programmers should use the {@link #toString} method rather than
@@ -223,8 +224,6 @@ public abstract class Enum<E extends Enum<E>>
         return (zuper == Enum.class) ? (Class<E>)clazz : (Class<E>)zuper;
     }
 
-    // BEGIN Android-removed: dynamic constants not supported on Android.
-    /*
     /**
      * Returns an enum descriptor {@code EnumDesc} for this instance, if one can be
      * constructed, or an empty {@link Optional} if one cannot be.
@@ -232,15 +231,14 @@ public abstract class Enum<E extends Enum<E>>
      * @return An {@link Optional} containing the resulting nominal descriptor,
      * or an empty {@link Optional} if one cannot be constructed.
      * @since 12
-     *
+     * @hide
+     */
     @Override
     public final Optional<EnumDesc<E>> describeConstable() {
         return getDeclaringClass()
                 .describeConstable()
                 .map(c -> EnumDesc.of(c, name));
     }
-     */
-    // END Android-removed: dynamic constants not supported on Android.   
 
     /**
      * Returns the enum constant of the specified enum class with the

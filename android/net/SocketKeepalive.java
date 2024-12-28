@@ -149,9 +149,7 @@ public abstract class SocketKeepalive implements AutoCloseable {
     public static final int ERROR_INSUFFICIENT_RESOURCES = -32;
 
     /**
-     * There was no such slot. This should only be internally as it indicates
-     * a programming error in the system server. It should not propagate to
-     * applications.
+     * There was no such slot, or no keepalive running on this slot.
      * @hide
      */
     @SystemApi

@@ -1848,6 +1848,7 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
         }
     }
 
+    // BEGIN Android-removed: Fall back to boringssl for large problems.
     /**
      * Multiplies two BigIntegers using the Karatsuba multiplication
      * algorithm.  This is a recursive divide-and-conquer algorithm which is
@@ -1863,6 +1864,7 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
      *
      * See:  http://en.wikipedia.org/wiki/Karatsuba_algorithm
      */
+    /*
     private static BigInteger multiplyKaratsuba(BigInteger x, BigInteger y) {
         int xlen = x.mag.length;
         int ylen = y.mag.length;
@@ -1892,6 +1894,7 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
             return result;
         }
     }
+    */
 
     /**
      * Multiplies two BigIntegers using a 3-way Toom-Cook multiplication
@@ -1921,6 +1924,7 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
      * LNCS #4547. Springer, Madrid, Spain, June 21-22, 2007.
      *
      */
+    /*
     private static BigInteger multiplyToomCook3(BigInteger a, BigInteger b) {
         int alen = a.mag.length;
         int blen = b.mag.length;
@@ -1981,6 +1985,8 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
             return result;
         }
     }
+    */
+    // END Android-removed: Fall back to boringssl for large problems.
 
 
     /**
@@ -2475,23 +2481,28 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
         return a.divideKnuth(b, q).toBigInteger(this.signum);
     }
 
+    // BEGIN Android-removed: Fall back to boringssl for large problems.
     /**
      * Calculates {@code this / val} using the Burnikel-Ziegler algorithm.
      * @param  val the divisor
      * @return {@code this / val}
      */
+    /*
     private BigInteger divideBurnikelZiegler(BigInteger val) {
         return divideAndRemainderBurnikelZiegler(val)[0];
     }
+    */
 
     /**
      * Calculates {@code this % val} using the Burnikel-Ziegler algorithm.
      * @param val the divisor
      * @return {@code this % val}
      */
+    /*
     private BigInteger remainderBurnikelZiegler(BigInteger val) {
         return divideAndRemainderBurnikelZiegler(val)[1];
     }
+    */
 
     /**
      * Computes {@code this / val} and {@code this % val} using the
@@ -2499,6 +2510,7 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
      * @param val the divisor
      * @return an array containing the quotient and remainder
      */
+    /*
     private BigInteger[] divideAndRemainderBurnikelZiegler(BigInteger val) {
         MutableBigInteger q = new MutableBigInteger();
         MutableBigInteger r = new MutableBigInteger(this).divideAndRemainderBurnikelZiegler(new MutableBigInteger(val), q);
@@ -2506,6 +2518,8 @@ public class BigInteger extends Number implements Comparable<BigInteger> {
         BigInteger rBigInt = r.isZero() ? ZERO : r.toBigInteger(signum);
         return new BigInteger[] {qBigInt, rBigInt};
     }
+    */
+    // END Android-removed: Fall back to boringssl for large problems.
 
     /**
      * Returns a BigInteger whose value is <code>(this<sup>exponent</sup>)</code>.

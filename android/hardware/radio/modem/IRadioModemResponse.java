@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 8586a5528f0085c15cff4b6628f1b8153aca29ad --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.modem-V3-java-source/gen/android/hardware/radio/modem/IRadioModemResponse.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.modem-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.modem/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.modem/3/android/hardware/radio/modem/IRadioModemResponse.aidl
  */
 package android.hardware.radio.modem;
+/** @hide */
 public interface IRadioModemResponse extends android.os.IInterface
 {
   /**
@@ -10,8 +12,8 @@ public interface IRadioModemResponse extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "09927560afccc75a063944fbbab3af48099261ca";
+  public static final int VERSION = 3;
+  public static final String HASH = "8586a5528f0085c15cff4b6628f1b8153aca29ad";
   /** Default implementation for IRadioModemResponse. */
   public static class Default implements android.hardware.radio.modem.IRadioModemResponse
   {
@@ -87,6 +89,7 @@ public interface IRadioModemResponse extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.modem.IRadioModemResponse
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -117,25 +120,19 @@ public interface IRadioModemResponse extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -649,6 +646,7 @@ public interface IRadioModemResponse extends android.os.IInterface
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$modem$IRadioModemResponse".replace('$', '.');
   public void acknowledgeRequest(int serial) throws android.os.RemoteException;
   public void enableModemResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;

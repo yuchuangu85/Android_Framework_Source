@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 03f1982c8e20e58494a4ff8c9736b1c257dfeb6c --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen/android/hardware/contexthub/ContextHubInfo.java.d -o out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen -Nhardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3 hardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3/android/hardware/contexthub/ContextHubInfo.aidl
  */
 package android.hardware.contexthub;
 public class ContextHubInfo implements android.os.Parcelable
@@ -15,6 +16,7 @@ public class ContextHubInfo implements android.os.Parcelable
   public byte chreApiMinorVersion = 0;
   public char chrePatchVersion = '\0';
   public java.lang.String[] supportedPermissions;
+  public boolean supportsReliableMessages = false;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
   public static final android.os.Parcelable.Creator<ContextHubInfo> CREATOR = new android.os.Parcelable.Creator<ContextHubInfo>() {
@@ -44,6 +46,7 @@ public class ContextHubInfo implements android.os.Parcelable
     _aidl_parcel.writeByte(chreApiMinorVersion);
     _aidl_parcel.writeInt(((int)chrePatchVersion));
     _aidl_parcel.writeStringArray(supportedPermissions);
+    _aidl_parcel.writeBoolean(supportsReliableMessages);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -77,6 +80,8 @@ public class ContextHubInfo implements android.os.Parcelable
       chrePatchVersion = (char)_aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       supportedPermissions = _aidl_parcel.createStringArray();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      supportsReliableMessages = _aidl_parcel.readBoolean();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");

@@ -32,7 +32,7 @@ package java.lang.ref;
  * often used to implement canonicalizing mappings.
  *
  * <p> Suppose that the garbage collector determines at a certain point in time
- * that an object is <a href="package-summary.html#reachability">weakly
+ * that an object is <a href="https://docs.oracle.com/javase/8/docs/api/java/lang/ref/package-summary.html#reachability" class="external">weakly
  * reachable</a>.  At that time it will atomically clear all weak references to
  * that object and all weak references to any other weakly-reachable objects
  * from which that object is reachable through a chain of strong and soft

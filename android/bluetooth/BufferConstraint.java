@@ -24,7 +24,7 @@ import android.os.Parcelable;
 /**
  * Stores a codec's constraints on buffering length in milliseconds.
  *
- * {@hide}
+ * @hide
  */
 @SystemApi
 public final class BufferConstraint implements Parcelable {
@@ -34,8 +34,7 @@ public final class BufferConstraint implements Parcelable {
     private int mMaxMillis;
     private int mMinMillis;
 
-    public BufferConstraint(int defaultMillis, int maxMillis,
-            int minMillis) {
+    public BufferConstraint(int defaultMillis, int maxMillis, int minMillis) {
         mDefaultMillis = defaultMillis;
         mMaxMillis = maxMillis;
         mMinMillis = minMillis;

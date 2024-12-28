@@ -22,33 +22,33 @@ import android.app.appsearch.aidl.AppSearchBatchResultParcel;
 import android.app.appsearch.aidl.AppSearchResultParcel;
 import android.app.appsearch.aidl.IAppSearchBatchResultCallback;
 import android.app.appsearch.exceptions.AppSearchException;
-import android.os.Bundle;
+import android.app.appsearch.safeparcel.GenericDocumentParcel;
 import android.util.Log;
 
 import com.android.internal.util.Preconditions;
 
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 /**
- * @hide
  * Contains util methods used in both {@link GlobalSearchSession} and {@link AppSearchSession}.
+ *
+ * @hide
  */
 public class SearchSessionUtil {
     private static final String TAG = "AppSearchSessionUtil";
 
-    /**
-     * Constructor for in case we create an instance
-     */
+    /** Constructor for in case we create an instance */
     private SearchSessionUtil() {}
 
     /**
      * Calls {@link BatchResultCallback#onSystemError} with a throwable derived from the given
      * failed {@link AppSearchResult}.
      *
-     * <p>The {@link AppSearchResult} generally comes from
-     * {@link IAppSearchBatchResultCallback#onSystemError}.
+     * <p>The {@link AppSearchResult} generally comes from {@link
+     * IAppSearchBatchResultCallback#onSystemError}.
      *
      * <p>This method should be called from the callback executor thread.
      *
@@ -58,8 +58,9 @@ public class SearchSessionUtil {
     public static void sendSystemErrorToCallback(
             @NonNull AppSearchResult<?> failedResult, @NonNull BatchResultCallback<?, ?> callback) {
         Preconditions.checkArgument(!failedResult.isSuccess());
-        Throwable throwable = new AppSearchException(
-                failedResult.getResultCode(), failedResult.getErrorMessage());
+        Throwable throwable =
+                new AppSearchException(
+                        failedResult.getResultCode(), failedResult.getErrorMessage());
         callback.onSystemError(throwable);
     }
 
@@ -74,8 +75,8 @@ public class SearchSessionUtil {
      * errorCallback synchronously on the calling thread.
      *
      * @param executor The executor on which to safely execute the lambda
-     * @param errorCallback The callback to trigger with a failed {@link AppSearchResult} if
-     *                      the {@link Executor#execute} call fails.
+     * @param errorCallback The callback to trigger with a failed {@link AppSearchResult} if the
+     *     {@link Executor#execute} call fails.
      * @param runnable The lambda to execute on the executor
      */
     public static <T> void safeExecute(
@@ -84,9 +85,9 @@ public class SearchSessionUtil {
             @NonNull Runnable runnable) {
         try {
             executor.execute(runnable);
-        } catch (Throwable t) {
-            Log.e(TAG, "Failed to schedule runnable", t);
-            errorCallback.accept(AppSearchResult.throwableToFailedResult(t));
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to schedule runnable", e);
+            errorCallback.accept(AppSearchResult.throwableToFailedResult(e));
         }
     }
 
@@ -101,8 +102,8 @@ public class SearchSessionUtil {
      * errorCallback synchronously on the calling thread.
      *
      * @param executor The executor on which to safely execute the lambda
-     * @param errorCallback The callback to trigger with a failed {@link AppSearchResult} if
-     *                      the {@link Executor#execute} call fails.
+     * @param errorCallback The callback to trigger with a failed {@link AppSearchResult} if the
+     *     {@link Executor#execute} call fails.
      * @param runnable The lambda to execute on the executor
      */
     public static void safeExecute(
@@ -111,9 +112,9 @@ public class SearchSessionUtil {
             @NonNull Runnable runnable) {
         try {
             executor.execute(runnable);
-        } catch (Throwable t) {
-            Log.e(TAG, "Failed to schedule runnable", t);
-            errorCallback.onSystemError(t);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Failed to schedule runnable", e);
+            errorCallback.onSystemError(e);
         }
     }
 
@@ -129,47 +130,58 @@ public class SearchSessionUtil {
             @NonNull BatchResultCallback<String, GenericDocument> callback) {
         return new IAppSearchBatchResultCallback.Stub() {
             @Override
+            @SuppressWarnings({"unchecked", "rawtypes"})
             public void onResult(AppSearchBatchResultParcel resultParcel) {
-                safeExecute(executor, callback, () -> {
-                    AppSearchBatchResult<String, Bundle> result =
-                            resultParcel.getResult();
-                    AppSearchBatchResult.Builder<String, GenericDocument>
-                            documentResultBuilder =
-                            new AppSearchBatchResult.Builder<>();
+                safeExecute(
+                        executor,
+                        callback,
+                        () -> {
+                            AppSearchBatchResult<String, GenericDocumentParcel> result =
+                                    resultParcel.getResult();
+                            AppSearchBatchResult.Builder<String, GenericDocument>
+                                    documentResultBuilder = new AppSearchBatchResult.Builder<>();
 
-                    for (Map.Entry<String, Bundle> bundleEntry :
-                            result.getSuccesses().entrySet()) {
-                        GenericDocument document;
-                        try {
-                            document = new GenericDocument(bundleEntry.getValue());
-                        } catch (Throwable t) {
-                            documentResultBuilder.setFailure(
-                                    bundleEntry.getKey(),
-                                    AppSearchResult.RESULT_INTERNAL_ERROR,
-                                    t.getMessage());
-                            continue;
-                        }
-                        documentResultBuilder.setSuccess(
-                                bundleEntry.getKey(), document);
-                    }
+                            for (Map.Entry<String, GenericDocumentParcel> entry :
+                                    result.getSuccesses().entrySet()) {
+                                GenericDocument document;
+                                try {
+                                    GenericDocumentParcel genericDocumentParcel = entry.getValue();
+                                    if (genericDocumentParcel == null) {
+                                        documentResultBuilder.setFailure(
+                                                entry.getKey(),
+                                                AppSearchResult.RESULT_INTERNAL_ERROR,
+                                                "Received null GenericDocumentParcel in"
+                                                        + " getByDocumentId API");
+                                        continue;
+                                    }
+                                    document = new GenericDocument(genericDocumentParcel);
+                                } catch (RuntimeException e) {
+                                    documentResultBuilder.setFailure(
+                                            entry.getKey(),
+                                            AppSearchResult.RESULT_INTERNAL_ERROR,
+                                            e.getMessage());
+                                    continue;
+                                }
+                                documentResultBuilder.setSuccess(entry.getKey(), document);
+                            }
 
-                    for (Map.Entry<String, AppSearchResult<Bundle>> bundleEntry :
-                            ((Map<String, AppSearchResult<Bundle>>)
-                                    result.getFailures()).entrySet()) {
-                        documentResultBuilder.setFailure(
-                                bundleEntry.getKey(),
-                                bundleEntry.getValue().getResultCode(),
-                                bundleEntry.getValue().getErrorMessage());
-                    }
-                    callback.onResult(documentResultBuilder.build());
-
-                });
+                            for (Entry<String, AppSearchResult<GenericDocumentParcel>> entry :
+                                    result.getFailures().entrySet()) {
+                                documentResultBuilder.setFailure(
+                                        entry.getKey(),
+                                        entry.getValue().getResultCode(),
+                                        entry.getValue().getErrorMessage());
+                            }
+                            callback.onResult(documentResultBuilder.build());
+                        });
             }
 
             @Override
+            @SuppressWarnings({"unchecked", "rawtypes"})
             public void onSystemError(AppSearchResultParcel result) {
                 safeExecute(
-                        executor, callback,
+                        executor,
+                        callback,
                         () -> sendSystemErrorToCallback(result.getResult(), callback));
             }
         };

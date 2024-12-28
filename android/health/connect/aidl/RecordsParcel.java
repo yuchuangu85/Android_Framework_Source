@@ -54,6 +54,7 @@ public class RecordsParcel implements Parcelable {
     private long mRecordsChunkSize;
     private List<Long> mRecordsSize;
 
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     public RecordsParcel(@NonNull List<RecordInternal<?>> recordInternals) {
         mRecordInternals = recordInternals;
     }

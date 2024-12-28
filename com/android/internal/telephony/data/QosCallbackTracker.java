@@ -53,10 +53,14 @@ public class QosCallbackTracker extends Handler {
     private static final int DEDICATED_BEARER_EVENT_STATE_MODIFIED = 2;
     private static final int DEDICATED_BEARER_EVENT_STATE_DELETED = 3;
 
-    private final @NonNull String mLogTag;
-    private final @NonNull TelephonyNetworkAgent mNetworkAgent;
-    private final @NonNull Map<Integer, QosBearerSession> mQosBearerSessions;
-    private final @NonNull RcsStats mRcsStats;
+    @NonNull
+    private final String mLogTag;
+    @NonNull
+    private final TelephonyNetworkAgent mNetworkAgent;
+    @NonNull
+    private final Map<Integer, QosBearerSession> mQosBearerSessions;
+    @NonNull
+    private final RcsStats mRcsStats;
 
     // We perform an exact match on the address
     private final @NonNull Map<Integer, IFilter> mCallbacksToFilter;

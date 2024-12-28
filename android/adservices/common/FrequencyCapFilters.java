@@ -17,14 +17,15 @@
 package android.adservices.common;
 
 import android.adservices.adselection.ReportImpressionRequest;
+import android.adservices.adselection.UpdateAdCounterHistogramRequest;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.os.OutcomeReceiver;
 import android.os.Parcel;
 import android.os.Parcelable;
 
-import com.android.adservices.AdServicesParcelableUtil;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.Preconditions;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -32,25 +33,36 @@ import org.json.JSONObject;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.Executor;
 
 /**
  * A container for the ad filters that are based on frequency caps.
  *
- * <p>Frequency caps filters combine an event type with a set of {@link KeyedFrequencyCap} objects
- * to define a set of ad filters. If any of these frequency caps are exceeded for a given ad, the ad
- * will be removed from the group of ads submitted to a buyer adtech's bidding function.
+ * <p>No more than 20 frequency cap filters may be associated with a single ad.
  *
- * @hide
+ * <p>Frequency caps filters combine an event type with a list of {@link KeyedFrequencyCap} objects
+ * to define a collection of ad filters. If any of these frequency caps are exceeded for a given ad,
+ * the ad will be removed from the group of ads submitted to a buyer adtech's bidding function.
  */
-// TODO(b/221876775): Unhide for frequency cap API review
 public final class FrequencyCapFilters implements Parcelable {
+    /** @hide */
+    public static final String NUM_FREQUENCY_CAP_FILTERS_EXCEEDED_FORMAT =
+            "FrequencyCapFilters should have no more than %d filters";
+    /** @hide */
+    public static final int MAX_NUM_FREQUENCY_CAP_FILTERS = 20;
+    /** @hide */
+    public static final String FREQUENCY_CAP_FILTERS_NULL_LIST_ERROR_MESSAGE =
+            "FrequencyCapFilters should not set null list of KeyedFrequencyCaps";
+    /** @hide */
+    public static final String FREQUENCY_CAP_FILTERS_NULL_ELEMENT_ERROR_MESSAGE =
+            "FrequencyCapFilters should not contain null KeyedFrequencyCaps";
+
     /**
      * Event types which are used to update ad counter histograms, which inform frequency cap
-     * filtering in FLEDGE.
+     * filtering in Protected Audience.
      *
      * @hide
      */
@@ -61,7 +73,9 @@ public final class FrequencyCapFilters implements Parcelable {
                 AD_EVENT_TYPE_WIN,
                 AD_EVENT_TYPE_IMPRESSION,
                 AD_EVENT_TYPE_VIEW,
-                AD_EVENT_TYPE_CLICK
+                AD_EVENT_TYPE_CLICK,
+                AD_EVENT_TYPE_MIN,
+                AD_EVENT_TYPE_MAX
             })
     @Retention(RetentionPolicy.SOURCE)
     public @interface AdEventType {}
@@ -70,8 +84,8 @@ public final class FrequencyCapFilters implements Parcelable {
     public static final int AD_EVENT_TYPE_INVALID = -1;
 
     /**
-     * The WIN ad event type is automatically populated within the FLEDGE service for any winning ad
-     * which is returned from FLEDGE ad selection.
+     * The WIN ad event type is automatically populated within the Protected Audience service for
+     * any winning ad which is returned from Protected Audience ad selection.
      *
      * <p>It should not be used to manually update an ad counter histogram.
      */
@@ -80,6 +94,12 @@ public final class FrequencyCapFilters implements Parcelable {
     public static final int AD_EVENT_TYPE_IMPRESSION = 1;
     public static final int AD_EVENT_TYPE_VIEW = 2;
     public static final int AD_EVENT_TYPE_CLICK = 3;
+
+    /** @hide */
+    public static final int AD_EVENT_TYPE_MIN = AD_EVENT_TYPE_WIN;
+    /** @hide */
+    public static final int AD_EVENT_TYPE_MAX = AD_EVENT_TYPE_CLICK;
+
     /** @hide */
     @VisibleForTesting public static final String WIN_EVENTS_FIELD_NAME = "win";
     /** @hide */
@@ -89,10 +109,10 @@ public final class FrequencyCapFilters implements Parcelable {
     /** @hide */
     @VisibleForTesting public static final String CLICK_EVENTS_FIELD_NAME = "click";
 
-    @NonNull private final Set<KeyedFrequencyCap> mKeyedFrequencyCapsForWinEvents;
-    @NonNull private final Set<KeyedFrequencyCap> mKeyedFrequencyCapsForImpressionEvents;
-    @NonNull private final Set<KeyedFrequencyCap> mKeyedFrequencyCapsForViewEvents;
-    @NonNull private final Set<KeyedFrequencyCap> mKeyedFrequencyCapsForClickEvents;
+    @NonNull private final List<KeyedFrequencyCap> mKeyedFrequencyCapsForWinEvents;
+    @NonNull private final List<KeyedFrequencyCap> mKeyedFrequencyCapsForImpressionEvents;
+    @NonNull private final List<KeyedFrequencyCap> mKeyedFrequencyCapsForViewEvents;
+    @NonNull private final List<KeyedFrequencyCap> mKeyedFrequencyCapsForClickEvents;
 
     @NonNull
     public static final Creator<FrequencyCapFilters> CREATOR =
@@ -121,64 +141,80 @@ public final class FrequencyCapFilters implements Parcelable {
     private FrequencyCapFilters(@NonNull Parcel in) {
         Objects.requireNonNull(in);
 
-        mKeyedFrequencyCapsForWinEvents =
-                AdServicesParcelableUtil.readSetFromParcel(in, KeyedFrequencyCap.CREATOR);
-        mKeyedFrequencyCapsForImpressionEvents =
-                AdServicesParcelableUtil.readSetFromParcel(in, KeyedFrequencyCap.CREATOR);
-        mKeyedFrequencyCapsForViewEvents =
-                AdServicesParcelableUtil.readSetFromParcel(in, KeyedFrequencyCap.CREATOR);
-        mKeyedFrequencyCapsForClickEvents =
-                AdServicesParcelableUtil.readSetFromParcel(in, KeyedFrequencyCap.CREATOR);
+        mKeyedFrequencyCapsForWinEvents = new ArrayList<>();
+        mKeyedFrequencyCapsForImpressionEvents = new ArrayList<>();
+        mKeyedFrequencyCapsForViewEvents = new ArrayList<>();
+        mKeyedFrequencyCapsForClickEvents = new ArrayList<>();
+
+        in.readTypedList(mKeyedFrequencyCapsForWinEvents, KeyedFrequencyCap.CREATOR);
+        in.readTypedList(mKeyedFrequencyCapsForImpressionEvents, KeyedFrequencyCap.CREATOR);
+        in.readTypedList(mKeyedFrequencyCapsForViewEvents, KeyedFrequencyCap.CREATOR);
+        in.readTypedList(mKeyedFrequencyCapsForClickEvents, KeyedFrequencyCap.CREATOR);
     }
 
     /**
-     * Gets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+     * Gets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
      * #AD_EVENT_TYPE_WIN} event type.
      *
      * <p>These frequency caps apply to events for ads that were selected as winners in ad
      * selection. Winning ads are used to automatically increment the associated counter keys on the
      * win event type.
+     *
+     * <p>Note that the {@link #AD_EVENT_TYPE_WIN} event type cannot be updated manually using the
+     * {@link android.adservices.adselection.AdSelectionManager#updateAdCounterHistogram(
+     * UpdateAdCounterHistogramRequest, Executor, OutcomeReceiver)} API.
      */
     @NonNull
-    public Set<KeyedFrequencyCap> getKeyedFrequencyCapsForWinEvents() {
+    public List<KeyedFrequencyCap> getKeyedFrequencyCapsForWinEvents() {
         return mKeyedFrequencyCapsForWinEvents;
     }
 
     /**
-     * Gets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+     * Gets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
      * #AD_EVENT_TYPE_IMPRESSION} event type.
      *
      * <p>These frequency caps apply to events which correlate to an impression as interpreted by an
-     * adtech. Note that events are not automatically counted when calling {@link
+     * adtech.
+     *
+     * <p>Note that events are not automatically counted when calling {@link
      * android.adservices.adselection.AdSelectionManager#reportImpression(ReportImpressionRequest,
-     * Executor, OutcomeReceiver)}.
+     * Executor, OutcomeReceiver)}. Instead, the {@link #AD_EVENT_TYPE_IMPRESSION} event type must
+     * be updated using the {@link
+     * android.adservices.adselection.AdSelectionManager#updateAdCounterHistogram(
+     * UpdateAdCounterHistogramRequest, Executor, OutcomeReceiver)} API.
      */
     @NonNull
-    public Set<KeyedFrequencyCap> getKeyedFrequencyCapsForImpressionEvents() {
+    public List<KeyedFrequencyCap> getKeyedFrequencyCapsForImpressionEvents() {
         return mKeyedFrequencyCapsForImpressionEvents;
     }
 
     /**
-     * Gets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+     * Gets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
      * #AD_EVENT_TYPE_VIEW} event type.
      *
      * <p>These frequency caps apply to events which correlate to a view as interpreted by an
-     * adtech.
+     * adtech. View events are counted when the {@link
+     * android.adservices.adselection.AdSelectionManager#updateAdCounterHistogram(
+     * UpdateAdCounterHistogramRequest, Executor, OutcomeReceiver)} API is invoked with the {@link
+     * #AD_EVENT_TYPE_VIEW} event type.
      */
     @NonNull
-    public Set<KeyedFrequencyCap> getKeyedFrequencyCapsForViewEvents() {
+    public List<KeyedFrequencyCap> getKeyedFrequencyCapsForViewEvents() {
         return mKeyedFrequencyCapsForViewEvents;
     }
 
     /**
-     * Gets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+     * Gets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
      * #AD_EVENT_TYPE_CLICK} event type.
      *
      * <p>These frequency caps apply to events which correlate to a click as interpreted by an
-     * adtech.
+     * adtech. Click events are counted when the {@link
+     * android.adservices.adselection.AdSelectionManager#updateAdCounterHistogram(
+     * UpdateAdCounterHistogramRequest, Executor, OutcomeReceiver)} API is invoked with the {@link
+     * #AD_EVENT_TYPE_CLICK} event type.
      */
     @NonNull
-    public Set<KeyedFrequencyCap> getKeyedFrequencyCapsForClickEvents() {
+    public List<KeyedFrequencyCap> getKeyedFrequencyCapsForClickEvents() {
         return mKeyedFrequencyCapsForClickEvents;
     }
 
@@ -187,13 +223,13 @@ public final class FrequencyCapFilters implements Parcelable {
      * @hide
      */
     public int getSizeInBytes() {
-        return getSizeInBytesOfFcapSet(mKeyedFrequencyCapsForWinEvents)
-                + getSizeInBytesOfFcapSet(mKeyedFrequencyCapsForImpressionEvents)
-                + getSizeInBytesOfFcapSet(mKeyedFrequencyCapsForViewEvents)
-                + getSizeInBytesOfFcapSet(mKeyedFrequencyCapsForClickEvents);
+        return getSizeInBytesOfFcapList(mKeyedFrequencyCapsForWinEvents)
+                + getSizeInBytesOfFcapList(mKeyedFrequencyCapsForImpressionEvents)
+                + getSizeInBytesOfFcapList(mKeyedFrequencyCapsForViewEvents)
+                + getSizeInBytesOfFcapList(mKeyedFrequencyCapsForClickEvents);
     }
 
-    private int getSizeInBytesOfFcapSet(Set<KeyedFrequencyCap> fcaps) {
+    private int getSizeInBytesOfFcapList(List<KeyedFrequencyCap> fcaps) {
         int toReturn = 0;
         for (final KeyedFrequencyCap fcap : fcaps) {
             toReturn += fcap.getSizeInBytes();
@@ -219,7 +255,7 @@ public final class FrequencyCapFilters implements Parcelable {
         return toReturn;
     }
 
-    private static JSONArray fcapSetToJsonArray(Set<KeyedFrequencyCap> fcapSet)
+    private static JSONArray fcapSetToJsonArray(List<KeyedFrequencyCap> fcapSet)
             throws JSONException {
         JSONArray toReturn = new JSONArray();
         for (KeyedFrequencyCap fcap : fcapSet) {
@@ -240,25 +276,26 @@ public final class FrequencyCapFilters implements Parcelable {
         Builder builder = new Builder();
         if (json.has(WIN_EVENTS_FIELD_NAME)) {
             builder.setKeyedFrequencyCapsForWinEvents(
-                    jsonArrayToFcapSet(json.getJSONArray(WIN_EVENTS_FIELD_NAME)));
+                    jsonArrayToFcapList(json.getJSONArray(WIN_EVENTS_FIELD_NAME)));
         }
         if (json.has(IMPRESSION_EVENTS_FIELD_NAME)) {
             builder.setKeyedFrequencyCapsForImpressionEvents(
-                    jsonArrayToFcapSet(json.getJSONArray(IMPRESSION_EVENTS_FIELD_NAME)));
+                    jsonArrayToFcapList(json.getJSONArray(IMPRESSION_EVENTS_FIELD_NAME)));
         }
         if (json.has(VIEW_EVENTS_FIELD_NAME)) {
             builder.setKeyedFrequencyCapsForViewEvents(
-                    jsonArrayToFcapSet(json.getJSONArray(VIEW_EVENTS_FIELD_NAME)));
+                    jsonArrayToFcapList(json.getJSONArray(VIEW_EVENTS_FIELD_NAME)));
         }
         if (json.has(CLICK_EVENTS_FIELD_NAME)) {
             builder.setKeyedFrequencyCapsForClickEvents(
-                    jsonArrayToFcapSet(json.getJSONArray(CLICK_EVENTS_FIELD_NAME)));
+                    jsonArrayToFcapList(json.getJSONArray(CLICK_EVENTS_FIELD_NAME)));
         }
         return builder.build();
     }
 
-    private static Set<KeyedFrequencyCap> jsonArrayToFcapSet(JSONArray json) throws JSONException {
-        Set<KeyedFrequencyCap> toReturn = new HashSet<>();
+    private static List<KeyedFrequencyCap> jsonArrayToFcapList(JSONArray json)
+            throws JSONException {
+        List<KeyedFrequencyCap> toReturn = new ArrayList<>();
         for (int i = 0; i < json.length(); i++) {
             toReturn.add(KeyedFrequencyCap.fromJson(json.getJSONObject(i)));
         }
@@ -268,10 +305,10 @@ public final class FrequencyCapFilters implements Parcelable {
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         Objects.requireNonNull(dest);
-        AdServicesParcelableUtil.writeSetToParcel(dest, mKeyedFrequencyCapsForWinEvents);
-        AdServicesParcelableUtil.writeSetToParcel(dest, mKeyedFrequencyCapsForImpressionEvents);
-        AdServicesParcelableUtil.writeSetToParcel(dest, mKeyedFrequencyCapsForViewEvents);
-        AdServicesParcelableUtil.writeSetToParcel(dest, mKeyedFrequencyCapsForClickEvents);
+        dest.writeTypedList(mKeyedFrequencyCapsForWinEvents);
+        dest.writeTypedList(mKeyedFrequencyCapsForImpressionEvents);
+        dest.writeTypedList(mKeyedFrequencyCapsForViewEvents);
+        dest.writeTypedList(mKeyedFrequencyCapsForClickEvents);
     }
 
     /** @hide */
@@ -319,75 +356,114 @@ public final class FrequencyCapFilters implements Parcelable {
 
     /** Builder for creating {@link FrequencyCapFilters} objects. */
     public static final class Builder {
-        @NonNull private Set<KeyedFrequencyCap> mKeyedFrequencyCapsForWinEvents = new HashSet<>();
+        @NonNull
+        private List<KeyedFrequencyCap> mKeyedFrequencyCapsForWinEvents = new ArrayList<>();
 
         @NonNull
-        private Set<KeyedFrequencyCap> mKeyedFrequencyCapsForImpressionEvents = new HashSet<>();
+        private List<KeyedFrequencyCap> mKeyedFrequencyCapsForImpressionEvents = new ArrayList<>();
 
-        @NonNull private Set<KeyedFrequencyCap> mKeyedFrequencyCapsForViewEvents = new HashSet<>();
-        @NonNull private Set<KeyedFrequencyCap> mKeyedFrequencyCapsForClickEvents = new HashSet<>();
+        @NonNull
+        private List<KeyedFrequencyCap> mKeyedFrequencyCapsForViewEvents = new ArrayList<>();
+
+        @NonNull
+        private List<KeyedFrequencyCap> mKeyedFrequencyCapsForClickEvents = new ArrayList<>();
 
         public Builder() {}
 
         /**
-         * Sets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+         * Sets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
          * #AD_EVENT_TYPE_WIN} event type.
          *
          * <p>See {@link #getKeyedFrequencyCapsForWinEvents()} for more information.
          */
         @NonNull
         public Builder setKeyedFrequencyCapsForWinEvents(
-                @NonNull Set<KeyedFrequencyCap> keyedFrequencyCapsForWinEvents) {
-            Objects.requireNonNull(keyedFrequencyCapsForWinEvents);
+                @NonNull List<KeyedFrequencyCap> keyedFrequencyCapsForWinEvents) {
+            Objects.requireNonNull(
+                    keyedFrequencyCapsForWinEvents, FREQUENCY_CAP_FILTERS_NULL_LIST_ERROR_MESSAGE);
+            Preconditions.checkArgument(
+                    !keyedFrequencyCapsForWinEvents.contains(null),
+                    FREQUENCY_CAP_FILTERS_NULL_ELEMENT_ERROR_MESSAGE);
             mKeyedFrequencyCapsForWinEvents = keyedFrequencyCapsForWinEvents;
             return this;
         }
 
         /**
-         * Sets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+         * Sets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
          * #AD_EVENT_TYPE_IMPRESSION} event type.
          *
          * <p>See {@link #getKeyedFrequencyCapsForImpressionEvents()} for more information.
          */
         @NonNull
         public Builder setKeyedFrequencyCapsForImpressionEvents(
-                @NonNull Set<KeyedFrequencyCap> keyedFrequencyCapsForImpressionEvents) {
-            Objects.requireNonNull(keyedFrequencyCapsForImpressionEvents);
+                @NonNull List<KeyedFrequencyCap> keyedFrequencyCapsForImpressionEvents) {
+            Objects.requireNonNull(
+                    keyedFrequencyCapsForImpressionEvents,
+                    FREQUENCY_CAP_FILTERS_NULL_LIST_ERROR_MESSAGE);
+            Preconditions.checkArgument(
+                    !keyedFrequencyCapsForImpressionEvents.contains(null),
+                    FREQUENCY_CAP_FILTERS_NULL_ELEMENT_ERROR_MESSAGE);
             mKeyedFrequencyCapsForImpressionEvents = keyedFrequencyCapsForImpressionEvents;
             return this;
         }
 
         /**
-         * Sets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+         * Sets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
          * #AD_EVENT_TYPE_VIEW} event type.
          *
          * <p>See {@link #getKeyedFrequencyCapsForViewEvents()} for more information.
          */
         @NonNull
         public Builder setKeyedFrequencyCapsForViewEvents(
-                @NonNull Set<KeyedFrequencyCap> keyedFrequencyCapsForViewEvents) {
-            Objects.requireNonNull(keyedFrequencyCapsForViewEvents);
+                @NonNull List<KeyedFrequencyCap> keyedFrequencyCapsForViewEvents) {
+            Objects.requireNonNull(
+                    keyedFrequencyCapsForViewEvents, FREQUENCY_CAP_FILTERS_NULL_LIST_ERROR_MESSAGE);
+            Preconditions.checkArgument(
+                    !keyedFrequencyCapsForViewEvents.contains(null),
+                    FREQUENCY_CAP_FILTERS_NULL_ELEMENT_ERROR_MESSAGE);
             mKeyedFrequencyCapsForViewEvents = keyedFrequencyCapsForViewEvents;
             return this;
         }
 
         /**
-         * Sets the set of {@link KeyedFrequencyCap} objects that will filter on the {@link
+         * Sets the list of {@link KeyedFrequencyCap} objects that will filter on the {@link
          * #AD_EVENT_TYPE_CLICK} event type.
          *
          * <p>See {@link #getKeyedFrequencyCapsForClickEvents()} for more information.
          */
         @NonNull
         public Builder setKeyedFrequencyCapsForClickEvents(
-                @NonNull Set<KeyedFrequencyCap> keyedFrequencyCapsForClickEvents) {
-            Objects.requireNonNull(keyedFrequencyCapsForClickEvents);
+                @NonNull List<KeyedFrequencyCap> keyedFrequencyCapsForClickEvents) {
+            Objects.requireNonNull(
+                    keyedFrequencyCapsForClickEvents,
+                    FREQUENCY_CAP_FILTERS_NULL_LIST_ERROR_MESSAGE);
+            Preconditions.checkArgument(
+                    !keyedFrequencyCapsForClickEvents.contains(null),
+                    FREQUENCY_CAP_FILTERS_NULL_ELEMENT_ERROR_MESSAGE);
             mKeyedFrequencyCapsForClickEvents = keyedFrequencyCapsForClickEvents;
             return this;
         }
 
-        /** Builds and returns a {@link FrequencyCapFilters} instance. */
+        /**
+         * Builds and returns a {@link FrequencyCapFilters} instance.
+         *
+         * <p>No more than 20 frequency cap filters may be associated with a single ad. If more
+         * total filters than the limit have been set, an {@link IllegalArgumentException} will be
+         * thrown.
+         */
         @NonNull
         public FrequencyCapFilters build() {
+            int numFrequencyCapFilters = 0;
+            numFrequencyCapFilters += mKeyedFrequencyCapsForWinEvents.size();
+            numFrequencyCapFilters += mKeyedFrequencyCapsForImpressionEvents.size();
+            numFrequencyCapFilters += mKeyedFrequencyCapsForViewEvents.size();
+            numFrequencyCapFilters += mKeyedFrequencyCapsForClickEvents.size();
+
+            Preconditions.checkArgument(
+                    numFrequencyCapFilters <= MAX_NUM_FREQUENCY_CAP_FILTERS,
+                    NUM_FREQUENCY_CAP_FILTERS_EXCEEDED_FORMAT,
+                    MAX_NUM_FREQUENCY_CAP_FILTERS);
+
             return new FrequencyCapFilters(this);
         }
     }

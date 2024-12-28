@@ -38,7 +38,9 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
     private final int mChannelIndex;
     private final BluetoothLeAudioCodecConfigMetadata mCodecMetadata;
 
-    private BluetoothLeBroadcastChannel(boolean isSelected, int channelIndex,
+    private BluetoothLeBroadcastChannel(
+            boolean isSelected,
+            int channelIndex,
             BluetoothLeAudioCodecConfigMetadata codecMetadata) {
         mIsSelected = isSelected;
         mChannelIndex = channelIndex;
@@ -61,10 +63,19 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
         return Objects.hash(mIsSelected, mChannelIndex, mCodecMetadata);
     }
 
+    @Override
+    public String toString() {
+        return "BluetoothLeBroadcastChannel{"
+                + ("isSelected=" + mIsSelected)
+                + (", channelIndex=" + mChannelIndex)
+                + (", codecMetadata=" + mCodecMetadata)
+                + '}';
+    }
+
     /**
      * Return true if the channel is selected by Broadcast Assistant for the Broadcast Sink.
      *
-     * Used by Broadcast Assistant and Sink, but not Broadcast Source
+     * <p>Used by Broadcast Assistant and Sink, but not Broadcast Source
      *
      * @return true if the channel is selected by Broadcast Assistant for the Broadcast Sink
      * @hide
@@ -98,6 +109,7 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
 
     /**
      * {@inheritDoc}
+     *
      * @hide
      */
     @Override
@@ -107,6 +119,7 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
 
     /**
      * {@inheritDoc}
+     *
      * @hide
      */
     @Override
@@ -118,27 +131,30 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
 
     /**
      * A {@link Parcelable.Creator} to create {@link BluetoothLeBroadcastChannel} from parcel.
+     *
      * @hide
      */
-    @SystemApi
-    @NonNull
-    public static final Creator<BluetoothLeBroadcastChannel> CREATOR = new Creator<>() {
-        public @NonNull BluetoothLeBroadcastChannel createFromParcel(@NonNull Parcel in) {
-            BluetoothLeBroadcastChannel.Builder builder = new BluetoothLeBroadcastChannel.Builder();
-            builder.setSelected(in.readBoolean());
-            builder.setChannelIndex(in.readInt());
-            builder.setCodecMetadata(
-                    in.readTypedObject(BluetoothLeAudioCodecConfigMetadata.CREATOR));
-            return builder.build();
-        }
+    @SystemApi @NonNull
+    public static final Creator<BluetoothLeBroadcastChannel> CREATOR =
+            new Creator<>() {
+                public @NonNull BluetoothLeBroadcastChannel createFromParcel(@NonNull Parcel in) {
+                    BluetoothLeBroadcastChannel.Builder builder =
+                            new BluetoothLeBroadcastChannel.Builder();
+                    builder.setSelected(in.readBoolean());
+                    builder.setChannelIndex(in.readInt());
+                    builder.setCodecMetadata(
+                            in.readTypedObject(BluetoothLeAudioCodecConfigMetadata.CREATOR));
+                    return builder.build();
+                }
 
-        public @NonNull BluetoothLeBroadcastChannel[] newArray(int size) {
-            return new BluetoothLeBroadcastChannel[size];
-        }
-    };
+                public @NonNull BluetoothLeBroadcastChannel[] newArray(int size) {
+                    return new BluetoothLeBroadcastChannel[size];
+                }
+            };
 
     /**
      * Builder for {@link BluetoothLeBroadcastChannel}.
+     *
      * @hide
      */
     @SystemApi
@@ -149,6 +165,7 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
 
         /**
          * Create an empty builder.
+         *
          * @hide
          */
         @SystemApi
@@ -170,10 +187,10 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
         /**
          * Set if the channel is selected by Broadcast Assistant for the Broadcast Sink.
          *
-         * Used by Broadcast Assistant and Sink, but not Broadcast Source
+         * <p>Used by Broadcast Assistant and Sink, but not Broadcast Source
          *
          * @param isSelected true if the channel is selected by Broadcast Assistant for the
-         *                   Broadcast Sink
+         *     Broadcast Sink
          * @return this builder
          * @hide
          */
@@ -194,8 +211,8 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
         @SystemApi
         public @NonNull Builder setChannelIndex(int channelIndex) {
             if (channelIndex == UNKNOWN_VALUE_PLACEHOLDER) {
-                throw new IllegalArgumentException("channelIndex cannot be "
-                        + UNKNOWN_VALUE_PLACEHOLDER);
+                throw new IllegalArgumentException(
+                        "channelIndex cannot be " + UNKNOWN_VALUE_PLACEHOLDER);
             }
             mChannelIndex = channelIndex;
             return this;
@@ -230,8 +247,8 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
         public @NonNull BluetoothLeBroadcastChannel build() {
             Objects.requireNonNull(mCodecMetadata, "codec metadata cannot be null");
             if (mChannelIndex == UNKNOWN_VALUE_PLACEHOLDER) {
-                throw new IllegalArgumentException("mChannelIndex cannot be "
-                        + UNKNOWN_VALUE_PLACEHOLDER);
+                throw new IllegalArgumentException(
+                        "mChannelIndex cannot be " + UNKNOWN_VALUE_PLACEHOLDER);
             }
             return new BluetoothLeBroadcastChannel(mIsSelected, mChannelIndex, mCodecMetadata);
         }

@@ -6,6 +6,7 @@ package com.android.internal.telephony;
 import android.os.Build;
 import android.util.StatsEvent;
 import android.util.StatsLog;
+import androidx.annotation.RequiresApi;
 
 
 /**
@@ -52,7 +53,7 @@ public final class TelephonyStatsLog {
 
     /**
      * DataStallRecoveryReported data_stall_recovery_reported<br>
-     * Usage: StatsLog.write(StatsLog.DATA_STALL_RECOVERY_REPORTED, int carrier_id, int rat, int signal_strength, int action, boolean is_opportunistic, boolean is_multi_sim, int band, boolean recovered, int duration_millis, int reason, int other_phone_signal_strength, int other_phone_reg_state, int phone_reg_state, boolean is_first_validation_after_recovery, int phone_id, int duration_millis_of_current_action);<br>
+     * Usage: StatsLog.write(StatsLog.DATA_STALL_RECOVERY_REPORTED, int carrier_id, int rat, int signal_strength, int action, boolean is_opportunistic, boolean is_multi_sim, int band, boolean recovered, int duration_millis, int reason, int other_phone_signal_strength, int other_phone_reg_state, int phone_reg_state, boolean is_first_validation_after_recovery, int phone_id, int duration_millis_of_current_action, int link_status, int link_up_bandwidth, int link_down_bandwidth);<br>
      */
     public static final int DATA_STALL_RECOVERY_REPORTED = 315;
 
@@ -87,8 +88,32 @@ public final class TelephonyStatsLog {
     public static final int TELEPHONY_ANOMALY_DETECTED = 461;
 
     /**
+     * CellularRadioPowerStateChanged cellular_radio_power_state_changed<br>
+     * Usage: StatsLog.write(StatsLog.CELLULAR_RADIO_POWER_STATE_CHANGED, int state);<br>
+     */
+    public static final int CELLULAR_RADIO_POWER_STATE_CHANGED = 713;
+
+    /**
+     * CellularIdentifierDisclosed cellular_identifier_disclosed<br>
+     * Usage: StatsLog.write(StatsLog.CELLULAR_IDENTIFIER_DISCLOSED, int sim_mcc, int sim_mnc, int mcc_of_disclosure, int mnc_of_disclosure, int cellular_identifier, int nas_protocol_message, boolean is_emergency, boolean notification_emitted);<br>
+     */
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED = 800;
+
+    /**
+     * DataRatStateChanged data_rat_state_changed<br>
+     * Usage: StatsLog.write(StatsLog.DATA_RAT_STATE_CHANGED, int data_rat);<br>
+     */
+    public static final int DATA_RAT_STATE_CHANGED = 854;
+
+    /**
+     * ConnectedChannelChanged connected_channel_changed<br>
+     * Usage: StatsLog.write(StatsLog.CONNECTED_CHANNEL_CHANGED, int connected_channel_count);<br>
+     */
+    public static final int CONNECTED_CHANNEL_CHANGED = 882;
+
+    /**
      * VoiceCallSession voice_call_session<br>
-     * Usage: StatsLog.write(StatsLog.VOICE_CALL_SESSION, int bearer_at_start, int bearer_at_end, int direction, int setup_duration, boolean setup_failed, int disconnect_reason_code, int disconnect_extra_code, java.lang.String disconnect_extra_message, int rat_at_start, int rat_at_end, long rat_switch_count, long codec_bitmask, int concurrent_call_count_at_start, int concurrent_call_count_at_end, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, boolean srvcc_completed, long srvcc_failure_count, long srvcc_cancellation_count, boolean rtt_enabled, boolean is_emergency, boolean is_roaming, int dimension, int signal_strength_at_end, int band_at_end, int setup_duration_millis, int main_codec_quality, boolean video_enabled, int rat_at_connected, boolean is_multiparty, int call_duration, int last_known_rat, int fold_state);<br>
+     * Usage: StatsLog.write(StatsLog.VOICE_CALL_SESSION, int bearer_at_start, int bearer_at_end, int direction, int setup_duration, boolean setup_failed, int disconnect_reason_code, int disconnect_extra_code, java.lang.String disconnect_extra_message, int rat_at_start, int rat_at_end, long rat_switch_count, long codec_bitmask, int concurrent_call_count_at_start, int concurrent_call_count_at_end, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, boolean srvcc_completed, long srvcc_failure_count, long srvcc_cancellation_count, boolean rtt_enabled, boolean is_emergency, boolean is_roaming, int dimension, int signal_strength_at_end, int band_at_end, int setup_duration_millis, int main_codec_quality, boolean video_enabled, int rat_at_connected, boolean is_multiparty, int call_duration, int last_known_rat, int fold_state, long rat_switch_count_after_connected, boolean handover_in_progress, boolean is_iwlan_cross_sim_at_start, boolean is_iwlan_cross_sim_at_end, boolean is_iwlan_cross_sim_at_connected, boolean vonr_enabled, boolean is_ntn);<br>
      */
     public static final int VOICE_CALL_SESSION = 10076;
 
@@ -100,7 +125,7 @@ public final class TelephonyStatsLog {
 
     /**
      * SimSlotState sim_slot_state<br>
-     * Usage: StatsLog.write(StatsLog.SIM_SLOT_STATE, int active_slot_count, int sim_count, int esim_count);<br>
+     * Usage: StatsLog.write(StatsLog.SIM_SLOT_STATE, int active_slot_count, int sim_count, int esim_count, int active_esim_slot_count, int active_mep_slot_count);<br>
      */
     public static final int SIM_SLOT_STATE = 10078;
 
@@ -112,13 +137,13 @@ public final class TelephonyStatsLog {
 
     /**
      * IncomingSms incoming_sms<br>
-     * Usage: StatsLog.write(StatsLog.INCOMING_SMS, int sms_format, int sms_tech, int rat, int sms_type, int total_parts, int received_parts, boolean blocked, int error, boolean is_roaming, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int count, boolean is_managed_profile);<br>
+     * Usage: StatsLog.write(StatsLog.INCOMING_SMS, int sms_format, int sms_tech, int rat, int sms_type, int total_parts, int received_parts, boolean blocked, int error, boolean is_roaming, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int count, boolean is_managed_profile, boolean is_ntn);<br>
      */
     public static final int INCOMING_SMS = 10086;
 
     /**
      * OutgoingSms outgoing_sms<br>
-     * Usage: StatsLog.write(StatsLog.OUTGOING_SMS, int sms_format, int sms_tech, int rat, int send_result, int error_code, boolean is_roaming, boolean is_from_default_app, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int retry_id, long interval_millis, int count, int send_error_code, int network_error_code, boolean is_managed_profile);<br>
+     * Usage: StatsLog.write(StatsLog.OUTGOING_SMS, int sms_format, int sms_tech, int rat, int send_result, int error_code, boolean is_roaming, boolean is_from_default_app, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int retry_id, long interval_millis, int count, int send_error_code, int network_error_code, boolean is_managed_profile, boolean is_emergency, boolean is_ntn);<br>
      */
     public static final int OUTGOING_SMS = 10087;
 
@@ -130,13 +155,13 @@ public final class TelephonyStatsLog {
 
     /**
      * DataCallSession data_call_session<br>
-     * Usage: StatsLog.write(StatsLog.DATA_CALL_SESSION, int dimension, boolean is_multi_sim, boolean is_esim, int profile, int apn_type_bitmask, int carrier_id, boolean is_roaming, int rat_at_end, boolean oos_at_end, long rat_switch_count, boolean is_opportunistic, int ip_type, boolean setup_failed, int failure_cause, int suggested_retry_millis, int deactivate_reason, long duration_minutes, boolean ongoing, int band_at_end, int[] handover_failure_causes, int[] handover_failure_rat, boolean is_non_dds);<br>
+     * Usage: StatsLog.write(StatsLog.DATA_CALL_SESSION, int dimension, boolean is_multi_sim, boolean is_esim, int profile, int apn_type_bitmask, int carrier_id, boolean is_roaming, int rat_at_end, boolean oos_at_end, long rat_switch_count, boolean is_opportunistic, int ip_type, boolean setup_failed, int failure_cause, int suggested_retry_millis, int deactivate_reason, long duration_minutes, boolean ongoing, int band_at_end, int[] handover_failure_causes, int[] handover_failure_rat, boolean is_non_dds, boolean is_iwlan_cross_sim, boolean is_ntn, boolean is_satellite_transport);<br>
      */
     public static final int DATA_CALL_SESSION = 10089;
 
     /**
      * CellularServiceState cellular_service_state<br>
-     * Usage: StatsLog.write(StatsLog.CELLULAR_SERVICE_STATE, int voice_rat, int data_rat, int voice_roaming_type, int data_roaming_type, boolean is_endc, int sim_slot_index, boolean is_multi_sim, int carrier_id, int total_time_seconds, boolean is_emergency_only, boolean is_internet_pdn_up, int fold_state);<br>
+     * Usage: StatsLog.write(StatsLog.CELLULAR_SERVICE_STATE, int voice_rat, int data_rat, int voice_roaming_type, int data_roaming_type, boolean is_endc, int sim_slot_index, boolean is_multi_sim, int carrier_id, int total_time_seconds, boolean is_emergency_only, boolean is_internet_pdn_up, int fold_state, boolean override_voice_service, boolean is_data_enabled, boolean is_iwlan_cross_sim, boolean is_ntn);<br>
      */
     public static final int CELLULAR_SERVICE_STATE = 10090;
 
@@ -148,13 +173,13 @@ public final class TelephonyStatsLog {
 
     /**
      * ImsRegistrationTermination ims_registration_termination<br>
-     * Usage: StatsLog.write(StatsLog.IMS_REGISTRATION_TERMINATION, int carrier_id, boolean is_multi_sim, int rat_at_end, boolean setup_failed, int reason_code, int extra_code, java.lang.String extra_message, int count);<br>
+     * Usage: StatsLog.write(StatsLog.IMS_REGISTRATION_TERMINATION, int carrier_id, boolean is_multi_sim, int rat_at_end, boolean setup_failed, int reason_code, int extra_code, java.lang.String extra_message, int count, boolean is_iwlan_cross_sim);<br>
      */
     public static final int IMS_REGISTRATION_TERMINATION = 10093;
 
     /**
      * ImsRegistrationStats ims_registration_stats<br>
-     * Usage: StatsLog.write(StatsLog.IMS_REGISTRATION_STATS, int carrier_id, int sim_slot_index, int rat, int registered_seconds, int voice_capable_seconds, int voice_available_seconds, int sms_capable_seconds, int sms_available_seconds, int video_capable_seconds, int video_available_seconds, int ut_capable_seconds, int ut_available_seconds);<br>
+     * Usage: StatsLog.write(StatsLog.IMS_REGISTRATION_STATS, int carrier_id, int sim_slot_index, int rat, int registered_seconds, int voice_capable_seconds, int voice_available_seconds, int sms_capable_seconds, int sms_available_seconds, int video_capable_seconds, int video_available_seconds, int ut_capable_seconds, int ut_available_seconds, int registering_seconds, int unregistered_seconds, boolean is_iwlan_cross_sim, int registered_times);<br>
      */
     public static final int IMS_REGISTRATION_STATS = 10094;
 
@@ -244,7 +269,7 @@ public final class TelephonyStatsLog {
 
     /**
      * PerSimStatus per_sim_status<br>
-     * Usage: StatsLog.write(StatsLog.PER_SIM_STATUS, int sim_slot_index, int carrier_id, int phone_number_source_uicc, int phone_number_source_carrier, int phone_number_source_ims, boolean volte_enabled, boolean wfc_enabled, int wfc_mode, int wfc_roaming_mode, boolean video_calling_enabled, boolean data_roaming_enabled, long allowed_networks_by_user, boolean is_2g_disabled, boolean is_pin1_enabled, int sim_voltage_class, int user_modified_apn_type_bitmask, long unmetered_networks, boolean vonr_enabled);<br>
+     * Usage: StatsLog.write(StatsLog.PER_SIM_STATUS, int sim_slot_index, int carrier_id, int phone_number_source_uicc, int phone_number_source_carrier, int phone_number_source_ims, boolean volte_enabled, boolean wfc_enabled, int wfc_mode, int wfc_roaming_mode, boolean video_calling_enabled, boolean data_roaming_enabled, long allowed_networks_by_user, boolean is_2g_disabled, boolean is_pin1_enabled, int sim_voltage_class, int user_modified_apn_type_bitmask, long unmetered_networks, boolean vonr_enabled, boolean cross_sim_calling_enabled);<br>
      */
     public static final int PER_SIM_STATUS = 10146;
 
@@ -256,7 +281,7 @@ public final class TelephonyStatsLog {
 
     /**
      * DeviceTelephonyProperties device_telephony_properties<br>
-     * Usage: StatsLog.write(StatsLog.DEVICE_TELEPHONY_PROPERTIES, boolean using_t_data_stack, boolean auto_data_switch_enabled, int auto_data_switch_toggle_count, boolean has_managed_profile_dedicated_sub);<br>
+     * Usage: StatsLog.write(StatsLog.DEVICE_TELEPHONY_PROPERTIES, boolean using_t_data_stack, boolean auto_data_switch_enabled, int auto_data_switch_toggle_count, boolean has_managed_profile_dedicated_sub, int mep_supported_slot_count);<br>
      */
     public static final int DEVICE_TELEPHONY_PROPERTIES = 10154;
 
@@ -274,25 +299,25 @@ public final class TelephonyStatsLog {
 
     /**
      * SatelliteController satellite_controller<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_CONTROLLER, int count_of_satellite_service_enablements_success, int count_of_satellite_service_enablements_fail, int count_of_outgoing_datagram_success, int count_of_outgoing_datagram_fail, int count_of_incoming_datagram_success, int count_of_incoming_datagram_fail, int count_of_datagram_type_sos_sms_success, int count_of_datagram_type_sos_sms_fail, int count_of_datagram_type_location_sharing_success, int count_of_datagram_type_location_sharing_fail, int count_of_provision_success, int count_of_provision_fail, int count_of_deprovision_success, int count_of_deprovision_fail, int total_service_uptime_sec, int total_battery_consumption_percent, int total_battery_charged_time_sec);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_CONTROLLER, int count_of_satellite_service_enablements_success, int count_of_satellite_service_enablements_fail, int count_of_outgoing_datagram_success, int count_of_outgoing_datagram_fail, int count_of_incoming_datagram_success, int count_of_incoming_datagram_fail, int count_of_datagram_type_sos_sms_success, int count_of_datagram_type_sos_sms_fail, int count_of_datagram_type_location_sharing_success, int count_of_datagram_type_location_sharing_fail, int count_of_provision_success, int count_of_provision_fail, int count_of_deprovision_success, int count_of_deprovision_fail, int total_service_uptime_sec, int total_battery_consumption_percent, int total_battery_charged_time_sec, int count_of_demo_mode_satellite_service_enablements_success, int count_of_demo_mode_satellite_service_enablements_fail, int count_of_demo_mode_outgoing_datagram_success, int count_of_demo_mode_outgoing_datagram_fail, int count_of_demo_mode_incoming_datagram_success, int count_of_demo_mode_incoming_datagram_fail, int count_of_datagram_type_keep_alive_success, int count_of_datagram_type_keep_alive_fail);<br>
      */
     public static final int SATELLITE_CONTROLLER = 10182;
 
     /**
      * SatelliteSession satellite_session<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_SESSION, int satellite_service_initialization_result, int satellite_technology, int count);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_SESSION, int satellite_service_initialization_result, int satellite_technology, int count, int satellite_service_termination_result, long initialization_processing_time_millis, long termination_processing_time_millis, int session_duration_seconds, int count_of_outgoing_datagram_success, int count_of_outgoing_datagram_failed, int count_of_incoming_datagram_success, int count_of_incoming_datagram_failed, boolean is_demo_mode);<br>
      */
     public static final int SATELLITE_SESSION = 10183;
 
     /**
      * SatelliteIncomingDatagram satellite_incoming_datagram<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_INCOMING_DATAGRAM, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_INCOMING_DATAGRAM, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis, boolean is_demo_mode);<br>
      */
     public static final int SATELLITE_INCOMING_DATAGRAM = 10184;
 
     /**
      * SatelliteOutgoingDatagram satellite_outgoing_datagram<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_OUTGOING_DATAGRAM, int satellite_datagram_type, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_OUTGOING_DATAGRAM, int satellite_datagram_type, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis, boolean is_demo_mode);<br>
      */
     public static final int SATELLITE_OUTGOING_DATAGRAM = 10185;
 
@@ -304,9 +329,45 @@ public final class TelephonyStatsLog {
 
     /**
      * SatelliteSosMessageRecommender satellite_sos_message_recommender<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_SOS_MESSAGE_RECOMMENDER, boolean is_display_sos_message_sent, int count_of_timer_started, boolean is_ims_registered, int cellular_service_state, int count);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_SOS_MESSAGE_RECOMMENDER, boolean is_display_sos_message_sent, int count_of_timer_started, boolean is_ims_registered, int cellular_service_state, int count, boolean is_multi_sim, int recommending_handover_type, boolean is_satellite_allowed_in_current_location);<br>
      */
     public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER = 10187;
+
+    /**
+     * DataNetworkValidation data_network_validation<br>
+     * Usage: StatsLog.write(StatsLog.DATA_NETWORK_VALIDATION, int network_type, int apn_type_bitmask, int signal_strength, int validation_result, long elapsed_time_in_millis, boolean handover_attempted, int network_validation_count);<br>
+     */
+    public static final int DATA_NETWORK_VALIDATION = 10207;
+
+    /**
+     * CarrierRoamingSatelliteSession carrier_roaming_satellite_session<br>
+     * Usage: StatsLog.write(StatsLog.CARRIER_ROAMING_SATELLITE_SESSION, int carrier_id, boolean is_ntn_roaming_in_home_country, int total_satellite_mode_time_sec, int number_of_satellite_connections, int avg_duration_of_satellite_connection_sec, int satellite_connection_gap_min_sec, int satellite_connection_gap_avg_sec, int satellite_connection_gap_max_sec, int rsrp_avg, int rsrp_median, int rssnr_avg, int rssnr_median, int count_of_incoming_sms, int count_of_outgoing_sms, int count_of_incoming_mms, int count_of_outgoing_mms);<br>
+     */
+    public static final int CARRIER_ROAMING_SATELLITE_SESSION = 10211;
+
+    /**
+     * CarrierRoamingSatelliteControllerStats carrier_roaming_satellite_controller_stats<br>
+     * Usage: StatsLog.write(StatsLog.CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS, int config_data_source, int count_of_entitlement_status_query_request, int count_of_satellite_config_update_request, int count_of_satellite_notification_displayed, int satellite_session_gap_min_sec, int satellite_session_gap_avg_sec, int satellite_session_gap_max_sec);<br>
+     */
+    public static final int CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS = 10212;
+
+    /**
+     * ControllerStatsPerPackage controller_stats_per_package<br>
+     * Usage: StatsLog.write(StatsLog.CONTROLLER_STATS_PER_PACKAGE, int uid);<br>
+     */
+    public static final int CONTROLLER_STATS_PER_PACKAGE = 10213;
+
+    /**
+     * SatelliteEntitlement satellite_entitlement<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_ENTITLEMENT, int carrier_id, int result, int entitlement_status, boolean is_retry, int count);<br>
+     */
+    public static final int SATELLITE_ENTITLEMENT = 10214;
+
+    /**
+     * SatelliteConfigUpdater satellite_config_updater<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_CONFIG_UPDATER, int config_version, int oem_config_result, int carrier_config_result, int count);<br>
+     */
+    public static final int SATELLITE_CONFIG_UPDATER = 10215;
 
     // Constants for enum values.
 
@@ -449,6 +510,52 @@ public final class TelephonyStatsLog {
     public static final int MMS_SMS_DATABASE_HELPER_ON_UPGRADE_FAILED__FAILURE_CODE__FAILURE_IO_EXCEPTION = 1;
     public static final int MMS_SMS_DATABASE_HELPER_ON_UPGRADE_FAILED__FAILURE_CODE__FAILURE_SECURITY_EXCEPTION = 2;
     public static final int MMS_SMS_DATABASE_HELPER_ON_UPGRADE_FAILED__FAILURE_CODE__FAILURE_SQL_EXCEPTION = 3;
+
+    // Values for CellularRadioPowerStateChanged.state
+    public static final int CELLULAR_RADIO_POWER_STATE_CHANGED__STATE__RADIO_POWER_STATE_UNKNOWN = 0;
+    public static final int CELLULAR_RADIO_POWER_STATE_CHANGED__STATE__RADIO_POWER_STATE_OFF = 1;
+    public static final int CELLULAR_RADIO_POWER_STATE_CHANGED__STATE__RADIO_POWER_STATE_ON = 2;
+    public static final int CELLULAR_RADIO_POWER_STATE_CHANGED__STATE__RADIO_POWER_STATE_UNAVAILABLE = 3;
+
+    // Values for CellularIdentifierDisclosed.cellular_identifier
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__CELLULAR_IDENTIFIER__CELLULAR_IDENTIFIER_UNKNOWN = 0;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__CELLULAR_IDENTIFIER__CELLULAR_IDENTIFIER_IMSI = 1;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__CELLULAR_IDENTIFIER__CELLULAR_IDENTIFIER_IMEI = 2;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__CELLULAR_IDENTIFIER__CELLULAR_IDENTIFIER_SUCI = 3;
+
+    // Values for CellularIdentifierDisclosed.nas_protocol_message
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_UNKNOWN = 0;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_ATTACH_REQUEST = 1;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_IDENTITY_RESPONSE = 2;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_DETACH_REQUEST = 3;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_TRACKING_AREA_UPDATE_REQUEST = 4;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_LOCATION_UPDATE_REQUEST = 5;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_AUTHENTICATION_AND_CIPHERING_RESPONSE = 6;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_REGISTRATION_REQUEST = 7;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_DEREGISTRATION_REQUEST = 8;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_CM_REESTABLISHMENT_REQUEST = 9;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_CM_SERVICE_REQUEST = 10;
+    public static final int CELLULAR_IDENTIFIER_DISCLOSED__NAS_PROTOCOL_MESSAGE__NAS_MESSAGE_IMSI_DETACH_INDICATION = 11;
+
+    // Values for DataRatStateChanged.data_rat
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_UNSPECIFIED = 0;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__NO_SIM = 1;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_2G = 2;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_3G = 3;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_4G_LTE = 4;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_5G_NSA_LTE = 5;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_5G_NSA_FR1 = 6;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_5G_NSA_FR2 = 7;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_5G_SA_FR1 = 8;
+    public static final int DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_5G_SA_FR2 = 9;
+
+    // Values for ConnectedChannelChanged.connected_channel_count
+    public static final int CONNECTED_CHANNEL_CHANGED__CONNECTED_CHANNEL_COUNT__CHANNEL_COUNT_UNSPECIFIED = 0;
+    public static final int CONNECTED_CHANNEL_CHANGED__CONNECTED_CHANNEL_COUNT__CHANNEL_COUNT_ONE = 1;
+    public static final int CONNECTED_CHANNEL_CHANGED__CONNECTED_CHANNEL_COUNT__CHANNEL_COUNT_TWO = 2;
+    public static final int CONNECTED_CHANNEL_CHANGED__CONNECTED_CHANNEL_COUNT__CHANNEL_COUNT_THREE = 3;
+    public static final int CONNECTED_CHANNEL_CHANGED__CONNECTED_CHANNEL_COUNT__CHANNEL_COUNT_FOUR = 4;
+    public static final int CONNECTED_CHANNEL_CHANGED__CONNECTED_CHANNEL_COUNT__CHANNEL_COUNT_FIVE = 5;
 
     // Values for VoiceCallSession.bearer_at_start
     public static final int VOICE_CALL_SESSION__BEARER_AT_START__CALL_BEARER_UNKNOWN = 0;
@@ -835,6 +942,7 @@ public final class TelephonyStatsLog {
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_RAT_NOT_ALLOWED = 10;
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_ROAMING_DISABLED = 11;
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_CONCURRENT_VOICE_DATA_NOT_ALLOWED = 12;
+    public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_DATA_SERVICE_OPTION_NOT_SUPPORTED = 13;
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_DATA_SERVICE_NOT_READY = 14;
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_POWER_OFF_BY_CARRIER = 15;
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_DATA_STALL = 16;
@@ -856,6 +964,8 @@ public final class TelephonyStatsLog {
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_ILLEGAL_STATE = 32;
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_ONLY_ALLOWED_SINGLE_NETWORK = 33;
     public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_PREFERRED_DATA_SWITCHED = 34;
+    public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_DATA_LIMIT_REACHED = 35;
+    public static final int DATA_CALL_SESSION__DEACTIVATE_REASON__DEACTIVATE_REASON_DATA_NETWORK_TRANSPORT_NOT_ALLOWED = 36;
 
     // Values for CellularServiceState.voice_rat
     public static final int CELLULAR_SERVICE_STATE__VOICE_RAT__NETWORK_TYPE_UNKNOWN = 0;
@@ -1250,6 +1360,12 @@ public final class TelephonyStatsLog {
     public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__PRIORITIZE_BANDWIDTH = 2;
     public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__CBS = 3;
     public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__ENTERPRISE = 4;
+    public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__SATELLITE_INTERNET_RESTRICTED = 5;
+    public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__SATELLITE_MMS_RESTRICTED = 6;
+    public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__SATELLITE_IMS_RESTRICTED = 7;
+    public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__SATELLITE_XCAP_RESTRICTED = 8;
+    public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__SATELLITE_EIMS_RESTRICTED = 9;
+    public static final int TELEPHONY_NETWORK_REQUESTS_V2__CAPABILITY__SATELLITE_SUPL_RESTRICTED = 10;
 
     // Values for OutgoingShortCodeSms.category
     public static final int OUTGOING_SHORT_CODE_SMS__CATEGORY__SMS_CATEGORY_NOT_SHORT_CODE = 0;
@@ -1310,6 +1426,29 @@ public final class TelephonyStatsLog {
     public static final int SATELLITE_SESSION__SATELLITE_TECHNOLOGY__NT_RADIO_TECHNOLOGY_EMTC_NTN = 3;
     public static final int SATELLITE_SESSION__SATELLITE_TECHNOLOGY__NT_RADIO_TECHNOLOGY_PROPRIETARY = 4;
 
+    // Values for SatelliteSession.satellite_service_termination_result
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_ERROR_NONE = 0;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_ERROR = 1;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVER_ERROR = 2;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVICE_ERROR = 3;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_MODEM_ERROR = 4;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NETWORK_ERROR = 5;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_INVALID_TELEPHONY_STATE = 6;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_INVALID_MODEM_STATE = 7;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_INVALID_ARGUMENTS = 8;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_REQUEST_FAILED = 9;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RADIO_NOT_AVAILABLE = 10;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_REQUEST_NOT_SUPPORTED = 11;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NO_RESOURCES = 12;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVICE_NOT_PROVISIONED = 13;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVICE_PROVISION_IN_PROGRESS = 14;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_REQUEST_ABORTED = 15;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_ACCESS_BARRED = 16;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NETWORK_TIMEOUT = 17;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NOT_REACHABLE = 18;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NOT_AUTHORIZED = 19;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NOT_SUPPORTED = 20;
+
     // Values for SatelliteIncomingDatagram.result_code
     public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_ERROR_NONE = 0;
     public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_ERROR = 1;
@@ -1337,6 +1476,7 @@ public final class TelephonyStatsLog {
     public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_UNKNOWN = 0;
     public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_SOS_MESSAGE = 1;
     public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_LOCATION_SHARING = 2;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_KEEP_ALIVE = 3;
 
     // Values for SatelliteOutgoingDatagram.result_code
     public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_ERROR_NONE = 0;
@@ -1390,15 +1530,115 @@ public final class TelephonyStatsLog {
     public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER__CELLULAR_SERVICE_STATE__SERVICE_STATE_EMERGENCY_ONLY = 2;
     public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER__CELLULAR_SERVICE_STATE__SERVICE_STATE_POWER_OFF = 3;
 
+    // Values for SatelliteSosMessageRecommender.recommending_handover_type
+    public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER__RECOMMENDING_HANDOVER_TYPE__RECOMMENDING_HANDOVER_TYPE_UNKNOWN = 0;
+    public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER__RECOMMENDING_HANDOVER_TYPE__RECOMMENDING_HANDOVER_TYPE_SOS = 1;
+    public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER__RECOMMENDING_HANDOVER_TYPE__RECOMMENDING_HANDOVER_TYPE_T911 = 2;
+
+    // Values for DataNetworkValidation.network_type
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_UNKNOWN = 0;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_GPRS = 1;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_EDGE = 2;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_UMTS = 3;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_CDMA = 4;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_EVDO_0 = 5;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_EVDO_A = 6;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_1XRTT = 7;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_HSDPA = 8;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_HSUPA = 9;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_HSPA = 10;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_IDEN = 11;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_EVDO_B = 12;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_LTE = 13;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_EHRPD = 14;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_HSPAP = 15;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_GSM = 16;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_TD_SCDMA = 17;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_IWLAN = 18;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_LTE_CA = 19;
+    public static final int DATA_NETWORK_VALIDATION__NETWORK_TYPE__NETWORK_TYPE_NR = 20;
+
+    // Values for DataNetworkValidation.signal_strength
+    public static final int DATA_NETWORK_VALIDATION__SIGNAL_STRENGTH__SIGNAL_STRENGTH_NONE_OR_UNKNOWN = 0;
+    public static final int DATA_NETWORK_VALIDATION__SIGNAL_STRENGTH__SIGNAL_STRENGTH_POOR = 1;
+    public static final int DATA_NETWORK_VALIDATION__SIGNAL_STRENGTH__SIGNAL_STRENGTH_MODERATE = 2;
+    public static final int DATA_NETWORK_VALIDATION__SIGNAL_STRENGTH__SIGNAL_STRENGTH_GOOD = 3;
+    public static final int DATA_NETWORK_VALIDATION__SIGNAL_STRENGTH__SIGNAL_STRENGTH_GREAT = 4;
+
+    // Values for DataNetworkValidation.validation_result
+    public static final int DATA_NETWORK_VALIDATION__VALIDATION_RESULT__VALIDATION_RESULT_UNSPECIFIED = 0;
+    public static final int DATA_NETWORK_VALIDATION__VALIDATION_RESULT__VALIDATION_RESULT_NOT_SUPPORTED = 1;
+    public static final int DATA_NETWORK_VALIDATION__VALIDATION_RESULT__VALIDATION_RESULT_ALREADY_IN_PROGRESS = 2;
+    public static final int DATA_NETWORK_VALIDATION__VALIDATION_RESULT__VALIDATION_RESULT_SUCCESS = 3;
+    public static final int DATA_NETWORK_VALIDATION__VALIDATION_RESULT__VALIDATION_RESULT_FAILURE = 4;
+
+    // Values for CarrierRoamingSatelliteControllerStats.config_data_source
+    public static final int CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_UNKNOWN = 0;
+    public static final int CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_ENTITLEMENT = 1;
+    public static final int CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_CONFIG_UPDATER = 2;
+    public static final int CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_CARRIER_CONFIG = 3;
+    public static final int CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_DEVICE_CONFIG = 4;
+
+    // Values for SatelliteEntitlement.entitlement_status
+    public static final int SATELLITE_ENTITLEMENT__ENTITLEMENT_STATUS__SATELLITE_ENTITLEMENT_STATUS_UNKNOWN = 0;
+    public static final int SATELLITE_ENTITLEMENT__ENTITLEMENT_STATUS__SATELLITE_ENTITLEMENT_STATUS_DISABLED = 1;
+    public static final int SATELLITE_ENTITLEMENT__ENTITLEMENT_STATUS__SATELLITE_ENTITLEMENT_STATUS_ENABLED = 2;
+    public static final int SATELLITE_ENTITLEMENT__ENTITLEMENT_STATUS__SATELLITE_ENTITLEMENT_STATUS_INCOMPATIBLE = 3;
+    public static final int SATELLITE_ENTITLEMENT__ENTITLEMENT_STATUS__SATELLITE_ENTITLEMENT_STATUS_PROVISIONING = 4;
+
+    // Values for SatelliteConfigUpdater.oem_config_result
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_UNKNOWN = 0;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_SUCCESS = 1;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_INVALID_DOMAIN = 2;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_INVALID_VERSION = 3;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_NO_DATA = 4;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_NO_SATELLITE_DATA = 5;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_PARSE_ERROR = 6;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_CARRIER_DATA_INVALID_PLMN = 7;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_CARRIER_DATA_INVALID_SUPPORTED_SERVICES = 8;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_COUNTRY_CODE = 9;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_S2_CELL_FILE = 10;
+    public static final int SATELLITE_CONFIG_UPDATER__OEM_CONFIG_RESULT__CONFIG_UPDATE_RESULT_IO_ERROR = 11;
+
+    // Values for SatelliteConfigUpdater.carrier_config_result
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_UNKNOWN = 0;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_SUCCESS = 1;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_INVALID_DOMAIN = 2;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_INVALID_VERSION = 3;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_NO_DATA = 4;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_NO_SATELLITE_DATA = 5;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_PARSE_ERROR = 6;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_CARRIER_DATA_INVALID_PLMN = 7;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_CARRIER_DATA_INVALID_SUPPORTED_SERVICES = 8;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_COUNTRY_CODE = 9;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_S2_CELL_FILE = 10;
+    public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_IO_ERROR = 11;
+
     // Annotation constants.
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_IS_UID = StatsLog.ANNOTATION_ID_IS_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRUNCATE_TIMESTAMP = StatsLog.ANNOTATION_ID_TRUNCATE_TIMESTAMP;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD = StatsLog.ANNOTATION_ID_PRIMARY_FIELD;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_EXCLUSIVE_STATE = StatsLog.ANNOTATION_ID_EXCLUSIVE_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID = StatsLog.ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_DEFAULT_STATE = StatsLog.ANNOTATION_ID_DEFAULT_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRIGGER_STATE_RESET = StatsLog.ANNOTATION_ID_TRIGGER_STATE_RESET;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_STATE_NESTED = StatsLog.ANNOTATION_ID_STATE_NESTED;
+
 
     // Write methods
     public static void write(int code, boolean arg1, boolean arg2, int arg3) {
@@ -1416,6 +1656,18 @@ public final class TelephonyStatsLog {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
+        if (CELLULAR_RADIO_POWER_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
+        if (DATA_RAT_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
+        if (CONNECTED_CHANNEL_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -1454,7 +1706,7 @@ public final class TelephonyStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, boolean arg6, int arg7, boolean arg8, int arg9, int arg10, int arg11, int arg12, int arg13, boolean arg14, int arg15, int arg16) {
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, boolean arg6, int arg7, boolean arg8, int arg9, int arg10, int arg11, int arg12, int arg13, boolean arg14, int arg15, int arg16, int arg17, int arg18, int arg19) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1473,6 +1725,31 @@ public final class TelephonyStatsLog {
         builder.writeBoolean(arg14);
         builder.writeInt(arg15);
         builder.writeInt(arg16);
+        builder.writeInt(arg17);
+        builder.writeInt(arg18);
+        builder.writeInt(arg19);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, boolean arg7, boolean arg8) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        if (CELLULAR_IDENTIFIER_DISCLOSED == code) {
+            builder.addIntAnnotation(StatsLog.ANNOTATION_ID_RESTRICTION_CATEGORY,
+                                     StatsLog.RESTRICTION_CATEGORY_FRAUD_AND_ABUSE);
+        }
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+        builder.writeBoolean(arg7);
+        builder.writeBoolean(arg8);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -1537,18 +1814,19 @@ public final class TelephonyStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static StatsEvent buildStatsEvent(int code, boolean arg1, boolean arg2, int arg3, boolean arg4) {
+    public static StatsEvent buildStatsEvent(int code, boolean arg1, boolean arg2, int arg3, boolean arg4, int arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeBoolean(arg1);
         builder.writeBoolean(arg2);
         builder.writeInt(arg3);
         builder.writeBoolean(arg4);
+        builder.writeInt(arg5);
 
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, boolean arg1, int arg2, boolean arg3, int arg4, int arg5) {
+    public static StatsEvent buildStatsEvent(int code, boolean arg1, int arg2, boolean arg3, int arg4, int arg5, boolean arg6, int arg7, boolean arg8) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeBoolean(arg1);
@@ -1556,10 +1834,15 @@ public final class TelephonyStatsLog {
         builder.writeBoolean(arg3);
         builder.writeInt(arg4);
         builder.writeInt(arg5);
+        builder.writeBoolean(arg6);
+        builder.writeInt(arg7);
+        builder.writeBoolean(arg8);
 
         return builder.build();
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static StatsEvent buildStatsEvent(int code, boolean arg1, int arg2, int arg3, java.lang.String arg4, java.lang.String arg5, java.lang.String arg6, int arg7, java.lang.String[] arg8, int[] arg9, int[] arg10) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -1581,11 +1864,16 @@ public final class TelephonyStatsLog {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
+        if (CONTROLLER_STATS_PER_PACKAGE == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
 
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, boolean arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, long arg10, boolean arg11, int arg12, boolean arg13, int arg14, int arg15, int arg16, long arg17, boolean arg18, int arg19, int[] arg20, int[] arg21, boolean arg22) {
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, boolean arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, long arg10, boolean arg11, int arg12, boolean arg13, int arg14, int arg15, int arg16, long arg17, boolean arg18, int arg19, int[] arg20, int[] arg21, boolean arg22, boolean arg23, boolean arg24, boolean arg25) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1610,11 +1898,14 @@ public final class TelephonyStatsLog {
         builder.writeIntArray(null == arg20 ? new int[0] : arg20);
         builder.writeIntArray(null == arg21 ? new int[0] : arg21);
         builder.writeBoolean(arg22);
+        builder.writeBoolean(arg23);
+        builder.writeBoolean(arg24);
+        builder.writeBoolean(arg25);
 
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, int arg3, boolean arg4, int arg5, int arg6, java.lang.String arg7, int arg8) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, int arg3, boolean arg4, int arg5, int arg6, java.lang.String arg7, int arg8, boolean arg9) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1625,6 +1916,30 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg6);
         builder.writeString(arg7);
         builder.writeInt(arg8);
+        builder.writeBoolean(arg9);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeBoolean(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+        builder.writeInt(arg7);
+        builder.writeInt(arg8);
+        builder.writeInt(arg9);
+        builder.writeInt(arg10);
+        builder.writeInt(arg11);
+        builder.writeInt(arg12);
+        builder.writeInt(arg13);
+        builder.writeInt(arg14);
+        builder.writeInt(arg15);
+        builder.writeInt(arg16);
 
         return builder.build();
     }
@@ -1658,6 +1973,18 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg1);
         builder.writeInt(arg2);
         builder.writeInt(arg3);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, boolean arg4, int arg5) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeBoolean(arg4);
+        builder.writeInt(arg5);
 
         return builder.build();
     }
@@ -1728,7 +2055,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, int arg6, boolean arg7, int arg8, int arg9, boolean arg10, boolean arg11, int arg12) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, int arg6, boolean arg7, int arg8, int arg9, boolean arg10, boolean arg11, int arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1743,6 +2070,10 @@ public final class TelephonyStatsLog {
         builder.writeBoolean(arg10);
         builder.writeBoolean(arg11);
         builder.writeInt(arg12);
+        builder.writeBoolean(arg13);
+        builder.writeBoolean(arg14);
+        builder.writeBoolean(arg15);
+        builder.writeBoolean(arg16);
 
         return builder.build();
     }
@@ -1761,7 +2092,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, int arg6, int arg7, java.lang.String arg8, int arg9, int arg10, long arg11, long arg12, int arg13, int arg14, int arg15, boolean arg16, boolean arg17, int arg18, boolean arg19, long arg20, long arg21, boolean arg22, boolean arg23, boolean arg24, int arg25, int arg26, int arg27, int arg28, int arg29, boolean arg30, int arg31, boolean arg32, int arg33, int arg34, int arg35) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, int arg6, int arg7, java.lang.String arg8, int arg9, int arg10, long arg11, long arg12, int arg13, int arg14, int arg15, boolean arg16, boolean arg17, int arg18, boolean arg19, long arg20, long arg21, boolean arg22, boolean arg23, boolean arg24, int arg25, int arg26, int arg27, int arg28, int arg29, boolean arg30, int arg31, boolean arg32, int arg33, int arg34, int arg35, long arg36, boolean arg37, boolean arg38, boolean arg39, boolean arg40, boolean arg41, boolean arg42) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1799,6 +2130,13 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg33);
         builder.writeInt(arg34);
         builder.writeInt(arg35);
+        builder.writeLong(arg36);
+        builder.writeBoolean(arg37);
+        builder.writeBoolean(arg38);
+        builder.writeBoolean(arg39);
+        builder.writeBoolean(arg40);
+        builder.writeBoolean(arg41);
+        builder.writeBoolean(arg42);
 
         return builder.build();
     }
@@ -1831,7 +2169,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, boolean arg7, int arg8, boolean arg9, boolean arg10, int arg11, long arg12, int arg13, long arg14, int arg15, int arg16, int arg17, boolean arg18) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, boolean arg7, int arg8, boolean arg9, boolean arg10, int arg11, long arg12, int arg13, long arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, boolean arg20) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1852,11 +2190,13 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg16);
         builder.writeInt(arg17);
         builder.writeBoolean(arg18);
+        builder.writeBoolean(arg19);
+        builder.writeBoolean(arg20);
 
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, boolean arg7, int arg8, int arg9, boolean arg10, boolean arg11, long arg12, boolean arg13, boolean arg14, int arg15, int arg16, long arg17, boolean arg18) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, boolean arg7, int arg8, int arg9, boolean arg10, boolean arg11, long arg12, boolean arg13, boolean arg14, int arg15, int arg16, long arg17, boolean arg18, boolean arg19) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1877,6 +2217,7 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg16);
         builder.writeLong(arg17);
         builder.writeBoolean(arg18);
+        builder.writeBoolean(arg19);
 
         return builder.build();
     }
@@ -1894,7 +2235,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, int arg10, boolean arg11, boolean arg12, int arg13, long arg14, int arg15, boolean arg16) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, int arg10, boolean arg11, boolean arg12, int arg13, long arg14, int arg15, boolean arg16, boolean arg17) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1913,6 +2254,7 @@ public final class TelephonyStatsLog {
         builder.writeLong(arg14);
         builder.writeInt(arg15);
         builder.writeBoolean(arg16);
+        builder.writeBoolean(arg17);
 
         return builder.build();
     }
@@ -1931,7 +2273,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, boolean arg15, int arg16) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1946,11 +2288,15 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg10);
         builder.writeInt(arg11);
         builder.writeInt(arg12);
+        builder.writeInt(arg13);
+        builder.writeInt(arg14);
+        builder.writeBoolean(arg15);
+        builder.writeInt(arg16);
 
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int arg20, int arg21, int arg22, int arg23, int arg24, int arg25) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1970,17 +2316,59 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg15);
         builder.writeInt(arg16);
         builder.writeInt(arg17);
+        builder.writeInt(arg18);
+        builder.writeInt(arg19);
+        builder.writeInt(arg20);
+        builder.writeInt(arg21);
+        builder.writeInt(arg22);
+        builder.writeInt(arg23);
+        builder.writeInt(arg24);
+        builder.writeInt(arg25);
 
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, long arg4) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, long arg5, boolean arg6, int arg7) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeLong(arg5);
+        builder.writeBoolean(arg6);
+        builder.writeInt(arg7);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, long arg5, long arg6, int arg7, int arg8, int arg9, int arg10, int arg11, boolean arg12) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeLong(arg5);
+        builder.writeLong(arg6);
+        builder.writeInt(arg7);
+        builder.writeInt(arg8);
+        builder.writeInt(arg9);
+        builder.writeInt(arg10);
+        builder.writeInt(arg11);
+        builder.writeBoolean(arg12);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, long arg4, boolean arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
         builder.writeInt(arg2);
         builder.writeInt(arg3);
         builder.writeLong(arg4);
+        builder.writeBoolean(arg5);
 
         return builder.build();
     }
@@ -1998,12 +2386,13 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, long arg3) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, long arg3, boolean arg4) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
         builder.writeInt(arg2);
         builder.writeLong(arg3);
+        builder.writeBoolean(arg4);
 
         return builder.build();
     }

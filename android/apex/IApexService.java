@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version 28 --ninja -d out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen/android/apex/IApexService.java.d -o out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen -Nsystem/apex/apexd/aidl system/apex/apexd/aidl/android/apex/IApexService.aidl
  */
 package android.apex;
 public interface IApexService extends android.os.IInterface
@@ -155,12 +156,8 @@ public interface IApexService extends android.os.IInterface
     @Override public void reserveSpaceForCompressedApex(android.apex.CompressedApexInfoList compressed_apex_info_list) throws android.os.RemoteException
     {
     }
-    /**
-     * Performs a non-staged install of the given APEX.
-     * Note: don't confuse this to preInstall and postInstall binder calls which are only used to
-     * test corresponding features of APEX packages.
-     */
-    @Override public android.apex.ApexInfo installAndActivatePackage(java.lang.String packagePath) throws android.os.RemoteException
+    /** Performs a non-staged install of the given APEX. */
+    @Override public android.apex.ApexInfo installAndActivatePackage(java.lang.String packagePath, boolean force) throws android.os.RemoteException
     {
       return null;
     }
@@ -173,6 +170,7 @@ public interface IApexService extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.apex.IApexService
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -202,13 +200,9 @@ public interface IApexService extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -426,7 +420,9 @@ public interface IApexService extends android.os.IInterface
         {
           java.lang.String _arg0;
           _arg0 = data.readString();
-          android.apex.ApexInfo _result = this.installAndActivatePackage(_arg0);
+          boolean _arg1;
+          _arg1 = (0!=data.readInt());
+          android.apex.ApexInfo _result = this.installAndActivatePackage(_arg0, _arg1);
           reply.writeNoException();
           reply.writeTypedObject(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
           break;
@@ -918,12 +914,8 @@ public interface IApexService extends android.os.IInterface
           _data.recycle();
         }
       }
-      /**
-       * Performs a non-staged install of the given APEX.
-       * Note: don't confuse this to preInstall and postInstall binder calls which are only used to
-       * test corresponding features of APEX packages.
-       */
-      @Override public android.apex.ApexInfo installAndActivatePackage(java.lang.String packagePath) throws android.os.RemoteException
+      /** Performs a non-staged install of the given APEX. */
+      @Override public android.apex.ApexInfo installAndActivatePackage(java.lang.String packagePath, boolean force) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain();
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -931,6 +923,7 @@ public interface IApexService extends android.os.IInterface
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
           _data.writeString(packagePath);
+          _data.writeInt(((force)?(1):(0)));
           boolean _status = mRemote.transact(Stub.TRANSACTION_installAndActivatePackage, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readTypedObject(android.apex.ApexInfo.CREATOR);
@@ -969,7 +962,8 @@ public interface IApexService extends android.os.IInterface
     static final int TRANSACTION_reserveSpaceForCompressedApex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 24);
     static final int TRANSACTION_installAndActivatePackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 25);
   }
-  public static final java.lang.String DESCRIPTOR = "android$apex$IApexService".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.apex.IApexService";
   public void submitStagedSession(android.apex.ApexSessionParams params, android.apex.ApexInfoList packages) throws android.os.RemoteException;
   public void markStagedSessionReady(int session_id) throws android.os.RemoteException;
   public void markStagedSessionSuccessful(int session_id) throws android.os.RemoteException;
@@ -1061,10 +1055,6 @@ public interface IApexService extends android.os.IInterface
    * reservation fails. If empty list is passed, then reserved space is deallocated.
    */
   public void reserveSpaceForCompressedApex(android.apex.CompressedApexInfoList compressed_apex_info_list) throws android.os.RemoteException;
-  /**
-   * Performs a non-staged install of the given APEX.
-   * Note: don't confuse this to preInstall and postInstall binder calls which are only used to
-   * test corresponding features of APEX packages.
-   */
-  public android.apex.ApexInfo installAndActivatePackage(java.lang.String packagePath) throws android.os.RemoteException;
+  /** Performs a non-staged install of the given APEX. */
+  public android.apex.ApexInfo installAndActivatePackage(java.lang.String packagePath, boolean force) throws android.os.RemoteException;
 }

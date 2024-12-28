@@ -3,14 +3,12 @@
 // found in the LICENSE file.
 package org.chromium.net.impl;
 
-import static android.net.http.BidirectionalStream.STREAM_PRIORITY_MEDIUM;
-
 import android.annotation.SuppressLint;
 import android.os.Build;
 
-import android.net.http.BidirectionalStream;
-import android.net.http.HttpEngine;
-import android.net.http.ExperimentalBidirectionalStream;
+import org.chromium.net.BidirectionalStream;
+import org.chromium.net.CronetEngine;
+import org.chromium.net.ExperimentalBidirectionalStream;
 
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -18,9 +16,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.Executor;
 
-/**
- * Implementation of {@link ExperimentalBidirectionalStream.Builder}.
- */
+/** Implementation of {@link ExperimentalBidirectionalStream.Builder}. */
 public class BidirectionalStreamBuilderImpl extends ExperimentalBidirectionalStream.Builder {
     // All fields are temporary storage of ExperimentalBidirectionalStream configuration to be
     // copied to CronetBidirectionalStream.
@@ -39,8 +35,7 @@ public class BidirectionalStreamBuilderImpl extends ExperimentalBidirectionalStr
     // HTTP method for the request. Default to POST.
     private String mHttpMethod = "POST";
     // Priority of the stream. Default is medium.
-    @CronetEngineBase.StreamPriority
-    private int mPriority = STREAM_PRIORITY_MEDIUM;
+    @CronetEngineBase.StreamPriority private int mPriority = STREAM_PRIORITY_MEDIUM;
 
     private boolean mDelayRequestHeadersUntilFirstFlush;
 
@@ -65,10 +60,13 @@ public class BidirectionalStreamBuilderImpl extends ExperimentalBidirectionalStr
      * different events
      *     occuring
      * @param executor the {@link Executor} on which {@code callback} methods will be invoked
-     * @param cronetEngine the {@link HttpEngine} used to create the stream
+     * @param cronetEngine the {@link CronetEngine} used to create the stream
      */
-    BidirectionalStreamBuilderImpl(String url, BidirectionalStream.Callback callback,
-            Executor executor, CronetEngineBase cronetEngine) {
+    BidirectionalStreamBuilderImpl(
+            String url,
+            BidirectionalStream.Callback callback,
+            Executor executor,
+            CronetEngineBase cronetEngine) {
         super();
         if (url == null) {
             throw new NullPointerException("URL is required.");
@@ -117,7 +115,7 @@ public class BidirectionalStreamBuilderImpl extends ExperimentalBidirectionalStr
     }
 
     @Override
-    public BidirectionalStreamBuilderImpl setDelayRequestHeadersUntilFirstFlushEnabled(
+    public BidirectionalStreamBuilderImpl delayRequestHeadersUntilFirstFlush(
             boolean delayRequestHeadersUntilFirstFlush) {
         mDelayRequestHeadersUntilFirstFlush = delayRequestHeadersUntilFirstFlush;
         return this;
@@ -162,9 +160,19 @@ public class BidirectionalStreamBuilderImpl extends ExperimentalBidirectionalStr
     @Override
     @SuppressLint("WrongConstant") // TODO(jbudorick): Remove this after rolling to the N SDK.
     public ExperimentalBidirectionalStream build() {
-        return mCronetEngine.createBidirectionalStream(mUrl, mCallback, mExecutor, mHttpMethod,
-                mRequestHeaders, mPriority, mDelayRequestHeadersUntilFirstFlush,
-                mRequestAnnotations, mTrafficStatsTagSet, mTrafficStatsTag, mTrafficStatsUidSet,
-                mTrafficStatsUid, mNetworkHandle);
+        return mCronetEngine.createBidirectionalStream(
+                mUrl,
+                mCallback,
+                mExecutor,
+                mHttpMethod,
+                mRequestHeaders,
+                mPriority,
+                mDelayRequestHeadersUntilFirstFlush,
+                mRequestAnnotations,
+                mTrafficStatsTagSet,
+                mTrafficStatsTag,
+                mTrafficStatsUidSet,
+                mTrafficStatsUid,
+                mNetworkHandle);
     }
 }

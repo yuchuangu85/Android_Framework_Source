@@ -72,6 +72,7 @@ public final class PriorityMigrationPayload extends MigrationPayload implements 
                         .toList();
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private static DataOrigin dataOriginOf(@Nullable String packageName) {
         return new DataOrigin.Builder().setPackageName(packageName).build();
     }

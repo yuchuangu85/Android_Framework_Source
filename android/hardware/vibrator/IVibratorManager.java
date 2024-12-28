@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash ea8742d6993e1a82917da38b9938e537aa7fcb54 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen/android/hardware/vibrator/IVibratorManager.java.d -o out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen -Nhardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2 hardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2/android/hardware/vibrator/IVibratorManager.aidl
  */
 package android.hardware.vibrator;
 public interface IVibratorManager extends android.os.IInterface
@@ -53,6 +54,7 @@ public interface IVibratorManager extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.vibrator.IVibratorManager
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -83,25 +85,19 @@ public interface IVibratorManager extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -335,6 +331,7 @@ public interface IVibratorManager extends android.os.IInterface
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$vibrator$IVibratorManager".replace('$', '.');
   public static final int CAP_SYNC = 1;
   public static final int CAP_PREPARE_ON = 2;

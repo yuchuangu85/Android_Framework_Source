@@ -38,10 +38,10 @@ public abstract class CodePointMap implements Iterable<CodePointMap.Range> {
          *
          * <p>Most users should use NORMAL instead.
          *
-         * <p>This option is useful for maps that map surrogate code *units* to
+         * <p>This option is useful for maps that map surrogate code <i>units</i> to
          * special values optimized for UTF-16 string processing
          * or for special error behavior for unpaired surrogates,
-         * but those values are not to be associated with the lead surrogate code *points*.
+         * but those values are not to be associated with the lead surrogate code <i>points</i>.
          */
         FIXED_LEAD_SURROGATES,
         /**
@@ -53,10 +53,10 @@ public abstract class CodePointMap implements Iterable<CodePointMap.Range> {
          *
          * <p>Most users should use NORMAL instead.
          *
-         * <p>This option is useful for maps that map surrogate code *units* to
+         * <p>This option is useful for maps that map surrogate code <i>units</i> to
          * special values optimized for UTF-16 string processing
          * or for special error behavior for unpaired surrogates,
-         * but those values are not to be associated with the lead surrogate code *points*.
+         * but those values are not to be associated with the lead surrogate code <i>points</i>.
          */
         FIXED_ALL_SURROGATES
     }

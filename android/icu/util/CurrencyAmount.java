@@ -39,7 +39,7 @@ public class CurrencyAmount extends Measure {
      * @param currency the currency
      */
     public CurrencyAmount(double number, Currency currency) {
-        super(new Double(number), currency);
+        super(number, currency);
     }
 
     /**

@@ -16,9 +16,19 @@
 
 package android.net.wifi.aware;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresApi;
+import android.annotation.SystemApi;
+import android.net.wifi.OuiKeyedData;
+import android.os.Build;
 
+import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
+
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -34,6 +44,7 @@ public final class ServiceDiscoveryInfo {
     private final PeerHandle mPeerHandle;
     private final String mPairingAlias;
     private final AwarePairingConfig mPairingConfig;
+    private final List<OuiKeyedData> mVendorData;
 
     /**
      * @hide
@@ -41,7 +52,7 @@ public final class ServiceDiscoveryInfo {
     public ServiceDiscoveryInfo(PeerHandle peerHandle, int peerCipherSuite,
             @Nullable byte[] serviceSpecificInfo,
             @NonNull List<byte[]> matchFilter, @Nullable byte[] scid, String pairingAlias,
-            AwarePairingConfig pairingConfig) {
+            AwarePairingConfig pairingConfig, @Nullable OuiKeyedData[] vendorData) {
         mServiceSpecificInfo = serviceSpecificInfo;
         mMatchFilters = matchFilter;
         mPeerCipherSuite = peerCipherSuite;
@@ -49,6 +60,7 @@ public final class ServiceDiscoveryInfo {
         mPeerHandle = peerHandle;
         mPairingAlias = pairingAlias;
         mPairingConfig = pairingConfig;
+        mVendorData = vendorData != null ? Arrays.asList(vendorData) : Collections.emptyList();
     }
 
     /**
@@ -129,5 +141,22 @@ public final class ServiceDiscoveryInfo {
     @Nullable
     public AwarePairingConfig getPairingConfig() {
         return mPairingConfig;
+    }
+
+    /**
+     * Get the vendor-provided configuration data, if it exists.
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SystemApi
+    @NonNull
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData != null ? mVendorData : Collections.emptyList();
     }
 }

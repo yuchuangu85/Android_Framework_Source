@@ -22,6 +22,7 @@ import static android.net.ipsec.ike.IkeSessionParams.ESP_IP_VERSION_IPV6;
 import static android.net.ipsec.ike.IkeSessionParams.IKE_NATT_KEEPALIVE_DELAY_SEC_MAX;
 import static android.net.ipsec.ike.IkeSessionParams.IKE_NATT_KEEPALIVE_DELAY_SEC_MIN;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.SuppressLint;
@@ -30,6 +31,7 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.IpSecManager;
 import android.net.Network;
+import android.net.ipsec.ike.exceptions.IkeException;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.CloseGuard;
@@ -37,6 +39,7 @@ import android.util.CloseGuard;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.net.ipsec.ike.IkeSessionStateMachine;
 
+import java.io.PrintWriter;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 
@@ -61,6 +64,27 @@ import java.util.concurrent.Executor;
 public final class IkeSession implements AutoCloseable {
     private final CloseGuard mCloseGuard = new CloseGuard();
     private final Context mContext;
+
+    /**
+     * Attribution tag for IWLAN callers
+     *
+     * @hide
+     */
+    public static final String CONTEXT_ATTRIBUTION_TAG_IWLAN = "IWLAN";
+
+    /**
+     * Attribution tag for VCN callers
+     *
+     * @hide
+     */
+    public static final String CONTEXT_ATTRIBUTION_TAG_VCN = "VCN";
+
+    /**
+     * Attribution tag for VPN callers
+     *
+     * @hide
+     */
+    public static final String CONTEXT_ATTRIBUTION_TAG_VPN = "VPN_MANAGER";
 
     @VisibleForTesting final IkeSessionStateMachine mIkeSessionStateMachine;
 
@@ -368,5 +392,98 @@ public final class IkeSession implements AutoCloseable {
     @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
     public void setUnderpinnedNetwork(@NonNull Network underpinnedNetwork) {
         mIkeSessionStateMachine.setUnderpinnedNetwork(Objects.requireNonNull(underpinnedNetwork));
+    }
+
+    /**
+     * Request to check liveness of peer.
+     *
+     * <p>This method returns immediately and asynchronously,
+     *
+     * <p>The liveness check determines whether a peer is alive by executing a new on-demand DPD
+     * task or joining an existing running task depending on the situation.
+     *
+     * <ul>
+     *   <li>If there is no running task when a liveness check request is called, a new on-demand
+     *       DPD task is started. The on-demand DPD (Dead Peer Detection) is used for checking
+     *       liveness of peer in this case. This method adds an on-demand DPD request to the work
+     *       queue to check that the peer is alive. The on-demand DPD uses retransmit timeouts from
+     *       {@link IkeSessionParams#getLivenessRetransmissionTimeoutsMillis}.
+     *   <li>If any IKE message is already in progress when a client requests a liveness check, the
+     *       liveness check request is joined to an existing running task. And then the liveness
+     *       check runs in the background. When a running task receives a valid IKE message packet
+     *       from a peer, it can verify that the peer is alive in the background without triggering
+     *       an on-demand DPD task. A running task uses retransmit timeouts from {@link
+     *       IkeSessionParams#getRetransmissionTimeoutsMillis}.
+     * </ul>
+     *
+     * <p>The client is notified of the progress or result statuses of the liveness check via {@link
+     * IkeSessionCallback#onLivenessStatusChanged}. These statuses are notified after a liveness
+     * check request is started. By notifying {@link
+     * IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_SUCCESS} or {@link
+     * IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_FAILURE}, the liveness check request is
+     * done and no further status notification is made until the next {@link
+     * IkeSession#requestLivenessCheck}. The status notifications to the client are as follows.
+     *
+     * <ul>
+     *   <li>{@link IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_ON_DEMAND_STARTED}: This
+     *       status is called when liveness checking is started with a new on-demand DPD task.
+     *   <li>{@link IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_ON_DEMAND_ONGOING}: This
+     *       status is called when liveness checking is already running in an on-demand DPD task.
+     *   <li>{@link IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_BACKGROUND_STARTED}: This
+     *       status is called when liveness checking is started in the background and has joined an
+     *       existing running task.
+     *   <li>{@link IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_BACKGROUND_ONGOING}: This
+     *       status is called when liveness checking is already running in the background by joining
+     *       an existing running task.
+     *   <li>{@link IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_SUCCESS}: This status is
+     *       called when the peer's liveness is proven. Once this status is notified, the liveness
+     *       check request is done and no further status notification is made until the next {@link
+     *       IkeSession#requestLivenessCheck}.
+     *   <li>{@link IkeSessionCallback.LivenessStatus#LIVENESS_STATUS_FAILURE}: This state is called
+     *       when the peer is determined as dead for a liveness check request. After this status is
+     *       notified, the IkeSession will be closed immediately by calling {@link
+     *       IkeSessionCallback#onClosedWithException} with {@link
+     *       android.net.ipsec.ike.exceptions.IkeTimeoutException} in the {@link
+     *       IkeException#getCause()}.
+     * </ul>
+     *
+     * <p>If a valid IKE message response is received from the peer, the IkeSession remains as
+     * connected and periodic DPD reschedules by {@link IkeSessionParams#getDpdDelaySeconds}
+     *
+     * <p>If the liveness check request couldn't get any a peer's valid response in retransmission
+     * timeout, The IkeSession will be closed. Session closing is also notified to {@link
+     * IkeSessionCallback#onClosedWithException} with {@link
+     * android.net.ipsec.ike.exceptions.IkeTimeoutException} cause.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    public void requestLivenessCheck() {
+        mIkeSessionStateMachine.requestLivenessCheck();
+    }
+
+    /**
+     * Dumps the state of {@link IkeSession} information for the clients
+     *
+     * @param pw Print writer
+     */
+    @FlaggedApi("com.android.ipsec.flags.dumpsys_api")
+    public void dump(@NonNull PrintWriter pw) {
+        // TODO(b/336409878): Add @RequiresPermission annotation.
+        mContext.enforceCallingOrSelfPermission(
+                android.Manifest.permission.DUMP, mContext.getAttributionTag());
+
+        // Please make sure that the dump is thread-safe
+        // so the client won't get a crash or exception when adding codes to the dump.
+        pw.println();
+        pw.println("IkeSession:");
+        pw.println("------------------------------");
+        // Dump ike state machine.
+        if (mIkeSessionStateMachine != null) {
+            pw.println();
+            mIkeSessionStateMachine.dump(pw);
+        }
+        pw.println("------------------------------");
     }
 }

@@ -122,7 +122,8 @@ public final class SafetyCenterConfig implements Parcelable {
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public Builder(@NonNull SafetyCenterConfig safetyCenterConfig) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             requireNonNull(safetyCenterConfig);
             mSafetySourcesGroups.addAll(safetyCenterConfig.mSafetySourcesGroups);

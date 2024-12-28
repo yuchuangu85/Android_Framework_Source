@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version 28 --ninja -d out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen/android/apex/CompressedApexInfo.java.d -o out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen -Nsystem/apex/apexd/aidl system/apex/apexd/aidl/android/apex/CompressedApexInfo.aidl
  */
 package android.apex;
 public class CompressedApexInfo implements android.os.Parcelable

@@ -26,7 +26,13 @@
 
 package java.util.regex;
 
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
 import com.android.icu.util.regex.PatternNative;
+
+import dalvik.annotation.compat.VersionCodes;
 import dalvik.system.VMRuntime;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -5731,7 +5737,16 @@ NEXT:       while (i <= last) {
                     // If the input is an empty string then the result can only be a
                     // stream of the input.  Induce that by setting the empty
                     // element count to 1
-                    emptyElementCount = input.length() == 0 ? 1 : 0;
+                    // Android-changed: Keep old behavior on Android 13 or below. http://b/286499139
+                    // emptyElementCount = input.length() == 0 ? 1 : 0;
+                    if (input.length() == 0
+                            && VMRuntime.getSdkVersion() >= VersionCodes.UPSIDE_DOWN_CAKE
+                            && Compatibility.isChangeEnabled(
+                                    SPLIT_AS_STREAM_RETURNS_SINGLE_EMPTY_STRING)) {
+                        emptyElementCount = 1;
+                    } else {
+                        emptyElementCount = 0;
+                    }
                 }
                 if (nextElement != null || emptyElementCount > 0)
                     return true;
@@ -5768,4 +5783,19 @@ NEXT:       while (i <= last) {
         return StreamSupport.stream(Spliterators.spliteratorUnknownSize(
                 new MatcherIterator(), Spliterator.ORDERED | Spliterator.NONNULL), false);
     }
+
+    //  Android-added: Backward-compatible flag for splitAsStream() API.
+    /**
+     * Since Android 14, {@link Pattern#splitAsStream(CharSequence)} return a stream of a single
+     * empty String as described in the API documentation. Previously, given an empty string input,
+     * the method returns an empty stream.
+     *
+     * This flag is enabled for apps targeting Android 14+.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.UPSIDE_DOWN_CAKE)
+    public static final long SPLIT_AS_STREAM_RETURNS_SINGLE_EMPTY_STRING = 288845345L;
+
 }

@@ -26,60 +26,44 @@ import android.os.Parcelable;
 
 import java.util.Objects;
 
-/**
- * ScanResult for Bluetooth LE scan.
- */
+/** ScanResult for Bluetooth LE scan. */
 public final class ScanResult implements Parcelable, Attributable {
 
     /**
-     * For chained advertisements, inidcates tha the data contained in this
-     * scan result is complete.
+     * For chained advertisements, indicates that the data contained in this scan result is
+     * complete.
      */
     public static final int DATA_COMPLETE = 0x00;
 
     /**
-     * For chained advertisements, indicates that the controller was
-     * unable to receive all chained packets and the scan result contains
-     * incomplete truncated data.
+     * For chained advertisements, indicates that the controller was unable to receive all chained
+     * packets and the scan result contains incomplete truncated data.
      */
     public static final int DATA_TRUNCATED = 0x02;
 
-    /**
-     * Indicates that the secondary physical layer was not used.
-     */
+    /** Indicates that the secondary physical layer was not used. */
     public static final int PHY_UNUSED = 0x00;
 
-    /**
-     * Advertising Set ID is not present in the packet.
-     */
+    /** Advertising Set ID is not present in the packet. */
     public static final int SID_NOT_PRESENT = 0xFF;
 
-    /**
-     * TX power is not present in the packet.
-     */
+    /** TX power is not present in the packet. */
     public static final int TX_POWER_NOT_PRESENT = 0x7F;
 
-    /**
-     * Periodic advertising interval is not present in the packet.
-     */
+    /** Periodic advertising interval is not present in the packet. */
     public static final int PERIODIC_INTERVAL_NOT_PRESENT = 0x00;
 
-    /**
-     * Mask for checking whether event type represents legacy advertisement.
-     */
+    /** Mask for checking whether event type represents legacy advertisement. */
     private static final int ET_LEGACY_MASK = 0x10;
 
-    /**
-     * Mask for checking whether event type represents connectable advertisement.
-     */
+    /** Mask for checking whether event type represents connectable advertisement. */
     private static final int ET_CONNECTABLE_MASK = 0x01;
 
     // Remote Bluetooth device.
     private BluetoothDevice mDevice;
 
     // Scan record, including advertising data and scan response data.
-    @Nullable
-    private ScanRecord mScanRecord;
+    @Nullable private ScanRecord mScanRecord;
 
     // Received signal strength.
     private int mRssi;
@@ -102,11 +86,11 @@ public final class ScanResult implements Parcelable, Attributable {
      * @param rssi Received signal strength.
      * @param timestampNanos Timestamp at which the scan result was observed.
      * @deprecated use {@link #ScanResult(BluetoothDevice, int, int, int, int, int, int, int,
-     * ScanRecord, long)}
+     *     ScanRecord, long)}
      */
     @Deprecated
-    public ScanResult(BluetoothDevice device, ScanRecord scanRecord, int rssi,
-            long timestampNanos) {
+    public ScanResult(
+            BluetoothDevice device, ScanRecord scanRecord, int rssi, long timestampNanos) {
         mDevice = device;
         mScanRecord = scanRecord;
         mRssi = rssi;
@@ -133,9 +117,17 @@ public final class ScanResult implements Parcelable, Attributable {
      * @param scanRecord Scan record including both advertising data and scan response data.
      * @param timestampNanos Timestamp at which the scan result was observed.
      */
-    public ScanResult(BluetoothDevice device, int eventType, int primaryPhy, int secondaryPhy,
-            int advertisingSid, int txPower, int rssi, int periodicAdvertisingInterval,
-            ScanRecord scanRecord, long timestampNanos) {
+    public ScanResult(
+            BluetoothDevice device,
+            int eventType,
+            int primaryPhy,
+            int secondaryPhy,
+            int advertisingSid,
+            int txPower,
+            int rssi,
+            int periodicAdvertisingInterval,
+            ScanRecord scanRecord,
+            long timestampNanos) {
         mDevice = device;
         mEventType = eventType;
         mPrimaryPhy = primaryPhy;
@@ -198,60 +190,53 @@ public final class ScanResult implements Parcelable, Attributable {
         return 0;
     }
 
-    /** {@hide} */
+    /** @hide */
     public void setAttributionSource(@NonNull AttributionSource attributionSource) {
         Attributable.setAttributionSource(mDevice, attributionSource);
     }
 
     /**
-     * Returns the remote Bluetooth device identified by the Bluetooth device address.
+     * Returns the remote Bluetooth device identified by the Bluetooth device address. If the device
+     * is bonded, calling {@link BluetoothDevice#getAddress} on the object returned by this method
+     * will return the address that was originally bonded with (either identity address or random
+     * address).
      */
     public BluetoothDevice getDevice() {
         return mDevice;
     }
 
-    /**
-     * Returns the scan record, which is a combination of advertisement and scan response.
-     */
+    /** Returns the scan record, which is a combination of advertisement and scan response. */
     @Nullable
     public ScanRecord getScanRecord() {
         return mScanRecord;
     }
 
-    /**
-     * Returns the received signal strength in dBm. The valid range is [-127, 126].
-     */
+    /** Returns the received signal strength in dBm. The valid range is [-127, 126]. */
     public int getRssi() {
         return mRssi;
     }
 
-    /**
-     * Returns timestamp since boot when the scan record was observed.
-     */
+    /** Returns timestamp since boot when the scan record was observed. */
     public long getTimestampNanos() {
         return mTimestampNanos;
     }
 
     /**
-     * Returns true if this object represents legacy scan result.
-     * Legacy scan results do not contain advanced advertising information
-     * as specified in the Bluetooth Core Specification v5.
+     * Returns true if this object represents legacy scan result. Legacy scan results do not contain
+     * advanced advertising information as specified in the Bluetooth Core Specification v5.
      */
     public boolean isLegacy() {
         return (mEventType & ET_LEGACY_MASK) != 0;
     }
 
-    /**
-     * Returns true if this object represents connectable scan result.
-     */
+    /** Returns true if this object represents connectable scan result. */
     public boolean isConnectable() {
         return (mEventType & ET_CONNECTABLE_MASK) != 0;
     }
 
     /**
-     * Returns the data status.
-     * Can be one of {@link ScanResult#DATA_COMPLETE} or
-     * {@link ScanResult#DATA_TRUNCATED}.
+     * Returns the data status. Can be one of {@link ScanResult#DATA_COMPLETE} or {@link
+     * ScanResult#DATA_TRUNCATED}.
      */
     public int getDataStatus() {
         // return bit 5 and 6
@@ -259,50 +244,43 @@ public final class ScanResult implements Parcelable, Attributable {
     }
 
     /**
-     * Returns the primary Physical Layer
-     * on which this advertisment was received.
-     * Can be one of {@link BluetoothDevice#PHY_LE_1M} or
-     * {@link BluetoothDevice#PHY_LE_CODED}.
+     * Returns the primary Physical Layer on which this advertisement was received. Can be one of
+     * {@link BluetoothDevice#PHY_LE_1M} or {@link BluetoothDevice#PHY_LE_CODED}.
      */
     public int getPrimaryPhy() {
         return mPrimaryPhy;
     }
 
     /**
-     * Returns the secondary Physical Layer
-     * on which this advertisment was received.
-     * Can be one of {@link BluetoothDevice#PHY_LE_1M},
-     * {@link BluetoothDevice#PHY_LE_2M}, {@link BluetoothDevice#PHY_LE_CODED}
-     * or {@link ScanResult#PHY_UNUSED} - if the advertisement
-     * was not received on a secondary physical channel.
+     * Returns the secondary Physical Layer on which this advertisement was received. Can be one of
+     * {@link BluetoothDevice#PHY_LE_1M}, {@link BluetoothDevice#PHY_LE_2M}, {@link
+     * BluetoothDevice#PHY_LE_CODED} or {@link ScanResult#PHY_UNUSED} - if the advertisement was not
+     * received on a secondary physical channel.
      */
     public int getSecondaryPhy() {
         return mSecondaryPhy;
     }
 
     /**
-     * Returns the advertising set id.
-     * May return {@link ScanResult#SID_NOT_PRESENT} if
-     * no set id was is present.
+     * Returns the advertising set id. May return {@link ScanResult#SID_NOT_PRESENT} if no set id
+     * was is present.
      */
     public int getAdvertisingSid() {
         return mAdvertisingSid;
     }
 
     /**
-     * Returns the transmit power in dBm.
-     * Valid range is [-127, 126]. A value of {@link ScanResult#TX_POWER_NOT_PRESENT}
-     * indicates that the TX power is not present.
+     * Returns the transmit power in dBm. Valid range is [-127, 126]. A value of {@link
+     * ScanResult#TX_POWER_NOT_PRESENT} indicates that the TX power is not present.
      */
     public int getTxPower() {
         return mTxPower;
     }
 
     /**
-     * Returns the periodic advertising interval in units of 1.25ms.
-     * Valid range is 6 (7.5ms) to 65536 (81918.75ms). A value of
-     * {@link ScanResult#PERIODIC_INTERVAL_NOT_PRESENT} means periodic
-     * advertising interval is not present.
+     * Returns the periodic advertising interval in units of 1.25ms. Valid range is 6 (7.5ms) to
+     * 65536 (81918.75ms). A value of {@link ScanResult#PERIODIC_INTERVAL_NOT_PRESENT} means
+     * periodic advertising interval is not present.
      */
     public int getPeriodicAdvertisingInterval() {
         return mPeriodicAdvertisingInterval;
@@ -310,9 +288,16 @@ public final class ScanResult implements Parcelable, Attributable {
 
     @Override
     public int hashCode() {
-        return Objects.hash(mDevice, mRssi, mScanRecord, mTimestampNanos,
-                mEventType, mPrimaryPhy, mSecondaryPhy,
-                mAdvertisingSid, mTxPower,
+        return Objects.hash(
+                mDevice,
+                mRssi,
+                mScanRecord,
+                mTimestampNanos,
+                mEventType,
+                mPrimaryPhy,
+                mSecondaryPhy,
+                mAdvertisingSid,
+                mTxPower,
                 mPeriodicAdvertisingInterval);
     }
 
@@ -325,7 +310,8 @@ public final class ScanResult implements Parcelable, Attributable {
             return false;
         }
         ScanResult other = (ScanResult) obj;
-        return Objects.equals(mDevice, other.mDevice) && (mRssi == other.mRssi)
+        return Objects.equals(mDevice, other.mDevice)
+                && (mRssi == other.mRssi)
                 && Objects.equals(mScanRecord, other.mScanRecord)
                 && (mTimestampNanos == other.mTimestampNanos)
                 && mEventType == other.mEventType
@@ -338,24 +324,40 @@ public final class ScanResult implements Parcelable, Attributable {
 
     @Override
     public String toString() {
-        return "ScanResult{" + "device=" + mDevice + ", scanRecord="
-                + Objects.toString(mScanRecord) + ", rssi=" + mRssi
-                + ", timestampNanos=" + mTimestampNanos + ", eventType=" + mEventType
-                + ", primaryPhy=" + mPrimaryPhy + ", secondaryPhy=" + mSecondaryPhy
-                + ", advertisingSid=" + mAdvertisingSid + ", txPower=" + mTxPower
-                + ", periodicAdvertisingInterval=" + mPeriodicAdvertisingInterval + '}';
+        return "ScanResult{"
+                + "device="
+                + mDevice
+                + ", scanRecord="
+                + Objects.toString(mScanRecord)
+                + ", rssi="
+                + mRssi
+                + ", timestampNanos="
+                + mTimestampNanos
+                + ", eventType="
+                + mEventType
+                + ", primaryPhy="
+                + mPrimaryPhy
+                + ", secondaryPhy="
+                + mSecondaryPhy
+                + ", advertisingSid="
+                + mAdvertisingSid
+                + ", txPower="
+                + mTxPower
+                + ", periodicAdvertisingInterval="
+                + mPeriodicAdvertisingInterval
+                + '}';
     }
 
-    public static final @android.annotation.NonNull Parcelable.Creator<ScanResult> CREATOR = new Creator<ScanResult>() {
-        @Override
-        public ScanResult createFromParcel(Parcel source) {
-            return new ScanResult(source);
-        }
+    public static final @android.annotation.NonNull Parcelable.Creator<ScanResult> CREATOR =
+            new Creator<ScanResult>() {
+                @Override
+                public ScanResult createFromParcel(Parcel source) {
+                    return new ScanResult(source);
+                }
 
-        @Override
-        public ScanResult[] newArray(int size) {
-            return new ScanResult[size];
-        }
-    };
-
+                @Override
+                public ScanResult[] newArray(int size) {
+                    return new ScanResult[size];
+                }
+            };
 }

@@ -16,11 +16,14 @@
 
 package android.federatedcompute.common;
 
+import android.annotation.IntDef;
 import android.annotation.Nullable;
 import android.os.Parcelable;
 
 import com.android.internal.util.Preconditions;
 import com.android.ondevicepersonalization.internal.util.DataClass;
+
+import java.lang.annotation.Retention;
 
 /**
  * Training interval settings.
@@ -33,9 +36,9 @@ public final class TrainingInterval implements Parcelable {
      * The scheduling modes for a task. Recurrent tasks will be rescheduled after each run. One-off
      * task will not be rescheduled if the task succeeds.
      */
-    public static final int SCHEDULING_MODE_RECURRENT = 1;
+    public static final int SCHEDULING_MODE_ONE_TIME = 1;
 
-    public static final int SCHEDULING_MODE_ONE_TIME = 2;
+    public static final int SCHEDULING_MODE_RECURRENT = 2;
 
     @SchedulingMode private int mSchedulingMode;
 
@@ -48,26 +51,26 @@ public final class TrainingInterval implements Parcelable {
     //
     // To regenerate run:
     // $ codegen
-    // $ANDROID_BUILD_TOP/packages/modules/OnDevicePersonalization/framework/java/android/ondevicepersonalization/federatedcompute/TrainingInterval.java
+    // $ANDROID_BUILD_TOP/packages/modules/OnDevicePersonalization/framework/java/android/federatedcompute/common/TrainingInterval.java
     //
     // To exclude the generated code from IntelliJ auto-formatting enable (one-time):
     //   Settings > Editor > Code Style > Formatter Control
     // @formatter:off
 
-    @android.annotation.IntDef(
+    @IntDef(
             prefix = "SCHEDULING_MODE_",
-            value = {SCHEDULING_MODE_RECURRENT, SCHEDULING_MODE_ONE_TIME})
-    @java.lang.annotation.Retention(java.lang.annotation.RetentionPolicy.SOURCE)
+            value = {SCHEDULING_MODE_ONE_TIME, SCHEDULING_MODE_RECURRENT})
+    @Retention(java.lang.annotation.RetentionPolicy.SOURCE)
     @DataClass.Generated.Member
     public @interface SchedulingMode {}
 
     @DataClass.Generated.Member
     public static String schedulingModeToString(@SchedulingMode int value) {
         switch (value) {
-            case SCHEDULING_MODE_RECURRENT:
-                return "SCHEDULING_MODE_RECURRENT";
             case SCHEDULING_MODE_ONE_TIME:
                 return "SCHEDULING_MODE_ONE_TIME";
+            case SCHEDULING_MODE_RECURRENT:
+                return "SCHEDULING_MODE_RECURRENT";
             default:
                 return Integer.toHexString(value);
         }
@@ -78,19 +81,20 @@ public final class TrainingInterval implements Parcelable {
             @SchedulingMode int schedulingMode, long minimumIntervalMillis) {
         this.mSchedulingMode = schedulingMode;
 
-        if (!(mSchedulingMode == SCHEDULING_MODE_RECURRENT)
-                && !(mSchedulingMode == SCHEDULING_MODE_ONE_TIME)) {
+        if (!(mSchedulingMode == SCHEDULING_MODE_ONE_TIME)
+                && !(mSchedulingMode == SCHEDULING_MODE_RECURRENT)) {
             throw new java.lang.IllegalArgumentException(
                     "schedulingMode was "
                             + mSchedulingMode
                             + " but must be one of: "
-                            + "SCHEDULING_MODE_RECURRENT("
-                            + SCHEDULING_MODE_RECURRENT
-                            + "), "
                             + "SCHEDULING_MODE_ONE_TIME("
                             + SCHEDULING_MODE_ONE_TIME
+                            + "), "
+                            + "SCHEDULING_MODE_RECURRENT("
+                            + SCHEDULING_MODE_RECURRENT
                             + ")");
         }
+
         Preconditions.checkArgument(
                 schedulingMode != SCHEDULING_MODE_RECURRENT || minimumIntervalMillis > 0,
                 "Recurrent jobs cannot have non-positive minimal interval.");
@@ -167,17 +171,17 @@ public final class TrainingInterval implements Parcelable {
 
         this.mSchedulingMode = schedulingMode;
 
-        if (!(mSchedulingMode == SCHEDULING_MODE_RECURRENT)
-                && !(mSchedulingMode == SCHEDULING_MODE_ONE_TIME)) {
+        if (!(mSchedulingMode == SCHEDULING_MODE_ONE_TIME)
+                && !(mSchedulingMode == SCHEDULING_MODE_RECURRENT)) {
             throw new java.lang.IllegalArgumentException(
                     "schedulingMode was "
                             + mSchedulingMode
                             + " but must be one of: "
-                            + "SCHEDULING_MODE_RECURRENT("
-                            + SCHEDULING_MODE_RECURRENT
-                            + "), "
                             + "SCHEDULING_MODE_ONE_TIME("
                             + SCHEDULING_MODE_ONE_TIME
+                            + "), "
+                            + "SCHEDULING_MODE_RECURRENT("
+                            + SCHEDULING_MODE_RECURRENT
                             + ")");
         }
 

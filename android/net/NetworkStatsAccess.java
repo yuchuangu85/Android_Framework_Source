@@ -23,6 +23,7 @@ import static android.net.TrafficStats.UID_TETHERING;
 
 import android.Manifest;
 import android.annotation.IntDef;
+import android.annotation.Nullable;
 import android.app.AppOpsManager;
 import android.app.admin.DevicePolicyManager;
 import android.content.Context;
@@ -109,7 +110,7 @@ public final class NetworkStatsAccess {
 
     /** Returns the {@link NetworkStatsAccess.Level} for the given caller. */
     public static @NetworkStatsAccess.Level int checkAccessLevel(
-            Context context, int callingPid, int callingUid, String callingPackage) {
+            Context context, int callingPid, int callingUid, @Nullable String callingPackage) {
         final DevicePolicyManager mDpm = context.getSystemService(DevicePolicyManager.class);
         final TelephonyManager tm = (TelephonyManager)
                 context.getSystemService(Context.TELEPHONY_SERVICE);
@@ -127,7 +128,7 @@ public final class NetworkStatsAccess {
 
         final int appId = UserHandle.getAppId(callingUid);
 
-        final boolean isNetworkStack = PermissionUtils.checkAnyPermissionOf(
+        final boolean isNetworkStack = PermissionUtils.hasAnyPermissionOf(
                 context, callingPid, callingUid, android.Manifest.permission.NETWORK_STACK,
                 NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK);
 

@@ -40,6 +40,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.metrics.RcsStats;
 import com.android.telephony.Rlog;
 
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -155,7 +156,11 @@ public class GbaManager {
 
         public synchronized void unlinkToDeath() {
             if (mBinder != null) {
-                mBinder.unlinkToDeath(this, 0);
+                try {
+                    mBinder.unlinkToDeath(this, 0);
+                } catch (NoSuchElementException e) {
+                    // do nothing
+                }
                 mBinder = null;
             }
         }

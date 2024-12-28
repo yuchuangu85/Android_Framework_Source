@@ -30,8 +30,8 @@ import java.lang.annotation.RetentionPolicy;
 @MinSdk(Build.VERSION_CODES.S)
 public final class MediaFeature {
      /**
-     * Defines tye type of HDR(high dynamic range) video.
-     */
+      * Defines the type of HDR (high dynamic range) video.
+      */
     public static final class HdrType {
         private HdrType() {
         }

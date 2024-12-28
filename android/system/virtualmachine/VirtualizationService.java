@@ -51,19 +51,25 @@ class VirtualizationService {
     private native boolean nativeIsOk(int clientFd);
 
     /*
+     * Retrieve boolean value whether RELEASE_AVF_ENABLE_VENDOR_MODULES build flag is enabled or
+     * not.
+     */
+    static native boolean nativeIsVendorModulesFlagEnabled();
+
+    /*
      * Spawns a new virtmgr subprocess that will host a VirtualizationService
      * AIDL service.
      */
     private VirtualizationService() throws VirtualMachineException {
         int clientFd = nativeSpawn();
         if (clientFd < 0) {
-            throw new VirtualMachineException("Could not spawn VirtualizationService");
+            throw new VirtualMachineException("Could not spawn Virtualization Manager");
         }
         mClientFd = ParcelFileDescriptor.adoptFd(clientFd);
 
         IBinder binder = nativeConnect(mClientFd.getFd());
         if (binder == null) {
-            throw new VirtualMachineException("Could not connect to VirtualizationService");
+            throw new VirtualMachineException("Could not connect to Virtualization Manager");
         }
         mBinder = IVirtualizationService.Stub.asInterface(binder);
     }

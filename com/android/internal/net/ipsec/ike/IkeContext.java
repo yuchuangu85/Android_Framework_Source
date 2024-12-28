@@ -17,9 +17,11 @@ package com.android.internal.net.ipsec.ike;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.net.ipsec.ike.IkeSession;
 import android.os.Looper;
 
 import com.android.internal.net.eap.EapAuthenticator;
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
 import com.android.internal.net.ipsec.ike.utils.RandomnessFactory;
 import com.android.internal.net.utils.IkeDeviceConfigUtils;
 
@@ -32,6 +34,7 @@ public class IkeContext implements EapAuthenticator.EapContext {
     public static final String CONFIG_AUTO_NATT_KEEPALIVES_CELLULAR_TIMEOUT_OVERRIDE_SECONDS =
             "config_auto_natt_keepalives_cellular_timeout_override_seconds";
 
+    private final @IkeMetrics.IkeCaller int mIkeCaller;
     private final Looper mLooper;
     private final Context mContext;
     private final RandomnessFactory mRandomFactory;
@@ -41,6 +44,31 @@ public class IkeContext implements EapAuthenticator.EapContext {
         mLooper = looper;
         mContext = context;
         mRandomFactory = randomFactory;
+
+        mIkeCaller = getIkeCaller(mContext);
+    }
+
+    private static @IkeMetrics.IkeCaller int getIkeCaller(Context context) {
+        if (PackageManager.PERMISSION_GRANTED
+                != context.checkSelfPermission(android.Manifest.permission.NETWORK_FACTORY)) {
+            // Only track metrics from system callers for now
+            return IkeMetrics.IKE_CALLER_UNKNOWN;
+        }
+
+        final String attributionTag = context.getAttributionTag();
+        if (IkeSession.CONTEXT_ATTRIBUTION_TAG_IWLAN.equals(attributionTag)) {
+            return IkeMetrics.IKE_CALLER_IWLAN;
+        } else if (IkeSession.CONTEXT_ATTRIBUTION_TAG_VCN.equals(attributionTag)) {
+            return IkeMetrics.IKE_CALLER_VCN;
+        } else if (IkeSession.CONTEXT_ATTRIBUTION_TAG_VPN.equals(attributionTag)) {
+            return IkeMetrics.IKE_CALLER_VPN;
+        } else {
+            return IkeMetrics.IKE_CALLER_UNKNOWN;
+        }
+    }
+
+    public @IkeMetrics.IkeCaller int getIkeCaller() {
+        return mIkeCaller;
     }
 
     /** Gets the Looper */

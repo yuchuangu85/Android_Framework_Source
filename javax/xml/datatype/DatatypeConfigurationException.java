@@ -149,6 +149,8 @@ public class DatatypeConfigurationException extends Exception {
         catch (Exception e) {}
     }
 
+    // BEGIN Android-removed: private method not called within the class
+    /*
     private void readObject(ObjectInputStream in)
         throws IOException, ClassNotFoundException {
         in.defaultReadObject();
@@ -167,4 +169,6 @@ public class DatatypeConfigurationException extends Exception {
         // Ignore exception
         catch (Exception e) {}
     }
+    */
+    // END Android-removed: private method not called within the class
 }

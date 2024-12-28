@@ -150,6 +150,10 @@ public final class CanonicalIterator {
         }
     }
 
+    // To avoid infinity loop caused by permute, we limit the depth of recursive
+    // call to permute and throw exception.
+    // We know in some unit test we need at least 4. Set to 8 just in case some
+    // unforseen use cases.
     /**
      * Simple implementation of permutation.
      * <br><b>Warning: The strings are not guaranteed to be in any particular order.</b>
@@ -161,9 +165,27 @@ public final class CanonicalIterator {
      */
     @Deprecated
     public static void permute(String source, boolean skipZeros, Set<String> output) {
+        permute(source, skipZeros, output, 0);
+    }
+
+    private static int PERMUTE_DEPTH_LIMIT = 8;
+    /**
+     * Simple implementation of permutation.
+     * <br><b>Warning: The strings are not guaranteed to be in any particular order.</b>
+     * @param source the string to find permutations for
+     * @param skipZeros set to true to skip characters with canonical combining class zero
+     * @param output the set to add the results to
+     * @param depth the depth of the recursive call.
+     * @deprecated This API is ICU internal only.
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    @Deprecated
+    private static void permute(String source, boolean skipZeros, Set<String> output, int depth) {
         // TODO: optimize
         //if (PROGRESS) System.out.println("Permute: " + source);
-
+        if (depth > PERMUTE_DEPTH_LIMIT) {
+            throw new UnsupportedOperationException("Stack too deep:" + depth);
+        }
         // optimization:
         // if zero or one character, just return a set with it
         // we check for length < 2 to keep from counting code points all the time
@@ -189,7 +211,7 @@ public final class CanonicalIterator {
             // see what the permutations of the characters before and after this one are
             subpermute.clear();
             permute(source.substring(0,i)
-                + source.substring(i + UTF16.getCharCount(cp)), skipZeros, subpermute);
+                + source.substring(i + UTF16.getCharCount(cp)), skipZeros, subpermute, depth+1);
 
             // prefix this character to all of them
             String chStr = UTF16.valueOf(source, i);

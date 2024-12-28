@@ -18,6 +18,8 @@ package android.net.ipsec.ike.exceptions;
 import android.net.ipsec.ike.ChildSessionCallback;
 import android.net.ipsec.ike.IkeSessionCallback;
 
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
+
 /**
  * This exception is thrown if the remote server hits an error in assigning an internal IP address.
  *
@@ -55,5 +57,15 @@ public final class InternalAddressFailureException extends IkeProtocolException 
     @Override
     protected boolean isValidDataLength(int dataLen) {
         return EXPECTED_ERROR_DATA_LEN == dataLen;
+    }
+
+    /**
+     * Returns the error code for metrics
+     *
+     * @hide
+     */
+    @Override
+    public int getMetricsErrorCode() {
+        return IkeMetrics.IKE_ERROR_PROTOCOL_INTERNAL_ADDRESS_FAILURE;
     }
 }

@@ -28,20 +28,27 @@ import static com.android.internal.telephony.emergency.EmergencyConstants.MODE_E
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.net.Uri;
+import android.telecom.PhoneAccount;
+import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.AccessNetworkConstants.TransportType;
 import android.telephony.Annotation.DisconnectCauses;
 import android.telephony.Annotation.NetCapability;
 import android.telephony.DomainSelectionService;
-import android.telephony.EmergencyRegResult;
+import android.telephony.EmergencyRegistrationResult;
 import android.telephony.NetworkRegistrationInfo;
+import android.telephony.PreciseDisconnectCause;
 import android.telephony.data.ApnSetting;
 import android.telephony.ims.ImsReasonInfo;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.CallFailCause;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.data.AccessNetworksManager;
+import com.android.internal.telephony.data.AccessNetworksManager.QualifiedNetworks;
 import com.android.internal.telephony.emergency.EmergencyStateTracker;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -104,7 +111,7 @@ public class EmergencyCallDomainSelectionConnection extends DomainSelectionConne
     /** {@inheritDoc} */
     @Override
     public void onWwanSelected() {
-        mEmergencyStateTracker.onEmergencyTransportChanged(
+        mEmergencyStateTracker.onEmergencyTransportChangedAndWait(
                 EmergencyStateTracker.EMERGENCY_TYPE_CALL, MODE_EMERGENCY_WWAN);
     }
 
@@ -157,15 +164,15 @@ public class EmergencyCallDomainSelectionConnection extends DomainSelectionConne
     private AccessNetworksManager.AccessNetworksManagerCallback mPreferredTransportCallback =
             new AccessNetworksManager.AccessNetworksManagerCallback(Runnable::run) {
         @Override
-        public void onPreferredTransportChanged(@NetCapability int capability) {
+        public void onPreferredTransportChanged(
+                @NetCapability int capability, boolean forceReconnect) {
         }
     };
 
     /** {@inheritDoc} */
     @Override
-    protected void onQualifiedNetworksChanged() {
-        AccessNetworksManager anm = mPhone.getAccessNetworksManager();
-        int preferredTransport = anm.getPreferredTransport(ApnSetting.TYPE_EMERGENCY);
+    protected void onQualifiedNetworksChanged(List<QualifiedNetworks> networksList) {
+        int preferredTransport = getPreferredTransport(ApnSetting.TYPE_EMERGENCY, networksList);
         logi("onQualifiedNetworksChanged preferred=" + mPreferredTransportType
                 + ", current=" + preferredTransport);
         if (preferredTransport == mPreferredTransportType) {
@@ -177,6 +184,7 @@ public class EmergencyCallDomainSelectionConnection extends DomainSelectionConne
                     future.complete(DOMAIN_PS);
                 }
             }
+            AccessNetworksManager anm = mPhone.getAccessNetworksManager();
             anm.unregisterForQualifiedNetworksChanged(mHandler);
         }
     }
@@ -198,6 +206,7 @@ public class EmergencyCallDomainSelectionConnection extends DomainSelectionConne
      * @param exited {@code true} if the request caused the device to move out of airplane mode.
      * @param callId The call identifier.
      * @param number The dialed number.
+     * @param isTest Indicates it's a test emergency number.
      * @param callFailCause The reason why the last CS attempt failed.
      * @param imsReasonInfo The reason why the last PS attempt failed.
      * @param emergencyRegResult The current registration result for emergency services.
@@ -205,21 +214,57 @@ public class EmergencyCallDomainSelectionConnection extends DomainSelectionConne
      */
     public static @NonNull DomainSelectionService.SelectionAttributes getSelectionAttributes(
             int slotId, int subId, boolean exited,
-            @NonNull String callId, @NonNull String number, int callFailCause,
-            @Nullable ImsReasonInfo imsReasonInfo,
-            @Nullable EmergencyRegResult emergencyRegResult) {
+            @NonNull String callId, @NonNull String number, boolean isTest,
+            int callFailCause, @Nullable ImsReasonInfo imsReasonInfo,
+            @Nullable EmergencyRegistrationResult emergencyRegResult) {
+
+        int preciseDisconnectCause = callFailCause;
+        switch (callFailCause) {
+            case CallFailCause.IMS_EMERGENCY_TEMP_FAILURE:
+                preciseDisconnectCause = PreciseDisconnectCause.EMERGENCY_TEMP_FAILURE;
+                break;
+            case CallFailCause.IMS_EMERGENCY_PERM_FAILURE:
+                preciseDisconnectCause = PreciseDisconnectCause.EMERGENCY_PERM_FAILURE;
+                break;
+            default:
+                break;
+        }
+
         DomainSelectionService.SelectionAttributes.Builder builder =
                 new DomainSelectionService.SelectionAttributes.Builder(
                         slotId, subId, SELECTOR_TYPE_CALLING)
                 .setEmergency(true)
+                .setTestEmergencyNumber(isTest)
                 .setExitedFromAirplaneMode(exited)
                 .setCallId(callId)
-                .setNumber(number)
-                .setCsDisconnectCause(callFailCause);
+                .setAddress(Uri.fromParts(PhoneAccount.SCHEME_TEL, number, null))
+                .setCsDisconnectCause(preciseDisconnectCause);
 
         if (imsReasonInfo != null) builder.setPsDisconnectCause(imsReasonInfo);
-        if (emergencyRegResult != null) builder.setEmergencyRegResult(emergencyRegResult);
+        if (emergencyRegResult != null) builder.setEmergencyRegistrationResult(emergencyRegResult);
 
+        return builder.build();
+    }
+
+    @Override
+    protected DomainSelectionService.SelectionAttributes
+            getSelectionAttributesToRebindService() {
+        DomainSelectionService.SelectionAttributes attr = getSelectionAttributes();
+        if (attr == null) return null;
+        DomainSelectionService.SelectionAttributes.Builder builder =
+                new DomainSelectionService.SelectionAttributes.Builder(
+                        attr.getSlotIndex(), attr.getSubscriptionId(), SELECTOR_TYPE_CALLING)
+                .setCallId(attr.getCallId())
+                .setAddress(attr.getAddress())
+                .setVideoCall(attr.isVideoCall())
+                .setEmergency(true)
+                .setTestEmergencyNumber(attr.isTestEmergencyNumber())
+                .setExitedFromAirplaneMode(attr.isExitedFromAirplaneMode())
+                .setEmergencyRegistrationResult(
+                        new EmergencyRegistrationResult(AccessNetworkType.UNKNOWN,
+                        NetworkRegistrationInfo.REGISTRATION_STATE_UNKNOWN,
+                        NetworkRegistrationInfo.DOMAIN_UNKNOWN, false, false, 0, 0,
+                        "", "", ""));
         return builder.build();
     }
 }

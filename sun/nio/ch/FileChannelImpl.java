@@ -52,12 +52,19 @@ import libcore.io.Libcore;
 import dalvik.annotation.optimization.ReachabilitySensitive;
 import dalvik.system.BlockGuard;
 import dalvik.system.CloseGuard;
+
+import jdk.internal.access.JavaIOFileDescriptorAccess;
+import jdk.internal.access.SharedSecrets;
 import sun.misc.Cleaner;
 import sun.security.action.GetPropertyAction;
 
 public class FileChannelImpl
     extends FileChannel
 {
+    // Access to FileDescriptor internals
+    private static final JavaIOFileDescriptorAccess fdAccess =
+            SharedSecrets.getJavaIOFileDescriptorAccess();
+
     // Memory allocation size for mapping buffers
     private static final long allocationGranularity;
 
@@ -76,7 +83,6 @@ public class FileChannelImpl
     // File access mode (immutable)
     private final boolean writable;
     private final boolean readable;
-    private final boolean append;
 
     // Required to prevent finalization of creating stream (immutable)
     private final Object parent;
@@ -96,15 +102,14 @@ public class FileChannelImpl
     private final CloseGuard guard = CloseGuard.get();
 
     private FileChannelImpl(FileDescriptor fd, String path, boolean readable,
-                            boolean writable, boolean append, Object parent)
+                            boolean writable, Object parent)
     {
         this.fd = fd;
         this.readable = readable;
         this.writable = writable;
-        this.append = append;
         this.parent = parent;
         this.path = path;
-        this.nd = new FileDispatcherImpl(append);
+        this.nd = new FileDispatcherImpl();
         // BEGIN Android-added: CloseGuard support.
         if (fd != null && fd.valid()) {
             guard.open("close");
@@ -117,15 +122,7 @@ public class FileChannelImpl
                                    boolean readable, boolean writable,
                                    Object parent)
     {
-        return new FileChannelImpl(fd, path, readable, writable, false, parent);
-    }
-
-    // Used by FileOutputStream.getChannel
-    public static FileChannel open(FileDescriptor fd, String path,
-                                   boolean readable, boolean writable,
-                                   boolean append, Object parent)
-    {
-        return new FileChannelImpl(fd, path, readable, writable, append, parent);
+        return new FileChannelImpl(fd, path, readable, writable, parent);
     }
 
     private void ensureOpen() throws IOException {
@@ -297,6 +294,7 @@ public class FileChannelImpl
                 ti = threads.add();
                 if (!isOpen())
                     return 0;
+                boolean append = fdAccess.getAppend(fd);
                 // BEGIN Android-added: BlockGuard support.
                 // Note: position() itself doesn't seem to block, so this may be overzealous
                 // when position() is not followed by a read/write operation. http://b/77263638

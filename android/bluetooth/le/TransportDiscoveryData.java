@@ -31,9 +31,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Wrapper for Transport Discovery Data AD Type.
- * This class contains the Transport Discovery Data AD Type Code as well as
- * a list of potential Transport Blocks.
+ * Wrapper for Transport Discovery Data AD Type. This class contains the Transport Discovery Data AD
+ * Type Code as well as a list of potential Transport Blocks.
  *
  * @see AdvertiseData
  */
@@ -48,8 +47,8 @@ public final class TransportDiscoveryData implements Parcelable {
      * @param transportDataType the Transport Discovery Data AD Type
      * @param transportBlocks the list of Transport Blocks
      */
-    public TransportDiscoveryData(int transportDataType,
-            @NonNull List<TransportBlock> transportBlocks) {
+    public TransportDiscoveryData(
+            int transportDataType, @NonNull List<TransportBlock> transportBlocks) {
         mTransportDataType = transportDataType;
         mTransportBlocks = transportBlocks;
     }
@@ -57,7 +56,7 @@ public final class TransportDiscoveryData implements Parcelable {
     /**
      * Creates a TransportDiscoveryData instance from byte arrays.
      *
-     * Uses the transport discovery data bytes and parses them into an usable class.
+     * <p>Uses the transport discovery data bytes and parses them into an usable class.
      *
      * @param transportDiscoveryData the raw discovery data
      */
@@ -76,8 +75,8 @@ public final class TransportDiscoveryData implements Parcelable {
                 int transportDataLength = byteBuffer.get();
                 byte[] transportData = new byte[transportDataLength];
                 byteBuffer.get(transportData, 0, transportDataLength);
-                mTransportBlocks.add(new TransportBlock(orgId, tdsFlags,
-                        transportDataLength, transportData));
+                mTransportBlocks.add(
+                        new TransportBlock(orgId, tdsFlags, transportDataLength, transportData));
             }
         } catch (BufferUnderflowException e) {
             Log.e(TAG, "Error while parsing data: " + e.toString());
@@ -89,17 +88,13 @@ public final class TransportDiscoveryData implements Parcelable {
         mTransportBlocks = in.createTypedArrayList(TransportBlock.CREATOR);
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @Override
     public int describeContents() {
         return 0;
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @Override
     public boolean equals(@Nullable Object obj) {
         if (this == obj) {
@@ -110,6 +105,12 @@ public final class TransportDiscoveryData implements Parcelable {
         }
         TransportDiscoveryData other = (TransportDiscoveryData) obj;
         return Arrays.equals(toByteArray(), other.toByteArray());
+    }
+
+    /** @hide */
+    @Override
+    public int hashCode() {
+        return Arrays.hashCode(toByteArray());
     }
 
     @Override
@@ -129,18 +130,16 @@ public final class TransportDiscoveryData implements Parcelable {
                 public TransportDiscoveryData[] newArray(int size) {
                     return new TransportDiscoveryData[size];
                 }
-    };
+            };
 
-    /**
-     * Gets the transport data type.
-     */
+    /** Gets the transport data type. */
     public int getTransportDataType() {
         return mTransportDataType;
     }
 
     /**
-     * @return the list of {@link TransportBlock} in this TransportDiscoveryData
-     *         or an empty list if there are no Transport Blocks
+     * @return the list of {@link TransportBlock} in this TransportDiscoveryData or an empty list if
+     *     there are no Transport Blocks
      */
     @NonNull
     public List<TransportBlock> getTransportBlocks() {
@@ -153,8 +152,8 @@ public final class TransportDiscoveryData implements Parcelable {
     /**
      * Converts this TransportDiscoveryData to byte array
      *
-     * @return byte array representation of this Transport Discovery Data or null if the
-     *         conversion failed
+     * @return byte array representation of this Transport Discovery Data or null if the conversion
+     *     failed
      */
     @Nullable
     public byte[] toByteArray() {

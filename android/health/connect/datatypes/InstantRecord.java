@@ -17,6 +17,7 @@
 package android.health.connect.datatypes;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -74,8 +75,9 @@ public abstract class InstantRecord extends Record {
      * @param object the reference object with which to compare.
      * @return {@code true} if this object is the same as the obj
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
-    public boolean equals(@NonNull Object object) {
+    public boolean equals(@Nullable Object object) {
         if (super.equals(object)) {
             InstantRecord other = (InstantRecord) object;
             return this.getTime().toEpochMilli() == other.getTime().toEpochMilli()

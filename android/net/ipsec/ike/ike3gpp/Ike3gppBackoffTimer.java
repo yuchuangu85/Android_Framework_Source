@@ -16,14 +16,13 @@
 
 package android.net.ipsec.ike.ike3gpp;
 
-import android.annotation.IntDef;
+import static com.android.internal.net.ipsec.ike.message.IkeNotifyPayload.ERROR_NOTIFY_TYPE_MAX;
+
+import android.annotation.IntRange;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
-import android.util.ArraySet;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.util.Set;
+import com.android.internal.net.ipsec.ike.message.IkeNotifyPayload;
 
 /**
  * Ike3gppBackoffTimer represents the data provided by the peer/remote endpoint for a BACKOFF_TIMER
@@ -45,8 +44,10 @@ public final class Ike3gppBackoffTimer extends Ike3gppData {
      * 29.273 Section 10.3.7
      *
      * @see 3GPP TS 24.302 Section 8.1.2.2
+     * @deprecated This API is no longer used to distinguish back off timer support. As per TS24.302
+     *     section 8.2.9.1, the BACK_OFF timer can be used with any ERROR_NOTIFY type.
      */
-    public static final int ERROR_TYPE_NO_APN_SUBSCRIPTION = 9002;
+    @Deprecated public static final int ERROR_TYPE_NO_APN_SUBSCRIPTION = 9002;
 
     /**
      * Error-Notify indicating that the procedure could not be completed due to network failure.
@@ -57,21 +58,10 @@ public final class Ike3gppBackoffTimer extends Ike3gppData {
      * <p>Corresponds to DIAMETER_UNABLE_TO_COMPLY Result code as specified in 3GPP TS 29.273
      *
      * @see 3GPP TS 24.302 Section 8.1.2.2
+     * @deprecated This API is no longer used to distinguish back off timer support. As per TS24.302
+     *     section 8.2.9.1, the BACK_OFF timer can be used with any ERROR_NOTIFY type.
      */
-    public static final int ERROR_TYPE_NETWORK_FAILURE = 10500;
-
-    /** @hide */
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef({ERROR_TYPE_NO_APN_SUBSCRIPTION, ERROR_TYPE_NETWORK_FAILURE})
-    public @interface ErrorType {}
-
-    private static final Set<Integer> VALID_BACKOFF_TIMER_CAUSES;
-
-    static {
-        VALID_BACKOFF_TIMER_CAUSES = new ArraySet<>();
-        VALID_BACKOFF_TIMER_CAUSES.add(ERROR_TYPE_NO_APN_SUBSCRIPTION);
-        VALID_BACKOFF_TIMER_CAUSES.add(ERROR_TYPE_NETWORK_FAILURE);
-    }
+    @Deprecated public static final int ERROR_TYPE_NETWORK_FAILURE = 10500;
 
     private final byte mBackoffTimer;
     private final int mBackoffCause;
@@ -86,7 +76,8 @@ public final class Ike3gppBackoffTimer extends Ike3gppData {
     // NoByteOrShort: using byte to be consistent with the Backoff Timer specification
     @SystemApi
     public Ike3gppBackoffTimer(
-            @SuppressLint("NoByteOrShort") byte backoffTimer, @ErrorType int backoffCause) {
+            @SuppressLint("NoByteOrShort") byte backoffTimer,
+            @IntRange(from = 0, to = ERROR_NOTIFY_TYPE_MAX) int backoffCause) {
         mBackoffTimer = backoffTimer;
         mBackoffCause = backoffCause;
     }
@@ -109,12 +100,12 @@ public final class Ike3gppBackoffTimer extends Ike3gppData {
     }
 
     /** Returns the cause for this Backoff Timer specified by the peer. */
-    public @ErrorType int getBackoffCause() {
+    public @IntRange(from = 0, to = ERROR_NOTIFY_TYPE_MAX) int getBackoffCause() {
         return mBackoffCause;
     }
 
     /** @hide */
-    public static boolean isValidErrorNotifyCause(int notifyType) {
-        return VALID_BACKOFF_TIMER_CAUSES.contains(notifyType);
+    public static boolean isValidErrorNotifyCause(IkeNotifyPayload notifyPayload) {
+        return notifyPayload.isErrorNotify();
     }
 }

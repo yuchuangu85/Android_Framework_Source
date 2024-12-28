@@ -31,6 +31,9 @@ public class EventLogTags {
   /** 62002 view_enqueue_input_event (eventType|3),(action|3) */
   public static final int VIEW_ENQUEUE_INPUT_EVENT = 62002;
 
+  /** 60004 viewroot_draw_event (window|3),(event|3) */
+  public static final int VIEWROOT_DRAW_EVENT = 60004;
+
   public static void writeImfImeAnimStart(String token, int animationType, float alpha, String currentInsets, String shownInsets, String hiddenInsets) {
     android.util.EventLog.writeEvent(IMF_IME_ANIM_START, token, animationType, alpha, currentInsets, shownInsets, hiddenInsets);
   }
@@ -57,5 +60,9 @@ public class EventLogTags {
 
   public static void writeViewEnqueueInputEvent(String eventtype, String action) {
     android.util.EventLog.writeEvent(VIEW_ENQUEUE_INPUT_EVENT, eventtype, action);
+  }
+
+  public static void writeViewrootDrawEvent(String window, String event) {
+    android.util.EventLog.writeEvent(VIEWROOT_DRAW_EVENT, window, event);
   }
 }

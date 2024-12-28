@@ -141,6 +141,14 @@ public final class MloLink implements Parcelable {
         mRssi = source.mRssi;
         mRxLinkSpeed = source.mRxLinkSpeed;
         mTxLinkSpeed = source.mTxLinkSpeed;
+        mLostTxPacketsPerSecond = source.mLostTxPacketsPerSecond;
+        mTxRetriedTxPacketsPerSecond = source.mTxRetriedTxPacketsPerSecond;
+        mSuccessfulRxPacketsPerSecond = source.mSuccessfulRxPacketsPerSecond;
+        mSuccessfulTxPacketsPerSecond = source.mSuccessfulTxPacketsPerSecond;
+        txBad = source.txBad;
+        txRetries = source.txRetries;
+        txSuccess = source.txSuccess;
+        rxSuccess = source.rxSuccess;
 
         mStaMacAddress = ((redactions & NetworkCapabilities.REDACT_FOR_LOCAL_MAC_ADDRESS) != 0)
                 || source.mStaMacAddress == null
@@ -151,13 +159,9 @@ public final class MloLink implements Parcelable {
                 ? null : MacAddress.fromString(source.mApMacAddress.toString());
     }
 
-    /** Returns the Wi-Fi band of this link as one of:
-     *      {@link WifiScanner#WIFI_BAND_UNSPECIFIED},
-     *      {@link WifiScanner#WIFI_BAND_24_GHZ},
-     *      {@link WifiScanner#WIFI_BAND_5_GHZ},
-     *      {@link WifiScanner#WIFI_BAND_6_GHZ}
-     */
-    public @WifiAnnotations.WifiBandBasic int getBand() {
+    /** Returns the Wi-Fi band of this link. */
+    @ScanResult.WifiBand
+    public int getBand() {
         return mBand;
     }
 
@@ -328,6 +332,101 @@ public final class MloLink implements Parcelable {
         return mRssi;
     }
 
+    /**
+     * Running total count of lost (not ACKed) transmitted unicast data packets.
+     *
+     * @hide
+     */
+    public long txBad;
+    /**
+     * Running total count of transmitted unicast data retry packets.
+     *
+     * @hide
+     */
+    public long txRetries;
+    /**
+     * Running total count of successfully transmitted (ACKed) unicast data packets.
+     *
+     * @hide
+     */
+    public long txSuccess;
+    /**
+     * Running total count of received unicast data packets.
+     *
+     * @hide
+     */
+    public long rxSuccess;
+    /**
+     * Time stamp when packet counts are last updated.
+     *
+     * @hide
+     */
+    public long lastPacketCountUpdateTimeStamp = Long.MIN_VALUE;
+
+    private double mLostTxPacketsPerSecond;
+
+    /**
+     * Average rate of lost transmitted packets, in units of packets per second.
+     *
+     * @hide
+     */
+    public double getLostTxPacketsPerSecond() {
+        return mLostTxPacketsPerSecond;
+    }
+
+    /** @hide */
+    public void setLostTxPacketsPerSecond(double lostTxPacketsPerSecond) {
+        mLostTxPacketsPerSecond = lostTxPacketsPerSecond;
+    }
+
+    private double mTxRetriedTxPacketsPerSecond;
+
+    /**
+     * Average rate of transmitted retry packets, in units of packets per second.
+     *
+     * @hide
+     */
+    public double getRetriedTxPacketsPerSecond() {
+        return mTxRetriedTxPacketsPerSecond;
+    }
+
+    /** @hide */
+    public void setRetriedTxPacketsRate(double txRetriedTxPacketsPerSecond) {
+        mTxRetriedTxPacketsPerSecond = txRetriedTxPacketsPerSecond;
+    }
+
+    private double mSuccessfulTxPacketsPerSecond;
+
+    /**
+     * Average rate of successfully transmitted unicast packets, in units of packets per second.
+     *
+     * @hide
+     */
+    public double getSuccessfulTxPacketsPerSecond() {
+        return mSuccessfulTxPacketsPerSecond;
+    }
+
+    /** @hide */
+    public void setSuccessfulTxPacketsPerSecond(double successfulTxPacketsPerSecond) {
+        mSuccessfulTxPacketsPerSecond = successfulTxPacketsPerSecond;
+    }
+
+    private double mSuccessfulRxPacketsPerSecond;
+
+    /**
+     * Average rate of received unicast data packets, in units of packets per second.
+     *
+     * @hide
+     */
+    public double getSuccessfulRxPacketsPerSecond() {
+        return mSuccessfulRxPacketsPerSecond;
+    }
+
+    /** @hide */
+    public void setSuccessfulRxPacketsPerSecond(double successfulRxPacketsPerSecond) {
+        mSuccessfulRxPacketsPerSecond = successfulRxPacketsPerSecond;
+    }
+
     @Override
     public boolean equals(@Nullable Object o) {
         if (this == o) return true;
@@ -341,15 +440,41 @@ public final class MloLink implements Parcelable {
                 && mState == that.mState
                 && mRssi == that.mRssi
                 && mRxLinkSpeed == that.mRxLinkSpeed
-                && mTxLinkSpeed == that.mTxLinkSpeed;
+                && mTxLinkSpeed == that.mTxLinkSpeed
+                && mTxRetriedTxPacketsPerSecond == that.mTxRetriedTxPacketsPerSecond
+                && mSuccessfulTxPacketsPerSecond == that.mSuccessfulTxPacketsPerSecond
+                && mLostTxPacketsPerSecond == that.mLostTxPacketsPerSecond
+                && mSuccessfulRxPacketsPerSecond == that.mSuccessfulRxPacketsPerSecond
+                && txBad == that.txBad
+                && txRetries == that.txRetries
+                && txSuccess == that.txSuccess
+                && rxSuccess == that.rxSuccess;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mBand, mChannel, mLinkId, mApMacAddress, mStaMacAddress, mState);
+        return Objects.hash(
+                mBand,
+                mChannel,
+                mLinkId,
+                mApMacAddress,
+                mStaMacAddress,
+                mState,
+                mRssi,
+                mRxLinkSpeed,
+                mTxLinkSpeed,
+                mTxRetriedTxPacketsPerSecond,
+                mSuccessfulTxPacketsPerSecond,
+                mLostTxPacketsPerSecond,
+                mSuccessfulRxPacketsPerSecond,
+                txBad,
+                txRetries,
+                txSuccess,
+                rxSuccess);
     }
 
-    private String getStateString(@MloLinkState int state) {
+    /** @hide */
+    public static String getStateString(@MloLinkState int state) {
         switch(state) {
             case MLO_LINK_STATE_INVALID:
                 return "MLO_LINK_STATE_INVALID";
@@ -426,6 +551,14 @@ public final class MloLink implements Parcelable {
         dest.writeInt(mTxLinkSpeed);
         dest.writeParcelable(mApMacAddress, flags);
         dest.writeParcelable(mStaMacAddress, flags);
+        dest.writeDouble(mLostTxPacketsPerSecond);
+        dest.writeDouble(mSuccessfulTxPacketsPerSecond);
+        dest.writeDouble(mSuccessfulRxPacketsPerSecond);
+        dest.writeDouble(mTxRetriedTxPacketsPerSecond);
+        dest.writeLong(txBad);
+        dest.writeLong(txRetries);
+        dest.writeLong(txSuccess);
+        dest.writeLong(rxSuccess);
     }
 
     /** Implement the Parcelable interface */
@@ -442,6 +575,14 @@ public final class MloLink implements Parcelable {
                     link.mTxLinkSpeed = in.readInt();
                     link.mApMacAddress = in.readParcelable(MacAddress.class.getClassLoader());
                     link.mStaMacAddress = in.readParcelable(MacAddress.class.getClassLoader());
+                    link.mLostTxPacketsPerSecond = in.readDouble();
+                    link.mSuccessfulTxPacketsPerSecond = in.readDouble();
+                    link.mSuccessfulRxPacketsPerSecond = in.readDouble();
+                    link.mTxRetriedTxPacketsPerSecond = in.readDouble();
+                    link.txBad = in.readLong();
+                    link.txRetries = in.readLong();
+                    link.txSuccess = in.readLong();
+                    link.rxSuccess = in.readLong();
                     return link;
                 }
 

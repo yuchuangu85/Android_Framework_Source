@@ -1246,7 +1246,7 @@ public class MessageFormat extends UFormat {
             String key = null;
             if(args!=null) {
                 argNumber=part.getValue();  // ARG_NUMBER
-                argId = Integer.valueOf(argNumber);
+                argId = argNumber;
             } else {
                 if(part.getType()==MessagePattern.Part.Type.ARG_NAME) {
                     key=msgPattern.getSubstring(part);
@@ -1601,7 +1601,7 @@ public class MessageFormat extends UFormat {
                 int argNumber=part.getValue();  // ARG_NUMBER
                 if (dest.attributes != null) {
                     // We only need argId if we add it into the attributes.
-                    argId = Integer.valueOf(argNumber);
+                    argId = argNumber;
                 }
                 if(0<=argNumber && argNumber<args.length) {
                     arg=args[argNumber];
@@ -1611,8 +1611,11 @@ public class MessageFormat extends UFormat {
                 }
             } else {
                 argId = argName;
-                if(argsMap!=null && argsMap.containsKey(argName)) {
+                if(argsMap!=null) {
                     arg=argsMap.get(argName);
+                    if (arg==null) {
+                        noArg=!argsMap.containsKey(argName);
+                    }
                 } else {
                     arg=null;
                     noArg=true;
@@ -1622,7 +1625,9 @@ public class MessageFormat extends UFormat {
             int prevDestLength=dest.length;
             Format formatter = null;
             if (noArg) {
-                dest.append("{"+argName+"}");
+                dest.append("{");
+                dest.append(argName);
+                dest.append("}");
             } else if (arg == null) {
                 dest.append("null");
             } else if(pluralNumber!=null && pluralNumber.numberArgIndex==(i-2)) {

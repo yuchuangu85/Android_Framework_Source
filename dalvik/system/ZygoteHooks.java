@@ -159,8 +159,9 @@ public final class ZygoteHooks {
     @SystemApi(client = MODULE_LIBRARIES)
     public static void preFork() {
         Daemons.stop();
+        // At this point Daemons have been joined, but they may still be Unregister()ing.
+        // We wait for that as part of nativePreFork().
         token = nativePreFork();
-        waitUntilAllThreadsStopped();
     }
 
     /**
@@ -259,17 +260,4 @@ public final class ZygoteHooks {
                                                    String instructionSet);
 
     private static native boolean nativeZygoteLongSuspendOk();
-
-    /**
-     * We must not fork until we're single-threaded again. Wait until /proc shows we're
-     * down to just one thread.
-     */
-    private static void waitUntilAllThreadsStopped() {
-        File tasks = new File("/proc/self/task");
-        // All Java daemons are stopped already. We're just waiting for their OS counterparts to
-        // finish as well. This shouldn't take much time so spinning is ok here.
-        while (tasks.list().length > 1) {
-          Thread.yield();
-        }
-    }
 }

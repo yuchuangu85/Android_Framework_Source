@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -175,6 +175,20 @@ public abstract class LongPipeline<E_IN>
         return Nodes.longBuilder(exactSizeIfKnown);
     }
 
+    private <U> Stream<U> mapToObj(LongFunction<? extends U> mapper, int opFlags) {
+        return new ReferencePipeline.StatelessOp<Long, U>(this, StreamShape.LONG_VALUE, opFlags) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<Long> opWrapSink(int flags, Sink<U> sink) {
+                return new Sink.ChainedLong<U>(sink) {
+                    @Override
+                    public void accept(long t) {
+                        downstream.accept(mapper.apply(t));
+                    }
+                };
+            }
+        };
+    }
 
     // LongStream
 
@@ -192,8 +206,7 @@ public abstract class LongPipeline<E_IN>
 
     @Override
     public final DoubleStream asDoubleStream() {
-        return new DoublePipeline.StatelessOp<Long>(this, StreamShape.LONG_VALUE,
-                                                    StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
+        return new DoublePipeline.StatelessOp<Long>(this, StreamShape.LONG_VALUE, StreamOpFlag.NOT_DISTINCT) {
             @Override
             // Android-changed: Make public, to match the method it's overriding.
             public Sink<Long> opWrapSink(int flags, Sink<Double> sink) {
@@ -209,7 +222,7 @@ public abstract class LongPipeline<E_IN>
 
     @Override
     public final Stream<Long> boxed() {
-        return mapToObj(Long::valueOf);
+        return mapToObj(Long::valueOf, 0);
     }
 
     @Override
@@ -233,19 +246,7 @@ public abstract class LongPipeline<E_IN>
     @Override
     public final <U> Stream<U> mapToObj(LongFunction<? extends U> mapper) {
         Objects.requireNonNull(mapper);
-        return new ReferencePipeline.StatelessOp<Long, U>(this, StreamShape.LONG_VALUE,
-                                                          StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
-            @Override
-            // Android-changed: Make public, to match the method it's overriding.
-            public Sink<Long> opWrapSink(int flags, Sink<U> sink) {
-                return new Sink.ChainedLong<U>(sink) {
-                    @Override
-                    public void accept(long t) {
-                        downstream.accept(mapper.apply(t));
-                    }
-                };
-            }
-        };
+        return mapToObj(mapper, StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT);
     }
 
     @Override
@@ -286,12 +287,19 @@ public abstract class LongPipeline<E_IN>
 
     @Override
     public final LongStream flatMap(LongFunction<? extends LongStream> mapper) {
+        Objects.requireNonNull(mapper);
         return new StatelessOp<Long>(this, StreamShape.LONG_VALUE,
                                      StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
             @Override
             // Android-changed: Make public, to match the method it's overriding.
             public Sink<Long> opWrapSink(int flags, Sink<Long> sink) {
                 return new Sink.ChainedLong<Long>(sink) {
+                    // true if cancellationRequested() has been called
+                    boolean cancellationRequestedCalled;
+
+                    // cache the consumer to avoid creation on every accepted element
+                    LongConsumer downstreamAsLong = downstream::accept;
+
                     @Override
                     public void begin(long size) {
                         downstream.begin(-1);
@@ -300,10 +308,51 @@ public abstract class LongPipeline<E_IN>
                     @Override
                     public void accept(long t) {
                         try (LongStream result = mapper.apply(t)) {
-                            // We can do better that this too; optimize for depth=0 case and just grab spliterator and forEach it
-                            if (result != null)
-                                result.sequential().forEach(i -> downstream.accept(i));
+                            if (result != null) {
+                                if (!cancellationRequestedCalled) {
+                                    result.sequential().forEach(downstreamAsLong);
+                                }
+                                else {
+                                    var s = result.sequential().spliterator();
+                                    do { } while (!downstream.cancellationRequested() && s.tryAdvance(downstreamAsLong));
+                                }
+                            }
                         }
+                    }
+
+                    @Override
+                    public boolean cancellationRequested() {
+                        // If this method is called then an operation within the stream
+                        // pipeline is short-circuiting (see AbstractPipeline.copyInto).
+                        // Note that we cannot differentiate between an upstream or
+                        // downstream operation
+                        cancellationRequestedCalled = true;
+                        return downstream.cancellationRequested();
+                    }
+                };
+            }
+        };
+    }
+
+    @Override
+    public final LongStream mapMulti(LongMapMultiConsumer mapper) {
+        Objects.requireNonNull(mapper);
+        return new LongPipeline.StatelessOp<>(this, StreamShape.LONG_VALUE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<Long> opWrapSink(int flags, Sink<Long> sink) {
+                return new Sink.ChainedLong<>(sink) {
+
+                    @Override
+                    public void begin(long size) {
+                        downstream.begin(-1);
+                    }
+
+                    @Override
+                    @SuppressWarnings("unchecked")
+                    public void accept(long t) {
+                        mapper.accept(t, (LongConsumer) downstream);
                     }
                 };
             }
@@ -386,6 +435,16 @@ public abstract class LongPipeline<E_IN>
     }
 
     @Override
+    public final LongStream takeWhile(LongPredicate predicate) {
+        return WhileOps.makeTakeWhileLong(this, predicate);
+    }
+
+    @Override
+    public final LongStream dropWhile(LongPredicate predicate) {
+        return WhileOps.makeDropWhileLong(this, predicate);
+    }
+
+    @Override
     public final LongStream sorted() {
         return SortedOps.makeLong(this);
     }
@@ -443,7 +502,7 @@ public abstract class LongPipeline<E_IN>
 
     @Override
     public final long count() {
-        return map(e -> 1L).sum();
+        return evaluate(ReduceOps.makeLongCounting());
     }
 
     @Override
@@ -466,6 +525,7 @@ public abstract class LongPipeline<E_IN>
     public final <R> R collect(Supplier<R> supplier,
                                ObjLongConsumer<R> accumulator,
                                BiConsumer<R, R> combiner) {
+        Objects.requireNonNull(combiner);
         BinaryOperator<R> operator = (left, right) -> {
             combiner.accept(left, right);
             return left;

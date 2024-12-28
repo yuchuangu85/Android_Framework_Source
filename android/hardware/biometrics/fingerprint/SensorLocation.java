@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --structured --version 5 --hash notfrozen -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster_interface/4/preprocessed.aidl --previous_api_dir=hardware/interfaces/biometrics/fingerprint/aidl/aidl_api/android.hardware.biometrics.fingerprint/4 --previous_hash 41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen/android/hardware/biometrics/fingerprint/SensorLocation.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen -Nhardware/interfaces/biometrics/fingerprint/aidl hardware/interfaces/biometrics/fingerprint/aidl/android/hardware/biometrics/fingerprint/SensorLocation.aidl
  */
 package android.hardware.biometrics.fingerprint;
 /** @hide */
@@ -8,10 +9,41 @@ public class SensorLocation implements android.os.Parcelable
   /** @deprecated use the display field instead. This field was never used. */
   @Deprecated
   public int displayId = 0;
+  /**
+   * The location of the center of the sensor if applicable. For example, sensors of
+   * FingerprintSensorType::UNDER_DISPLAY_* would report this value as the distance in pixels,
+   * measured from the left edge of the screen.
+   */
   public int sensorLocationX = 0;
+  /**
+   * The location of the center of the sensor if applicable. For example, sensors of
+   * FingerprintSensorType::UNDER_DISPLAY_* would report this value as the distance in pixels,
+   * measured from the top edge of the screen.
+   */
   public int sensorLocationY = 0;
+  /**
+   * The radius of the sensor if applicable. For example, sensors of
+   * FingerprintSensorType::UNDER_DISPLAY_* would report this value as the radius of the sensor,
+   * in pixels.
+   */
   public int sensorRadius = 0;
+  /**
+   * The display to which all of the measurements are relative to. This must correspond to the
+   * android.view.Display#getUniqueId Android API. The default display is used if this field is
+   * empty.
+   * 
+   * A few examples:
+   *   1) A capacitive rear fingerprint sensor would specify the display to which it is behind.
+   *   2) An under-display fingerprint sensor would specify the display on which the sensor is
+   *      located.
+   *   3) A foldable device would specify multiple locations and have a SensorLocation entry
+   *      for each display from which the sensor is accessible from.
+   */
   public java.lang.String display = "";
+  /**
+   * The shape of the sensor if applicable. Most useful for the sensor of type
+   * SensorType::UNDER_DISPLAY_*.
+   */
   public byte sensorShape = android.hardware.biometrics.fingerprint.SensorShape.CIRCLE;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }

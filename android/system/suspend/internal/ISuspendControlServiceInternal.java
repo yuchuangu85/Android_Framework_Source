@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version 28 --ninja -d out/soong/.intermediates/system/hardware/interfaces/suspend/aidl/android.system.suspend.control.internal-java-source/gen/android/system/suspend/internal/ISuspendControlServiceInternal.java.d -o out/soong/.intermediates/system/hardware/interfaces/suspend/aidl/android.system.suspend.control.internal-java-source/gen -Nsystem/hardware/interfaces/suspend/aidl system/hardware/interfaces/suspend/aidl/android/system/suspend/internal/ISuspendControlServiceInternal.aidl
  */
 package android.system.suspend.internal;
 /**
@@ -52,6 +53,7 @@ public interface ISuspendControlServiceInternal extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.system.suspend.internal.ISuspendControlServiceInternal
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -81,13 +83,9 @@ public interface ISuspendControlServiceInternal extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -254,7 +252,8 @@ public interface ISuspendControlServiceInternal extends android.os.IInterface
     static final int TRANSACTION_getWakeupStats = (android.os.IBinder.FIRST_CALL_TRANSACTION + 3);
     static final int TRANSACTION_getSuspendStats = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
   }
-  public static final java.lang.String DESCRIPTOR = "android$system$suspend$internal$ISuspendControlServiceInternal".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.system.suspend.internal.ISuspendControlServiceInternal";
   /**
    * Starts automatic system suspension.
    * 

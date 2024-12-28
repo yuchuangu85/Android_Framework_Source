@@ -299,6 +299,12 @@ public class NativeAllocationRegistry {
         public void setNativePtr(long nativePtr) {
             this.nativePtr = nativePtr;
         }
+
+        // Only for error reporting.
+        @Override public String toString() {
+            return super.toString() + "(freeFunction = 0x" + Long.toHexString(freeFunction)
+                + ", nativePtr = 0x" + Long.toHexString(nativePtr) + ", size = " + size + ")";
+        }
     }
 
     private static class CleanerRunner implements Runnable {

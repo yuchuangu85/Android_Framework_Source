@@ -452,10 +452,12 @@ public class CarrierDisplayNameResolver {
         boolean forceDisplayNoService =
                 mPhone.getServiceStateTracker().shouldForceDisplayNoService() && !isSimReady;
         ServiceState ss = getServiceState();
+        // The slot is emc only or oos but the device is emc only.
+        boolean isEmcOnly = ss.isEmergencyOnly() || Phone.isEmergencyCallOnly();
         if (ss.getState() == ServiceState.STATE_POWER_OFF && !forceDisplayNoService
-                && !Phone.isEmergencyCallOnly()) {
+                && !isEmcOnly) {
             plmn = null;
-        } else if (forceDisplayNoService || !Phone.isEmergencyCallOnly()) {
+        } else if (forceDisplayNoService || !isEmcOnly) {
             plmn = mContext.getResources().getString(
                     com.android.internal.R.string.lockscreen_carrier_default);
         } else {

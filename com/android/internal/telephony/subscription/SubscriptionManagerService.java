@@ -16,12 +16,17 @@
 
 package com.android.internal.telephony.subscription;
 
+import static android.content.pm.PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION;
+import static android.telephony.TelephonyManager.ENABLE_FEATURE_MAPPING;
+
 import android.Manifest;
 import android.annotation.CallbackExecutor;
 import android.annotation.ColorInt;
+import android.annotation.EnforcePermission;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
+import android.annotation.UserIdInt;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
 import android.app.compat.CompatChanges;
@@ -37,6 +42,7 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
@@ -44,8 +50,11 @@ import android.os.ParcelUuid;
 import android.os.PersistableBundle;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.os.TelephonyServiceManager;
 import android.os.UserHandle;
+import android.os.UserManager;
+import android.provider.DeviceConfig;
 import android.provider.Settings;
 import android.provider.Telephony.SimInfo;
 import android.service.carrier.CarrierIdentifier;
@@ -88,11 +97,15 @@ import com.android.internal.telephony.MccTable;
 import com.android.internal.telephony.MultiSimSettingController;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
+import com.android.internal.telephony.ProxyController;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.TelephonyIntents;
 import com.android.internal.telephony.TelephonyPermissions;
 import com.android.internal.telephony.data.PhoneSwitcher;
 import com.android.internal.telephony.euicc.EuiccController;
+import com.android.internal.telephony.flags.FeatureFlags;
+import com.android.internal.telephony.flags.Flags;
+import com.android.internal.telephony.satellite.SatelliteController;
 import com.android.internal.telephony.subscription.SubscriptionDatabaseManager.SubscriptionDatabaseManagerCallback;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.internal.telephony.uicc.IccUtils;
@@ -113,6 +126,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -120,6 +134,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 /**
  * The subscription manager service is the backend service of {@link SubscriptionManager}.
@@ -127,6 +142,11 @@ import java.util.stream.IntStream;
  */
 public class SubscriptionManagerService extends ISub.Stub {
     private static final String LOG_TAG = "SMSVC";
+    private static final String ALLOW_MOCK_MODEM_PROPERTY = "persist.radio.allow_mock_modem";
+    private static final String BOOT_ALLOW_MOCK_MODEM_PROPERTY = "ro.boot.radio.allow_mock_modem";
+
+    private static final int CHECK_BOOTSTRAP_TIMER_IN_MS = 20 * 60 * 1000; // 20 minutes
+    private static CountDownTimer bootstrapProvisioningTimer;
 
     /** Whether enabling verbose debugging message or not. */
     private static final boolean VDBG = false;
@@ -171,7 +191,11 @@ public class SubscriptionManagerService extends ISub.Stub {
             SimInfo.COLUMN_VOIMS_OPT_IN_STATUS,
             SimInfo.COLUMN_D2D_STATUS_SHARING_SELECTED_CONTACTS,
             SimInfo.COLUMN_NR_ADVANCED_CALLING_ENABLED,
-            SimInfo.COLUMN_SATELLITE_ENABLED
+            SimInfo.COLUMN_SATELLITE_ENABLED,
+            SimInfo.COLUMN_SATELLITE_ATTACH_ENABLED_FOR_CARRIER,
+            SimInfo.COLUMN_IS_NTN,
+            SimInfo.COLUMN_SATELLITE_ENTITLEMENT_STATUS,
+            SimInfo.COLUMN_SATELLITE_ENTITLEMENT_PLMNS
     );
 
     /**
@@ -183,6 +207,18 @@ public class SubscriptionManagerService extends ISub.Stub {
     @EnabledSince(targetSdkVersion = Build.VERSION_CODES.TIRAMISU)
     public static final long REQUIRE_DEVICE_IDENTIFIERS_FOR_GROUP_UUID = 213902861L;
 
+    /**
+     * Apps targeting on Android V and beyond can only see subscriptions accessible by them
+     * according to its user Id.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    public static final long FILTER_ACCESSIBLE_SUBS_BY_USER = 296076674L;
+
+    /** Wrap Binder methods for testing. */
+    @NonNull
+    private static final BinderWrapper BINDER_WRAPPER = new BinderWrapper();
+
     /** Instance of subscription manager service. */
     @NonNull
     private static SubscriptionManagerService sInstance;
@@ -190,6 +226,10 @@ public class SubscriptionManagerService extends ISub.Stub {
     /** The context */
     @NonNull
     private final Context mContext;
+
+    /** Feature flags */
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
 
     /** App Ops manager instance. */
     @NonNull
@@ -220,6 +260,10 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @Nullable
     private EuiccController mEuiccController;
+
+    /** Package manager instance. */
+    @NonNull
+    private final PackageManager mPackageManager;
 
     /**
      * The main handler of subscription manager service. This is running on phone process's main
@@ -273,6 +317,15 @@ public class SubscriptionManagerService extends ISub.Stub {
     /** Sim state per logical SIM slot index. */
     @NonNull
     private final int[] mSimState;
+
+    /** Vendor API level from system property. */
+    private final int mVendorApiLevel;
+
+    /**
+     * {@code true} if a user profile can only see the SIMs associated with it, unless it possesses
+     * no SIMs on the device.
+     */
+    private Map<Integer, List<Integer>> mUserIdToAvailableSubs = new ConcurrentHashMap<>();
 
     /**
      * Slot index/subscription map that automatically invalidate cache in
@@ -347,6 +400,14 @@ public class SubscriptionManagerService extends ISub.Stub {
         }
     }
 
+    /** Binder Wrapper for test mocking. */
+    @VisibleForTesting
+    public static class BinderWrapper {
+        @NonNull public UserHandle getCallingUserHandle() {
+            return Binder.getCallingUserHandle();
+        }
+    }
+
     /**
      * This is the callback used for listening events from {@link SubscriptionManagerService}.
      */
@@ -403,14 +464,19 @@ public class SubscriptionManagerService extends ISub.Stub {
      * @param context The context
      * @param looper The looper for the handler.
      */
-    public SubscriptionManagerService(@NonNull Context context, @NonNull Looper looper) {
+    public SubscriptionManagerService(@NonNull Context context, @NonNull Looper looper,
+            @NonNull FeatureFlags featureFlags) {
         logl("Created SubscriptionManagerService");
         sInstance = this;
         mContext = context;
+        mFeatureFlags = featureFlags;
         mTelephonyManager = context.getSystemService(TelephonyManager.class);
         mSubscriptionManager = context.getSystemService(SubscriptionManager.class);
         mEuiccManager = context.getSystemService(EuiccManager.class);
         mAppOpsManager = context.getSystemService(AppOpsManager.class);
+        mPackageManager = context.getPackageManager();
+        mVendorApiLevel = SystemProperties.getInt(
+                "ro.vendor.api_level", Build.VERSION.DEVICE_INITIAL_SDK_INT);
 
         mUiccController = UiccController.getInstance();
         mHandler = new Handler(looper);
@@ -478,14 +544,15 @@ public class SubscriptionManagerService extends ISub.Stub {
         HandlerThread handlerThread = new HandlerThread(LOG_TAG);
         handlerThread.start();
         mSubscriptionDatabaseManager = new SubscriptionDatabaseManager(context,
-                handlerThread.getLooper(), new SubscriptionDatabaseManagerCallback(mHandler::post) {
+                handlerThread.getLooper(), mFeatureFlags,
+                new SubscriptionDatabaseManagerCallback(mHandler::post) {
                     /**
                      * Called when database has been loaded into the cache.
                      */
                     @Override
                     public void onInitialized() {
                         log("Subscription database has been initialized.");
-                        for (int phoneId = 0; phoneId < mTelephonyManager.getActiveModemCount()
+                        for (int phoneId = 0; phoneId < mTelephonyManager.getSupportedModemCount()
                                 ; phoneId++) {
                             markSubscriptionsInactive(phoneId);
                         }
@@ -498,6 +565,8 @@ public class SubscriptionManagerService extends ISub.Stub {
                      */
                     @Override
                     public void onSubscriptionChanged(int subId) {
+                        updateUserIdToAvailableSubs();
+
                         mSubscriptionManagerServiceCallbacks.forEach(
                                 callback -> callback.invokeFromExecutor(
                                         () -> callback.onSubscriptionChanged(subId)));
@@ -816,6 +885,26 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
+     * Set whether the subscription ID supports oem satellite or not.
+     *
+     * @param subId The subscription ID.
+     * @param isNtn {@code true} Requested subscription ID supports oem satellite service,
+     * {@code false} otherwise.
+     */
+    public void setNtn(int subId, boolean isNtn) {
+        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
+            return;
+        }
+
+        // This can throw IllegalArgumentException if the subscription does not exist.
+        try {
+            mSubscriptionDatabaseManager.setNtn(subId, (isNtn ? 1 : 0));
+        } catch (IllegalArgumentException e) {
+            loge("setOnlyNonTerrestrialNetwork: invalid subId=" + subId);
+        }
+    }
+
+    /**
      * Set ISO country code by subscription id.
      *
      * @param iso ISO country code associated with the subscription.
@@ -843,6 +932,30 @@ public class SubscriptionManagerService extends ISub.Stub {
             mSubscriptionDatabaseManager.setCarrierName(subId, carrierName);
         } catch (IllegalArgumentException e) {
             loge("setCarrierName: invalid subId=" + subId);
+        }
+    }
+
+    /**
+     * Set the group owner on the subscription
+     *
+     * <p> Note: This only sets the group owner field and doesn't update other relevant fields.
+     * Prefer to call {@link #addSubscriptionsIntoGroup}.
+     *
+     * @param subId Subscription id.
+     * @param groupOwner The group owner to assign to the subscription
+     *
+     * @throws SecurityException if the caller does not have required permissions.
+     */
+    @Override
+    @RequiresPermission(Manifest.permission.MODIFY_PHONE_STATE)
+    public void setGroupOwner(int subId, @NonNull String groupOwner) {
+        enforcePermissions("setGroupOwner", Manifest.permission.MODIFY_PHONE_STATE);
+        try {
+            mSubscriptionDatabaseManager.setGroupOwner(
+                    subId,
+                    groupOwner);
+        } catch (IllegalArgumentException e) {
+            loge("setManaged: invalid subId=" + subId);
         }
     }
 
@@ -1067,6 +1180,8 @@ public class SubscriptionManagerService extends ISub.Stub {
                         int subId = insertSubscriptionInfo(embeddedProfile.getIccid(),
                                 SubscriptionManager.INVALID_SIM_SLOT_INDEX,
                                 null, SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
+                        mSubscriptionDatabaseManager.setDisplayName(subId, mContext.getResources()
+                                .getString(R.string.default_card_name, getCardNumber(subId)));
                         subInfo = mSubscriptionDatabaseManager.getSubscriptionInfoInternal(subId);
                     }
 
@@ -1092,7 +1207,27 @@ public class SubscriptionManagerService extends ISub.Stub {
                         builder.setDisplayName(nickName);
                         builder.setDisplayNameSource(SubscriptionManager.NAME_SOURCE_CARRIER);
                     }
-                    builder.setProfileClass(embeddedProfile.getProfileClass());
+
+                    boolean isSatelliteSpn = false;
+                    if (mFeatureFlags.oemEnabledSatelliteFlag() ) {
+                        if (isSatelliteSpn(embeddedProfile.getServiceProviderName())) {
+                            isSatelliteSpn = true;
+                            builder.setOnlyNonTerrestrialNetwork(1);
+                        }
+                    } else {
+                        log("updateEmupdateEmbeddedSubscriptions: oemEnabledSatelliteFlag is "
+                                + "disabled");
+                    }
+
+                    if (android.os.Build.isDebuggable() &&
+                            SystemProperties.getInt("telephony.test.bootstrap_cid", -2)
+                                == carrierId) {
+                        // Force set as provisioning profile for test purpose
+                        log("Hardcording as bootstrap subscription for cid=" + carrierId);
+                        builder.setProfileClass(SimInfo.PROFILE_CLASS_PROVISIONING);
+                    } else {
+                        builder.setProfileClass(embeddedProfile.getProfileClass());
+                    }
                     builder.setPortIndex(getPortIndex(embeddedProfile.getIccid()));
 
                     CarrierIdentifier cid = embeddedProfile.getCarrierIdentifier();
@@ -1108,16 +1243,25 @@ public class SubscriptionManagerService extends ISub.Stub {
                         String mnc = cid.getMnc();
                         builder.setMcc(mcc);
                         builder.setMnc(mnc);
+                        if (mFeatureFlags.oemEnabledSatelliteFlag() && !isSatelliteSpn) {
+                            builder.setOnlyNonTerrestrialNetwork(
+                                    isSatellitePlmn(mcc + mnc) ? 1 : 0);
+                        }
                     }
                     // If cardId = unsupported or un-initialized, we have no reason to update DB.
                     // Additionally, if the device does not support cardId for default eUICC, the
                     // CARD_ID field should not contain the EID
                     if (cardId >= 0 && mUiccController.getCardIdForDefaultEuicc()
                             != TelephonyManager.UNSUPPORTED_CARD_ID) {
+                        builder.setCardId(cardId);
                         builder.setCardString(mUiccController.convertToCardString(cardId));
                     }
 
+                    if (mFeatureFlags.supportPsimToEsimConversion()) {
+                        builder.setTransferStatus(subInfo.getTransferStatus());
+                    }
                     embeddedSubs.add(subInfo.getSubscriptionId());
+
                     subInfo = builder.build();
                     log("updateEmbeddedSubscriptions: update subscription " + subInfo);
                     mSubscriptionDatabaseManager.updateSubscription(subInfo);
@@ -1280,23 +1424,30 @@ public class SubscriptionManagerService extends ISub.Stub {
         }
 
         if (simState == TelephonyManager.SIM_STATE_ABSENT) {
-            // Re-enable the pSIM when it's removed, so it will be in enabled state when it gets
-            // re-inserted again. (pre-U behavior)
-            List<String> iccIds = getIccIdsOfInsertedPhysicalSims();
-            mSubscriptionDatabaseManager.getAllSubscriptions().stream()
-                    // All the removed pSIMs (Note this could include some erased eSIM that has
-                    // embedded bit removed).
-                    .filter(subInfo -> !iccIds.contains(subInfo.getIccId())
-                            && !subInfo.isEmbedded())
-                    .forEach(subInfo -> {
-                        int subId = subInfo.getSubscriptionId();
-                        log("updateSubscription: Re-enable Uicc application on sub " + subId);
-                        mSubscriptionDatabaseManager.setUiccApplicationsEnabled(subId, true);
-                        // When sim is absent, set the port index to invalid port index.
-                        // (pre-U behavior)
-                        mSubscriptionDatabaseManager.setPortIndex(subId,
-                                TelephonyManager.INVALID_PORT_INDEX);
-                    });
+            SatelliteController satelliteController = SatelliteController.getInstance();
+            boolean isSatelliteEnabledOrBeingEnabled = false;
+            if (satelliteController != null) {
+                isSatelliteEnabledOrBeingEnabled = satelliteController.isSatelliteEnabled()
+                        || satelliteController.isSatelliteBeingEnabled();
+            }
+
+            if (!isSatelliteEnabledOrBeingEnabled) {
+                // Re-enable the pSIM when it's removed, so it will be in enabled state when it gets
+                // re-inserted again. (pre-U behavior)
+                List<String> iccIds = getIccIdsOfInsertedPhysicalSims();
+                mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+                        .filter(subInfo -> !iccIds.contains(subInfo.getIccId())
+                                && !subInfo.isEmbedded())
+                        .forEach(subInfo -> {
+                            int subId = subInfo.getSubscriptionId();
+                            log("updateSubscription: Re-enable Uicc application on sub " + subId);
+                            mSubscriptionDatabaseManager.setUiccApplicationsEnabled(subId, true);
+                            // When sim is absent, set the port index to invalid port index.
+                            // (pre-U behavior)
+                            mSubscriptionDatabaseManager.setPortIndex(subId,
+                                    TelephonyManager.INVALID_PORT_INDEX);
+                        });
+            }
 
             if (mSlotIndexToSubId.containsKey(phoneId)) {
                 markSubscriptionsInactive(phoneId);
@@ -1343,6 +1494,9 @@ public class SubscriptionManagerService extends ISub.Stub {
                     // This is a new SIM card. Insert a new record.
                     subId = insertSubscriptionInfo(iccId, phoneId, null,
                             SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM);
+                    mSubscriptionDatabaseManager.setDisplayName(subId,
+                            mContext.getResources().getString(R.string.default_card_name,
+                                    getCardNumber(subId)));
                 } else {
                     subId = subInfo.getSubscriptionId();
                     log("updateSubscription: Found existing subscription. subId= " + subId
@@ -1388,7 +1542,7 @@ public class SubscriptionManagerService extends ISub.Stub {
                         loge("updateSubscription: sim country iso is null");
                     }
 
-                    String msisdn = mTelephonyManager.getLine1Number(subId);
+                    String msisdn = PhoneFactory.getPhone(phoneId).getLine1Number();
                     if (!TextUtils.isEmpty(msisdn)) {
                         setDisplayNumber(msisdn, subId);
                     }
@@ -1418,13 +1572,26 @@ public class SubscriptionManagerService extends ISub.Stub {
                         loge("updateSubscription: ICC card is not available.");
                     }
 
+                    if (Flags.clearCachedImsPhoneNumberWhenDeviceLostImsRegistration()) {
+                        // Clear the cached Ims phone number
+                        // before proceeding with Ims Registration
+                        setNumberFromIms(subId, new String(""));
+                    }
+
                     // Attempt to restore SIM specific settings when SIM is loaded.
-                    mContext.getContentResolver().call(
+                    Bundle result = mContext.getContentResolver().call(
                             SubscriptionManager.SIM_INFO_BACKUP_AND_RESTORE_CONTENT_URI,
                             SubscriptionManager.RESTORE_SIM_SPECIFIC_SETTINGS_METHOD_NAME,
                             iccId, null);
-                    log("Reload the database.");
-                    mSubscriptionDatabaseManager.reloadDatabase();
+                    if (result != null && result.getBoolean(
+                            SubscriptionManager.RESTORE_SIM_SPECIFIC_SETTINGS_DATABASE_UPDATED)) {
+                        logl("Sim specific settings changed the database.");
+                        mSubscriptionDatabaseManager.reloadDatabaseSync();
+                        if (mFeatureFlags.backupAndRestoreForEnable2g()) {
+                            PhoneFactory.getPhone(phoneId)
+                                    .loadAllowedNetworksFromSubscriptionDatabase();
+                        }
+                    }
                 }
 
                 log("updateSubscription: " + mSubscriptionDatabaseManager
@@ -1443,6 +1610,43 @@ public class SubscriptionManagerService extends ISub.Stub {
 
         updateGroupDisabled();
         updateDefaultSubId();
+
+        if (mSlotIndexToSubId.containsKey(phoneId) &&
+                isEsimBootStrapProvisioningActiveForSubId(mSlotIndexToSubId.get(phoneId))) {
+            startEsimBootstrapTimer();
+        } else {
+            cancelEsimBootstrapTimer();
+        }
+    }
+
+    private void cancelEsimBootstrapTimer() {
+        if (bootstrapProvisioningTimer != null) {
+            bootstrapProvisioningTimer.cancel();
+            bootstrapProvisioningTimer = null;
+            log("bootstrapProvisioningTimer timer cancelled.");
+        }
+    }
+
+    private void startEsimBootstrapTimer() {
+        if (bootstrapProvisioningTimer == null) {
+            bootstrapProvisioningTimer = new CountDownTimer(CHECK_BOOTSTRAP_TIMER_IN_MS,
+                    CHECK_BOOTSTRAP_TIMER_IN_MS) {
+                @Override
+                public void onTick(long millisUntilFinished) {
+                    // Do nothing
+                }
+
+                @Override
+                public void onFinish() {
+                    AnomalyReporter.reportAnomaly(UUID.fromString("40587b0f-27c9-4b39-b94d"
+                                    + "-71fc9771f354"), "eSim bootstrap has been active for too "
+                            + "long.");
+                    log("bootstrapProvisioningTimer: timer finished esim was not disabled.");
+                    cancelEsimBootstrapTimer();
+                }
+            }.start();
+            log("bootstrapProvisioningTimer timer started.");
+        }
     }
 
     /**
@@ -1603,10 +1807,44 @@ public class SubscriptionManagerService extends ISub.Stub {
                             preferredUsageSetting)
                     + " newSetting=" + SubscriptionManager.usageSettingToString(newUsageSetting));
         }
+
+        if (mFeatureFlags.dataOnlyCellularService()) {
+            final int[] servicesFromCarrierConfig =
+                    config.getIntArray(
+                            CarrierConfigManager.KEY_CELLULAR_SERVICE_CAPABILITIES_INT_ARRAY);
+            int serviceBitmasks = 0;
+            boolean allServicesAreValid = true;
+            // Check if all services from carrier config are valid before setting to db
+            if (servicesFromCarrierConfig == null) {
+                allServicesAreValid = false;
+            } else {
+                for (int service : servicesFromCarrierConfig) {
+                    if (service < SubscriptionManager.SERVICE_CAPABILITY_VOICE
+                            || service > SubscriptionManager.SERVICE_CAPABILITY_MAX) {
+                        allServicesAreValid = false;
+                        break;
+                    } else {
+                        serviceBitmasks |= SubscriptionManager.serviceCapabilityToBitmask(service);
+                    }
+                }
+            }
+            // In case we get invalid service override, fall back to default value.
+            // DO NOT throw exception which will crash phone process.
+            if (!allServicesAreValid) {
+                serviceBitmasks = SubscriptionManager.getAllServiceCapabilityBitmasks();
+            }
+
+            if (serviceBitmasks != subInfo.getServiceCapabilities()) {
+                log("updateSubscriptionByCarrierConfig: serviceCapabilities updated from "
+                        + subInfo.getServiceCapabilities() + " to " + serviceBitmasks);
+                mSubscriptionDatabaseManager.setServiceCapabilities(subId, serviceBitmasks);
+            }
+        }
     }
 
     /**
-     * Get all subscription info records from SIMs that are inserted now or previously inserted.
+     * Get all subscription info records from SIMs visible to the calling user that are inserted now
+     * or previously inserted.
      *
      * <p>
      * If the caller does not have {@link Manifest.permission#READ_PHONE_NUMBERS} permission,
@@ -1647,7 +1885,9 @@ public class SubscriptionManagerService extends ISub.Stub {
                     + "carrier privilege");
         }
 
-        return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+        enforceTelephonyFeatureWithException(callingPackage, "getAllSubInfoList");
+
+        return getSubscriptionInfoStreamAsUser(BINDER_WRAPPER.getCallingUserHandle())
                 // callers have READ_PHONE_STATE or READ_PRIVILEGED_PHONE_STATE can get a full
                 // list. Carrier apps can only get the subscriptions they have privileged.
                 .filter(subInfo -> TelephonyPermissions.checkCallingOrSelfReadPhoneStateNoThrow(
@@ -1689,6 +1929,8 @@ public class SubscriptionManagerService extends ISub.Stub {
                     + "carrier privilege");
         }
 
+        enforceTelephonyFeatureWithException(callingPackage, "getActiveSubscriptionInfo");
+
         SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
                 .getSubscriptionInfoInternal(subId);
         if (subInfo != null && subInfo.isActive()) {
@@ -1716,6 +1958,8 @@ public class SubscriptionManagerService extends ISub.Stub {
             @NonNull String callingPackage, @Nullable String callingFeatureId) {
         enforcePermissions("getActiveSubscriptionInfoForIccId",
                 Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+
+        enforceTelephonyFeatureWithException(callingPackage, "getActiveSubscriptionInfoForIccId");
 
         final long identity = Binder.clearCallingIdentity();
         try {
@@ -1761,6 +2005,9 @@ public class SubscriptionManagerService extends ISub.Stub {
 
         }
 
+        enforceTelephonyFeatureWithException(callingPackage,
+                "getActiveSubscriptionInfoForSimSlotIndex");
+
         if (!SubscriptionManager.isValidSlotIndex(slotIndex)) {
             throw new IllegalArgumentException("Invalid slot index " + slotIndex);
         }
@@ -1776,12 +2023,14 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
-     * Get the SubscriptionInfo(s) of the active subscriptions. The records will be sorted
-     * by {@link SubscriptionInfo#getSimSlotIndex} then by
+     * Get the SubscriptionInfo(s) of the active subscriptions for calling user. The records will be
+     * sorted by {@link SubscriptionInfo#getSimSlotIndex} then by
      * {@link SubscriptionInfo#getSubscriptionId}.
      *
      * @param callingPackage The package making the call.
      * @param callingFeatureId The feature in the package.
+     * @param isForAllProfiles whether the caller intends to see all subscriptions regardless
+     *                      association.
      *
      * @return Sorted list of the currently {@link SubscriptionInfo} records available on the
      * device.
@@ -1794,13 +2043,13 @@ public class SubscriptionManagerService extends ISub.Stub {
             "carrier privileges",
     })
     public List<SubscriptionInfo> getActiveSubscriptionInfoList(@NonNull String callingPackage,
-            @Nullable String callingFeatureId) {
+            @Nullable String callingFeatureId, boolean isForAllProfiles) {
         // Check if the caller has READ_PHONE_STATE, READ_PRIVILEGED_PHONE_STATE, or carrier
         // privilege on any active subscription. The carrier app will get full subscription infos
         // on the subs it has carrier privilege.
         if (!TelephonyPermissions.checkReadPhoneStateOnAnyActiveSub(mContext,
                 Binder.getCallingPid(), Binder.getCallingUid(), callingPackage, callingFeatureId,
-                "getAllSubInfoList")) {
+                "getActiveSubscriptionInfoList")) {
             // Ideally we should avoid silent failure, but since this API has already been used by
             // many apps and they do not expect the security exception, we return an empty list
             // here so it's consistent with pre-U behavior.
@@ -1809,13 +2058,19 @@ public class SubscriptionManagerService extends ISub.Stub {
             return Collections.emptyList();
         }
 
-        return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+        enforceTelephonyFeatureWithException(callingPackage, "getActiveSubscriptionInfoList");
+
+        if (isForAllProfiles) {
+            enforcePermissionAccessAllUserProfiles();
+        }
+        return getSubscriptionInfoStreamAsUser(isForAllProfiles
+                ? UserHandle.ALL : BINDER_WRAPPER.getCallingUserHandle())
                 .filter(SubscriptionInfoInternal::isActive)
                 // Remove the identifier if the caller does not have sufficient permission.
                 // carrier apps will get full subscription info on the subscriptions associated
                 // to them.
                 .map(subInfo -> conditionallyRemoveIdentifiers(subInfo.toSubscriptionInfo(),
-                        callingPackage, callingFeatureId, "getAllSubInfoList"))
+                        callingPackage, callingFeatureId, "getActiveSubscriptionInfoList"))
                 .sorted(Comparator.comparing(SubscriptionInfo::getSimSlotIndex)
                         .thenComparing(SubscriptionInfo::getSubscriptionId))
                 .collect(Collectors.toList());
@@ -1826,6 +2081,8 @@ public class SubscriptionManagerService extends ISub.Stub {
      *
      * @param callingPackage The package making the call.
      * @param callingFeatureId The feature in the package.
+     * @param isForAllProfiles whether the caller intends to see all subscriptions regardless
+     *                        association.
      *
      * @return the number of active subscriptions.
      *
@@ -1838,20 +2095,30 @@ public class SubscriptionManagerService extends ISub.Stub {
             "carrier privileges",
     })
     public int getActiveSubInfoCount(@NonNull String callingPackage,
-            @Nullable String callingFeatureId) {
+            @Nullable String callingFeatureId, boolean isForAllProfiles) {
         if (!TelephonyPermissions.checkReadPhoneStateOnAnyActiveSub(mContext,
                 Binder.getCallingPid(), Binder.getCallingUid(), callingPackage, callingFeatureId,
                 "getAllSubInfoList")) {
             throw new SecurityException("Need READ_PHONE_STATE, READ_PRIVILEGED_PHONE_STATE, or "
                     + "carrier privilege");
         }
-
-        final long token = Binder.clearCallingIdentity();
-        try {
-            return getActiveSubIdList(false).length;
-        } finally {
-            Binder.restoreCallingIdentity(token);
+        if (isForAllProfiles) {
+            enforcePermissionAccessAllUserProfiles();
         }
+
+        enforceTelephonyFeatureWithException(callingPackage, "getActiveSubInfoCount");
+
+        return getActiveSubIdListAsUser(false, isForAllProfiles
+                ? UserHandle.ALL : BINDER_WRAPPER.getCallingUserHandle()).length;
+    }
+
+    /** @throws SecurityException if caller doesn't have one of the requested permissions. */
+    private void enforcePermissionAccessAllUserProfiles() {
+        if (!mFeatureFlags.enforceSubscriptionUserFilter()) return;
+        enforcePermissions("To access across profiles",
+                Manifest.permission.INTERACT_ACROSS_USERS,
+                Manifest.permission.INTERACT_ACROSS_USERS_FULL,
+                Manifest.permission.INTERACT_ACROSS_PROFILES);
     }
 
     /**
@@ -1883,26 +2150,44 @@ public class SubscriptionManagerService extends ISub.Stub {
         enforcePermissions("getAvailableSubscriptionInfoList",
                 Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
 
-        // Now that all security checks pass, perform the operation as ourselves.
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            // Available eSIM profiles are reported by EuiccManager. However for physical SIMs if
-            // they are in inactive slot or programmatically disabled, they are still considered
-            // available. In this case we get their iccid from slot info and include their
-            // subscriptionInfos.
-            List<String> iccIds = getIccIdsOfInsertedPhysicalSims();
+        enforceTelephonyFeatureWithException(callingPackage, "getAvailableSubscriptionInfoList");
 
-            return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
-                    .filter(subInfo -> subInfo.isActive() || iccIds.contains(subInfo.getIccId())
-                            || (mEuiccManager != null && mEuiccManager.isEnabled()
-                            && subInfo.isEmbedded()))
-                    .map(SubscriptionInfoInternal::toSubscriptionInfo)
-                    .sorted(Comparator.comparing(SubscriptionInfo::getSimSlotIndex)
-                            .thenComparing(SubscriptionInfo::getSubscriptionId))
-                    .collect(Collectors.toList());
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
+        return getAvailableSubscriptionsInternalStream()
+                .sorted(Comparator.comparing(SubscriptionInfoInternal::getSimSlotIndex)
+                        .thenComparing(SubscriptionInfoInternal::getSubscriptionId))
+                .map(SubscriptionInfoInternal::toSubscriptionInfo)
+                .collect(Collectors.toList());
+
+    }
+
+    /**
+     * @return all the subscriptions visible to user on the device.
+     */
+    private Stream<SubscriptionInfoInternal> getAvailableSubscriptionsInternalStream() {
+        // Available eSIM profiles are reported by EuiccManager. However for physical SIMs if
+        // they are in inactive slot or programmatically disabled, they are still considered
+        // available. In this case we get their iccid from slot info and include their
+        // subscriptionInfos.
+        List<String> iccIds = getIccIdsOfInsertedPhysicalSims();
+
+        return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+                .filter(subInfo -> subInfo.isActive() || iccIds.contains(subInfo.getIccId())
+                        || (mEuiccManager != null && mEuiccManager.isEnabled()
+                        && subInfo.isEmbedded()));
+    }
+
+    /**
+     * Tracks for each user Id, a list of subscriptions associated with it.
+     * A profile is barred from seeing unassociated subscriptions if it has its own subscription
+     * which is available to choose from the device.
+     */
+    private void updateUserIdToAvailableSubs() {
+        mUserIdToAvailableSubs = getAvailableSubscriptionsInternalStream()
+                .collect(Collectors.groupingBy(
+                        SubscriptionInfoInternal::getUserId,
+                        Collectors.mapping(SubscriptionInfoInternal::getSubscriptionId,
+                                Collectors.toList())));
+        log("updateUserIdToAvailableSubs: " + mUserIdToAvailableSubs);
     }
 
     /**
@@ -1937,8 +2222,7 @@ public class SubscriptionManagerService extends ISub.Stub {
 
         // Verify that the callingPackage belongs to the calling UID
         mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
-
-        return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+        return getSubscriptionInfoStreamAsUser(BINDER_WRAPPER.getCallingUserHandle())
                 .map(SubscriptionInfoInternal::toSubscriptionInfo)
                 .filter(subInfo -> subInfo.isEmbedded()
                         && mSubscriptionManager.canManageSubscription(subInfo, callingPackage))
@@ -1952,6 +2236,8 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @Override
     public void requestEmbeddedSubscriptionInfoListRefresh(int cardId) {
+        enforcePermissions("requestEmbeddedSubscriptionInfoListRefresh",
+                Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS);
         updateEmbeddedSubscriptions(List.of(cardId), null);
     }
 
@@ -1966,6 +2252,7 @@ public class SubscriptionManagerService extends ISub.Stub {
      * @return 0 if success, < 0 on error
      *
      * @throws SecurityException if the caller does not have required permissions.
+     * @throws IllegalArgumentException if {@code slotIndex} is invalid.
      */
     @Override
     @RequiresPermission(Manifest.permission.MODIFY_PHONE_STATE)
@@ -1976,6 +2263,13 @@ public class SubscriptionManagerService extends ISub.Stub {
                 + slotIndex + ", displayName=" + displayName + ", type="
                 + SubscriptionManager.subscriptionTypeToString(subscriptionType) + ", "
                 + getCallingPackage());
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "addSubInfo");
+
+        if (!SubscriptionManager.isValidSlotIndex(slotIndex)
+                && slotIndex != SubscriptionManager.INVALID_SIM_SLOT_INDEX) {
+            throw new IllegalArgumentException("Invalid slotIndex " + slotIndex);
+        }
 
         // Now that all security checks passes, perform the operation as ourselves.
         final long identity = Binder.clearCallingIdentity();
@@ -2032,6 +2326,9 @@ public class SubscriptionManagerService extends ISub.Stub {
         logl("removeSubInfo: uniqueId=" + SubscriptionInfo.getPrintableId(uniqueId) + ", "
                 + SubscriptionManager.subscriptionTypeToString(subscriptionType) + ", "
                 + getCallingPackage());
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "removeSubInfo");
+
         final long identity = Binder.clearCallingIdentity();
         try {
             SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
@@ -2252,8 +2549,10 @@ public class SubscriptionManagerService extends ISub.Stub {
     })
     public int setOpportunistic(boolean opportunistic, int subId, @NonNull String callingPackage) {
         TelephonyPermissions.enforceAnyPermissionGrantedOrCarrierPrivileges(
-                mContext, Binder.getCallingUid(), subId, true, "setOpportunistic",
+                mContext, subId, Binder.getCallingUid(), true, "setOpportunistic",
                 Manifest.permission.MODIFY_PHONE_STATE);
+
+        enforceTelephonyFeatureWithException(callingPackage, "setOpportunistic");
 
         long token = Binder.clearCallingIdentity();
         try {
@@ -2307,6 +2606,8 @@ public class SubscriptionManagerService extends ISub.Stub {
                     + " carrier privilege permission on all specified subscriptions");
         }
 
+        enforceTelephonyFeatureWithException(callingPackage, "createSubscriptionGroup");
+
         long identity = Binder.clearCallingIdentity();
 
         try {
@@ -2343,6 +2644,10 @@ public class SubscriptionManagerService extends ISub.Stub {
             @Nullable ISetOpportunisticDataCallback callback) {
         enforcePermissions("setPreferredDataSubscriptionId",
                 Manifest.permission.MODIFY_PHONE_STATE);
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                "setPreferredDataSubscriptionId");
+
         final long token = Binder.clearCallingIdentity();
 
         try {
@@ -2429,6 +2734,8 @@ public class SubscriptionManagerService extends ISub.Stub {
             return Collections.emptyList();
         }
 
+        enforceTelephonyFeatureWithException(callingPackage, "getOpportunisticSubscriptions");
+
         return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
                 // callers have READ_PHONE_STATE or READ_PRIVILEGED_PHONE_STATE can get a full
                 // list. Carrier apps can only get the subscriptions they have privileged.
@@ -2480,6 +2787,8 @@ public class SubscriptionManagerService extends ISub.Stub {
         if (subIdList.length == 0) {
             throw new IllegalArgumentException("subIdList is empty.");
         }
+
+        enforceTelephonyFeatureWithException(callingPackage, "removeSubscriptionsFromGroup");
 
         long identity = Binder.clearCallingIdentity();
 
@@ -2563,6 +2872,8 @@ public class SubscriptionManagerService extends ISub.Stub {
                     + " permissions on subscriptions and the group.");
         }
 
+        enforceTelephonyFeatureWithException(callingPackage, "addSubscriptionsIntoGroup");
+
         long identity = Binder.clearCallingIdentity();
 
         try {
@@ -2631,6 +2942,8 @@ public class SubscriptionManagerService extends ISub.Stub {
                 throw e;
             }
         }
+
+        enforceTelephonyFeatureWithException(callingPackage, "getSubscriptionsInGroup");
 
         return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
                 .map(SubscriptionInfoInternal::toSubscriptionInfo)
@@ -2729,10 +3042,43 @@ public class SubscriptionManagerService extends ISub.Stub {
 
     /**
      * @return The default subscription id.
+     * @deprecated Use {@link #getDefaultSubIdAsUser}.
      */
     @Override
     public int getDefaultSubId() {
-        return mDefaultSubId.get();
+        return getDefaultSubIdAsUser(BINDER_WRAPPER.getCallingUserHandle().getIdentifier());
+    }
+
+    /**
+     * @param userId The given user Id to check.
+     * @return The default subscription id.
+     */
+    @Override
+    public int getDefaultSubIdAsUser(@UserIdInt int userId) {
+        enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                "getDefaultVoiceSubIdAsUser");
+
+        return getDefaultAsUser(userId, mDefaultSubId.get());
+    }
+
+    /**
+     * Get the default subscription visible to the caller.
+     * @param userId The calling user Id.
+     * @param defaultValue Useful if the user owns more than one subscription.
+     * @return The subscription Id default to use.
+     */
+    private int getDefaultAsUser(@UserIdInt int userId, int defaultValue) {
+        // TODO: Not using mFlags.enforceSubscriptionUserFilter because this affects U CTS.
+        if (mFeatureFlags.workProfileApiSplit()) {
+            List<SubscriptionInfoInternal> subInfos =
+                    getSubscriptionInfoStreamAsUser(UserHandle.of(userId))
+                            .filter(SubscriptionInfoInternal::isActive)
+                            .toList();
+            if (subInfos.size() == 1) {
+                return subInfos.get(0).getSubscriptionId();
+            }
+        }
+        return defaultValue;
     }
 
     /**
@@ -2788,9 +3134,13 @@ public class SubscriptionManagerService extends ISub.Stub {
             throw new RuntimeException("setDefaultDataSubId called with DEFAULT_SUBSCRIPTION_ID");
         }
 
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "setDefaultDataSubId");
+
         final long token = Binder.clearCallingIdentity();
         try {
             if (mDefaultDataSubId.set(subId)) {
+                remapRafIfApplicable();
+
                 MultiSimSettingController.getInstance().notifyDefaultDataSubChanged();
 
                 broadcastSubId(TelephonyIntents.ACTION_DEFAULT_DATA_SUBSCRIPTION_CHANGED,
@@ -2804,11 +3154,38 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
+     * Remap Radio Access Family if needed.
+     */
+    private void remapRafIfApplicable() {
+        boolean applicable = mSlotIndexToSubId.containsValue(getDefaultDataSubId());
+        if (!applicable) return;
+        ProxyController proxyController = ProxyController.getInstance();
+        RadioAccessFamily[] rafs = new RadioAccessFamily[mTelephonyManager.getActiveModemCount()];
+        for (int phoneId = 0; phoneId < rafs.length; phoneId++) {
+            int raf = mSlotIndexToSubId.getOrDefault(phoneId,
+                    SubscriptionManager.INVALID_SUBSCRIPTION_ID) == getDefaultDataSubId()
+                    ? proxyController.getMaxRafSupported() : proxyController.getMinRafSupported();
+            rafs[phoneId] = new RadioAccessFamily(phoneId, raf);
+        }
+        proxyController.setRadioCapability(rafs);
+    }
+
+    /**
      * @return The default subscription id for voice.
+     * @deprecated Use {@link #getDefaultVoiceSubIdAsUser}.
      */
     @Override
     public int getDefaultVoiceSubId() {
-        return mDefaultVoiceSubId.get();
+        return getDefaultVoiceSubIdAsUser(BINDER_WRAPPER.getCallingUserHandle().getIdentifier());
+    }
+
+    /**
+     * @param userId The calling user Id.
+     * @return The default voice subscription id.
+     */
+    @Override
+    public int getDefaultVoiceSubIdAsUser(@UserIdInt int userId) {
+        return getDefaultAsUser(userId, mDefaultVoiceSubId.get());
     }
 
     /**
@@ -2826,6 +3203,8 @@ public class SubscriptionManagerService extends ISub.Stub {
         if (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
             throw new RuntimeException("setDefaultVoiceSubId called with DEFAULT_SUB_ID");
         }
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "setDefaultVoiceSubId");
 
         final long token = Binder.clearCallingIdentity();
         try {
@@ -2851,10 +3230,24 @@ public class SubscriptionManagerService extends ISub.Stub {
 
     /**
      * @return The default subscription id for SMS.
+     * @deprecated Use {@link #getDefaultSmsSubIdAsUser}.
      */
     @Override
     public int getDefaultSmsSubId() {
-        return mDefaultSmsSubId.get();
+        return getDefaultSmsSubIdAsUser(BINDER_WRAPPER.getCallingUserHandle().getIdentifier());
+    }
+
+    /**
+     * Get the default sms subscription id associated with the user. When a subscription is
+     * associated with personal profile or work profile, the default sms subscription id will be
+     * always the subscription it is associated with.
+     *
+     * @param userId The given user Id to check.
+     * @return The default voice id.
+     */
+    @Override
+    public int getDefaultSmsSubIdAsUser(@UserIdInt int userId) {
+        return getDefaultAsUser(userId, mDefaultSmsSubId.get());
     }
 
     /**
@@ -2872,6 +3265,8 @@ public class SubscriptionManagerService extends ISub.Stub {
         if (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
             throw new RuntimeException("setDefaultSmsSubId called with DEFAULT_SUB_ID");
         }
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "setDefaultSmsSubId");
 
         final long token = Binder.clearCallingIdentity();
         try {
@@ -2912,18 +3307,32 @@ public class SubscriptionManagerService extends ISub.Stub {
     public int[] getActiveSubIdList(boolean visibleOnly) {
         enforcePermissions("getActiveSubIdList", Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
 
-        final long token = Binder.clearCallingIdentity();
-        try {
-            return mSlotIndexToSubId.values().stream()
-                    .filter(subId -> {
-                        SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
-                                .getSubscriptionInfoInternal(subId);
-                        return subInfo != null && (!visibleOnly || subInfo.isVisible()); })
-                    .mapToInt(x -> x)
-                    .toArray();
-        } finally {
-            Binder.restoreCallingIdentity(token);
-        }
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "getActiveSubIdList");
+
+        // UserHandle.ALL because this API is exposed as system API.
+        return getActiveSubIdListAsUser(visibleOnly, UserHandle.ALL);
+    }
+
+    /**
+     * Get the active subscription id list as user.
+     * Must be used before clear Binder identity.
+     *
+     * @param visibleOnly {@code true} if only includes user visible subscription's sub id.
+     * @param user If {@code null}, uses the calling user handle to judge which subscriptions are
+     *             accessible to the caller.
+     * @return List of the active subscription id.
+     */
+    private int[] getActiveSubIdListAsUser(boolean visibleOnly, @NonNull final UserHandle user) {
+        return mSlotIndexToSubId.values().stream()
+                .filter(subId -> {
+                    SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
+                            .getSubscriptionInfoInternal(subId);
+                    return subInfo != null && (!visibleOnly || subInfo.isVisible())
+                            && isSubscriptionAssociatedWithUserInternal(
+                                    subInfo, user.getIdentifier());
+                })
+                .mapToInt(x -> x)
+                .toArray();
     }
 
     /**
@@ -3011,6 +3420,8 @@ public class SubscriptionManagerService extends ISub.Stub {
                     + "accessed through getSubscriptionProperty.");
         }
 
+        enforceTelephonyFeatureWithException(callingPackage, "getSubscriptionProperty");
+
         final long token = Binder.clearCallingIdentity();
         try {
             Object value = mSubscriptionDatabaseManager.getSubscriptionProperty(subId, columnName);
@@ -3055,6 +3466,8 @@ public class SubscriptionManagerService extends ISub.Stub {
             throw new IllegalArgumentException("Invalid subscription id " + subId);
         }
 
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "isSubscriptionEnabled");
+
         final long identity = Binder.clearCallingIdentity();
         try {
             SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
@@ -3083,6 +3496,8 @@ public class SubscriptionManagerService extends ISub.Stub {
         if (!SubscriptionManager.isValidSlotIndex(slotIndex)) {
             throw new IllegalArgumentException("Invalid slot index " + slotIndex);
         }
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(), "getEnabledSubscriptionId");
 
         final long identity = Binder.clearCallingIdentity();
         try {
@@ -3120,6 +3535,9 @@ public class SubscriptionManagerService extends ISub.Stub {
             throw new SecurityException("Need READ_PHONE_STATE, READ_PRIVILEGED_PHONE_STATE, or "
                     + "carrier privilege");
         }
+
+        enforceTelephonyFeatureWithException(callingPackage, "isActiveSubId");
+
         final long identity = Binder.clearCallingIdentity();
         try {
             SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
@@ -3177,6 +3595,9 @@ public class SubscriptionManagerService extends ISub.Stub {
         enforcePermissions("canDisablePhysicalSubscription",
                 Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
 
+        enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                "canDisablePhysicalSubscription");
+
         final long identity = Binder.clearCallingIdentity();
         try {
             Phone phone = PhoneFactory.getDefaultPhone();
@@ -3209,6 +3630,9 @@ public class SubscriptionManagerService extends ISub.Stub {
                 Manifest.permission.MODIFY_PHONE_STATE);
         logl("setUiccApplicationsEnabled: subId=" + subId + ", enabled=" + enabled
                 + ", calling package=" + getCallingPackage());
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                "setUiccApplicationsEnabled");
 
         final long identity = Binder.clearCallingIdentity();
         try {
@@ -3252,6 +3676,9 @@ public class SubscriptionManagerService extends ISub.Stub {
         enforcePermissions("setDeviceToDeviceStatusSharing",
                 Manifest.permission.MODIFY_PHONE_STATE);
 
+        enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                "setDeviceToDeviceStatusSharing");
+
         final long identity = Binder.clearCallingIdentity();
         try {
             if (sharing < SubscriptionManager.D2D_SHARING_DISABLED
@@ -3283,6 +3710,9 @@ public class SubscriptionManagerService extends ISub.Stub {
     public int setDeviceToDeviceStatusSharingContacts(@NonNull String contacts, int subId) {
         enforcePermissions("setDeviceToDeviceStatusSharingContacts",
                 Manifest.permission.MODIFY_PHONE_STATE);
+
+        enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                "setDeviceToDeviceStatusSharingContacts");
 
         final long identity = Binder.clearCallingIdentity();
         try {
@@ -3345,40 +3775,114 @@ public class SubscriptionManagerService extends ISub.Stub {
             "carrier privileges",
     })
     public String getPhoneNumber(int subId, @PhoneNumberSource int source,
-            @NonNull String callingPackage, @Nullable String callingFeatureId) {
+            @NonNull String callingPackage, @Nullable String callingFeatureId /* unused */) {
         TelephonyPermissions.enforceAnyPermissionGrantedOrCarrierPrivileges(
                 mContext, subId, Binder.getCallingUid(), "getPhoneNumber",
                 Manifest.permission.READ_PHONE_NUMBERS,
                 Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+        enforceTelephonyFeatureWithException(callingPackage, "getPhoneNumber");
 
-        final long identity = Binder.clearCallingIdentity();
+        if (mFeatureFlags.saferGetPhoneNumber()) {
+            checkPhoneNumberSource(source);
+            subId = checkAndGetSubId(subId);
+            if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return "";
 
-        SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                return getPhoneNumberFromSourceInternal(subId, source);
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        } else {
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
+                        .getSubscriptionInfoInternal(subId);
+
+                if (subInfo == null) {
+                    loge("Invalid sub id " + subId + ", callingPackage=" + callingPackage);
+                    return "";
+                }
+
+                switch(source) {
+                    case SubscriptionManager.PHONE_NUMBER_SOURCE_UICC:
+                        Phone phone = PhoneFactory.getPhone(getSlotIndex(subId));
+                        if (phone != null) {
+                        return TextUtils.emptyIfNull(phone.getLine1Number());
+                        } else {
+                        return subInfo.getNumber();
+                        }
+                    case SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER:
+                        return subInfo.getNumberFromCarrier();
+                    case SubscriptionManager.PHONE_NUMBER_SOURCE_IMS:
+                        return subInfo.getNumberFromIms();
+                    default:
+                        throw new IllegalArgumentException("Invalid number source " + source);
+                }
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        }
+    }
+
+    /**
+     * Get a resolved subId based on what the user passed in.
+     *
+     * Only use this before clearing the calling binder. Used for compatibility (only).
+     * Do not use this behavior for new methods.
+     *
+     * @param subId the subId passed in by the user.
+     */
+    private int checkAndGetSubId(int subId) {
+        if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            // for historical reasons, INVALID_SUB_ID fails gracefully
+            return subId;
+        } else if (subId == SubscriptionManager.DEFAULT_SUBSCRIPTION_ID) {
+            return getDefaultSubId();
+        } else if (!SubscriptionManager.isValidSubscriptionId(subId)) {
+            throw new IllegalArgumentException("Invalid SubId=" + subId);
+        } else {
+            return subId;
+        }
+    }
+
+    private void checkPhoneNumberSource(int source) {
+        if (source == SubscriptionManager.PHONE_NUMBER_SOURCE_UICC
+                || source == SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER
+                || source == SubscriptionManager.PHONE_NUMBER_SOURCE_IMS) {
+            return;
+        }
+
+        throw new IllegalArgumentException("Invalid number source " + source);
+    }
+
+    private @NonNull String getPhoneNumberFromSourceInternal(
+            int subId,
+            @PhoneNumberSource int source) {
+
+        final SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
                 .getSubscriptionInfoInternal(subId);
 
         if (subInfo == null) {
-            loge("Invalid sub id " + subId + ", callingPackage=" + callingPackage);
+            loge("No SubscriptionInfo found for subId=" + subId);
             return "";
         }
 
-        try {
-            switch(source) {
-                case SubscriptionManager.PHONE_NUMBER_SOURCE_UICC:
-                    Phone phone = PhoneFactory.getPhone(getPhoneId(subId));
-                    if (phone != null) {
-                        return TextUtils.emptyIfNull(phone.getLine1Number());
-                    } else {
-                        return subInfo.getNumber();
-                    }
-                case SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER:
-                    return subInfo.getNumberFromCarrier();
-                case SubscriptionManager.PHONE_NUMBER_SOURCE_IMS:
-                    return subInfo.getNumberFromIms();
-                default:
-                    throw new IllegalArgumentException("Invalid number source " + source);
-            }
-        } finally {
-            Binder.restoreCallingIdentity(identity);
+        switch(source) {
+            case SubscriptionManager.PHONE_NUMBER_SOURCE_UICC:
+                final Phone phone = PhoneFactory.getPhone(getSlotIndex(subId));
+                if (phone != null) {
+                    return TextUtils.emptyIfNull(phone.getLine1Number());
+                } else {
+                    return subInfo.getNumber();
+                }
+            case SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER:
+                return subInfo.getNumberFromCarrier();
+            case SubscriptionManager.PHONE_NUMBER_SOURCE_IMS:
+                return subInfo.getNumberFromIms();
+            default:
+                loge("No SubscriptionInfo found for subId=" + subId);
+                return "";
         }
     }
 
@@ -3411,25 +3915,54 @@ public class SubscriptionManagerService extends ISub.Stub {
                 Manifest.permission.READ_PHONE_NUMBERS,
                 Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
 
-        String numberFromCarrier = getPhoneNumber(subId,
-                SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER, callingPackage,
-                callingFeatureId);
-        if (!TextUtils.isEmpty(numberFromCarrier)) {
-            return numberFromCarrier;
+        enforceTelephonyFeatureWithException(callingPackage,
+                "getPhoneNumberFromFirstAvailableSource");
+
+        if (mFeatureFlags.saferGetPhoneNumber()) {
+            subId = checkAndGetSubId(subId);
+            if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return "";
+
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                String number;
+                number = getPhoneNumberFromSourceInternal(
+                        subId,
+                        SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER);
+                if (!TextUtils.isEmpty(number)) return number;
+
+                number = getPhoneNumberFromSourceInternal(
+                        subId,
+                        SubscriptionManager.PHONE_NUMBER_SOURCE_UICC);
+                if (!TextUtils.isEmpty(number)) return number;
+
+                number = getPhoneNumberFromSourceInternal(
+                        subId,
+                        SubscriptionManager.PHONE_NUMBER_SOURCE_IMS);
+                return TextUtils.emptyIfNull(number);
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        } else {
+            String numberFromCarrier = getPhoneNumber(subId,
+                    SubscriptionManager.PHONE_NUMBER_SOURCE_CARRIER, callingPackage,
+                    callingFeatureId);
+            if (!TextUtils.isEmpty(numberFromCarrier)) {
+                return numberFromCarrier;
+            }
+            String numberFromUicc = getPhoneNumber(
+                    subId, SubscriptionManager.PHONE_NUMBER_SOURCE_UICC, callingPackage,
+                    callingFeatureId);
+            if (!TextUtils.isEmpty(numberFromUicc)) {
+                return numberFromUicc;
+            }
+            String numberFromIms = getPhoneNumber(
+                    subId, SubscriptionManager.PHONE_NUMBER_SOURCE_IMS, callingPackage,
+                    callingFeatureId);
+            if (!TextUtils.isEmpty(numberFromIms)) {
+                return numberFromIms;
+            }
+            return "";
         }
-        String numberFromUicc = getPhoneNumber(
-                subId, SubscriptionManager.PHONE_NUMBER_SOURCE_UICC, callingPackage,
-                callingFeatureId);
-        if (!TextUtils.isEmpty(numberFromUicc)) {
-            return numberFromUicc;
-        }
-        String numberFromIms = getPhoneNumber(
-                subId, SubscriptionManager.PHONE_NUMBER_SOURCE_IMS, callingPackage,
-                callingFeatureId);
-        if (!TextUtils.isEmpty(numberFromIms)) {
-            return numberFromIms;
-        }
-        return "";
     }
 
     /**
@@ -3457,6 +3990,8 @@ public class SubscriptionManagerService extends ISub.Stub {
             throw new IllegalArgumentException("setPhoneNumber doesn't accept source "
                     + SubscriptionManager.phoneNumberSourceToString(source));
         }
+
+        enforceTelephonyFeatureWithException(callingPackage, "setPhoneNumber");
 
         Objects.requireNonNull(number, "number");
 
@@ -3541,10 +4076,10 @@ public class SubscriptionManagerService extends ISub.Stub {
      *
      * @param subId the unique SubscriptionInfo index in database
      * @return userHandle associated with this subscription
-     * or {@code null} if subscription is not associated with any user.
+     * or {@code null} if subscription is not associated with any user
+     * or {code null} if subscripiton is not available on the device.
      *
      * @throws SecurityException if doesn't have required permission.
-     * @throws IllegalArgumentException if {@code subId} is invalid.
      */
     @Override
     @Nullable
@@ -3557,12 +4092,10 @@ public class SubscriptionManagerService extends ISub.Stub {
             SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager
                     .getSubscriptionInfoInternal(subId);
             if (subInfo == null) {
-                throw new IllegalArgumentException("getSubscriptionUserHandle: Invalid subId: "
-                        + subId);
+                return null;
             }
 
             UserHandle userHandle = UserHandle.of(subInfo.getUserId());
-            logv("getSubscriptionUserHandle subId = " + subId + " userHandle = " + userHandle);
             if (userHandle.getIdentifier() == UserHandle.USER_NULL) {
                 return null;
             }
@@ -3573,16 +4106,35 @@ public class SubscriptionManagerService extends ISub.Stub {
     }
 
     /**
+     * Returns whether the given subscription is associated with the calling user.
+     *
+     * @param subscriptionId the subscription ID of the subscription
+     * @return {@code true} if the subscription is associated with the user that the calling process
+     *         is running in; {@code false} otherwise.
+     *
+     * @throws IllegalArgumentException if subscription doesn't exist.
+     * @throws SecurityException if the caller doesn't have permissions required.
+     */
+    @Override
+    public boolean isSubscriptionAssociatedWithCallingUser(int subscriptionId) {
+        enforcePermissions("isSubscriptionAssociatedWithCallingUser",
+                Manifest.permission.READ_PHONE_STATE);
+
+        UserHandle myUserHandle = UserHandle.of(UserHandle.getCallingUserId());
+        return mFeatureFlags.subscriptionUserAssociationQuery()
+            && isSubscriptionAssociatedWithUserNoCheck(subscriptionId, myUserHandle);
+    }
+
+    /**
      * Check if subscription and user are associated with each other.
      *
      * @param subscriptionId the subId of the subscription
      * @param userHandle user handle of the user
      * @return {@code true} if subscription is associated with user
-     * {@code true} if there are no subscriptions on device
      * else {@code false} if subscription is not associated with user.
      *
      * @throws SecurityException if the caller doesn't have permissions required.
-     *
+     * @throws IllegalArgumentException if the subscription has no records on device.
      */
     @Override
     public boolean isSubscriptionAssociatedWithUser(int subscriptionId,
@@ -3590,32 +4142,33 @@ public class SubscriptionManagerService extends ISub.Stub {
         enforcePermissions("isSubscriptionAssociatedWithUser",
                 Manifest.permission.MANAGE_SUBSCRIPTION_USER_ASSOCIATION);
 
+        return isSubscriptionAssociatedWithUserNoCheck(subscriptionId, userHandle);
+    }
+
+    private boolean isSubscriptionAssociatedWithUserNoCheck(int subscriptionId,
+            @NonNull UserHandle userHandle) {
+        SubscriptionInfoInternal subInfoInternal = mSubscriptionDatabaseManager
+                .getSubscriptionInfoInternal(subscriptionId);
+        // Throw IAE if no record of the sub's association state.
+        if (subInfoInternal == null) {
+            throw new IllegalArgumentException(
+                    "[isSubscriptionAssociatedWithUser]: Subscription doesn't exist: "
+                            + subscriptionId);
+        }
+
+        if (mFeatureFlags.enforceSubscriptionUserFilter()) {
+            return isSubscriptionAssociatedWithUserInternal(
+                    subInfoInternal, userHandle.getIdentifier());
+        }
+
         long token = Binder.clearCallingIdentity();
         try {
-            // Return true if there are no subscriptions on the device.
-            List<SubscriptionInfo> subInfoList = getAllSubInfoList(
-                    mContext.getOpPackageName(), mContext.getAttributionTag());
-            if (subInfoList == null || subInfoList.isEmpty()) {
-                return true;
-            }
-
-            List<Integer> subIdList = subInfoList.stream().map(SubscriptionInfo::getSubscriptionId)
-                    .collect(Collectors.toList());
-            if (!subIdList.contains(subscriptionId)) {
-                // Return true as this subscription is not available on the device.
-                return true;
-            }
-
             // Get list of subscriptions associated with this user.
             List<SubscriptionInfo> associatedSubscriptionsList =
                     getSubscriptionInfoListAssociatedWithUser(userHandle);
-            if (associatedSubscriptionsList.isEmpty()) {
-                return false;
-            }
-
             // Return true if required subscription is present in associated subscriptions list.
             for (SubscriptionInfo subInfo: associatedSubscriptionsList) {
-                if (subInfo.getSubscriptionId() == subscriptionId){
+                if (subInfo.getSubscriptionId() == subscriptionId) {
                     return true;
                 }
             }
@@ -3623,6 +4176,25 @@ public class SubscriptionManagerService extends ISub.Stub {
         } finally {
             Binder.restoreCallingIdentity(token);
         }
+    }
+
+    /**
+     * @param subInfo The subscription info to check.
+     * @param userId The caller user Id.
+     * @return {@code true} if the given user Id is allowed to access to the given subscription.
+     */
+    private boolean isSubscriptionAssociatedWithUserInternal(
+            @NonNull SubscriptionInfoInternal subInfo, @UserIdInt int userId) {
+        if (!mFeatureFlags.enforceSubscriptionUserFilter()
+                || !CompatChanges.isChangeEnabled(FILTER_ACCESSIBLE_SUBS_BY_USER,
+                Binder.getCallingUid())) {
+            return true;
+        }
+        // Can access the unassociated sub if the user doesn't have its own.
+        return (subInfo.getUserId() == UserHandle.USER_NULL
+                && mUserIdToAvailableSubs.get(userId) == null)
+                || userId == subInfo.getUserId()
+                || userId == UserHandle.USER_ALL;
     }
 
     /**
@@ -3638,38 +4210,67 @@ public class SubscriptionManagerService extends ISub.Stub {
      *
      */
     @Override
-    public @NonNull List<SubscriptionInfo> getSubscriptionInfoListAssociatedWithUser(
+    @NonNull
+    public List<SubscriptionInfo> getSubscriptionInfoListAssociatedWithUser(
             @NonNull UserHandle userHandle) {
         enforcePermissions("getSubscriptionInfoListAssociatedWithUser",
                 Manifest.permission.MANAGE_SUBSCRIPTION_USER_ASSOCIATION);
 
+        if (mFeatureFlags.enforceSubscriptionUserFilter()) {
+            return getSubscriptionInfoStreamAsUser(userHandle)
+                    .map(SubscriptionInfoInternal::toSubscriptionInfo)
+                    .collect(Collectors.toList());
+        }
+
         long token = Binder.clearCallingIdentity();
         try {
-            List<SubscriptionInfo> subInfoList =  getAllSubInfoList(
-                    mContext.getOpPackageName(), mContext.getAttributionTag());
-            if (subInfoList == null || subInfoList.isEmpty()) {
+            List<SubscriptionInfoInternal> subInfoList =  mSubscriptionDatabaseManager
+                    .getAllSubscriptions();
+            if (subInfoList.isEmpty()) {
                 return new ArrayList<>();
             }
 
             List<SubscriptionInfo> subscriptionsAssociatedWithUser = new ArrayList<>();
             List<SubscriptionInfo> subscriptionsWithNoAssociation = new ArrayList<>();
-            for (SubscriptionInfo subInfo : subInfoList) {
-                int subId = subInfo.getSubscriptionId();
-                UserHandle subIdUserHandle = getSubscriptionUserHandle(subId);
-                if (userHandle.equals(subIdUserHandle)) {
+            for (SubscriptionInfoInternal subInfo : subInfoList) {
+                if (subInfo.getUserId() == userHandle.getIdentifier()) {
                     // Store subscriptions whose user handle matches with required user handle.
-                    subscriptionsAssociatedWithUser.add(subInfo);
-                } else if (subIdUserHandle == null) {
+                    subscriptionsAssociatedWithUser.add(subInfo.toSubscriptionInfo());
+                } else if (subInfo.getUserId() == UserHandle.USER_NULL) {
                     // Store subscriptions whose user handle is set to null.
-                    subscriptionsWithNoAssociation.add(subInfo);
+                    subscriptionsWithNoAssociation.add(subInfo.toSubscriptionInfo());
                 }
             }
 
-            return subscriptionsAssociatedWithUser.isEmpty() ?
-                    subscriptionsWithNoAssociation : subscriptionsAssociatedWithUser;
+            UserManager userManager = mContext.getSystemService(UserManager.class);
+            if ((userManager != null)
+                    && (userManager.isManagedProfile(userHandle.getIdentifier()))) {
+                // For work profile, return subscriptions associated only with work profile even
+                // if it's empty.
+                return subscriptionsAssociatedWithUser;
+            }
+
+            // For all other profiles, if subscriptionsAssociatedWithUser is empty return all
+            // the subscriptionsWithNoAssociation.
+            return subscriptionsAssociatedWithUser.isEmpty()
+                    ? subscriptionsWithNoAssociation : subscriptionsAssociatedWithUser;
         } finally {
             Binder.restoreCallingIdentity(token);
         }
+    }
+
+    /**
+     * Get subscriptions accessible to the caller user.
+     *
+     * @param user The user to check.
+     * @return a stream of accessible internal subscriptions.
+     */
+    @NonNull
+    private Stream<SubscriptionInfoInternal> getSubscriptionInfoStreamAsUser(
+            @NonNull final UserHandle user) {
+        return mSubscriptionDatabaseManager.getAllSubscriptions().stream()
+                .filter(info -> isSubscriptionAssociatedWithUserInternal(
+                        info, user.getIdentifier()));
     }
 
     /**
@@ -3692,17 +4293,28 @@ public class SubscriptionManagerService extends ISub.Stub {
         enforcePermissions("restoreAllSimSpecificSettingsFromBackup",
                 Manifest.permission.MODIFY_PHONE_STATE);
 
+        enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                "restoreAllSimSpecificSettingsFromBackup");
+
         long token = Binder.clearCallingIdentity();
         try {
             Bundle bundle = new Bundle();
             bundle.putByteArray(SubscriptionManager.KEY_SIM_SPECIFIC_SETTINGS_DATA, data);
             logl("restoreAllSimSpecificSettingsFromBackup");
-            mContext.getContentResolver().call(
+            Bundle result = mContext.getContentResolver().call(
                     SubscriptionManager.SIM_INFO_BACKUP_AND_RESTORE_CONTENT_URI,
                     SubscriptionManager.RESTORE_SIM_SPECIFIC_SETTINGS_METHOD_NAME,
                     null, bundle);
-            // After restoring, we need to reload the content provider into the cache.
-            mSubscriptionDatabaseManager.reloadDatabase();
+
+            if (result != null && result.getBoolean(
+                    SubscriptionManager.RESTORE_SIM_SPECIFIC_SETTINGS_DATABASE_UPDATED)) {
+                logl("Sim specific settings changed the database.");
+                mSubscriptionDatabaseManager.reloadDatabaseSync();
+                if (mFeatureFlags.backupAndRestoreForEnable2g()) {
+                    Arrays.stream(PhoneFactory.getPhones())
+                            .forEach(Phone::loadAllowedNetworksFromSubscriptionDatabase);
+                }
+            }
         } finally {
             Binder.restoreCallingIdentity(token);
         }
@@ -3735,14 +4347,26 @@ public class SubscriptionManagerService extends ISub.Stub {
      * @throws SecurityException if the caller does not have any permissions.
      */
     private void enforcePermissions(@Nullable String message, @NonNull String ...permissions) {
+        if (!hasPermissions(permissions)) {
+            throw new SecurityException(
+                    message + ". Does not have any of the following permissions. "
+                            + Arrays.toString(permissions));
+        }
+    }
+
+    /**
+     * Check have any of the permissions
+     * @param permissions The permissions to check.
+     * @return {@code true} if the caller has one of the given permissions.
+     */
+    private boolean hasPermissions(@NonNull String ...permissions) {
         for (String permission : permissions) {
             if (mContext.checkCallingOrSelfPermission(permission)
                     == PackageManager.PERMISSION_GRANTED) {
-                return;
+                return true;
             }
         }
-        throw new SecurityException(message + ". Does not have any of the following permissions. "
-                + Arrays.toString(permissions));
+        return false;
     }
 
     /**
@@ -3766,9 +4390,8 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @Nullable
     public SubscriptionInfo getSubscriptionInfo(int subId) {
-        SubscriptionInfoInternal subscriptionInfoInternal = getSubscriptionInfoInternal(subId);
-        return subscriptionInfoInternal != null
-                ? subscriptionInfoInternal.toSubscriptionInfo() : null;
+        SubscriptionInfoInternal infoInternal = getSubscriptionInfoInternal(subId);
+        return infoInternal != null ? infoInternal.toSubscriptionInfo() : null;
     }
 
     /**
@@ -3839,10 +4462,13 @@ public class SubscriptionManagerService extends ISub.Stub {
                 case TelephonyManager.SIM_STATE_PUK_REQUIRED:
                 case TelephonyManager.SIM_STATE_NETWORK_LOCKED:
                 case TelephonyManager.SIM_STATE_PERM_DISABLED:
-                case TelephonyManager.SIM_STATE_READY:
                 case TelephonyManager.SIM_STATE_CARD_IO_ERROR:
                 case TelephonyManager.SIM_STATE_LOADED:
+                    updateSubscription(slotIndex);
+                    break;
                 case TelephonyManager.SIM_STATE_NOT_READY:
+                case TelephonyManager.SIM_STATE_READY:
+                    updateEmbeddedSubscriptions();
                     updateSubscription(slotIndex);
                     break;
                 case TelephonyManager.SIM_STATE_CARD_RESTRICTED:
@@ -3882,8 +4508,11 @@ public class SubscriptionManagerService extends ISub.Stub {
      */
     @VisibleForTesting
     public void updateGroupDisabled() {
-        List<SubscriptionInfo> activeSubscriptions = getActiveSubscriptionInfoList(
-                mContext.getOpPackageName(), mContext.getFeatureId());
+        List<SubscriptionInfo> activeSubscriptions = mSubscriptionDatabaseManager
+                .getAllSubscriptions().stream()
+                .filter(SubscriptionInfoInternal::isActive)
+                .map(SubscriptionInfoInternal::toSubscriptionInfo)
+                .collect(Collectors.toList());
         for (SubscriptionInfo oppSubInfo : getOpportunisticSubscriptions(
                 mContext.getOpPackageName(), mContext.getFeatureId())) {
             boolean groupDisabled = activeSubscriptions.stream()
@@ -3891,6 +4520,144 @@ public class SubscriptionManagerService extends ISub.Stub {
                             && Objects.equals(oppSubInfo.getGroupUuid(), subInfo.getGroupUuid()));
             mSubscriptionDatabaseManager.setGroupDisabled(
                     oppSubInfo.getSubscriptionId(), groupDisabled);
+        }
+    }
+
+
+
+    /**
+     * Set the transfer status of the subscriptionInfo that corresponds to subId.
+     * @param subId The unique SubscriptionInfo key in database.
+     * @param status The transfer status to change. This value must be one of the following.
+     * {@link SubscriptionManager#TRANSFER_STATUS_NONE},
+     * {@link SubscriptionManager#TRANSFER_STATUS_TRANSFERRED_OUT} or
+     * {@link SubscriptionManager#TRANSFER_STATUS_CONVERTED}
+     *
+     */
+    @Override
+    @EnforcePermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
+    public void setTransferStatus(int subId, int status) {
+        setTransferStatus_enforcePermission();
+        if (mContext.checkCallingOrSelfPermission(
+                Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            throw new SecurityException("Must have WRITE_EMBEDDED_SUBSCRIPTIONS to"
+                    + "setTransferStatus");
+        }
+        long token = Binder.clearCallingIdentity();
+        try {
+            mSubscriptionDatabaseManager.setTransferStatus(subId, status);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    /**
+     * Set the satellite entitlement plmn list value in the subscription database.
+     *
+     * @param subId subscription id.
+     * @param satelliteEntitlementPlmnList satellite entitlement plmn list
+     */
+    public void setSatelliteEntitlementPlmnList(int subId,
+            @NonNull List<String> satelliteEntitlementPlmnList) {
+        try {
+            mSubscriptionDatabaseManager.setSatelliteEntitlementPlmnList(
+                    subId, satelliteEntitlementPlmnList);
+        } catch (IllegalArgumentException e) {
+            loge("setSatelliteEntitlementPlmnList: invalid subId=" + subId);
+        }
+    }
+
+    /**
+     * Get the satellite entitlement plmn list value from the subscription database.
+     *
+     * @param subId subscription id.
+     * @return satellite entitlement plmn list
+     */
+    @NonNull
+    public List<String> getSatelliteEntitlementPlmnList(int subId) {
+        SubscriptionInfoInternal subInfo = mSubscriptionDatabaseManager.getSubscriptionInfoInternal(
+                subId);
+
+        return Optional.ofNullable(subInfo)
+                .map(SubscriptionInfoInternal::getSatelliteEntitlementPlmns)
+                .filter(s -> !s.isEmpty())
+                .map(s -> Arrays.stream(s.split(",")).collect(Collectors.toList()))
+                .orElse(new ArrayList<>());
+    }
+
+    /**
+     * checks whether esim bootstrap is activated for any of the available active subscription info
+     * list.
+     *
+     * @return {@code true} if esim bootstrap is activated for any of the active subscription,
+     * else {@code false}
+     *
+     */
+    public boolean isEsimBootStrapProvisioningActivated() {
+        if (!mFeatureFlags.esimBootstrapProvisioningFlag()) {
+            return false;
+        }
+
+        List<SubscriptionInfo> activeSubInfos =
+                getActiveSubscriptionInfoList(mContext.getOpPackageName(),
+                        mContext.getAttributionTag(), true/*isForAllProfile*/);
+
+        return activeSubInfos.stream().anyMatch(subInfo -> subInfo != null
+                && subInfo.getProfileClass() == SubscriptionManager.PROFILE_CLASS_PROVISIONING);
+    }
+
+    /**
+     * checks whether esim bootstrap is activated for the subscription.
+     *
+     * @return {@code true} if esim bootstrap is activated for sub id else {@code false}
+     *
+     */
+    public boolean isEsimBootStrapProvisioningActiveForSubId(int subId) {
+        if (!mFeatureFlags.esimBootstrapProvisioningFlag()) {
+            return false;
+        }
+
+        SubscriptionInfoInternal subInfo = getSubscriptionInfoInternal(subId);
+        return subInfo != null
+                && subInfo.getProfileClass() == SubscriptionManager.PROFILE_CLASS_PROVISIONING;
+    }
+
+    /**
+     * Get the current calling package name.
+     * @return the current calling package name
+     */
+    @Nullable
+    private String getCurrentPackageName() {
+        if (mPackageManager == null) return null;
+        String[] callingUids = mPackageManager.getPackagesForUid(Binder.getCallingUid());
+        return (callingUids == null) ? null : callingUids[0];
+    }
+
+    /**
+     * Make sure the device has required telephony feature
+     *
+     * @throws UnsupportedOperationException if the device does not have required telephony feature
+     */
+    private void enforceTelephonyFeatureWithException(@Nullable String callingPackage,
+            @NonNull String methodName) {
+        if (callingPackage == null || mPackageManager == null) {
+            return;
+        }
+
+        if (!mFeatureFlags.enforceTelephonyFeatureMappingForPublicApis()
+                || !CompatChanges.isChangeEnabled(ENABLE_FEATURE_MAPPING, callingPackage,
+                Binder.getCallingUserHandle())
+                || mVendorApiLevel < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            // Skip to check associated telephony feature,
+            // if compatibility change is not enabled for the current process or
+            // the SDK version of vendor partition is less than Android V.
+            return;
+        }
+
+        if (!mPackageManager.hasSystemFeature(FEATURE_TELEPHONY_SUBSCRIPTION)) {
+            throw new UnsupportedOperationException(
+                    methodName + " is unsupported without " + FEATURE_TELEPHONY_SUBSCRIPTION);
         }
     }
 
@@ -3902,6 +4669,91 @@ public class SubscriptionManagerService extends ISub.Stub {
         return "[" + mSlotIndexToSubId.entrySet().stream()
                 .map(e -> "slot " + e.getKey() + ": subId=" + e.getValue())
                 .collect(Collectors.joining(", ")) + "]";
+    }
+
+    /**
+     * @param mccMnc MccMnc value to check whether it supports non-terrestrial network or not.
+     * @return {@code true} if MCC/MNC is matched with in the device overlay key
+     * "config_satellite_sim_plmn_identifier", {@code false} otherwise.
+     */
+    private boolean isSatellitePlmn(@NonNull String mccMnc) {
+        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
+            log("isSatellitePlmn: oemEnabledSatelliteFlag is disabled");
+            return false;
+        }
+
+        final int id = R.string.config_satellite_sim_plmn_identifier;
+        String overlayMccMnc = null;
+        try {
+            overlayMccMnc = mContext.getResources().getString(id);
+        } catch (Resources.NotFoundException ex) {
+            loge("isSatellitePlmn: id= " + id + ", ex=" + ex);
+        }
+        if (TextUtils.isEmpty(overlayMccMnc) && isMockModemAllowed()) {
+            log("isSatellitePlmn: Read config_satellite_sim_plmn_identifier from device config");
+            overlayMccMnc = DeviceConfig.getString(DeviceConfig.NAMESPACE_TELEPHONY,
+                    "config_satellite_sim_plmn_identifier", "");
+        }
+        log("isSatellitePlmn: overlayMccMnc=" + overlayMccMnc + ", mccMnc=" + mccMnc);
+        return TextUtils.equals(mccMnc, overlayMccMnc);
+    }
+
+    /**
+     * Checks and matches the service provider name (spn) with the device overlay config to
+     * determine whether non-terrestrial networks are supported.
+     * @param spn service provider name of the profile.
+     * @return {@code true} if the given spn is matched with the overlay key.
+     * "config_satellite_sim_spn_identifier", {@code false} otherwise.
+     */
+    private boolean isSatelliteSpn(@NonNull String spn) {
+        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
+            log("isSatelliteSpn: oemEnabledSatelliteFlag is disabled");
+            return false;
+        }
+
+        final int id = R.string.config_satellite_sim_spn_identifier;
+        String overlaySpn = null;
+        try {
+            overlaySpn = mContext.getResources().getString(id);
+        } catch (Resources.NotFoundException ex) {
+            loge("isSatelliteSpn: id= " + id + ", ex=" + ex);
+        }
+        if (TextUtils.isEmpty(overlaySpn) && isMockModemAllowed()) {
+            log("isSatelliteSpn: Read config_satellite_sim_spn_identifier from device config");
+            overlaySpn = DeviceConfig.getString(DeviceConfig.NAMESPACE_TELEPHONY,
+                    "config_satellite_sim_spn_identifier", "");
+        }
+        log("isSatelliteSpn: overlaySpn=" + overlaySpn + ", spn=" + spn);
+
+        if (TextUtils.isEmpty(spn) || TextUtils.isEmpty(overlaySpn)) {
+            return false;
+        }
+
+        return TextUtils.equals(spn, overlaySpn);
+    }
+
+    private boolean isMockModemAllowed() {
+        boolean isAllowed = SystemProperties.getBoolean(ALLOW_MOCK_MODEM_PROPERTY, false);
+        return (SystemProperties.getBoolean(ALLOW_MOCK_MODEM_PROPERTY, false)
+                || SystemProperties.getBoolean(BOOT_ALLOW_MOCK_MODEM_PROPERTY, false));
+    }
+
+    /**
+     * Iterates through previously subscribed SIMs to excludes subscriptions that are not visible
+     * to the users to provide a more appropriate number to describe the current SIM.
+     * @param subId current subscription id.
+     * @return cardNumber subId excluding invisible subscriptions.
+     */
+    private int getCardNumber(int subId) {
+        int cardNumber = subId; // Initialize with the potential card number
+        for (int i = subId - 1; i > 0; i--) {
+            SubscriptionInfoInternal subInfo = getSubscriptionInfoInternal(i);
+            if (subInfo != null && !subInfo.isVisible()) {
+                cardNumber--;
+            }
+        }
+
+        return cardNumber;
     }
 
     /**
@@ -3930,15 +4782,6 @@ public class SubscriptionManagerService extends ISub.Stub {
     private void logl(@NonNull String s) {
         log(s);
         mLocalLog.log(s);
-    }
-
-    /**
-     * Log verbose messages.
-     *
-     * @param s verbose messages
-     */
-    private void logv(@NonNull String s) {
-        Rlog.v(LOG_TAG, s);
     }
 
     /**
@@ -3975,6 +4818,7 @@ public class SubscriptionManagerService extends ISub.Stub {
             pw.println("activeDataSubId=" + getActiveDataSubscriptionId());
             pw.println("defaultSmsSubId=" + getDefaultSmsSubId());
             pw.println("areAllSubscriptionsLoaded=" + areAllSubscriptionsLoaded());
+            pw.println("mUserIdToAvailableSubs=" + mUserIdToAvailableSubs);
             pw.println();
             for (int i = 0; i < mSimState.length; i++) {
                 pw.println("mSimState[" + i + "]="

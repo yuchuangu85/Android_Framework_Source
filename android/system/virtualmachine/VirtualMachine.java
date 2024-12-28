@@ -42,6 +42,7 @@ import static android.system.virtualmachine.VirtualMachineCallback.STOP_REASON_V
 
 import static java.util.Objects.requireNonNull;
 
+import android.annotation.FlaggedApi;
 import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
@@ -54,25 +55,34 @@ import android.annotation.TestApi;
 import android.annotation.WorkerThread;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.system.virtualizationcommon.DeathReason;
 import android.system.virtualizationcommon.ErrorCode;
 import android.system.virtualizationservice.IVirtualMachine;
 import android.system.virtualizationservice.IVirtualMachineCallback;
 import android.system.virtualizationservice.IVirtualizationService;
+import android.system.virtualizationservice.InputDevice;
 import android.system.virtualizationservice.MemoryTrimLevel;
 import android.system.virtualizationservice.PartitionType;
 import android.system.virtualizationservice.VirtualMachineAppConfig;
+import android.system.virtualizationservice.VirtualMachineRawConfig;
 import android.system.virtualizationservice.VirtualMachineState;
 import android.util.JsonReader;
 import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.system.virtualmachine.flags.Flags;
+
+import libcore.io.IoBridge;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -81,8 +91,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileVisitResult;
@@ -90,6 +103,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -148,6 +162,9 @@ public class VirtualMachine implements AutoCloseable {
     @SuppressLint("MinMaxConstant") // Won't change: see man 7 vsock.
     public static final long MAX_VSOCK_PORT = (1L << 32) - 1;
 
+    private ParcelFileDescriptor mTouchSock;
+    private ParcelFileDescriptor mKeySock;
+
     /**
      * Status of a virtual machine
      *
@@ -185,6 +202,9 @@ public class VirtualMachine implements AutoCloseable {
     /** Name of the instance image file for a VM. (Not implemented) */
     private static final String INSTANCE_IMAGE_FILE = "instance.img";
 
+    /** Name of the file for a VM containing Id. */
+    private static final String INSTANCE_ID_FILE = "instance_id";
+
     /** Name of the idsig file for a VM */
     private static final String IDSIG_FILE = "idsig";
 
@@ -221,6 +241,9 @@ public class VirtualMachine implements AutoCloseable {
 
     /** File that backs the encrypted storage - Will be null if not enabled. */
     @Nullable private final File mEncryptedStoreFilePath;
+
+    /** File that contains the Id. This is NULL iff FEATURE_LLPVM is disabled */
+    @Nullable private final File mInstanceIdPath;
 
     /**
      * Unmodifiable list of extra apks. Apks are specified by the vm config, and corresponding
@@ -294,6 +317,8 @@ public class VirtualMachine implements AutoCloseable {
 
     private final boolean mVmOutputCaptured;
 
+    private final boolean mVmConsoleInputSupported;
+
     /** The configuration that is currently associated with this VM. */
     @GuardedBy("mLock")
     @NonNull
@@ -306,11 +331,19 @@ public class VirtualMachine implements AutoCloseable {
 
     @GuardedBy("mLock")
     @Nullable
-    private ParcelFileDescriptor mConsoleReader;
+    private ParcelFileDescriptor mConsoleOutReader;
 
     @GuardedBy("mLock")
     @Nullable
-    private ParcelFileDescriptor mConsoleWriter;
+    private ParcelFileDescriptor mConsoleOutWriter;
+
+    @GuardedBy("mLock")
+    @Nullable
+    private ParcelFileDescriptor mConsoleInReader;
+
+    @GuardedBy("mLock")
+    @Nullable
+    private ParcelFileDescriptor mConsoleInWriter;
 
     @GuardedBy("mLock")
     @Nullable
@@ -361,6 +394,16 @@ public class VirtualMachine implements AutoCloseable {
         File thisVmDir = getVmDir(context, mName);
         mVmRootPath = thisVmDir;
         mConfigFilePath = new File(thisVmDir, CONFIG_FILE);
+        try {
+            mInstanceIdPath =
+                    (mVirtualizationService
+                                    .getBinder()
+                                    .isFeatureEnabled(IVirtualizationService.FEATURE_LLPVM_CHANGES))
+                            ? new File(thisVmDir, INSTANCE_ID_FILE)
+                            : null;
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
+        }
         mInstanceFilePath = new File(thisVmDir, INSTANCE_IMAGE_FILE);
         mIdsigFilePath = new File(thisVmDir, IDSIG_FILE);
         mExtraApks = setupExtraApks(context, config, thisVmDir);
@@ -372,6 +415,7 @@ public class VirtualMachine implements AutoCloseable {
                         : null;
 
         mVmOutputCaptured = config.isVmOutputCaptured();
+        mVmConsoleInputSupported = config.isVmConsoleInputSupported();
     }
 
     /**
@@ -414,13 +458,17 @@ public class VirtualMachine implements AutoCloseable {
                     }
                     vm.importEncryptedStoreFrom(vmDescriptor.getEncryptedStoreFd());
                 }
+                if (vm.mInstanceIdPath != null) {
+                    vm.importInstanceIdFrom(vmDescriptor.getInstanceIdFd());
+                    vm.claimInstance();
+                }
             }
             return vm;
         } catch (VirtualMachineException | RuntimeException e) {
             // If anything goes wrong, delete any files created so far and the VM's directory
             try {
                 deleteRecursively(vmDir);
-            } catch (IOException innerException) {
+            } catch (Exception innerException) {
                 e.addSuppressed(innerException);
             }
             throw e;
@@ -459,6 +507,21 @@ public class VirtualMachine implements AutoCloseable {
 
             IVirtualizationService service = vm.mVirtualizationService.getBinder();
 
+            if (vm.mInstanceIdPath != null) {
+                try (FileOutputStream stream = new FileOutputStream(vm.mInstanceIdPath)) {
+                    byte[] id = service.allocateInstanceId();
+                    stream.write(id);
+                } catch (FileNotFoundException e) {
+                    throw new VirtualMachineException("instance_id file missing", e);
+                } catch (IOException e) {
+                    throw new VirtualMachineException("failed to persist instance_id", e);
+                } catch (RemoteException e) {
+                    throw e.rethrowAsRuntimeException();
+                } catch (ServiceSpecificException | IllegalArgumentException e) {
+                    throw new VirtualMachineException("failed to create instance_id", e);
+                }
+            }
+
             try {
                 service.initializeWritablePartition(
                         ParcelFileDescriptor.open(vm.mInstanceFilePath, MODE_READ_WRITE),
@@ -491,8 +554,8 @@ public class VirtualMachine implements AutoCloseable {
         } catch (VirtualMachineException | RuntimeException e) {
             // If anything goes wrong, delete any files created so far and the VM's directory
             try {
-                deleteRecursively(vmDir);
-            } catch (IOException innerException) {
+                vmInstanceCleanup(context, name);
+            } catch (Exception innerException) {
                 e.addSuppressed(innerException);
             }
             throw e;
@@ -514,6 +577,9 @@ public class VirtualMachine implements AutoCloseable {
         VirtualMachine vm =
                 new VirtualMachine(context, name, config, VirtualizationService.getInstance());
 
+        if (vm.mInstanceIdPath != null && !vm.mInstanceIdPath.exists()) {
+            throw new VirtualMachineException("instance_id file missing");
+        }
         if (!vm.mInstanceFilePath.exists()) {
             throw new VirtualMachineException("instance image missing");
         }
@@ -531,14 +597,49 @@ public class VirtualMachine implements AutoCloseable {
             // if a new VM is created with the same name (and files) that's unrelated.
             mWasDeleted = true;
         }
-        deleteVmDirectory(context, name);
+        vmInstanceCleanup(context, name);
     }
 
-    static void deleteVmDirectory(Context context, String name) throws VirtualMachineException {
+    // Delete the full VM directory and notify VirtualizationService to remove this
+    // VM instance for housekeeping.
+    @GuardedBy("VirtualMachineManager.sCreateLock")
+    static void vmInstanceCleanup(Context context, String name) throws VirtualMachineException {
+        File vmDir = getVmDir(context, name);
+        notifyInstanceRemoval(vmDir, VirtualizationService.getInstance());
         try {
-            deleteRecursively(getVmDir(context, name));
+            deleteRecursively(vmDir);
         } catch (IOException e) {
             throw new VirtualMachineException(e);
+        }
+    }
+
+    private static void notifyInstanceRemoval(
+            File vmDirectory, @NonNull VirtualizationService service) {
+        File instanceIdFile = new File(vmDirectory, INSTANCE_ID_FILE);
+        try {
+            byte[] instanceId = Files.readAllBytes(instanceIdFile.toPath());
+            service.getBinder().removeVmInstance(instanceId);
+        } catch (Exception e) {
+            // Deliberately ignoring error in removing VM instance. This potentially leads to
+            // unaccounted instances in the VS' database. But, nothing much can be done by caller.
+            Log.w(TAG, "Failed to notify VS to remove the VM instance", e);
+        }
+    }
+
+    // Claim the instance. This notifies the global VS about the ownership of this
+    // instance_id for housekeeping purpose.
+    void claimInstance() throws VirtualMachineException {
+        if (mInstanceIdPath != null) {
+            IVirtualizationService service = mVirtualizationService.getBinder();
+            try {
+                byte[] instanceId = Files.readAllBytes(mInstanceIdPath.toPath());
+                service.claimVmInstance(instanceId);
+            }
+            catch (IOException e) {
+                throw new VirtualMachineException("failed to read instance_id", e);
+            } catch (RemoteException e) {
+                throw e.rethrowAsRuntimeException();
+            }
         }
     }
 
@@ -755,6 +856,151 @@ public class VirtualMachine implements AutoCloseable {
         }
     }
 
+    private android.system.virtualizationservice.VirtualMachineConfig
+            createVirtualMachineConfigForRawFrom(VirtualMachineConfig vmConfig)
+                    throws IllegalStateException, IOException {
+        VirtualMachineRawConfig rawConfig = vmConfig.toVsRawConfig();
+
+        // Handle input devices here
+        List<InputDevice> inputDevices = new ArrayList<>();
+        if (vmConfig.getCustomImageConfig() != null
+                && rawConfig.displayConfig != null) {
+            if (vmConfig.getCustomImageConfig().useTouch()) {
+                ParcelFileDescriptor[] pfds = ParcelFileDescriptor.createSocketPair();
+                mTouchSock = pfds[0];
+                InputDevice.SingleTouch t = new InputDevice.SingleTouch();
+                t.width = rawConfig.displayConfig.width;
+                t.height = rawConfig.displayConfig.height;
+                t.pfd = pfds[1];
+                inputDevices.add(InputDevice.singleTouch(t));
+            }
+            if (vmConfig.getCustomImageConfig().useKeyboard()) {
+                ParcelFileDescriptor[] pfds = ParcelFileDescriptor.createSocketPair();
+                mKeySock = pfds[0];
+                InputDevice.Keyboard k = new InputDevice.Keyboard();
+                k.pfd = pfds[1];
+                inputDevices.add(InputDevice.keyboard(k));
+            }
+        }
+        rawConfig.inputDevices = inputDevices.toArray(new InputDevice[0]);
+
+        return android.system.virtualizationservice.VirtualMachineConfig.rawConfig(rawConfig);
+    }
+
+    private static record InputEvent(short type, short code, int value) {}
+
+    /** @hide */
+    public boolean sendKeyEvent(KeyEvent event) {
+        if (mKeySock == null) {
+            Log.d(TAG, "mKeySock == null");
+            return false;
+        }
+        // from include/uapi/linux/input-event-codes.h in the kernel.
+        short EV_SYN = 0x00;
+        short EV_KEY = 0x01;
+        short SYN_REPORT = 0x00;
+        boolean down = event.getAction() != MotionEvent.ACTION_UP;
+
+        return writeEventsToSock(
+                mKeySock,
+                Arrays.asList(
+                        new InputEvent(EV_KEY, (short) event.getScanCode(), down ? 1 : 0),
+                        new InputEvent(EV_SYN, SYN_REPORT, 0)));
+    }
+
+    /** @hide */
+    public boolean sendSingleTouchEvent(MotionEvent event) {
+        if (mTouchSock == null) {
+            Log.d(TAG, "mTouchSock == null");
+            return false;
+        }
+        // from include/uapi/linux/input-event-codes.h in the kernel.
+        short EV_SYN = 0x00;
+        short EV_ABS = 0x03;
+        short EV_KEY = 0x01;
+        short BTN_TOUCH = 0x14a;
+        short ABS_X = 0x00;
+        short ABS_Y = 0x01;
+        short SYN_REPORT = 0x00;
+
+        int x = (int) event.getX();
+        int y = (int) event.getY();
+        boolean down = event.getAction() != MotionEvent.ACTION_UP;
+
+        return writeEventsToSock(
+                mTouchSock,
+                Arrays.asList(
+                        new InputEvent(EV_ABS, ABS_X, x),
+                        new InputEvent(EV_ABS, ABS_Y, y),
+                        new InputEvent(EV_KEY, BTN_TOUCH, down ? 1 : 0),
+                        new InputEvent(EV_SYN, SYN_REPORT, 0)));
+    }
+
+    private boolean writeEventsToSock(ParcelFileDescriptor sock, List<InputEvent> evtList) {
+        ByteBuffer byteBuffer =
+                ByteBuffer.allocate(8 /* (type: u16 + code: u16 + value: i32) */ * evtList.size());
+        byteBuffer.clear();
+        byteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+        for (InputEvent e : evtList) {
+            byteBuffer.putShort(e.type);
+            byteBuffer.putShort(e.code);
+            byteBuffer.putInt(e.value);
+        }
+        try {
+            IoBridge.write(
+                    sock.getFileDescriptor(), byteBuffer.array(), 0, byteBuffer.array().length);
+        } catch (IOException e) {
+            Log.d(TAG, "cannot send event", e);
+            return false;
+        }
+        return true;
+    }
+
+    private android.system.virtualizationservice.VirtualMachineConfig
+            createVirtualMachineConfigForAppFrom(
+                    VirtualMachineConfig vmConfig, IVirtualizationService service)
+                    throws RemoteException, IOException, VirtualMachineException {
+        VirtualMachineAppConfig appConfig = vmConfig.toVsConfig(mContext.getPackageManager());
+        appConfig.instanceImage = ParcelFileDescriptor.open(mInstanceFilePath, MODE_READ_WRITE);
+        appConfig.name = mName;
+        if (mInstanceIdPath != null) {
+            appConfig.instanceId = Files.readAllBytes(mInstanceIdPath.toPath());
+        } else {
+            // FEATURE_LLPVM_CHANGES is disabled, instance_id is not used.
+            appConfig.instanceId = new byte[64];
+        }
+        if (mEncryptedStoreFilePath != null) {
+            appConfig.encryptedStorageImage =
+                    ParcelFileDescriptor.open(mEncryptedStoreFilePath, MODE_READ_WRITE);
+        }
+
+        if (!vmConfig.getExtraApks().isEmpty()) {
+            // Extra APKs were specified directly, rather than via config file.
+            // We've already populated the file names for the extra APKs and IDSigs
+            // (via setupExtraApks). But we also need to open the APK files and add
+            // fds for them to the payload config.
+            // This isn't needed when the extra APKs are specified in a config file -
+            // then
+            // Virtualization Manager opens them itself.
+            List<ParcelFileDescriptor> extraApkFiles = new ArrayList<>(mExtraApks.size());
+            for (ExtraApkSpec extraApk : mExtraApks) {
+                try {
+                    extraApkFiles.add(ParcelFileDescriptor.open(extraApk.apk, MODE_READ_ONLY));
+                } catch (FileNotFoundException e) {
+                    throw new VirtualMachineException("Failed to open extra APK", e);
+                }
+            }
+            appConfig.payload.getPayloadConfig().extraApks = extraApkFiles;
+        }
+
+        try {
+            createIdSigsAndUpdateConfig(service, appConfig);
+        } catch (FileNotFoundException e) {
+            throw new VirtualMachineException("Failed to generate APK signature", e);
+        }
+        return android.system.virtualizationservice.VirtualMachineConfig.appConfig(appConfig);
+    }
+
     /**
      * Runs this virtual machine. The returning of this method however doesn't mean that the VM has
      * actually started running or the OS has booted there. Such events can be notified by
@@ -787,27 +1033,27 @@ public class VirtualMachine implements AutoCloseable {
 
             try {
                 if (mVmOutputCaptured) {
-                    createVmPipes();
+                    createVmOutputPipes();
                 }
 
-                VirtualMachineAppConfig appConfig =
-                        getConfig().toVsConfig(mContext.getPackageManager());
-                appConfig.name = mName;
-
-                try {
-                    createIdSigs(service, appConfig);
-                } catch (FileNotFoundException e) {
-                    throw new VirtualMachineException("Failed to generate APK signature", e);
+                if (mVmConsoleInputSupported) {
+                    createVmInputPipes();
                 }
 
+                VirtualMachineConfig vmConfig = getConfig();
                 android.system.virtualizationservice.VirtualMachineConfig vmConfigParcel =
-                        android.system.virtualizationservice.VirtualMachineConfig.appConfig(
-                                appConfig);
+                        vmConfig.getCustomImageConfig() != null
+                                ? createVirtualMachineConfigForRawFrom(vmConfig)
+                                : createVirtualMachineConfigForAppFrom(vmConfig, service);
 
-                mVirtualMachine = service.createVm(vmConfigParcel, mConsoleWriter, mLogWriter);
+                mVirtualMachine =
+                        service.createVm(
+                                vmConfigParcel, mConsoleOutWriter, mConsoleInReader, mLogWriter);
                 mVirtualMachine.registerCallback(new CallbackTranslator(service));
                 mContext.registerComponentCallbacks(mMemoryManagementCallbacks);
                 mVirtualMachine.start();
+            } catch (IOException e) {
+                throw new VirtualMachineException("failed to persist files", e);
             } catch (IllegalStateException | ServiceSpecificException e) {
                 throw new VirtualMachineException(e);
             } catch (RemoteException e) {
@@ -816,7 +1062,8 @@ public class VirtualMachine implements AutoCloseable {
         }
     }
 
-    private void createIdSigs(IVirtualizationService service, VirtualMachineAppConfig appConfig)
+    private void createIdSigsAndUpdateConfig(
+            IVirtualizationService service, VirtualMachineAppConfig appConfig)
             throws RemoteException, FileNotFoundException {
         // Fill the idsig file by hashing the apk
         service.createOrUpdateIdsigFile(
@@ -830,11 +1077,6 @@ public class VirtualMachine implements AutoCloseable {
 
         // Re-open idsig files in read-only mode
         appConfig.idsig = ParcelFileDescriptor.open(mIdsigFilePath, MODE_READ_ONLY);
-        appConfig.instanceImage = ParcelFileDescriptor.open(mInstanceFilePath, MODE_READ_WRITE);
-        if (mEncryptedStoreFilePath != null) {
-            appConfig.encryptedStorageImage =
-                    ParcelFileDescriptor.open(mEncryptedStoreFilePath, MODE_READ_WRITE);
-        }
         List<ParcelFileDescriptor> extraIdsigs = new ArrayList<>();
         for (ExtraApkSpec extraApk : mExtraApks) {
             extraIdsigs.add(ParcelFileDescriptor.open(extraApk.idsig, MODE_READ_ONLY));
@@ -843,12 +1085,12 @@ public class VirtualMachine implements AutoCloseable {
     }
 
     @GuardedBy("mLock")
-    private void createVmPipes() throws VirtualMachineException {
+    private void createVmOutputPipes() throws VirtualMachineException {
         try {
-            if (mConsoleReader == null || mConsoleWriter == null) {
+            if (mConsoleOutReader == null || mConsoleOutWriter == null) {
                 ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
-                mConsoleReader = pipe[0];
-                mConsoleWriter = pipe[1];
+                mConsoleOutReader = pipe[0];
+                mConsoleOutWriter = pipe[1];
             }
 
             if (mLogReader == null || mLogWriter == null) {
@@ -857,7 +1099,20 @@ public class VirtualMachine implements AutoCloseable {
                 mLogWriter = pipe[1];
             }
         } catch (IOException e) {
-            throw new VirtualMachineException("Failed to create stream for VM", e);
+            throw new VirtualMachineException("Failed to create output stream for VM", e);
+        }
+    }
+
+    @GuardedBy("mLock")
+    private void createVmInputPipes() throws VirtualMachineException {
+        try {
+            if (mConsoleInReader == null || mConsoleInWriter == null) {
+                ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
+                mConsoleInReader = pipe[0];
+                mConsoleInWriter = pipe[1];
+            }
+        } catch (IOException e) {
+            throw new VirtualMachineException("Failed to create input stream for VM", e);
         }
     }
 
@@ -883,10 +1138,35 @@ public class VirtualMachine implements AutoCloseable {
             throw new VirtualMachineException("Capturing vm outputs is turned off");
         }
         synchronized (mLock) {
-            createVmPipes();
-            return new FileInputStream(mConsoleReader.getFileDescriptor());
+            createVmOutputPipes();
+            return new FileInputStream(mConsoleOutReader.getFileDescriptor());
         }
     }
+
+    /**
+     * Returns the stream object representing the console input to the virtual machine. The console
+     * input is only available if the {@link VirtualMachineConfig} specifies that it should be
+     * {@linkplain VirtualMachineConfig#isVmConsoleInputSupported supported}.
+     *
+     * <p>NOTE: This method may block and should not be called on the main thread.
+     *
+     * @throws VirtualMachineException if the stream could not be created, or console input is not
+     *     supported.
+     * @hide
+     */
+    @TestApi
+    @WorkerThread
+    @NonNull
+    public OutputStream getConsoleInput() throws VirtualMachineException {
+        if (!mVmConsoleInputSupported) {
+            throw new VirtualMachineException("VM console input is not supported");
+        }
+        synchronized (mLock) {
+            createVmInputPipes();
+            return new FileOutputStream(mConsoleInWriter.getFileDescriptor());
+        }
+    }
+
 
     /**
      * Returns the stream object representing the log output from the virtual machine. The log
@@ -910,7 +1190,7 @@ public class VirtualMachine implements AutoCloseable {
             throw new VirtualMachineException("Capturing vm outputs is turned off");
         }
         synchronized (mLock) {
-            createVmPipes();
+            createVmOutputPipes();
             return new FileInputStream(mLogReader.getFileDescriptor());
         }
     }
@@ -1124,6 +1404,28 @@ public class VirtualMachine implements AutoCloseable {
     }
 
     /**
+     * Enables the VM to request attestation in testing mode.
+     *
+     * <p>This function provisions a key pair for the VM attestation testing, a fake certificate
+     * will be associated to the fake key pair when the VM requests attestation in testing mode.
+     *
+     * <p>The provisioned key pair can only be used in subsequent calls to {@link
+     * AVmPayload_requestAttestationForTesting} within a running VM.
+     *
+     * @hide
+     */
+    @TestApi
+    @RequiresPermission(USE_CUSTOM_VIRTUAL_MACHINE_PERMISSION)
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    public void enableTestAttestation() throws VirtualMachineException {
+        try {
+            mVirtualizationService.getBinder().enableTestAttestation();
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
+        }
+    }
+
+    /**
      * Captures the current state of the VM in a {@link VirtualMachineDescriptor} instance. The VM
      * needs to be stopped to avoid inconsistency in its state representation.
      *
@@ -1147,6 +1449,9 @@ public class VirtualMachine implements AutoCloseable {
             try {
                 return new VirtualMachineDescriptor(
                         ParcelFileDescriptor.open(mConfigFilePath, MODE_READ_ONLY),
+                        mInstanceIdPath != null
+                                ? ParcelFileDescriptor.open(mInstanceIdPath, MODE_READ_ONLY)
+                                : null,
                         ParcelFileDescriptor.open(mInstanceFilePath, MODE_READ_ONLY),
                         mEncryptedStoreFilePath != null
                                 ? ParcelFileDescriptor.open(mEncryptedStoreFilePath, MODE_READ_ONLY)
@@ -1180,6 +1485,46 @@ public class VirtualMachine implements AutoCloseable {
                 .append(mPackageName)
                 .append(")");
         return result.toString();
+    }
+
+    /**
+     * Reads the payload config inside the application, parses extra APK information, and then
+     * creates corresponding idsig file paths.
+     */
+    private static List<ExtraApkSpec> setupExtraApks(
+            @NonNull Context context, @NonNull VirtualMachineConfig config, @NonNull File vmDir)
+            throws VirtualMachineException {
+        String configPath = config.getPayloadConfigPath();
+        List<String> extraApks = config.getExtraApks();
+        if (configPath != null) {
+            return setupExtraApksFromConfigFile(context, vmDir, configPath);
+        } else if (!extraApks.isEmpty()) {
+            return setupExtraApksFromList(context, vmDir, extraApks);
+        } else {
+            return Collections.emptyList();
+        }
+    }
+
+    private static List<ExtraApkSpec> setupExtraApksFromConfigFile(
+            Context context, File vmDir, String configPath) throws VirtualMachineException {
+        try (ZipFile zipFile = new ZipFile(context.getPackageCodePath())) {
+            InputStream inputStream = zipFile.getInputStream(zipFile.getEntry(configPath));
+            List<String> apkList =
+                    parseExtraApkListFromPayloadConfig(
+                            new JsonReader(new InputStreamReader(inputStream)));
+
+            List<ExtraApkSpec> extraApks = new ArrayList<>(apkList.size());
+            for (int i = 0; i < apkList.size(); ++i) {
+                extraApks.add(
+                        new ExtraApkSpec(
+                                new File(apkList.get(i)),
+                                new File(vmDir, EXTRA_IDSIG_FILE_PREFIX + i)));
+            }
+
+            return extraApks;
+        } catch (IOException e) {
+            throw new VirtualMachineException("Couldn't parse extra apks from the vm config", e);
+        }
     }
 
     private static List<String> parseExtraApkListFromPayloadConfig(JsonReader reader)
@@ -1218,35 +1563,37 @@ public class VirtualMachine implements AutoCloseable {
         }
     }
 
-    /**
-     * Reads the payload config inside the application, parses extra APK information, and then
-     * creates corresponding idsig file paths.
-     */
-    private static List<ExtraApkSpec> setupExtraApks(
-            @NonNull Context context, @NonNull VirtualMachineConfig config, @NonNull File vmDir)
-            throws VirtualMachineException {
-        String configPath = config.getPayloadConfigPath();
-        if (configPath == null) {
-            return Collections.emptyList();
-        }
-        try (ZipFile zipFile = new ZipFile(context.getPackageCodePath())) {
-            InputStream inputStream =
-                    zipFile.getInputStream(zipFile.getEntry(configPath));
-            List<String> apkList =
-                    parseExtraApkListFromPayloadConfig(
-                            new JsonReader(new InputStreamReader(inputStream)));
-
-            List<ExtraApkSpec> extraApks = new ArrayList<>();
-            for (int i = 0; i < apkList.size(); ++i) {
-                extraApks.add(
-                        new ExtraApkSpec(
-                                new File(apkList.get(i)),
-                                new File(vmDir, EXTRA_IDSIG_FILE_PREFIX + i)));
+    private static List<ExtraApkSpec> setupExtraApksFromList(
+            Context context, File vmDir, List<String> extraApkInfo) throws VirtualMachineException {
+        int count = extraApkInfo.size();
+        List<ExtraApkSpec> extraApks = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            String packageName = extraApkInfo.get(i);
+            ApplicationInfo appInfo;
+            try {
+                appInfo =
+                        context.getPackageManager()
+                                .getApplicationInfo(
+                                        packageName, PackageManager.ApplicationInfoFlags.of(0));
+            } catch (PackageManager.NameNotFoundException e) {
+                throw new VirtualMachineException("Extra APK package not found", e);
             }
 
-            return Collections.unmodifiableList(extraApks);
+            extraApks.add(
+                    new ExtraApkSpec(
+                            new File(appInfo.sourceDir),
+                            new File(vmDir, EXTRA_IDSIG_FILE_PREFIX + i)));
+        }
+        return extraApks;
+    }
+
+    private void importInstanceIdFrom(@NonNull ParcelFileDescriptor instanceIdFd)
+            throws VirtualMachineException {
+        try (FileChannel idOutput = new FileOutputStream(mInstanceIdPath).getChannel();
+                FileChannel idInput = new AutoCloseInputStream(instanceIdFd).getChannel()) {
+            idOutput.transferFrom(idInput, /*position=*/ 0, idInput.size());
         } catch (IOException e) {
-            throw new VirtualMachineException("Couldn't parse extra apks from the vm config", e);
+            throw new VirtualMachineException("failed to copy instance_id", e);
         }
     }
 
@@ -1325,7 +1672,7 @@ public class VirtualMachine implements AutoCloseable {
                     return ERROR_PAYLOAD_VERIFICATION_FAILED;
                 case ErrorCode.PAYLOAD_CHANGED:
                     return ERROR_PAYLOAD_CHANGED;
-                case ErrorCode.PAYLOAD_CONFIG_INVALID:
+                case ErrorCode.PAYLOAD_INVALID_CONFIG:
                     return ERROR_PAYLOAD_INVALID_CONFIG;
                 default:
                     return ERROR_UNKNOWN;

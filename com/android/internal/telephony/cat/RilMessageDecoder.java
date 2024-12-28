@@ -24,6 +24,7 @@ import android.os.Message;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.util.State;
@@ -40,11 +41,14 @@ public class RilMessageDecoder extends StateMachine {
     private static final int CMD_START = 1;
     private static final int CMD_PARAMS_READY = 2;
 
+    private final Object mLock = new Object();
     // members
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @GuardedBy("mLock")
     private CommandParamsFactory mCmdParamsFactory = null;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private RilMessage mCurrentRilMessage = null;
+    @GuardedBy("mLock")
     private Handler mCaller = null;
     private static int mSimCount = 0;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -113,9 +117,13 @@ public class RilMessageDecoder extends StateMachine {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void sendCmdForExecution(RilMessage rilMsg) {
-        Message msg = mCaller.obtainMessage(CatService.MSG_ID_RIL_MSG_DECODED,
-                new RilMessage(rilMsg));
-        msg.sendToTarget();
+        synchronized (mLock) {
+            if (mCaller != null) {
+                Message msg = mCaller.obtainMessage(CatService.MSG_ID_RIL_MSG_DECODED,
+                        new RilMessage(rilMsg));
+                msg.sendToTarget();
+            }
+        }
     }
 
     private RilMessageDecoder(Handler caller, IccFileHandler fh, Context context) {
@@ -125,8 +133,10 @@ public class RilMessageDecoder extends StateMachine {
         addState(mStateCmdParamsReady);
         setInitialState(mStateStart);
 
-        mCaller = caller;
-        mCmdParamsFactory = CommandParamsFactory.getInstance(this, fh, context);
+        synchronized (mLock) {
+            mCaller = caller;
+            mCmdParamsFactory = CommandParamsFactory.getInstance(this, fh, context);
+        }
     }
 
     private RilMessageDecoder() {
@@ -166,7 +176,7 @@ public class RilMessageDecoder extends StateMachine {
     }
 
     private boolean decodeMessageParams(RilMessage rilMsg) {
-        boolean decodingStarted;
+        boolean decodingStarted = false;
 
         mCurrentRilMessage = rilMsg;
         switch(rilMsg.mId) {
@@ -188,16 +198,21 @@ public class RilMessageDecoder extends StateMachine {
                 decodingStarted = false;
                 break;
             }
-            try {
-                // Start asynch parsing of the command parameters.
-                mCmdParamsFactory.make(BerTlv.decode(rawData));
-                decodingStarted = true;
-            } catch (ResultException e) {
-                // send to Service for proper RIL communication.
-                CatLog.d(this, "decodeMessageParams: caught ResultException e=" + e);
-                mCurrentRilMessage.mResCode = e.result();
-                sendCmdForExecution(mCurrentRilMessage);
-                decodingStarted = false;
+
+            synchronized (mLock) {
+                if (mCmdParamsFactory != null) {
+                    try {
+                        // Start asynch parsing of the command parameters.
+                        mCmdParamsFactory.make(BerTlv.decode(rawData));
+                        decodingStarted = true;
+                    } catch (ResultException e) {
+                        // send to Service for proper RIL communication.
+                        CatLog.d(this, "decodeMessageParams: caught ResultException e=" + e);
+                        mCurrentRilMessage.mResCode = e.result();
+                        sendCmdForExecution(mCurrentRilMessage);
+                        decodingStarted = false;
+                    }
+                }
             }
             break;
         default:
@@ -211,10 +226,16 @@ public class RilMessageDecoder extends StateMachine {
         quitNow();
         mStateStart = null;
         mStateCmdParamsReady = null;
-        mCmdParamsFactory.dispose();
-        mCmdParamsFactory = null;
+
+        synchronized (mLock) {
+            if (mCmdParamsFactory != null) {
+                mCmdParamsFactory.dispose();
+                mCmdParamsFactory = null;
+            }
+            mCaller = null;
+        }
+
         mCurrentRilMessage = null;
-        mCaller = null;
         mInstance = null;
     }
 }

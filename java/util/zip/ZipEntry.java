@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1995, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1995, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -31,6 +31,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.attribute.FileTime;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
+import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
+import java.time.ZoneId;
 
 import static java.util.zip.ZipConstants64.*;
 
@@ -38,9 +41,10 @@ import static java.util.zip.ZipConstants64.*;
  * This class is used to represent a ZIP file entry.
  *
  * @author      David Connelly
+ * @since 1.1
  */
-public
-class ZipEntry implements ZipConstants, Cloneable {
+public class ZipEntry implements ZipConstants, Cloneable {
+
     String name;        // entry name
     long xdostime = -1; // last modification time (in extended DOS time,
                         // where milliseconds lost in conversion might
@@ -51,10 +55,13 @@ class ZipEntry implements ZipConstants, Cloneable {
     long crc = -1;      // crc-32 of entry data
     long size = -1;     // uncompressed size of entry data
     long csize = -1;    // compressed size of entry data
+    boolean csizeSet = false; // Only true if csize was explicitely set by
+                        // a call to setCompressedSize()
     int method = -1;    // compression method
     int flag = 0;       // general purpose flag
     byte[] extra;       // optional extra field data for entry
     String comment;     // optional comment string for entry
+    int extraAttributes = -1; // e.g. POSIX permissions, sym links.
     // Android-added: Add dataOffset for internal use.
     // Used by android.util.jar.StrictJarFile from frameworks.
     long dataOffset;
@@ -106,7 +113,7 @@ class ZipEntry implements ZipConstants, Cloneable {
         this.method = compressionMethod;
         this.xdostime = xdostime;
         this.dataOffset = dataOffset;
-        this.setExtra0(extra, false);
+        this.setExtra0(extra, false, false);
     }
 
     /**
@@ -151,10 +158,12 @@ class ZipEntry implements ZipConstants, Cloneable {
         crc = e.crc;
         size = e.size;
         csize = e.csize;
+        csizeSet = e.csizeSet;
         method = e.method;
         flag = e.flag;
         extra = e.extra;
         comment = e.comment;
+        extraAttributes = e.extraAttributes;
         // Android-added: Add dataOffset for internal use.
         dataOffset = e.dataOffset;
     }
@@ -200,10 +209,15 @@ class ZipEntry implements ZipConstants, Cloneable {
         this.xdostime = javaToExtendedDosTime(time);
         // Avoid setting the mtime field if time is in the valid
         // range for a DOS time
-        if (xdostime != DOSTIME_BEFORE_1980 && time <= UPPER_DOSTIME_BOUND) {
+        if (this.xdostime != DOSTIME_BEFORE_1980 && time <= UPPER_DOSTIME_BOUND) {
             this.mtime = null;
         } else {
-            this.mtime = FileTime.from(time, TimeUnit.MILLISECONDS);
+            int localYear = javaEpochToLocalDateTime(time).getYear();
+            if (localYear >= 1980 && localYear <= 2099) {
+                this.mtime = null;
+            } else {
+                this.mtime = FileTime.from(time, TimeUnit.MILLISECONDS);
+            }
         }
     }
 
@@ -229,6 +243,85 @@ class ZipEntry implements ZipConstants, Cloneable {
         }
         return (xdostime != -1) ? extendedDosToJavaTime(xdostime) : -1;
     }
+
+    /**
+     * Sets the last modification time of the entry in local date-time.
+     *
+     * <p> If the entry is output to a ZIP file or ZIP file formatted
+     * output stream the last modification time set by this method will
+     * be stored into the {@code date and time fields} of the zip file
+     * entry and encoded in standard {@code MS-DOS date and time format}.
+     * If the date-time set is out of the range of the standard {@code
+     * MS-DOS date and time format}, the time will also be stored into
+     * zip file entry's extended timestamp fields in {@code optional
+     * extra data} in UTC time. The {@link java.time.ZoneId#systemDefault()
+     * system default TimeZone} is used to convert the local date-time
+     * to UTC time.
+     *
+     * <p> {@code LocalDateTime} uses a precision of nanoseconds, whereas
+     * this class uses a precision of milliseconds. The conversion will
+     * truncate any excess precision information as though the amount in
+     * nanoseconds was subject to integer division by one million.
+     *
+     * @param  time
+     *         The last modification time of the entry in local date-time
+     *
+     * @see #getTimeLocal()
+     * @since 9
+     */
+    public void setTimeLocal(LocalDateTime time) {
+        int year = time.getYear() - 1980;
+        if (year < 0) {
+            this.xdostime = DOSTIME_BEFORE_1980;
+        } else {
+            this.xdostime = ((year << 25 |
+                time.getMonthValue() << 21 |
+                time.getDayOfMonth() << 16 |
+                time.getHour() << 11 |
+                time.getMinute() << 5 |
+                time.getSecond() >> 1) & 0xffffffffL)
+                + ((long)(((time.getSecond() & 0x1) * 1000) +
+                      time.getNano() / 1000_000) << 32);
+        }
+        if (xdostime != DOSTIME_BEFORE_1980 && year <= 0x7f) {
+            this.mtime = null;
+        } else {
+            this.mtime = FileTime.from(
+                ZonedDateTime.of(time, ZoneId.systemDefault()).toInstant());
+        }
+    }
+
+    /**
+     * Returns the last modification time of the entry in local date-time.
+     *
+     * <p> If the entry is read from a ZIP file or ZIP file formatted
+     * input stream, this is the last modification time from the zip
+     * file entry's {@code optional extra data} if the extended timestamp
+     * fields are present. Otherwise, the last modification time is read
+     * from entry's standard MS-DOS formatted {@code date and time fields}.
+     *
+     * <p> The {@link java.time.ZoneId#systemDefault() system default TimeZone}
+     * is used to convert the UTC time to local date-time.
+     *
+     * @return  The last modification time of the entry in local date-time
+     *
+     * @see #setTimeLocal(LocalDateTime)
+     * @since 9
+     */
+    public LocalDateTime getTimeLocal() {
+        if (mtime != null) {
+            return LocalDateTime.ofInstant(mtime.toInstant(), ZoneId.systemDefault());
+        }
+        int ms = (int)(xdostime >> 32);
+        return LocalDateTime.of((int)(((xdostime >> 25) & 0x7f) + 1980),
+                             (int)((xdostime >> 21) & 0x0f),
+                             (int)((xdostime >> 16) & 0x1f),
+                             (int)((xdostime >> 11) & 0x1f),
+                             (int)((xdostime >> 5) & 0x3f),
+                             (int)((xdostime << 1) & 0x3e) + ms / 1000,
+                             (ms % 1000) * 1000_000);
+    }
+
 
     /**
      * Sets the last modification time of the entry.
@@ -307,7 +400,6 @@ class ZipEntry implements ZipConstants, Cloneable {
      * or ZIP file formatted stream.
      *
      * @return The last access time of the entry, null if not specified
-
      * @see #setLastAccessTime(FileTime)
      * @since 1.8
      */
@@ -395,12 +487,13 @@ class ZipEntry implements ZipConstants, Cloneable {
     /**
      * Sets the size of the compressed entry data.
      *
-     * @param csize the compressed size to set to
+     * @param csize the compressed size to set
      *
      * @see #getCompressedSize()
      */
     public void setCompressedSize(long csize) {
         this.csize = csize;
+        this.csizeSet = true;
     }
 
     /**
@@ -476,7 +569,7 @@ class ZipEntry implements ZipConstants, Cloneable {
      * @see #getExtra()
      */
     public void setExtra(byte[] extra) {
-        setExtra0(extra, false);
+        setExtra0(extra, false, true);
     }
 
     /**
@@ -486,8 +579,11 @@ class ZipEntry implements ZipConstants, Cloneable {
      *        the extra field data bytes
      * @param doZIP64
      *        if true, set size and csize from ZIP64 fields if present
+     * @param isLOC
+     *        true if setting the extra field for a LOC, false if for
+     *        a CEN
      */
-    void setExtra0(byte[] extra, boolean doZIP64) {
+    void setExtra0(byte[] extra, boolean doZIP64, boolean isLOC) {
         if (extra != null) {
             if (extra.length > 0xFFFF) {
                 throw new IllegalArgumentException("invalid extra field length");
@@ -504,15 +600,29 @@ class ZipEntry implements ZipConstants, Cloneable {
                 switch (tag) {
                 case EXTID_ZIP64:
                     if (doZIP64) {
-                        // LOC extra zip64 entry MUST include BOTH original
-                        // and compressed file size fields.
-                        // If invalid zip64 extra fields, simply skip. Even
-                        // it's rare, it's possible the entry size happens to
-                        // be the magic value and it "accidently" has some
-                        // bytes in extra match the id.
-                        if (sz >= 16) {
-                            size = get64(extra, off);
-                            csize = get64(extra, off + 8);
+                        if (isLOC) {
+                            // LOC extra zip64 entry MUST include BOTH original
+                            // and compressed file size fields.
+                            // If invalid zip64 extra fields, simply skip. Even
+                            // it's rare, it's possible the entry size happens to
+                            // be the magic value and it "accidently" has some
+                            // bytes in extra match the id.
+                            if (sz >= 16) {
+                                size = get64(extra, off);
+                                csize = get64(extra, off + 8);
+                            }
+                        } else {
+                            // CEN extra zip64
+                            if (size == ZIP64_MAGICVAL) {
+                                if (off + 8 > len)  // invalid zip64 extra
+                                    break;          // fields, just skip
+                                size = get64(extra, off);
+                            }
+                            if (csize == ZIP64_MAGICVAL) {
+                                if (off + 16 > len)  // invalid zip64 extra
+                                    break;           // fields, just skip
+                                csize = get64(extra, off + 8);
+                            }
                         }
                     }
                     break;
@@ -522,9 +632,18 @@ class ZipEntry implements ZipConstants, Cloneable {
                     int pos = off + 4;               // reserved 4 bytes
                     if (get16(extra, pos) !=  0x0001 || get16(extra, pos + 2) != 24)
                         break;
-                    mtime = winTimeToFileTime(get64(extra, pos + 4));
-                    atime = winTimeToFileTime(get64(extra, pos + 12));
-                    ctime = winTimeToFileTime(get64(extra, pos + 20));
+                    long wtime = get64(extra, pos + 4);
+                    if (wtime != WINDOWS_TIME_NOT_AVAILABLE) {
+                        mtime = winTimeToFileTime(wtime);
+                    }
+                    wtime = get64(extra, pos + 12);
+                    if (wtime != WINDOWS_TIME_NOT_AVAILABLE) {
+                        atime = winTimeToFileTime(wtime);
+                    }
+                    wtime = get64(extra, pos + 20);
+                    if (wtime != WINDOWS_TIME_NOT_AVAILABLE) {
+                        ctime = winTimeToFileTime(wtime);
+                    }
                     break;
                 case EXTID_EXTT:
                     int flag = Byte.toUnsignedInt(extra[off]);
@@ -534,15 +653,15 @@ class ZipEntry implements ZipConstants, Cloneable {
                     // flag its presence or absence. But if mtime is present
                     // in LOC it must be present in CEN as well.
                     if ((flag & 0x1) != 0 && (sz0 + 4) <= sz) {
-                        mtime = unixTimeToFileTime(get32(extra, off + sz0));
+                        mtime = unixTimeToFileTime(get32S(extra, off + sz0));
                         sz0 += 4;
                     }
                     if ((flag & 0x2) != 0 && (sz0 + 4) <= sz) {
-                        atime = unixTimeToFileTime(get32(extra, off + sz0));
+                        atime = unixTimeToFileTime(get32S(extra, off + sz0));
                         sz0 += 4;
                     }
                     if ((flag & 0x4) != 0 && (sz0 + 4) <= sz) {
-                        ctime = unixTimeToFileTime(get32(extra, off + sz0));
+                        ctime = unixTimeToFileTime(get32S(extra, off + sz0));
                         sz0 += 4;
                     }
                     break;

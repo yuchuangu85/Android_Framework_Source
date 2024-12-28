@@ -164,6 +164,7 @@ public class WifiAwareAgentNetworkSpecifier extends NetworkSpecifier implements 
         Parcel parcel = Parcel.obtain();
         ns.writeToParcel(parcel, 0);
         byte[] bytes = parcel.marshall();
+        parcel.recycle();
 
         mDigester.reset();
         mDigester.update(bytes);

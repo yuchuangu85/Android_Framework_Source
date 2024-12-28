@@ -20,10 +20,12 @@ import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTI
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID_MESSAGE;
 
 import android.annotation.NonNull;
+import android.os.OutcomeReceiver;
 
 import com.android.internal.util.Preconditions;
 
 import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * Represent input parameters to the reportImpression API.
@@ -32,6 +34,18 @@ public class ReportImpressionRequest {
     private final long mAdSelectionId;
     @NonNull private final AdSelectionConfig mAdSelectionConfig;
 
+    /**
+     * Ctor for on-device ad selection reporting request.
+     *
+     * <p>If your {@code adSelectionId} is for a on-device auction run using {@link
+     * AdSelectionManager#selectAds(AdSelectionConfig, Executor, OutcomeReceiver)} then your
+     * impression reporting request must include your {@link AdSelectionConfig}.
+     *
+     * @param adSelectionId received from {@link AdSelectionManager#selectAds(AdSelectionConfig,
+     *     Executor, OutcomeReceiver)}
+     * @param adSelectionConfig same {@link AdSelectionConfig} used to trigger {@link
+     *     AdSelectionManager#selectAds(AdSelectionConfig, Executor, OutcomeReceiver)}
+     */
     public ReportImpressionRequest(
             long adSelectionId, @NonNull AdSelectionConfig adSelectionConfig) {
         Objects.requireNonNull(adSelectionConfig);
@@ -40,6 +54,26 @@ public class ReportImpressionRequest {
 
         mAdSelectionId = adSelectionId;
         mAdSelectionConfig = adSelectionConfig;
+    }
+
+    /**
+     * Ctor for auction server ad selection reporting request.
+     *
+     * <p>If your {@code adSelectionId} is for a server auction run where device info collected by
+     * {@link AdSelectionManager#getAdSelectionData} then your impression reporting request should
+     * only include the ad selection id.
+     *
+     * <p>{@link AdSelectionManager#persistAdSelectionResult} must be called with the encrypted
+     * result blob from servers before making impression reporting request.
+     *
+     * @param adSelectionId received from {@link AdSelectionManager#getAdSelectionData}
+     */
+    public ReportImpressionRequest(long adSelectionId) {
+        Preconditions.checkArgument(
+                adSelectionId != UNSET_AD_SELECTION_ID, UNSET_AD_SELECTION_ID_MESSAGE);
+
+        mAdSelectionId = adSelectionId;
+        mAdSelectionConfig = AdSelectionConfig.EMPTY;
     }
 
     /** Returns the adSelectionId, one of the inputs to {@link ReportImpressionRequest} */

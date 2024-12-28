@@ -20,6 +20,10 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.Parcel;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -69,6 +73,24 @@ public final class ByteArrayParceledListSlice extends BaseOdpParceledListSlice<b
 
     private ByteArrayParceledListSlice(@Nullable Parcel in, @Nullable ClassLoader loader) {
         super(in, loader);
+    }
+
+    /** Create a ByteArrayParceledListSlice based on provided Object array. */
+    public static ByteArrayParceledListSlice create(Object[] inputData) {
+        List<byte[]> byteArrayList = new ArrayList<>();
+        for (int i = 0; i < inputData.length; i++) {
+            Object obj = inputData[i];
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try {
+                ObjectOutputStream oos = new ObjectOutputStream(baos);
+                oos.writeObject(obj);
+                byteArrayList.add(baos.toByteArray());
+            } catch (IOException e) {
+                throw new IllegalArgumentException(
+                        "Can't convert inference input at index " + i, e);
+            }
+        }
+        return new ByteArrayParceledListSlice(byteArrayList);
     }
 
     /**

@@ -176,7 +176,8 @@ public final class SafetyCenterData implements Parcelable {
     @RequiresApi(UPSIDE_DOWN_CAKE)
     public List<SafetyCenterIssue> getDismissedIssues() {
         if (!SdkLevel.isAtLeastU()) {
-            throw new UnsupportedOperationException();
+            throw new UnsupportedOperationException(
+                    "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
         }
         return mDismissedIssues;
     }
@@ -191,7 +192,8 @@ public final class SafetyCenterData implements Parcelable {
     @RequiresApi(UPSIDE_DOWN_CAKE)
     public Bundle getExtras() {
         if (!SdkLevel.isAtLeastU()) {
-            throw new UnsupportedOperationException();
+            throw new UnsupportedOperationException(
+                    "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
         }
         return mExtras;
     }
@@ -371,7 +373,8 @@ public final class SafetyCenterData implements Parcelable {
 
         public Builder(@NonNull SafetyCenterStatus status) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             mStatus = requireNonNull(status);
         }
@@ -379,7 +382,8 @@ public final class SafetyCenterData implements Parcelable {
         /** Creates a {@link Builder} with the values from the given {@link SafetyCenterData}. */
         public Builder(@NonNull SafetyCenterData safetyCenterData) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             requireNonNull(safetyCenterData);
             mStatus = safetyCenterData.mStatus;

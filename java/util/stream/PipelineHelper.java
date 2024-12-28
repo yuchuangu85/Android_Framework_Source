@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -77,7 +77,7 @@ public abstract class PipelineHelper<P_OUT> {
     /**
      * Returns the exact output size of the portion of the output resulting from
      * applying the pipeline stages described by this {@code PipelineHelper} to
-     * the the portion of the input described by the provided
+     * the portion of the input described by the provided
      * {@code Spliterator}, if known.  If not known or known infinite, will
      * return {@code -1}.
      *
@@ -85,7 +85,8 @@ public abstract class PipelineHelper<P_OUT> {
      * The exact output size is known if the {@code Spliterator} has the
      * {@code SIZED} characteristic, and the operation flags
      * {@link StreamOpFlag#SIZED} is known on the combined stream and operation
-     * flags.
+     * flags. The exact output size may differ from spliterator size,
+     * if pipeline contains a slice operation.
      *
      * @param spliterator the spliterator describing the relevant portion of the
      *        source data
@@ -101,7 +102,7 @@ public abstract class PipelineHelper<P_OUT> {
      * @implSpec
      * The implementation behaves as if:
      * <pre>{@code
-     *     intoWrapped(wrapSink(sink), spliterator);
+     *     copyInto(wrapSink(sink), spliterator);
      * }</pre>
      *
      * @param sink the {@code Sink} to receive the results
@@ -139,6 +140,7 @@ public abstract class PipelineHelper<P_OUT> {
      *
      * @param wrappedSink the destination {@code Sink}
      * @param spliterator the source {@code Spliterator}
+     * @return true if the cancellation was requested
      */
     abstract <P_IN> boolean copyIntoWithCancel(Sink<P_IN> wrappedSink, Spliterator<P_IN> spliterator);
 

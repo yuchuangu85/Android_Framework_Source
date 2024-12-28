@@ -51,7 +51,7 @@ public class MDnsManager {
     public void startDaemon() {
         try {
             mMdns.startDaemon();
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Start mdns failed.", e);
         }
     }
@@ -62,7 +62,7 @@ public class MDnsManager {
     public void stopDaemon() {
         try {
             mMdns.stopDaemon();
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Stop mdns failed.", e);
         }
     }
@@ -85,7 +85,7 @@ public class MDnsManager {
                 registrationType, port, txtRecord, interfaceIdx);
         try {
             mMdns.registerService(info);
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Register service failed.", e);
             return false;
         }
@@ -105,7 +105,7 @@ public class MDnsManager {
                 registrationType, "" /* domainName */, interfaceIdx, NETID_UNSET);
         try {
             mMdns.discover(info);
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Discover service failed.", e);
             return false;
         }
@@ -129,7 +129,7 @@ public class MDnsManager {
                 new byte[0] /* txtRecord */, interfaceIdx);
         try {
             mMdns.resolve(info);
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Resolve service failed.", e);
             return false;
         }
@@ -149,7 +149,7 @@ public class MDnsManager {
                 "" /* address */, interfaceIdx, NETID_UNSET);
         try {
             mMdns.getServiceAddress(info);
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Get service address failed.", e);
             return false;
         }
@@ -165,7 +165,7 @@ public class MDnsManager {
     public boolean stopOperation(int id) {
         try {
             mMdns.stopOperation(id);
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Stop operation failed.", e);
             return false;
         }
@@ -180,7 +180,7 @@ public class MDnsManager {
     public void registerEventListener(@NonNull IMDnsEventListener listener) {
         try {
             mMdns.registerEventListener(listener);
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Register listener failed.", e);
         }
     }
@@ -193,7 +193,7 @@ public class MDnsManager {
     public void unregisterEventListener(@NonNull IMDnsEventListener listener) {
         try {
             mMdns.unregisterEventListener(listener);
-        } catch (RemoteException | ServiceSpecificException e) {
+        } catch (RemoteException | ServiceSpecificException | UnsupportedOperationException e) {
             Log.e(TAG, "Unregister listener failed.", e);
         }
     }

@@ -98,8 +98,9 @@ public final class TimeInstantRangeFilter implements TimeRangeFilter {
 
     /** Builder class for {@link TimeInstantRangeFilter} */
     public static final class Builder {
-        private Instant mStartTime;
-        private Instant mEndTime;
+        @Nullable private Instant mStartTime;
+
+        @Nullable private Instant mEndTime;
 
         /**
          * @param startTime represents start time of this filter

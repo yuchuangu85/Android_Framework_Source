@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl-java-source/gen/android/content/AttributionSourceState.java.d -o out/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl-java-source/gen -Nframeworks/native/libs/permission/aidl frameworks/native/libs/permission/aidl/android/content/AttributionSourceState.aidl
  */
 package android.content;
 /**
@@ -14,6 +15,11 @@ public class AttributionSourceState implements android.os.Parcelable
   public int pid = -1;
   /** The UID that is accessing the permission protected data. */
   public int uid = -1;
+  /**
+   * The default device ID from where the permission protected data is read.
+   * @see Context#DEVICE_ID_DEFAULT
+   */
+  public int deviceId = 0;
   /** The package that is accessing the permission protected data. */
   public java.lang.String packageName;
   /** The attribution tag of the app accessing the permission protected data. */
@@ -44,6 +50,7 @@ public class AttributionSourceState implements android.os.Parcelable
     _aidl_parcel.writeInt(0);
     _aidl_parcel.writeInt(pid);
     _aidl_parcel.writeInt(uid);
+    _aidl_parcel.writeInt(deviceId);
     _aidl_parcel.writeString(packageName);
     _aidl_parcel.writeString(attributionTag);
     _aidl_parcel.writeStrongBinder(token);
@@ -64,6 +71,8 @@ public class AttributionSourceState implements android.os.Parcelable
       pid = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       uid = _aidl_parcel.readInt();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      deviceId = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       packageName = _aidl_parcel.readString();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;

@@ -25,10 +25,17 @@
 
 package java.io;
 
+import static java.io.File.CANONICALIZE_PARENT_OF_ROOT_DIR;
+
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
 import android.system.ErrnoException;
 import android.system.OsConstants;
 
+import dalvik.annotation.compat.VersionCodes;
 import dalvik.system.BlockGuard;
+import dalvik.system.VMRuntime;
 
 import libcore.io.Libcore;
 
@@ -229,7 +236,19 @@ class UnixFileSystem extends FileSystem {
             return res;
         }
     }
-    private native String canonicalize0(String path) throws IOException;
+
+    // BEGIN Android-changed: Remove parent directory /.. at the rootfs. http://b/312399441
+    private String canonicalize0(String path) throws IOException {
+        boolean isAtLeastTargetSdk35 =
+                VMRuntime.getSdkVersion() >= VersionCodes.VANILLA_ICE_CREAM &&
+                Compatibility.isChangeEnabled(CANONICALIZE_PARENT_OF_ROOT_DIR);
+        return canonicalize0(path, isAtLeastTargetSdk35);
+    }
+
+    private native String canonicalize0(String path, boolean isAtLeastTargetSdk35)
+            throws IOException;
+    // END Android-changed: Remove parent directory /.. at the rootfs. http://b/312399441
+
     // Best-effort attempt to get parent of this path; used for
     // optimization of filename canonicalization. This must return null for
     // any cases where the code in canonicalize_md.c would throw an

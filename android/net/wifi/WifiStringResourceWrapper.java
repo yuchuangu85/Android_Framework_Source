@@ -17,7 +17,6 @@
 package android.net.wifi;
 
 import android.content.Context;
-import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
@@ -52,7 +51,7 @@ public class WifiStringResourceWrapper {
     private final int mSubId;
     private final int mCarrierId;
 
-    private final Resources mResources;
+    private Resources mResources;
     private final String mCarrierIdPrefix;
 
     @VisibleForTesting
@@ -69,8 +68,6 @@ public class WifiStringResourceWrapper {
         mContext = context;
         mSubId = subId;
         mCarrierId = carrierId;
-
-        mResources = getResourcesForSubId();
         mCarrierIdPrefix =
                 CARRIER_ID_RESOURCE_SEPARATOR + mCarrierId + CARRIER_ID_RESOURCE_SEPARATOR;
     }
@@ -79,7 +76,7 @@ public class WifiStringResourceWrapper {
      * Returns the string corresponding to the resource ID - or null if no resources exist.
      */
     public String getString(String name, Object... args) {
-        if (mResources == null) return null;
+        if (getResourcesForSubId() == null) return null;
         int resourceId = mResources.getIdentifier(name, "string",
                 mContext.getWifiOverlayApkPkgName());
         if (resourceId == 0) return null;
@@ -105,7 +102,7 @@ public class WifiStringResourceWrapper {
      * exist.
      */
     public int getInt(String name, int defaultValue) {
-        if (mResources == null) return defaultValue;
+        if (getResourcesForSubId() == null) return defaultValue;
         int resourceId = mResources.getIdentifier(name, "integer",
                 mContext.getWifiOverlayApkPkgName());
         if (resourceId == 0) return defaultValue;
@@ -129,7 +126,7 @@ public class WifiStringResourceWrapper {
      * exist.
      */
     public boolean getBoolean(String name, boolean defaultValue) {
-        if (mResources == null) return defaultValue;
+        if (getResourcesForSubId() == null) return defaultValue;
         int resourceId = mResources.getIdentifier(name, "bool",
                 mContext.getWifiOverlayApkPkgName());
         if (resourceId == 0) return defaultValue;
@@ -177,12 +174,14 @@ public class WifiStringResourceWrapper {
      * associated with the subscription.
      */
     private Resources getResourcesForSubId() {
-        try {
-            Context resourceContext = mContext.createPackageContext(
-                    mContext.getWifiOverlayApkPkgName(), 0);
-            return SubscriptionManager.getResourcesForSubId(resourceContext, mSubId);
-        } catch (PackageManager.NameNotFoundException ex) {
+        if (mResources != null) {
+            return mResources;
+        }
+        Context context = mContext.getResourcesApkContext();
+        if (context == null) {
             return null;
         }
+        mResources = SubscriptionManager.getResourcesForSubId(context, mSubId);
+        return mResources;
     }
 }

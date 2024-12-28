@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash cd8913a3f9d39f1cc0a5fcf9e90257be94ec38df --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen/android/hardware/radio/data/DataProfileInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3/android/hardware/radio/data/DataProfileInfo.aidl
  */
 package android.hardware.radio.data;
+/** @hide */
 public class DataProfileInfo implements android.os.Parcelable
 {
   public int profileId = 0;
@@ -24,6 +26,7 @@ public class DataProfileInfo implements android.os.Parcelable
   public boolean persistent = false;
   public boolean alwaysOn = false;
   public android.hardware.radio.data.TrafficDescriptor trafficDescriptor;
+  public int infrastructureBitmap = 0;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
   public static final android.os.Parcelable.Creator<DataProfileInfo> CREATOR = new android.os.Parcelable.Creator<DataProfileInfo>() {
@@ -62,6 +65,7 @@ public class DataProfileInfo implements android.os.Parcelable
     _aidl_parcel.writeBoolean(persistent);
     _aidl_parcel.writeBoolean(alwaysOn);
     _aidl_parcel.writeTypedObject(trafficDescriptor, _aidl_flag);
+    _aidl_parcel.writeInt(infrastructureBitmap);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -113,6 +117,8 @@ public class DataProfileInfo implements android.os.Parcelable
       alwaysOn = _aidl_parcel.readBoolean();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       trafficDescriptor = _aidl_parcel.readTypedObject(android.hardware.radio.data.TrafficDescriptor.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      infrastructureBitmap = _aidl_parcel.readInt();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -130,6 +136,9 @@ public class DataProfileInfo implements android.os.Parcelable
   public static final int TYPE_COMMON = 0;
   public static final int TYPE_3GPP = 1;
   public static final int TYPE_3GPP2 = 2;
+  public static final int INFRASTRUCTURE_UNKNOWN = 0;
+  public static final int INFRASTRUCTURE_CELLULAR = 1;
+  public static final int INFRASTRUCTURE_SATELLITE = 2;
   @Override
   public String toString() {
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
@@ -153,7 +162,8 @@ public class DataProfileInfo implements android.os.Parcelable
     _aidl_sj.add("persistent: " + (persistent));
     _aidl_sj.add("alwaysOn: " + (alwaysOn));
     _aidl_sj.add("trafficDescriptor: " + (java.util.Objects.toString(trafficDescriptor)));
-    return "android.hardware.radio.data.DataProfileInfo" + _aidl_sj.toString()  ;
+    _aidl_sj.add("infrastructureBitmap: " + (infrastructureBitmap));
+    return "DataProfileInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

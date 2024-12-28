@@ -33,6 +33,7 @@ import com.android.internal.telephony.uicc.UiccProfile;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * This is a basic utility class for common functions related to Fixed Dialing Numbers
@@ -123,6 +124,7 @@ public class FdnUtils {
             dialStrNational = String.valueOf(phoneNumber.getNationalNumber());
         } catch (NumberParseException ignored) {
             Rlog.w(LOG_TAG, "isFDN: could not parse dialStr");
+            dialStr = extractSMSC(dialStr);
         }
 
         /**
@@ -186,5 +188,38 @@ public class FdnUtils {
         }
 
         return uiccProfile.getApplication(UiccController.APP_FAM_3GPP);
+    }
+
+    private static String extractSMSC(String dialStr) {
+        try {
+            String[] dialStrParts = null;
+            if (dialStr.contains(",")) {
+                // SMSC can be in the format of ""+123456789123",123"
+                // Split into two parts using comma as delimiter
+                // and first part of the string is used as smsc address
+                dialStrParts = dialStr.split(",");
+            } else if (dialStr.contains("@")) {
+                // SMSC can be in the format of "+123456789123@ims.mnc.org"
+                // Split into two parts using @ as delimiter
+                // and first part of the string is used as smsc address
+                dialStrParts = dialStr.split("@");
+            }
+
+            if (dialStrParts != null && dialStrParts.length >= 1) {
+                if (dialStrParts[0].contains("\"")) {
+                    // If SMSC is in this format: ""+123456789123",123", after performing above
+                    // split we get string with double-quotation marks in it
+                    // dialStrParts[0] = ""+123456789123"".
+                    // Here, we remove double-quotation marks from the string.
+                    dialStrParts[0] = dialStrParts[0].replaceAll("\"", "");
+                }
+                return dialStrParts[0];
+            }
+        } catch (PatternSyntaxException ex) {
+            Rlog.w(LOG_TAG, "extractSMSC: Could not extract number from dialStr " + ex);
+        }
+
+        // Return original dialStr if it is not in any of the formats mentions above.
+        return dialStr;
     }
 }

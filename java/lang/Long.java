@@ -27,14 +27,10 @@ package java.lang;
 
 import java.lang.annotation.Native;
 
-// BEGIN Android-removed: dynamic constants not supported on Android.
-/*
 import java.lang.invoke.MethodHandles;
 import java.lang.constant.Constable;
 import java.lang.constant.ConstantDesc;
 import java.util.Optional;
-*/
-// END Android-removed: dynamic constants not supported on Android.
 
 import java.math.*;
 import java.util.Objects;
@@ -77,10 +73,7 @@ import jdk.internal.vm.annotation.IntrinsicCandidate;
  */
 @jdk.internal.ValueBased
 public final class Long extends Number
-        implements Comparable<Long>
-// Android-removed: no Constable support.
-// , Constable, ConstantDesc
-{
+        implements Comparable<Long>, Constable, ConstantDesc {
     /**
      * A constant holding the minimum value a {@code long} can
      * have, -2<sup>63</sup>.
@@ -2027,14 +2020,14 @@ public final class Long extends Number
         return Math.min(a, b);
     }
 
-    // BEGIN Android-removed: dynamic constants not supported on Android.
     /**
      * Returns an {@link Optional} containing the nominal descriptor for this
      * instance, which is the instance itself.
      *
      * @return an {@link Optional} describing the {@linkplain Long} instance
      * @since 12
-     *
+     * @hide
+     */
     @Override
     public Optional<Long> describeConstable() {
         return Optional.of(this);
@@ -2047,13 +2040,12 @@ public final class Long extends Number
      * @param lookup ignored
      * @return the {@linkplain Long} instance
      * @since 12
-     *
+     * @hide
+     */
     @Override
     public Long resolveConstantDesc(MethodHandles.Lookup lookup) {
         return this;
     }
-    */
-    // END Android-removed: dynamic constants not supported on Android.
 
     /** use serialVersionUID from JDK 1.0.2 for interoperability */
     @java.io.Serial

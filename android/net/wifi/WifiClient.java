@@ -17,6 +17,7 @@
 package android.net.wifi;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.net.MacAddress;
 import android.os.Parcel;
@@ -105,7 +106,7 @@ public final class WifiClient implements Parcelable {
     }
 
     @Override
-    public boolean equals(@NonNull Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (!(o instanceof WifiClient)) return false;
         WifiClient client = (WifiClient) o;

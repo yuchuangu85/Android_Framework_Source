@@ -23,8 +23,8 @@ import android.federatedcompute.aidl.IExampleStoreIterator;
 import android.federatedcompute.aidl.IExampleStoreIteratorCallback;
 import android.os.Bundle;
 import android.os.RemoteException;
-import android.util.Log;
 
+import com.android.federatedcompute.internal.util.LogUtil;
 import com.android.internal.util.Preconditions;
 
 /**
@@ -47,7 +47,7 @@ public class ExampleStoreQueryCallbackImpl implements QueryCallback {
         try {
             mExampleStoreQueryCallback.onStartQuerySuccess(iteratorAdapter);
         } catch (RemoteException e) {
-            Log.w(TAG, "onIteratorNextSuccess AIDL call failed, closing iterator", e);
+            LogUtil.w(TAG, e, "onIteratorNextSuccess AIDL call failed, closing iterator");
             iteratorAdapter.close();
         }
     }
@@ -57,7 +57,7 @@ public class ExampleStoreQueryCallbackImpl implements QueryCallback {
         try {
             mExampleStoreQueryCallback.onStartQueryFailure(errorCode);
         } catch (RemoteException e) {
-            Log.w(TAG, "onIteratorNextFailure AIDL call failed, closing iterator", e);
+            LogUtil.w(TAG, e, "onIteratorNextFailure AIDL call failed, closing iterator");
         }
     }
     /**
@@ -79,7 +79,7 @@ public class ExampleStoreQueryCallbackImpl implements QueryCallback {
             Preconditions.checkNotNull(callback, "callback must not be null");
             synchronized (mLock) {
                 if (mClosed) {
-                    Log.w(TAG, "IExampleStoreIterator.next called after close");
+                    LogUtil.w(TAG, "IExampleStoreIterator.next called after close");
                     return;
                 }
                 IteratorCallbackAdapter callbackAdapter =
@@ -92,7 +92,7 @@ public class ExampleStoreQueryCallbackImpl implements QueryCallback {
         public void close() {
             synchronized (mLock) {
                 if (mClosed) {
-                    Log.w(TAG, "IExampleStoreIterator.close called more than once");
+                    LogUtil.w(TAG, "IExampleStoreIterator.close called more than once");
                     return;
                 }
                 mClosed = true;
@@ -124,7 +124,7 @@ public class ExampleStoreQueryCallbackImpl implements QueryCallback {
                 mExampleStoreIteratorCallback.onIteratorNextSuccess(result);
                 return true;
             } catch (RemoteException e) {
-                Log.w(TAG, "onIteratorNextSuccess AIDL call failed, closing iterator", e);
+                LogUtil.w(TAG, e, "onIteratorNextSuccess AIDL call failed, closing iterator");
                 mIteratorAdapter.close();
             }
             return false;
@@ -135,7 +135,7 @@ public class ExampleStoreQueryCallbackImpl implements QueryCallback {
             try {
                 mExampleStoreIteratorCallback.onIteratorNextFailure(errorCode);
             } catch (RemoteException e) {
-                Log.w(TAG, "onIteratorNextFailure AIDL call failed, closing iterator", e);
+                LogUtil.w(TAG, e, "onIteratorNextFailure AIDL call failed, closing iterator");
                 mIteratorAdapter.close();
             }
         }

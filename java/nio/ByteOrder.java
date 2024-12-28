@@ -25,9 +25,6 @@
 
 package java.nio;
 
-// Android-removed: Use Bits class to retrieve byte order.
-// import jdk.internal.misc.Unsafe;
-
 /**
  * A typesafe enumeration for byte orders.
  *
@@ -59,15 +56,13 @@ public final class ByteOrder {
     public static final ByteOrder LITTLE_ENDIAN
         = new ByteOrder("LITTLE_ENDIAN");
 
-    // BEGIN Android-removed: Use Bits class to retrieve native order.
-    /*
     // Retrieve the native byte order. It's used early during bootstrap, and
     // must be initialized after BIG_ENDIAN and LITTLE_ENDIAN.
     private static final ByteOrder NATIVE_ORDER
-        = Unsafe.getUnsafe().isBigEndian()
-            ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN;
-    */
-    // END Android-removed: Use Bits class to retrieve native order.
+    // Android-changed: Android is always little-endian.
+    //     = Unsafe.getUnsafe().isBigEndian()
+    //        ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN;
+        = ByteOrder.LITTLE_ENDIAN;
 
     /**
      * Retrieves the native byte order of the underlying platform.
@@ -81,12 +76,7 @@ public final class ByteOrder {
      *          virtual machine is running
      */
     public static ByteOrder nativeOrder() {
-        // BEGIN Android-changed: Use Bits class to retrieve byte order.
-        /*
         return NATIVE_ORDER;
-        */
-        // END Android-changed: Use Bits class to retrieve byte order.
-        return Bits.byteOrder();
     }
 
     /**

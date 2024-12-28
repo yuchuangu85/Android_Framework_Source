@@ -20,6 +20,7 @@ import static com.android.internal.telephony.TelephonyStatsLog.PIN_STORAGE_EVENT
 import static com.android.internal.telephony.TelephonyStatsLog.PIN_STORAGE_EVENT__EVENT__PIN_VERIFICATION_FAILURE;
 import static com.android.internal.telephony.TelephonyStatsLog.PIN_STORAGE_EVENT__EVENT__PIN_VERIFICATION_SUCCESS;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.usage.UsageStatsManager;
@@ -65,6 +66,7 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.TelephonyStatsLog;
 import com.android.internal.telephony.cat.CatService;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
@@ -103,6 +105,7 @@ public class UiccProfile extends IccCard {
 
     private static final String OPERATOR_BRAND_OVERRIDE_PREFIX = "operator_branding_";
 
+    private final @NonNull FeatureFlags mFlags;
     // The lock object is created by UiccSlot that owns the UiccCard that owns this UiccProfile.
     // This is to share the lock between UiccSlot, UiccCard and UiccProfile for now.
     private final Object mLock;
@@ -326,8 +329,9 @@ public class UiccProfile extends IccCard {
     };
 
     public UiccProfile(Context c, CommandsInterface ci, IccCardStatus ics, int phoneId,
-            UiccCard uiccCard, Object lock) {
+            UiccCard uiccCard, Object lock, @NonNull FeatureFlags flags) {
         if (DBG) log("Creating profile");
+        mFlags = flags;
         mLock = lock;
         mUiccCard = uiccCard;
         mPhoneId = phoneId;
@@ -1283,6 +1287,11 @@ public class UiccProfile extends IccCard {
 
         if (index < 0) {
             // This is normal. (i.e. no application of this type)
+            return -1;
+        }
+
+        if (mUiccApplications[index] == null) {
+            loge("App index " + index + " is invalid");
             return -1;
         }
 

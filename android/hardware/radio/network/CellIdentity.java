@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/CellIdentity.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/CellIdentity.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public final class CellIdentity implements android.os.Parcelable {
   // tags for union fields
   public final static int noinit = 0;  // boolean noinit;
@@ -262,13 +264,13 @@ public final class CellIdentity implements android.os.Parcelable {
   @Override
   public String toString() {
     switch (_tag) {
-    case noinit: return "android.hardware.radio.network.CellIdentity.noinit(" + (getNoinit()) + ")";
-    case gsm: return "android.hardware.radio.network.CellIdentity.gsm(" + (java.util.Objects.toString(getGsm())) + ")";
-    case wcdma: return "android.hardware.radio.network.CellIdentity.wcdma(" + (java.util.Objects.toString(getWcdma())) + ")";
-    case tdscdma: return "android.hardware.radio.network.CellIdentity.tdscdma(" + (java.util.Objects.toString(getTdscdma())) + ")";
-    case cdma: return "android.hardware.radio.network.CellIdentity.cdma(" + (java.util.Objects.toString(getCdma())) + ")";
-    case lte: return "android.hardware.radio.network.CellIdentity.lte(" + (java.util.Objects.toString(getLte())) + ")";
-    case nr: return "android.hardware.radio.network.CellIdentity.nr(" + (java.util.Objects.toString(getNr())) + ")";
+    case noinit: return "CellIdentity.noinit(" + (getNoinit()) + ")";
+    case gsm: return "CellIdentity.gsm(" + (java.util.Objects.toString(getGsm())) + ")";
+    case wcdma: return "CellIdentity.wcdma(" + (java.util.Objects.toString(getWcdma())) + ")";
+    case tdscdma: return "CellIdentity.tdscdma(" + (java.util.Objects.toString(getTdscdma())) + ")";
+    case cdma: return "CellIdentity.cdma(" + (java.util.Objects.toString(getCdma())) + ")";
+    case lte: return "CellIdentity.lte(" + (java.util.Objects.toString(getLte())) + ")";
+    case nr: return "CellIdentity.nr(" + (java.util.Objects.toString(getNr())) + ")";
     }
     throw new IllegalStateException("unknown field: " + _tag);
   }

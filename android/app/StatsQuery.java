@@ -22,6 +22,9 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 /**
  * Represents a query that contains information required for StatsManager to return relevant metric
  * data.
@@ -44,6 +47,7 @@ public final class StatsQuery {
      * @hide
      */
     @IntDef(prefix = {"DIALECT_"}, value = {DIALECT_UNKNOWN, DIALECT_SQLITE})
+    @Retention(RetentionPolicy.SOURCE)
     @interface SqlDialect {
     }
 

@@ -28,7 +28,7 @@ import java.util.Objects;
 
 /** Class to hold input to measurement trigger registration calls from web context. */
 public final class WebTriggerRegistrationRequest implements Parcelable {
-    private static final int WEB_TRIGGER_PARAMS_MAX_COUNT = 20;
+    private static final int WEB_TRIGGER_PARAMS_MAX_COUNT = 80;
 
     /** Creator for Paracelable (via reflection). */
     @NonNull
@@ -111,7 +111,7 @@ public final class WebTriggerRegistrationRequest implements Parcelable {
     /** Builder for {@link WebTriggerRegistrationRequest}. */
     public static final class Builder {
         /**
-         * Registration info to fetch triggers. Maximum 20 registrations allowed at once, to be in
+         * Registration info to fetch triggers. Maximum 80 registrations allowed at once, to be in
          * sync with Chrome platform.
          */
         @NonNull private List<WebTriggerParams> mWebTriggerParams;

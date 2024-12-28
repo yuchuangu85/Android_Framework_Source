@@ -16,11 +16,16 @@
 
 package android.net.ipsec.ike;
 
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.net.ipsec.ike.exceptions.IkeException;
 import android.net.ipsec.ike.exceptions.IkeProtocolException;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * Callback interface for receiving state changes of an {@link IkeSession}.
@@ -36,6 +41,88 @@ import android.net.ipsec.ike.exceptions.IkeProtocolException;
 // implementation.
 @SuppressLint("CallbackInterface")
 public interface IkeSessionCallback {
+
+    /**
+     * A new on-demand liveness check has started. Called when a liveness check begins with a new
+     * on-demand task.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    int LIVENESS_STATUS_ON_DEMAND_STARTED = 0;
+
+    /**
+     * A new on-demand liveness check is running. Called when a liveness check request is already
+     * running in an on-demand task.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    int LIVENESS_STATUS_ON_DEMAND_ONGOING = 1;
+
+    /**
+     * A new on-demand liveness check has started. Called when a liveness check begins in background
+     * with joining an existing running task.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    int LIVENESS_STATUS_BACKGROUND_STARTED = 2;
+
+    /**
+     * A background liveness check is running. Called when a liveness check request is already
+     * running in background.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    int LIVENESS_STATUS_BACKGROUND_ONGOING = 3;
+
+    /**
+     * Success status. Called when the peer's liveness is proven.
+     *
+     * <p>Note that this status is a result status when the peer is proven as alive, regardless of
+     * whether it is started in on-demand or in background.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    int LIVENESS_STATUS_SUCCESS = 4;
+
+    /**
+     * Failure status. Called when the IKE message retransmission times out.
+     *
+     * <p>This failure status is called when retransmission timeouts have expired. The IkeSession
+     * will be closed immediately by calling {@link IkeSessionCallback#onClosedWithException} with
+     * {@link android.net.ipsec.ike.exceptions.IkeTimeoutException} in the {@link
+     * IkeException#getCause()}.
+     *
+     * <p>Note that this status is a result status when the peer is determined as dead alive,
+     * regardless of whether it is started in on-demand or in background.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    int LIVENESS_STATUS_FAILURE = 5;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({
+        LIVENESS_STATUS_ON_DEMAND_STARTED,
+        LIVENESS_STATUS_ON_DEMAND_ONGOING,
+        LIVENESS_STATUS_BACKGROUND_STARTED,
+        LIVENESS_STATUS_BACKGROUND_ONGOING,
+        LIVENESS_STATUS_SUCCESS,
+        LIVENESS_STATUS_FAILURE,
+    })
+    @interface LivenessStatus {}
+
     /**
      * Called when the {@link IkeSession} setup succeeds.
      *
@@ -152,4 +239,89 @@ public interface IkeSessionCallback {
     @SystemApi
     default void onIkeSessionConnectionInfoChanged(
             @NonNull IkeSessionConnectionInfo connectionInfo) {}
+
+    /**
+     * Called when the status changes for the liveness check request.
+     *
+     * <p>{@link LivenessStatus#LIVENESS_STATUS_ON_DEMAND_STARTED}: This status is called when
+     * liveness checking is started with a new on-demand DPD task.
+     *
+     * <ul>
+     *   <li>Note that when a client requests a liveness check, if no tasks are currently running in
+     *       the session, a new on-demand DPD task is started and notified of {@link
+     *       LivenessStatus#LIVENESS_STATUS_ON_DEMAND_STARTED}.
+     *   <li>Note that a new on-demand DPD task uses retransmission timeouts from {@link
+     *       IkeSessionParams#getLivenessRetransmissionTimeoutsMillis()}.
+     * </ul>
+     *
+     * <p>{@link LivenessStatus#LIVENESS_STATUS_ON_DEMAND_ONGOING}: This status is called when
+     * liveness checking is already running in an on-demand DPD task.
+     *
+     * <ul>
+     *   <li>Note that when a client requests a liveness check, if there is already running in an
+     *       on-demand DPD task, {@link LivenessStatus#LIVENESS_STATUS_ON_DEMAND_ONGOING} is
+     *       notified.
+     * </ul>
+     *
+     * <p>{@link LivenessStatus#LIVENESS_STATUS_BACKGROUND_STARTED}: This status is called when
+     * liveness checking is started with joining an existing running task.
+     *
+     * <ul>
+     *   <li>Note that if there is an existing running task in the session and no liveness check
+     *       request is running in the background, the liveness check request will be joined to the
+     *       existing running task in the background. Then, while joining, {@link
+     *       LivenessStatus#LIVENESS_STATUS_BACKGROUND_STARTED} is notified.
+     *   <li>Note that an existing running task uses retransmission timeouts from {@link
+     *       IkeSessionParams#getRetransmissionTimeoutsMillis()}.
+     * </ul>
+     *
+     * <p>{@link LivenessStatus#LIVENESS_STATUS_BACKGROUND_ONGOING}: This status is called when
+     * liveness checking is already running with joining an existing running task.
+     *
+     * <ul>
+     *   <li>Note that when a client requests a liveness check, if the request is already running in
+     *       the background, {@link LivenessStatus#LIVENESS_STATUS_ON_DEMAND_ONGOING} is notified.
+     * </ul>
+     *
+     * <p>{@link LivenessStatus#LIVENESS_STATUS_SUCCESS}: This status is called when the peer's
+     * liveness is proven. Regardless of whether the request is running in an on-demand task or
+     * running in the background, Success result is reported with this status. Once this status is
+     * called, the liveness check request is done and no further status notifications are made until
+     * the next {@link IkeSession#requestLivenessCheck}.
+     *
+     * <ul>
+     *   <li>Note that if the peer's aliveness is proven in the on-demand DPD task, {@link
+     *       LivenessStatus#LIVENESS_STATUS_SUCCESS} is notified as soon as a valid on-demand DPD
+     *       response is received properly.
+     *   <li>Note that if the peer's liveness is proven in a background liveness check with joining
+     *       an existing running task, it can prove that the peer is alive for a valid incoming
+     *       packet of the joined task. In this case, {@link LivenessStatus#LIVENESS_STATUS_SUCCESS}
+     *       is notified as well.
+     * </ul>
+     *
+     * <p>{@link LivenessStatus#LIVENESS_STATUS_FAILURE}: This state is called when the peer is
+     * determined as dead for a liveness check request. After this status is called, the IkeSession
+     * will be closed immediately by calling {@link IkeSessionCallback#onClosedWithException} with
+     * {@link android.net.ipsec.ike.exceptions.IkeTimeoutException} in the {@link
+     * IkeException#getCause()}. Depending on the type of task for which liveness checking is
+     * performed, the failure result is reported as different retransmission timeouts.
+     *
+     * <ul>
+     *   <li>Note that if an on-demand DPD task is running, This task takes retransmission timeouts
+     *       from {@link IkeSessionParams#getLivenessRetransmissionTimeoutsMillis}, and after all
+     *       timeouts expire, {@link LivenessStatus#LIVENESS_STATUS_FAILURE} is notified and is
+     *       followed by closing session.
+     *   <li>Note that, if the liveness check request is running in the background in the joined
+     *       task, the task takes retransmission timeouts from {@link
+     *       IkeSessionParams#getRetransmissionTimeoutsMillis()}, and after all timeouts expire,
+     *       {@link LivenessStatus#LIVENESS_STATUS_FAILURE} is notified and is followed by closing
+     *       session.
+     * </ul>
+     *
+     * @param status the status of {@link LivenessStatus}
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    default void onLivenessStatusChanged(@LivenessStatus int status) {}
 }

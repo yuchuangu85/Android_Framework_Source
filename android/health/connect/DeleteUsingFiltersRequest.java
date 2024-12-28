@@ -41,6 +41,7 @@ public final class DeleteUsingFiltersRequest {
     /**
      * @see Builder
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private DeleteUsingFiltersRequest(
             @Nullable TimeRangeFilter timeRangeFilter,
             @NonNull Set<Class<? extends Record>> recordTypes,
@@ -79,6 +80,8 @@ public final class DeleteUsingFiltersRequest {
     public static final class Builder {
         private final Set<DataOrigin> mDataOrigins = new ArraySet<>();
         private final Set<Class<? extends Record>> mRecordTypes = new ArraySet<>();
+
+        @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
         private TimeRangeFilter mTimeRangeFilter;
 
         /**
@@ -114,6 +117,7 @@ public final class DeleteUsingFiltersRequest {
          * @param timeRangeFilter Time range b/w which the delete operation is to be performed
          * @return Same {@link Builder} with the timeRangeFilter field set
          */
+        @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
         @NonNull
         public Builder setTimeRangeFilter(@Nullable TimeRangeFilter timeRangeFilter) {
             mTimeRangeFilter = timeRangeFilter;

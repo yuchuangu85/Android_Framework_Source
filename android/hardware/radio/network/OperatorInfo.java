@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/OperatorInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/OperatorInfo.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public class OperatorInfo implements android.os.Parcelable
 {
   public java.lang.String alphaLong;
@@ -67,7 +69,7 @@ public class OperatorInfo implements android.os.Parcelable
     _aidl_sj.add("alphaShort: " + (java.util.Objects.toString(alphaShort)));
     _aidl_sj.add("operatorNumeric: " + (java.util.Objects.toString(operatorNumeric)));
     _aidl_sj.add("status: " + (status));
-    return "android.hardware.radio.network.OperatorInfo" + _aidl_sj.toString()  ;
+    return "OperatorInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

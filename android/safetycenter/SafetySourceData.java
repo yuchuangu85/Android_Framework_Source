@@ -216,7 +216,8 @@ public final class SafetySourceData implements Parcelable {
     @RequiresApi(UPSIDE_DOWN_CAKE)
     public Bundle getExtras() {
         if (!SdkLevel.isAtLeastU()) {
-            throw new UnsupportedOperationException();
+            throw new UnsupportedOperationException(
+                    "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
         }
         return mExtras;
     }
@@ -274,7 +275,8 @@ public final class SafetySourceData implements Parcelable {
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public Builder(@NonNull SafetySourceData safetySourceData) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             requireNonNull(safetySourceData);
             mIssues.addAll(safetySourceData.mIssues);
@@ -299,13 +301,14 @@ public final class SafetySourceData implements Parcelable {
         /**
          * Sets additional information for the {@link SafetySourceData}.
          *
-         * If not set, the default value is {@link Bundle#EMPTY}.
+         * <p>If not set, the default value is {@link Bundle#EMPTY}.
          */
         @NonNull
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public Builder setExtras(@NonNull Bundle extras) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             mExtras = requireNonNull(extras);
             return this;
@@ -319,7 +322,8 @@ public final class SafetySourceData implements Parcelable {
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public Builder clearExtras() {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             mExtras = Bundle.EMPTY;
             return this;

@@ -24,12 +24,12 @@ import android.annotation.Nullable;
 import android.annotation.SuppressLint;
 import android.annotation.TestApi;
 import android.content.Intent;
-import android.content.res.Configuration;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.view.SurfaceControl;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -192,6 +192,9 @@ public final class TaskFragmentTransaction implements Parcelable {
         @Nullable
         private TaskFragmentParentInfo mTaskFragmentParentInfo;
 
+        @Nullable
+        private SurfaceControl mSurfaceControl;
+
         public Change(@ChangeType int type) {
             mType = type;
         }
@@ -206,6 +209,7 @@ public final class TaskFragmentTransaction implements Parcelable {
             mActivityIntent = in.readTypedObject(Intent.CREATOR);
             mActivityToken = in.readStrongBinder();
             mTaskFragmentParentInfo = in.readTypedObject(TaskFragmentParentInfo.CREATOR);
+            mSurfaceControl = in.readTypedObject(SurfaceControl.CREATOR);
         }
 
         @Override
@@ -219,6 +223,7 @@ public final class TaskFragmentTransaction implements Parcelable {
             dest.writeTypedObject(mActivityIntent, flags);
             dest.writeStrongBinder(mActivityToken);
             dest.writeTypedObject(mTaskFragmentParentInfo, flags);
+            dest.writeTypedObject(mSurfaceControl, flags);
         }
 
         /** The change is related to the TaskFragment created with this unique token. */
@@ -239,13 +244,6 @@ public final class TaskFragmentTransaction implements Parcelable {
         @NonNull
         public Change setTaskId(int taskId) {
             mTaskId = taskId;
-            return this;
-        }
-
-        // TODO(b/241043377): Keep this API to prevent @TestApi changes. Remove in the next release.
-        /** Configuration of the parent Task. */
-        @NonNull
-        public Change setTaskConfiguration(@NonNull Configuration configuration) {
             return this;
         }
 
@@ -293,16 +291,22 @@ public final class TaskFragmentTransaction implements Parcelable {
             return this;
         }
 
-        // TODO(b/241043377): Hide this API to prevent @TestApi changes. Remove in the next release.
         /**
          * Sets info of the parent Task of the embedded TaskFragment.
          * @see TaskFragmentParentInfo
          *
-         * @hide pending unhide
+         * @hide
          */
         @NonNull
         public Change setTaskFragmentParentInfo(@NonNull TaskFragmentParentInfo info) {
             mTaskFragmentParentInfo = requireNonNull(info);
+            return this;
+        }
+
+        /** @hide */
+        @NonNull
+        public Change setTaskFragmentSurfaceControl(@Nullable SurfaceControl sc) {
+            mSurfaceControl = sc;
             return this;
         }
 
@@ -323,12 +327,6 @@ public final class TaskFragmentTransaction implements Parcelable {
 
         public int getTaskId() {
             return mTaskId;
-        }
-
-        // TODO(b/241043377): Keep this API to prevent @TestApi changes. Remove in the next release.
-        @Nullable
-        public Configuration getTaskConfiguration() {
-            return mTaskFragmentParentInfo.getConfiguration();
         }
 
         @Nullable
@@ -352,11 +350,28 @@ public final class TaskFragmentTransaction implements Parcelable {
             return mActivityToken;
         }
 
-        // TODO(b/241043377): Hide this API to prevent @TestApi changes. Remove in the next release.
-        /** @hide pending unhide */
+        /**
+         * Obtains the {@link TaskFragmentParentInfo} for this transaction.
+         */
+        @SuppressLint("UnflaggedApi") // @TestApi to replace legacy usages.
         @Nullable
         public TaskFragmentParentInfo getTaskFragmentParentInfo() {
             return mTaskFragmentParentInfo;
+        }
+
+        /**
+         * Gets the {@link SurfaceControl} of the TaskFragment. This field is {@code null} for
+         * a regular {@link TaskFragmentOrganizer} and is only available for a system
+         * {@link TaskFragmentOrganizer} in the
+         * {@link TaskFragmentTransaction#TYPE_TASK_FRAGMENT_APPEARED} event. See
+         * {@link ITaskFragmentOrganizerController#registerOrganizer(ITaskFragmentOrganizer,
+         * boolean)}
+         *
+         * @hide
+         */
+        @Nullable
+        public SurfaceControl getTaskFragmentSurfaceControl() {
+            return mSurfaceControl;
         }
 
         @Override

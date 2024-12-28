@@ -18,6 +18,8 @@ package android.net.ipsec.ike.exceptions;
 import android.net.ipsec.ike.ChildSessionCallback;
 import android.net.ipsec.ike.IkeSessionCallback;
 
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
+
 /**
  * This exception is thrown if the remote server is unwilling to accept any more Child SAs.
  *
@@ -55,5 +57,15 @@ public final class NoAdditionalSasException extends IkeProtocolException {
     @Override
     protected boolean isValidDataLength(int dataLen) {
         return EXPECTED_ERROR_DATA_LEN == dataLen;
+    }
+
+    /**
+     * Returns the error code for metrics
+     *
+     * @hide
+     */
+    @Override
+    public int getMetricsErrorCode() {
+        return IkeMetrics.IKE_ERROR_PROTOCOL_NO_ADDITIONAL_SAS;
     }
 }

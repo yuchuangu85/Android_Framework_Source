@@ -132,6 +132,8 @@ public abstract class Provider extends Properties {
 
     private transient boolean initialized;
 
+    private static final Object[] EMPTY = new Object[0];
+
     /**
      * Constructs a provider with the specified name, version number,
      * and information.
@@ -1349,7 +1351,8 @@ public abstract class Provider extends Properties {
         addEngine("KeyPairGenerator",                   false, null);
         addEngine("KeyStore",                           false, null);
         addEngine("MessageDigest",                      false, null);
-        addEngine("SecureRandom",                       false, null);
+        addEngine("SecureRandom",                       false,
+                "java.security.SecureRandomParameters");
         addEngine("Signature",                          true,  null);
         addEngine("CertificateFactory",                 false, null);
         addEngine("CertPathBuilder",                    false, null);
@@ -1434,6 +1437,11 @@ public abstract class Provider extends Properties {
 
         // Reference to the cached implementation Class object
         private volatile Reference<Class<?>> classRef;
+
+        // Will be a Constructor if this service is loaded from the built-in
+        // classloader (unloading not possible), otherwise a WeakReference to
+        // a Constructor
+        private Object constructorCache;
 
         // flag indicating whether this service has its attributes for
         // supportedKeyFormats or supportedKeyClasses set
@@ -1615,39 +1623,38 @@ public abstract class Provider extends Properties {
                 }
                 registered = true;
             }
+            Class<?> ctrParamClz;
             try {
+                // Android-changed: TODO: Cache cap in ctor when this class is updated to openjdk9+.
+                // EngineDescription cap = engineDescription;
                 EngineDescription cap = knownEngines.get(type);
                 if (cap == null) {
                     // unknown engine type, use generic code
                     // this is the code path future for non-core
                     // optional packages
-                    return newInstanceGeneric(constructorParameter);
-                }
-                if (cap.constructorParameterClassName == null) {
-                    if (constructorParameter != null) {
-                        throw new InvalidParameterException
-                            ("constructorParameter not used with " + type
-                            + " engines");
-                    }
-                    Class<?> clazz = getImplClass();
-                    Class<?>[] empty = {};
-                    Constructor<?> con = clazz.getConstructor(empty);
-                    return con.newInstance();
+                    ctrParamClz = constructorParameter == null?
+                        null : constructorParameter.getClass();
                 } else {
-                    Class<?> paramClass = cap.getConstructorParameterClass();
+                    ctrParamClz = cap.constructorParameterClassName == null?
+                            null : Class.forName(cap.constructorParameterClassName);
                     if (constructorParameter != null) {
-                        Class<?> argClass = constructorParameter.getClass();
-                        if (paramClass.isAssignableFrom(argClass) == false) {
+                        if (ctrParamClz == null) {
                             throw new InvalidParameterException
-                            ("constructorParameter must be instanceof "
-                            + cap.constructorParameterClassName.replace('$', '.')
-                            + " for engine type " + type);
+                                ("constructorParameter not used with " + type
+                                + " engines");
+                        } else {
+                            Class<?> argClass = constructorParameter.getClass();
+                            if (ctrParamClz.isAssignableFrom(argClass) == false) {
+                                throw new InvalidParameterException
+                                    ("constructorParameter must be instanceof "
+                                    + cap.constructorParameterClassName.replace('$', '.')
+                                    + " for engine type " + type);
+                            }
                         }
                     }
-                    Class<?> clazz = getImplClass();
-                    Constructor<?> cons = clazz.getConstructor(paramClass);
-                    return cons.newInstance(constructorParameter);
                 }
+                // constructorParameter can be null if not provided
+                return newInstanceUtil(ctrParamClz, constructorParameter);
             } catch (NoSuchAlgorithmException e) {
                 throw e;
             } catch (InvocationTargetException e) {
@@ -1660,6 +1667,48 @@ public abstract class Provider extends Properties {
                     ("Error constructing implementation (algorithm: "
                     + algorithm + ", provider: " + provider.getName()
                     + ", class: " + className + ")", e);
+            }
+        }
+
+        private Object newInstanceOf() throws Exception {
+            Constructor<?> con = getDefaultConstructor();
+            return con.newInstance(EMPTY);
+        }
+
+        private Object newInstanceUtil(Class<?> ctrParamClz, Object ctorParamObj)
+                throws Exception
+        {
+            if (ctrParamClz == null) {
+                return newInstanceOf();
+            } else {
+                // Looking for the constructor with a params first and fallback
+                // to one without if not found. This is to support the enhanced
+                // SecureRandom where both styles of constructors are supported.
+                // Before jdk9, there was no params support (only getInstance(alg))
+                // and an impl only had the params-less constructor. Since jdk9,
+                // there is getInstance(alg,params) and an impl can contain
+                // an Impl(params) constructor.
+                try {
+                    Constructor<?> con = getImplClass().getConstructor(ctrParamClz);
+                    return con.newInstance(ctorParamObj);
+                } catch (NoSuchMethodException nsme) {
+                    // For pre-jdk9 SecureRandom implementations, they only
+                    // have params-less constructors which still works when
+                    // the input ctorParamObj is null.
+                    //
+                    // For other primitives using params, ctorParamObj should not
+                    // be null and nsme is thrown, just like before.
+                    if (ctorParamObj == null) {
+                        try {
+                            return newInstanceOf();
+                        } catch (NoSuchMethodException nsme2) {
+                            nsme.addSuppressed(nsme2);
+                            throw nsme;
+                        }
+                    } else {
+                        throw nsme;
+                    }
+                }
             }
         }
 
@@ -1690,41 +1739,24 @@ public abstract class Provider extends Properties {
             }
         }
 
-        /**
-         * Generic code path for unknown engine types. Call the
-         * no-args constructor if constructorParameter is null, otherwise
-         * use the first matching constructor.
-         */
-        private Object newInstanceGeneric(Object constructorParameter)
-                throws Exception {
-            Class<?> clazz = getImplClass();
-            if (constructorParameter == null) {
-                // create instance with public no-arg constructor if it exists
-                try {
-                    Class<?>[] empty = {};
-                    Constructor<?> con = clazz.getConstructor(empty);
-                    return con.newInstance();
-                } catch (NoSuchMethodException e) {
-                    throw new NoSuchAlgorithmException("No public no-arg "
-                        + "constructor found in class " + className);
-                }
+        private Constructor<?> getDefaultConstructor()
+                throws NoSuchAlgorithmException, NoSuchMethodException
+        {
+            Object cache = constructorCache;
+            if (cache instanceof Constructor<?> con) {
+                return con;
             }
-            Class<?> argClass = constructorParameter.getClass();
-            Constructor[] cons = clazz.getConstructors();
-            // find first public constructor that can take the
-            // argument as parameter
-            for (Constructor<?> con : cons) {
-                Class<?>[] paramTypes = con.getParameterTypes();
-                if (paramTypes.length != 1) {
-                    continue;
-                }
-                if (paramTypes[0].isAssignableFrom(argClass) == false) {
-                    continue;
-                }
-                return con.newInstance(constructorParameter);
+            Constructor<?> con = null;
+            if (cache instanceof WeakReference<?> ref){
+                con = (Constructor<?>)ref.get();
             }
-            throw new NoSuchAlgorithmException("No public constructor matching "
-                + argClass.getName() + " found in class " + className);
+            if (con == null) {
+                Class<?> clazz = getImplClass();
+                con = clazz.getConstructor();
+                constructorCache = (clazz.getClassLoader() == null)
+                        ? con : new WeakReference<Constructor<?>>(con);
+            }
+            return con;
         }
 
         /**
@@ -1793,28 +1825,35 @@ public abstract class Provider extends Properties {
             Boolean b = hasKeyAttributes;
             if (b == null) {
                 synchronized (this) {
-                    String s;
-                    s = getAttribute("SupportedKeyFormats");
-                    if (s != null) {
-                        supportedFormats = s.split("\\|");
-                    }
-                    s = getAttribute("SupportedKeyClasses");
-                    if (s != null) {
-                        String[] classNames = s.split("\\|");
-                        List<Class<?>> classList =
-                            new ArrayList<>(classNames.length);
-                        for (String className : classNames) {
-                            Class<?> clazz = getKeyClass(className);
-                            if (clazz != null) {
-                                classList.add(clazz);
-                            }
+                    // BEGIN Android-changed: Double-check idiom for concurrent access b/276503829.
+                    // This implementation is brought in line with the upstream commit
+                    // 0610992a8fd46aac2df5e535ad3924a1dca248c4.
+                    b = hasKeyAttributes;
+                    if (b == null) {
+                        String s;
+                        s = getAttribute("SupportedKeyFormats");
+                        if (s != null) {
+                            supportedFormats = s.split("\\|");
                         }
-                        supportedClasses = classList.toArray(CLASS0);
+                        s = getAttribute("SupportedKeyClasses");
+                        if (s != null) {
+                            String[] classNames = s.split("\\|");
+                            List<Class<?>> classList =
+                                new ArrayList<>(classNames.length);
+                            for (String className : classNames) {
+                                Class<?> clazz = getKeyClass(className);
+                                if (clazz != null) {
+                                    classList.add(clazz);
+                                }
+                            }
+                            supportedClasses = classList.toArray(CLASS0);
+                        }
+                        boolean bool = (supportedFormats != null)
+                            || (supportedClasses != null);
+                        b = Boolean.valueOf(bool);
+                        hasKeyAttributes = b;
                     }
-                    boolean bool = (supportedFormats != null)
-                        || (supportedClasses != null);
-                    b = Boolean.valueOf(bool);
-                    hasKeyAttributes = b;
+                    // END Android-changed: Double-check idiom for concurrent access b/276503829.
                 }
             }
             return b.booleanValue();

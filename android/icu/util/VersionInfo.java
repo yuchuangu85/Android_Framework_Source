@@ -178,6 +178,12 @@ public final class VersionInfo implements Comparable<VersionInfo>
     public static final VersionInfo UNICODE_15_0;
 
     /**
+     * Unicode 15.1 version
+     */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+    public static final VersionInfo UNICODE_15_1;
+
+    /**
      * ICU4J current release version
      */
     public static final VersionInfo ICU_VERSION;
@@ -190,7 +196,7 @@ public final class VersionInfo implements Comparable<VersionInfo>
      * @hide draft / provisional / internal are hidden on Android
      */
     @Deprecated
-    public static final String ICU_DATA_VERSION_PATH = "72b";
+    public static final String ICU_DATA_VERSION_PATH = "75b";
 
     /**
      * Data version in ICU4J.
@@ -294,7 +300,7 @@ public final class VersionInfo implements Comparable<VersionInfo>
             throw new IllegalArgumentException(INVALID_VERSION_NUMBER_);
         }
         int     version = getInt(major, minor, milli, micro);
-        Integer key     = Integer.valueOf(version);
+        Integer key     = version;
         VersionInfo  result  = MAP_.get(key);
         if (result == null) {
             result = new VersionInfo(version);
@@ -519,10 +525,11 @@ public final class VersionInfo implements Comparable<VersionInfo>
         UNICODE_13_0   = getInstance(13, 0, 0, 0);
         UNICODE_14_0   = getInstance(14, 0, 0, 0);
         UNICODE_15_0   = getInstance(15, 0, 0, 0);
+        UNICODE_15_1   = getInstance(15, 1, 0, 0);
 
-        ICU_VERSION   = getInstance(72, 1, 0, 0);
+        ICU_VERSION   = getInstance(75, 1, 0, 0);
         ICU_DATA_VERSION = ICU_VERSION;
-        UNICODE_VERSION = UNICODE_15_0;
+        UNICODE_VERSION = UNICODE_15_1;
 
         UCOL_RUNTIME_VERSION = getInstance(9);
         UCOL_BUILDER_VERSION = getInstance(9);

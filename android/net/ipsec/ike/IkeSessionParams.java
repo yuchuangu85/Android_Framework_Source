@@ -22,6 +22,7 @@ import static android.system.OsConstants.AF_INET6;
 import static com.android.internal.net.ipsec.ike.utils.IkeCertUtils.certificateFromByteArray;
 import static com.android.internal.net.ipsec.ike.utils.IkeCertUtils.privateKeyFromByteArray;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -34,6 +35,7 @@ import android.net.Network;
 import android.net.eap.EapSessionConfig;
 import android.net.ipsec.ike.ike3gpp.Ike3gppExtension;
 import android.os.PersistableBundle;
+import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.net.ipsec.ike.message.IkeConfigPayload.ConfigAttribute;
@@ -44,6 +46,7 @@ import com.android.internal.net.ipsec.ike.message.IkePayload;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.server.vcn.util.PersistableBundleUtils;
 
+import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.net.Inet4Address;
@@ -57,9 +60,11 @@ import java.security.interfaces.RSAKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -348,6 +353,34 @@ public final class IkeSessionParams {
     @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
     public static final int NATT_KEEPALIVE_INTERVAL_AUTO = -1;
 
+    /**
+     * Setting timer to this value will disable the Dead Peer Detection(DPD).
+     *
+     * <p>@see {@link Builder#setDpdDelaySeconds}
+     */
+    @FlaggedApi("com.android.ipsec.flags.dpd_disable_api")
+    public static final int IKE_DPD_DELAY_SEC_DISABLED = Integer.MAX_VALUE;
+
+    /** @hide */
+    public static final SparseArray<String> IP_VERSION_TO_STR;
+
+    static {
+        IP_VERSION_TO_STR = new SparseArray<>();
+        IP_VERSION_TO_STR.put(ESP_IP_VERSION_AUTO, "AUTO");
+        IP_VERSION_TO_STR.put(ESP_IP_VERSION_IPV4, "IPV4");
+        IP_VERSION_TO_STR.put(ESP_IP_VERSION_IPV6, "IPV6");
+    }
+
+    /** @hide */
+    public static final SparseArray<String> ENCAP_TYPE_TO_STR;
+
+    static {
+        ENCAP_TYPE_TO_STR = new SparseArray<>();
+        ENCAP_TYPE_TO_STR.put(ESP_ENCAP_TYPE_NONE, "NONE");
+        ENCAP_TYPE_TO_STR.put(ESP_ENCAP_TYPE_AUTO, "AUTO");
+        ENCAP_TYPE_TO_STR.put(ESP_ENCAP_TYPE_UDP, "UDP");
+    }
+
     /** @hide */
     @VisibleForTesting static final int IKE_HARD_LIFETIME_SEC_MINIMUM = 300; // 5 minutes
     /** @hide */
@@ -370,8 +403,6 @@ public final class IkeSessionParams {
     @VisibleForTesting static final int IKE_DPD_DELAY_SEC_MAX = 1800; // 30 minutes
     /** @hide */
     @VisibleForTesting static final int IKE_DPD_DELAY_SEC_DEFAULT = 120; // 2 minutes
-    /** @hide */
-    public static final int IKE_DPD_DELAY_SEC_DISABLED = Integer.MAX_VALUE;
 
     /** @hide */
     @VisibleForTesting public static final int IKE_NATT_KEEPALIVE_DELAY_SEC_MIN = 10;
@@ -399,6 +430,19 @@ public final class IkeSessionParams {
     static final int[] IKE_RETRANS_TIMEOUT_MS_LIST_DEFAULT =
             new int[] {500, 1000, 2000, 4000, 8000};
 
+    /** @hide */
+    @VisibleForTesting static final int LIVENESS_RETRANS_TIMEOUT_MS_MIN = 500;
+    /** @hide */
+    @VisibleForTesting static final int LIVENESS_RETRANS_TIMEOUT_MS_MAX = 30000;
+    /** @hide */
+    @VisibleForTesting static final int LIVENESS_RETRANS_TIMEOUT_MS_TOTAL = 30000;
+    /** @hide */
+    @VisibleForTesting static final int LIVENESS_RETRANS_MAX_ATTEMPTS_MAX = 10;
+    /** @hide */
+    @VisibleForTesting
+    static final int[] LIVENESS_RETRANS_TIMEOUT_MS_LIST_DEFAULT =
+            new int[] {500, 1000, 2000, 4000, 8000};
+
     private static final String SERVER_HOST_NAME_KEY = "mServerHostname";
     private static final String SA_PROPOSALS_KEY = "mSaProposals";
     private static final String LOCAL_ID_KEY = "mLocalIdentification";
@@ -407,6 +451,7 @@ public final class IkeSessionParams {
     private static final String REMOTE_AUTH_KEY = "mRemoteAuthConfig";
     private static final String CONFIG_ATTRIBUTES_KEY = "mConfigRequests";
     private static final String RETRANS_TIMEOUTS_KEY = "mRetransTimeoutMsList";
+    private static final String LIVENESS_RETRANS_TIMEOUTS_KEY = "mLivenessRetransTimeoutMsList";
     private static final String IKE_OPTIONS_KEY = "mIkeOptions";
     private static final String HARD_LIFETIME_SEC_KEY = "mHardLifetimeSec";
     private static final String SOFT_LIFETIME_SEC_KEY = "mSoftLifetimeSec";
@@ -441,6 +486,7 @@ public final class IkeSessionParams {
     @NonNull private final IkeConfigAttribute[] mConfigRequests;
 
     @NonNull private final int[] mRetransTimeoutMsList;
+    @NonNull private final int[] mLivenessRetransTimeoutMsList;
 
     @Nullable private final Ike3gppExtension mIke3gppExtension;
 
@@ -468,6 +514,7 @@ public final class IkeSessionParams {
             @NonNull IkeAuthConfig remoteAuthConfig,
             @NonNull IkeConfigAttribute[] configRequests,
             @NonNull int[] retransTimeoutMsList,
+            @NonNull int[] livenessRetransTimeoutMsList,
             @Nullable Ike3gppExtension ike3gppExtension,
             long ikeOptions,
             int hardLifetimeSec,
@@ -493,6 +540,7 @@ public final class IkeSessionParams {
         mConfigRequests = configRequests;
 
         mRetransTimeoutMsList = retransTimeoutMsList;
+        mLivenessRetransTimeoutMsList = livenessRetransTimeoutMsList;
 
         mIke3gppExtension = ike3gppExtension;
 
@@ -562,6 +610,8 @@ public final class IkeSessionParams {
         }
 
         builder.setRetransmissionTimeoutsMillis(in.getIntArray(RETRANS_TIMEOUTS_KEY));
+        builder.setLivenessRetransmissionTimeoutsMillis(
+                in.getIntArray(LIVENESS_RETRANS_TIMEOUTS_KEY));
 
         long ikeOptions = in.getLong(IKE_OPTIONS_KEY);
         for (int option = MIN_IKE_OPTION; option <= MAX_IKE_OPTION; option++) {
@@ -620,6 +670,7 @@ public final class IkeSessionParams {
         result.putPersistableBundle(CONFIG_ATTRIBUTES_KEY, configAttributeBundle);
 
         result.putIntArray(RETRANS_TIMEOUTS_KEY, mRetransTimeoutMsList);
+        result.putIntArray(LIVENESS_RETRANS_TIMEOUTS_KEY, mLivenessRetransTimeoutMsList);
         result.putLong(IKE_OPTIONS_KEY, mIkeOptions);
         result.putInt(HARD_LIFETIME_SEC_KEY, mHardLifetimeSec);
         result.putInt(SOFT_LIFETIME_SEC_KEY, mSoftLifetimeSec);
@@ -744,7 +795,7 @@ public final class IkeSessionParams {
     /** Retrieves the Dead Peer Detection(DPD) delay in seconds */
     // Use "second" because smaller unit does not make sense to a DPD delay.
     @SuppressLint("MethodNameUnits")
-    @IntRange(from = IKE_DPD_DELAY_SEC_MIN, to = IKE_DPD_DELAY_SEC_MAX)
+    @IntRange(from = IKE_DPD_DELAY_SEC_MIN)
     public int getDpdDelaySeconds() {
         return mDpdDelaySec;
     }
@@ -797,6 +848,26 @@ public final class IkeSessionParams {
     }
 
     /**
+     * Retrieves the relative retransmission timeout list for configuring on-demand liveness checks
+     * in milliseconds.
+     *
+     * <p>The on-demand liveness check uses the returned list of liveness retransmission timeouts
+     * set from {@link Builder#setLivenessRetransmissionTimeoutsMillis} or uses the default value of
+     * {0.5s, 1s, 2s, 4s, 8s} if no override is defined.
+     *
+     * <p>@see {@link Builder#setLivenessRetransmissionTimeoutsMillis} for more information about
+     * how the list is structured.
+     *
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+    @NonNull
+    public int[] getLivenessRetransmissionTimeoutsMillis() {
+        return mLivenessRetransTimeoutMsList;
+    }
+
+    /**
      * Retrieves the configured Ike3gppExtension, or null if it was not set.
      *
      * @hide
@@ -820,6 +891,31 @@ public final class IkeSessionParams {
      */
     public boolean hasIkeOption(@IkeOption int ikeOption) {
         return hasIkeOption(mIkeOptions, ikeOption);
+    }
+
+    /**
+     * Return all the enabled IKE Options
+     *
+     * @return A Set of enabled IKE options that have been added using {@link
+     *     Builder#addIkeOption(int)}
+     */
+    @FlaggedApi("com.android.ipsec.flags.enabled_ike_options_api")
+    @NonNull
+    @IkeOption
+    public Set<Integer> getIkeOptions() {
+        final Set<Integer> result = new HashSet<>();
+
+        long ikeOptionBits = mIkeOptions;
+        int optionValue = 0;
+        while (ikeOptionBits > 0) {
+            if ((ikeOptionBits & 1) == 1) {
+                result.add(optionValue);
+            }
+            ikeOptionBits >>>= 1;
+            optionValue++;
+        }
+
+        return result;
     }
 
     /** @hide */
@@ -867,6 +963,7 @@ public final class IkeSessionParams {
                 mIke3gppExtension,
                 Arrays.hashCode(mConfigRequests),
                 Arrays.hashCode(mRetransTimeoutMsList),
+                Arrays.hashCode(mLivenessRetransTimeoutMsList),
                 mIkeOptions,
                 mHardLifetimeSec,
                 mSoftLifetimeSec,
@@ -897,6 +994,7 @@ public final class IkeSessionParams {
                 && Objects.equals(mIke3gppExtension, other.mIke3gppExtension)
                 && Arrays.equals(mConfigRequests, other.mConfigRequests)
                 && Arrays.equals(mRetransTimeoutMsList, other.mRetransTimeoutMsList)
+                && Arrays.equals(mLivenessRetransTimeoutMsList, other.mLivenessRetransTimeoutMsList)
                 && mIkeOptions == other.mIkeOptions
                 && mHardLifetimeSec == other.mHardLifetimeSec
                 && mSoftLifetimeSec == other.mSoftLifetimeSec
@@ -1428,6 +1526,12 @@ public final class IkeSessionParams {
                         IKE_RETRANS_TIMEOUT_MS_LIST_DEFAULT,
                         IKE_RETRANS_TIMEOUT_MS_LIST_DEFAULT.length);
 
+        @NonNull
+        private int[] mLivenessRetransTimeoutMsList =
+                Arrays.copyOf(
+                        LIVENESS_RETRANS_TIMEOUT_MS_LIST_DEFAULT,
+                        LIVENESS_RETRANS_TIMEOUT_MS_LIST_DEFAULT.length);
+
         @NonNull private String mServerHostname;
         @Nullable private Network mCallerConfiguredNetwork;
 
@@ -1501,6 +1605,14 @@ public final class IkeSessionParams {
             int[] retransmissionTimeouts = ikeSessionParams.getRetransmissionTimeoutsMillis();
             mRetransTimeoutMsList =
                     Arrays.copyOf(retransmissionTimeouts, retransmissionTimeouts.length);
+
+            int[] livenessretransmissionTimeouts = ikeSessionParams.mLivenessRetransTimeoutMsList;
+            if (livenessretransmissionTimeouts != null) {
+                mLivenessRetransTimeoutMsList =
+                        Arrays.copyOf(
+                                livenessretransmissionTimeouts,
+                                livenessretransmissionTimeouts.length);
+            }
 
             mServerHostname = ikeSessionParams.getServerHostname();
             mCallerConfiguredNetwork = ikeSessionParams.getConfiguredNetwork();
@@ -1901,14 +2013,12 @@ public final class IkeSessionParams {
          * @param dpdDelaySeconds number of seconds after which IKE SA will initiate DPD if no
          *     inbound cryptographically protected IKE message was received. Defaults to 120
          *     seconds. MUST be a value greater than or equal to than 20 seconds. Setting the value
-         *     to {@link java.lang.Integer#MAX_VALUE} will disable DPD.
+         *     to {@link IkeSessionParams#IKE_DPD_DELAY_SEC_DISABLED} will disable DPD.
          * @return Builder this, to facilitate chaining.
          */
-        // TODO: b/240206579 Align the @IntRange with the implementation.
         @NonNull
         public Builder setDpdDelaySeconds(
-                @IntRange(from = IKE_DPD_DELAY_SEC_MIN, to = IKE_DPD_DELAY_SEC_MAX)
-                        int dpdDelaySeconds) {
+                @IntRange(from = IKE_DPD_DELAY_SEC_MIN) int dpdDelaySeconds) {
             if (dpdDelaySeconds < IKE_DPD_DELAY_SEC_MIN) {
                 throw new IllegalArgumentException("Invalid DPD delay value");
             }
@@ -2041,6 +2151,54 @@ public final class IkeSessionParams {
         }
 
         /**
+         * Sets a list of retransmission timeouts in milliseconds for performing on-demand liveness
+         * checks.
+         *
+         * <p>Provides the user the ability to set an array of relative retransmission timeouts for
+         * on-demand liveness checks in milliseconds. After sending out a request and before
+         * receiving the response, the IKE Session will iterate through the array and wait for the
+         * relative timeout before the next retry. If the last timeout is exceeded, the IKE Session
+         * will be terminated.
+         *
+         * <p>Each element in the array MUST be a value from 500 ms to 30000 ms. The length of the
+         * array MUST NOT exceed 10. The total retransmission timeouts MUST NOT exceed 30000 ms.
+         * This retransmission timeout list defaults to {0.5s, 1s, 2s, 4s, 8s}.
+         *
+         * @param retransTimeoutMillisList the array of relative retransmission timeout in
+         *     milliseconds for checking peer's liveness.
+         * @return Builder this, to facilitate chaining.
+         * @hide
+         */
+        @SystemApi
+        @FlaggedApi("com.android.ipsec.flags.liveness_check_api")
+        @NonNull
+        public Builder setLivenessRetransmissionTimeoutsMillis(
+                @NonNull int[] retransTimeoutMillisList) {
+            boolean isValid = true;
+            int totalTimeoutMs = 0;
+            if (retransTimeoutMillisList == null
+                    || retransTimeoutMillisList.length == 0
+                    || retransTimeoutMillisList.length > LIVENESS_RETRANS_MAX_ATTEMPTS_MAX) {
+                isValid = false;
+            }
+            for (int t : retransTimeoutMillisList) {
+                totalTimeoutMs += t;
+                if (t < LIVENESS_RETRANS_TIMEOUT_MS_MIN || t > LIVENESS_RETRANS_TIMEOUT_MS_MAX) {
+                    isValid = false;
+                }
+            }
+            if (totalTimeoutMs > LIVENESS_RETRANS_TIMEOUT_MS_TOTAL) {
+                isValid = false;
+            }
+
+            if (!isValid) {
+                throw new IllegalArgumentException("Invalid liveness retransmission timeout list.");
+            }
+            mLivenessRetransTimeoutMsList = retransTimeoutMillisList;
+            return this;
+        }
+
+        /**
          * Sets the parameters to be used for 3GPP-specific behavior during the IKE Session.
          *
          * <p>Setting the Ike3gppExtension also enables support for non-configurable payloads, such
@@ -2068,9 +2226,6 @@ public final class IkeSessionParams {
          * @return Builder this, to facilitate chaining.
          * @throws IllegalArgumentException if the provided option is invalid.
          */
-        // Use #hasIkeOption instead of @getIkeOptions because #hasIkeOption allows callers to check
-        // the presence of one IKE option more easily
-        @SuppressLint("MissingGetterMatchingBuilder")
         @NonNull
         public Builder addIkeOption(@IkeOption int ikeOption) {
             return addIkeOptionInternal(ikeOption);
@@ -2193,6 +2348,7 @@ public final class IkeSessionParams {
                     mRemoteAuthConfig,
                     mConfigRequestList.toArray(new IkeConfigAttribute[0]),
                     mRetransTimeoutMsList,
+                    mLivenessRetransTimeoutMsList,
                     mIke3gppExtension,
                     mIkeOptions,
                     mHardLifetimeSec,
@@ -2206,5 +2362,55 @@ public final class IkeSessionParams {
         }
 
         // TODO: add methods for supporting IKE fragmentation.
+    }
+
+    /**
+     * Dumps the state of {@link IkeSessionParams}
+     *
+     * @param pw {@link PrintWriter} to write the state of the object.
+     * @param prefix prefix for indentation
+     * @hide
+     */
+    public void dump(PrintWriter pw, String prefix) {
+        // Please make sure that the dump is thread-safe
+        // so the client won't get a crash or exception when adding codes to the dump.
+
+        pw.println("------------------------------");
+        pw.println("IkeSessionParams:");
+        pw.println(prefix + "Caller configured network: " + mCallerConfiguredNetwork);
+        pw.println(prefix + "Dpd Delay timer in secs: " + mDpdDelaySec);
+        pw.println(prefix + "Dscp: " + mDscp);
+        pw.println(prefix + "Esp ip version: " + IP_VERSION_TO_STR.get(mIpVersion));
+        pw.println(prefix + "Esp encap type: " + ENCAP_TYPE_TO_STR.get(mEncapType));
+        pw.println(prefix + "Force port4500 status: " + hasIkeOption(IKE_OPTION_FORCE_PORT_4500));
+        pw.println(prefix + "Hard life time in secs: " + mHardLifetimeSec);
+        pw.println(
+                prefix
+                        + "Liveness retransmission timer in millis : "
+                        + Arrays.toString(mLivenessRetransTimeoutMsList));
+        pw.println(prefix + "Nat keep alive delay in secs: " + mNattKeepaliveDelaySec);
+        pw.println(prefix + "Soft life time in secs: " + mSoftLifetimeSec);
+        pw.println(prefix + "Remote host name: " + mServerHostname);
+        pw.println(
+                prefix
+                        + "Retransmission timer in millis : "
+                        + Arrays.toString(mRetransTimeoutMsList));
+        for (IkeSaProposal saProposal : getIkeSaProposals()) {
+            pw.println();
+            pw.println(prefix + "IkeSaProposal:");
+            pw.println(
+                    prefix
+                            + "Encryption algorithm: "
+                            + saProposal.getEncryptionAlgorithms().toString());
+            pw.println(
+                    prefix
+                            + "Integrity algorithm: "
+                            + saProposal.getIntegrityAlgorithms().toString());
+            pw.println(prefix + "Dh Group algorithm: " + saProposal.getDhGroups().toString());
+            pw.println(
+                    prefix + "Prf algorithm: " + saProposal.getPseudorandomFunctions().toString());
+        }
+        pw.println("------------------------------");
+        pw.println();
     }
 }

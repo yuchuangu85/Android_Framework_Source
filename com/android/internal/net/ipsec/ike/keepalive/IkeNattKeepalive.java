@@ -127,6 +127,7 @@ public class IkeNattKeepalive {
     public void stop() {
         getIkeLog().d(TAG, "Stop NAT-T keepalive");
 
+        mHardwareKeepalivePendingOnStopped = null;
         mNattKeepalive.stop();
     }
 

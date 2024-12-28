@@ -36,7 +36,8 @@ import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
-import jdk.internal.misc.SharedSecrets;
+import jdk.internal.access.JavaUtilCollectionAccess;
+import jdk.internal.access.SharedSecrets;
 import jdk.internal.vm.annotation.Stable;
 
 /**
@@ -123,8 +124,6 @@ class ImmutableCollections {
     */
     // END Android-changed: always initialize empty collections.
 
-    // BEGIN Android-changed: JavaUtilCollectionAccess is not yet imported.
-    /*
     static class Access {
         static {
             SharedSecrets.setJavaUtilCollectionAccess(new JavaUtilCollectionAccess() {
@@ -137,8 +136,6 @@ class ImmutableCollections {
             });
         }
     }
-    */
-    // END Android-changed: JavaUtilCollectionAccess is not yet imported.
 
     /** No instances. */
     private ImmutableCollections() { }

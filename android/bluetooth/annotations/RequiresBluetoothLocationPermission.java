@@ -26,16 +26,14 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 /**
- * @memberDoc In addition, this requires either the
- *            {@link Manifest.permission#ACCESS_FINE_LOCATION}
- *            permission or a strong assertion that you will never derive the
- *            physical location of the device. You can make this assertion by
- *            declaring {@code usesPermissionFlags="neverForLocation"} on the
- *            relevant {@code <uses-permission>} manifest tag, but it may
- *            restrict the types of Bluetooth devices you can interact with.
+ * @memberDoc In addition, this requires either the {@link Manifest.permission#ACCESS_FINE_LOCATION}
+ *     permission or a strong assertion that you will never derive the physical location of the
+ *     device. You can make this assertion by declaring {@code
+ *     usesPermissionFlags="neverForLocation"} on the relevant {@code <uses-permission>} manifest
+ *     tag, but it may restrict the types of Bluetooth devices you can interact with.
  * @hide
  */
 @Retention(SOURCE)
 @Target({METHOD, FIELD})
-public @interface RequiresBluetoothLocationPermission {
-}
+@SuppressWarnings("InvalidBlockTag")
+public @interface RequiresBluetoothLocationPermission {}

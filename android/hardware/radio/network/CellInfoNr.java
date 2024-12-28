@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/CellInfoNr.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/CellInfoNr.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public class CellInfoNr implements android.os.Parcelable
 {
   public android.hardware.radio.network.CellIdentityNr cellIdentityNr;
@@ -53,7 +55,7 @@ public class CellInfoNr implements android.os.Parcelable
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
     _aidl_sj.add("cellIdentityNr: " + (java.util.Objects.toString(cellIdentityNr)));
     _aidl_sj.add("signalStrengthNr: " + (java.util.Objects.toString(signalStrengthNr)));
-    return "android.hardware.radio.network.CellInfoNr" + _aidl_sj.toString()  ;
+    return "CellInfoNr" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

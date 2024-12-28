@@ -413,7 +413,11 @@ class RBBIRuleScanner {
         {
             n = fNodeStack[fNodeStackPtr];
             int v = UCharacter.digit((char) fC.fChar, 10);
-            n.fVal = n.fVal * 10 + v;
+            long update = (long)(n.fVal) * 10 + v;
+            if (update > Integer.MAX_VALUE) {
+                error(RBBIRuleBuilder.U_BRK_RULE_SYNTAX);
+            }
+            n.fVal = (int)(update);
             break;
         }
 
@@ -437,8 +441,6 @@ class RBBIRuleScanner {
             String opt = fRB.fRules.substring(fOptionStart, fScanIndex);
             if (opt.equals("chain")) {
                 fRB.fChainRules = true;
-            } else if (opt.equals("LBCMNoChain")) {
-                fRB.fLBCMNoChain = true;
             } else if (opt.equals("forward")) {
                 fRB.fDefaultTree = RBBIRuleBuilder.fForwardTree;
             } else if (opt.equals("reverse")) {
@@ -773,7 +775,7 @@ class RBBIRuleScanner {
         //  These are recognized in all contexts, whether in quoted text or not.
         //
         if (c.fChar == '\'') {
-            if (UTF16.charAt(fRB.fRules, fNextIndex) == '\'') {
+            if (fNextIndex < fRB.fRules.length() && UTF16.charAt(fRB.fRules, fNextIndex) == '\'') {
                 c.fChar = nextCharLL(); // get nextChar officially so character counts
                 c.fEscaped = true; //   stay correct.
             } else {
@@ -789,6 +791,9 @@ class RBBIRuleScanner {
                 c.fEscaped = false; // The paren that we return is not escaped.
                 return;
             }
+        }
+        if (c.fChar == -1) {
+            return;
         }
 
         if (fQuoteMode) {
@@ -1062,7 +1067,11 @@ class RBBIRuleScanner {
 
         // Verify that the set contains at least one code point.
         //
-        if (uset.isEmpty()) {
+        // Use tempSet to handle the case that the UnicodeSet contains
+        // only string element, such as [{ab}] and treat it as empty set.
+        UnicodeSet tempSet = new UnicodeSet(uset);
+        tempSet.removeAllStrings();
+        if (tempSet.isEmpty()) {
             // This set is empty.
             //  Make it an error, because it almost certainly is not what the user wanted.
             //  Also, avoids having to think about corner cases in the tree manipulation code

@@ -31,6 +31,8 @@ import android.os.UserManager;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionManager;
 
+import com.android.internal.telephony.analytics.TelephonyAnalytics;
+import com.android.internal.telephony.analytics.TelephonyAnalytics.SmsMmsAnalytics;
 import com.android.internal.telephony.cdma.CdmaInboundSmsHandler;
 import com.android.internal.telephony.gsm.GsmInboundSmsHandler;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
@@ -242,6 +244,14 @@ public class SmsBroadcastUndelivered {
                     if (phone != null) {
                         phone.getSmsStats().onDroppedIncomingMultipartSms(message.mIs3gpp2, rows,
                                 message.mMessageCount);
+                        TelephonyAnalytics telephonyAnalytics = phone.getTelephonyAnalytics();
+                        if (telephonyAnalytics != null) {
+                            SmsMmsAnalytics smsMmsAnalytics =
+                                    telephonyAnalytics.getSmsMmsAnalytics();
+                            if (smsMmsAnalytics != null) {
+                                smsMmsAnalytics.onDroppedIncomingMultipartSms();
+                            }
+                        }
                     }
                 }
             }

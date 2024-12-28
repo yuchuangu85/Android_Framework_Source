@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --structured --version 5 --hash notfrozen -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster_interface/4/preprocessed.aidl --previous_api_dir=hardware/interfaces/biometrics/fingerprint/aidl/aidl_api/android.hardware.biometrics.fingerprint/4 --previous_hash 41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen/android/hardware/biometrics/fingerprint/IFingerprint.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen -Nhardware/interfaces/biometrics/fingerprint/aidl hardware/interfaces/biometrics/fingerprint/aidl/android/hardware/biometrics/fingerprint/IFingerprint.aidl
  */
 package android.hardware.biometrics.fingerprint;
 /** @hide */
@@ -11,15 +12,42 @@ public interface IFingerprint extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "637371b53fb7faf9bd43aa51b72c23852d6e6d96";
+  public static final int VERSION = true ? 4 : 5;
+  public static final String HASH = "41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb";
   /** Default implementation for IFingerprint. */
   public static class Default implements android.hardware.biometrics.fingerprint.IFingerprint
   {
+    /**
+     * getSensorProps:
+     * 
+     * @return A list of properties for all of the fingerprint sensors supported by the HAL.
+     */
     @Override public android.hardware.biometrics.fingerprint.SensorProps[] getSensorProps() throws android.os.RemoteException
     {
       return null;
     }
+    /**
+     * createSession:
+     * 
+     * Creates an instance of ISession that can be used by the framework to perform operations such
+     * as ISession#enroll, ISession#authenticate, etc. for the given sensorId and userId.
+     * 
+     * Calling this method while there is an active session is considered an error. If the framework
+     * wants to create a new session when it already has an active session, it must first cancel the
+     * current operation if it's cancellable or wait until it completes. Then, the framework must
+     * explicitly close the session with ISession#close. Once the framework receives
+     * ISessionCallback#onSessionClosed, a new session can be created.
+     * 
+     * Implementations must store user-specific state or metadata in /data/vendor_de/<user>/fpdata
+     * as specified by the SELinux policy. The directory /data/vendor_de is managed by vold (see
+     * vold_prepare_subdirs.cpp). Implementations may store additional user-specific data, such as
+     * embeddings or templates, in StrongBox.
+     * 
+     * @param sensorId The sensorId for which this session is being created.
+     * @param userId The userId for which this session is being created.
+     * @param cb A callback to notify the framework about the session's events.
+     * @return A new session.
+     */
     @Override public android.hardware.biometrics.fingerprint.ISession createSession(int sensorId, int userId, android.hardware.biometrics.fingerprint.ISessionCallback cb) throws android.os.RemoteException
     {
       return null;
@@ -41,6 +69,7 @@ public interface IFingerprint extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.biometrics.fingerprint.IFingerprint
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -103,25 +132,19 @@ public interface IFingerprint extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -170,6 +193,11 @@ public interface IFingerprint extends android.os.IInterface
       {
         return DESCRIPTOR;
       }
+      /**
+       * getSensorProps:
+       * 
+       * @return A list of properties for all of the fingerprint sensors supported by the HAL.
+       */
       @Override public android.hardware.biometrics.fingerprint.SensorProps[] getSensorProps() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -190,6 +218,28 @@ public interface IFingerprint extends android.os.IInterface
         }
         return _result;
       }
+      /**
+       * createSession:
+       * 
+       * Creates an instance of ISession that can be used by the framework to perform operations such
+       * as ISession#enroll, ISession#authenticate, etc. for the given sensorId and userId.
+       * 
+       * Calling this method while there is an active session is considered an error. If the framework
+       * wants to create a new session when it already has an active session, it must first cancel the
+       * current operation if it's cancellable or wait until it completes. Then, the framework must
+       * explicitly close the session with ISession#close. Once the framework receives
+       * ISessionCallback#onSessionClosed, a new session can be created.
+       * 
+       * Implementations must store user-specific state or metadata in /data/vendor_de/<user>/fpdata
+       * as specified by the SELinux policy. The directory /data/vendor_de is managed by vold (see
+       * vold_prepare_subdirs.cpp). Implementations may store additional user-specific data, such as
+       * embeddings or templates, in StrongBox.
+       * 
+       * @param sensorId The sensorId for which this session is being created.
+       * @param userId The userId for which this session is being created.
+       * @param cb A callback to notify the framework about the session's events.
+       * @return A new session.
+       */
       @Override public android.hardware.biometrics.fingerprint.ISession createSession(int sensorId, int userId, android.hardware.biometrics.fingerprint.ISessionCallback cb) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -258,8 +308,36 @@ public interface IFingerprint extends android.os.IInterface
       return 16777214;
     }
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$biometrics$fingerprint$IFingerprint".replace('$', '.');
+  /**
+   * getSensorProps:
+   * 
+   * @return A list of properties for all of the fingerprint sensors supported by the HAL.
+   */
   public android.hardware.biometrics.fingerprint.SensorProps[] getSensorProps() throws android.os.RemoteException;
+  /**
+   * createSession:
+   * 
+   * Creates an instance of ISession that can be used by the framework to perform operations such
+   * as ISession#enroll, ISession#authenticate, etc. for the given sensorId and userId.
+   * 
+   * Calling this method while there is an active session is considered an error. If the framework
+   * wants to create a new session when it already has an active session, it must first cancel the
+   * current operation if it's cancellable or wait until it completes. Then, the framework must
+   * explicitly close the session with ISession#close. Once the framework receives
+   * ISessionCallback#onSessionClosed, a new session can be created.
+   * 
+   * Implementations must store user-specific state or metadata in /data/vendor_de/<user>/fpdata
+   * as specified by the SELinux policy. The directory /data/vendor_de is managed by vold (see
+   * vold_prepare_subdirs.cpp). Implementations may store additional user-specific data, such as
+   * embeddings or templates, in StrongBox.
+   * 
+   * @param sensorId The sensorId for which this session is being created.
+   * @param userId The userId for which this session is being created.
+   * @param cb A callback to notify the framework about the session's events.
+   * @return A new session.
+   */
   public android.hardware.biometrics.fingerprint.ISession createSession(int sensorId, int userId, android.hardware.biometrics.fingerprint.ISessionCallback cb) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;

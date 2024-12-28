@@ -21,27 +21,33 @@ import static android.telephony.DomainSelectionService.SELECTOR_TYPE_SMS;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
+import android.os.RemoteException;
 import android.telephony.BarringInfo;
 import android.telephony.DomainSelectionService;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
-import android.telephony.TransportSelectorCallback;
 import android.util.LocalLog;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.ExponentialBackoff;
+import com.android.internal.telephony.IDomainSelectionServiceController;
+import com.android.internal.telephony.ITransportSelectorCallback;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.util.TelephonyUtils;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.concurrent.Executor;
 
 /**
  * Manages the connection to {@link DomainSelectionService}.
@@ -53,10 +59,30 @@ public class DomainSelectionController {
     private static final int EVENT_SERVICE_STATE_CHANGED = 1;
     private static final int EVENT_BARRING_INFO_CHANGED = 2;
 
+    private static final int BIND_START_DELAY_MS = 2 * 1000; // 2 seconds
+    private static final int BIND_MAXIMUM_DELAY_MS = 60 * 1000; // 1 minute
+
+    /**
+     * Returns the currently defined rebind retry timeout. Used for testing.
+     */
+    @VisibleForTesting
+    public interface BindRetry {
+        /**
+         * Returns a long in milliseconds indicating how long the DomainSelectionController
+         * should wait before rebinding for the first time.
+         */
+        long getStartDelay();
+
+        /**
+         * Returns a long in milliseconds indicating the maximum time the DomainSelectionController
+         * should wait before rebinding.
+         */
+        long getMaximumDelay();
+    }
+
     private final HandlerThread mHandlerThread =
             new HandlerThread("DomainSelectionControllerHandler");
 
-    private final DomainSelectionService mDomainSelectionService;
     private final Handler mHandler;
     // Only added or removed, never accessed on purpose.
     private final LocalLog mLocalLog = new LocalLog(30);
@@ -66,6 +92,123 @@ public class DomainSelectionController {
 
     protected final int[] mConnectionCounts;
     private final ArrayList<DomainSelectionConnection> mConnections = new ArrayList<>();
+
+    private ComponentName mComponentName;
+    private DomainSelectionServiceConnection mServiceConnection;
+    private IDomainSelectionServiceController mIServiceController;
+    // Binding the service is in progress or the service is bound already.
+    private boolean mIsBound = false;
+
+    private ExponentialBackoff mBackoff;
+    private boolean mBackoffStarted = false;
+    private boolean mUnbind = false;
+
+    // Retry the bind to the DomainSelectionService that has died after mBindRetry timeout.
+    private Runnable mRestartBindingRunnable = new Runnable() {
+        @Override
+        public void run() {
+            bind();
+        }
+    };
+
+    private BindRetry mBindRetry = new BindRetry() {
+        @Override
+        public long getStartDelay() {
+            return BIND_START_DELAY_MS;
+        }
+
+        @Override
+        public long getMaximumDelay() {
+            return BIND_MAXIMUM_DELAY_MS;
+        }
+    };
+
+    private class DomainSelectionServiceConnection implements ServiceConnection {
+        // Track the status of whether or not the Service has died in case we need to permanently
+        // unbind (see onNullBinding below).
+        private boolean mIsServiceConnectionDead = false;
+
+        /** {@inheritDoc} */
+        @Override
+        public void onServiceConnected(ComponentName unusedName, IBinder service) {
+            if (mHandler.getLooper().isCurrentThread()) {
+                onServiceConnectedInternal(service);
+            } else {
+                mHandler.post(() -> onServiceConnectedInternal(service));
+            }
+        }
+
+        /** {@inheritDoc} */
+        @Override
+        public void onServiceDisconnected(ComponentName unusedName) {
+            if (mHandler.getLooper().isCurrentThread()) {
+                onServiceDisconnectedInternal();
+            } else {
+                mHandler.post(() -> onServiceDisconnectedInternal());
+            }
+        }
+
+        @Override
+        public void onBindingDied(ComponentName unusedName) {
+            if (mHandler.getLooper().isCurrentThread()) {
+                onBindingDiedInternal();
+            } else {
+                mHandler.post(() -> onBindingDiedInternal());
+            }
+        }
+
+        @Override
+        public void onNullBinding(ComponentName unusedName) {
+            if (mHandler.getLooper().isCurrentThread()) {
+                onNullBindingInternal();
+            } else {
+                mHandler.post(() -> onNullBindingInternal());
+            }
+        }
+
+        private void onServiceConnectedInternal(IBinder service) {
+            synchronized (mLock) {
+                stopBackoffTimer();
+                logi("onServiceConnected with binder: " + service);
+                setServiceController(service);
+            }
+            notifyServiceConnected();
+        }
+
+        private void onServiceDisconnectedInternal() {
+            synchronized (mLock) {
+                setServiceController(null);
+            }
+            logi("onServiceDisconnected");
+            notifyServiceDisconnected();
+        }
+
+        private void onBindingDiedInternal() {
+            mIsServiceConnectionDead = true;
+            synchronized (mLock) {
+                mIsBound = false;
+                setServiceController(null);
+                unbindService();
+                notifyBindFailure();
+            }
+            loge("onBindingDied starting retrying in "
+                    + mBackoff.getCurrentDelay() + " mS");
+            notifyServiceDisconnected();
+        }
+
+        private void onNullBindingInternal() {
+            loge("onNullBinding serviceDead=" + mIsServiceConnectionDead);
+            // onNullBinding will happen after onBindingDied. In this case, we should not
+            // permanently unbind and instead let the automatic rebind occur.
+            if (mIsServiceConnectionDead) return;
+            synchronized (mLock) {
+                mIsBound = false;
+                setServiceController(null);
+                unbindService();
+            }
+            notifyServiceDisconnected();
+        }
+    }
 
     private final class DomainSelectionControllerHandler extends Handler {
         DomainSelectionControllerHandler(Looper looper) {
@@ -95,31 +238,38 @@ public class DomainSelectionController {
      * Creates an instance.
      *
      * @param context Context object from hosting application.
-     * @param service The {@link DomainSelectionService} instance.
      */
-    public DomainSelectionController(@NonNull Context context,
-            @NonNull DomainSelectionService service) {
-        this(context, service, null);
+    public DomainSelectionController(@NonNull Context context) {
+        this(context, null, null);
     }
 
     /**
      * Creates an instance.
      *
      * @param context Context object from hosting application.
-     * @param service The {@link DomainSelectionService} instance.
      * @param looper Handles event messages.
+     * @param bindRetry The {@link BindRetry} instance.
      */
     @VisibleForTesting
     public DomainSelectionController(@NonNull Context context,
-            @NonNull DomainSelectionService service, @Nullable Looper looper) {
+            @Nullable Looper looper, @Nullable BindRetry bindRetry) {
         mContext = context;
-        mDomainSelectionService = service;
 
         if (looper == null) {
             mHandlerThread.start();
             looper = mHandlerThread.getLooper();
         }
         mHandler = new DomainSelectionControllerHandler(looper);
+
+        if (bindRetry != null) {
+            mBindRetry = bindRetry;
+        }
+        mBackoff = new ExponentialBackoff(
+                mBindRetry.getStartDelay(),
+                mBindRetry.getMaximumDelay(),
+                2, /* multiplier */
+                mHandler,
+                mRestartBindingRunnable);
 
         int numPhones = TelephonyManager.getDefault().getActiveModemCount();
         mConnectionCounts = new int[numPhones];
@@ -181,14 +331,24 @@ public class DomainSelectionController {
      *
      * @param attr Attributetes required to determine the domain.
      * @param callback A callback to receive the response.
+     * @return {@code true} if it requested successfully, otherwise {@code false}.
      */
-    public void selectDomain(@NonNull DomainSelectionService.SelectionAttributes attr,
-            @NonNull TransportSelectorCallback callback) {
-        if (attr == null || callback == null) return;
+    public boolean selectDomain(@NonNull DomainSelectionService.SelectionAttributes attr,
+            @NonNull ITransportSelectorCallback callback) {
+        if (attr == null) return false;
         if (DBG) logd("selectDomain");
 
-        Executor e = mDomainSelectionService.getCachedExecutor();
-        e.execute(() -> mDomainSelectionService.onDomainSelection(attr, callback));
+        synchronized (mLock) {
+            try  {
+                if (mIServiceController != null) {
+                    mIServiceController.selectDomain(attr, callback);
+                    return true;
+                }
+            } catch (RemoteException e) {
+                loge("selectDomain e=" + e);
+            }
+        }
+        return false;
     }
 
     /**
@@ -201,9 +361,16 @@ public class DomainSelectionController {
         if (phone == null || serviceState == null) return;
         if (DBG) logd("updateServiceState phoneId=" + phone.getPhoneId());
 
-        Executor e = mDomainSelectionService.getCachedExecutor();
-        e.execute(() -> mDomainSelectionService.onServiceStateUpdated(
-                phone.getPhoneId(), phone.getSubId(), serviceState));
+        synchronized (mLock) {
+            try  {
+                if (mIServiceController != null) {
+                    mIServiceController.updateServiceState(
+                            phone.getPhoneId(), phone.getSubId(), serviceState);
+                }
+            } catch (RemoteException e) {
+                loge("updateServiceState e=" + e);
+            }
+        }
     }
 
     /**
@@ -216,9 +383,16 @@ public class DomainSelectionController {
         if (phone == null || info == null) return;
         if (DBG) logd("updateBarringInfo phoneId=" + phone.getPhoneId());
 
-        Executor e = mDomainSelectionService.getCachedExecutor();
-        e.execute(() -> mDomainSelectionService.onBarringInfoUpdated(
-                phone.getPhoneId(), phone.getSubId(), info));
+        synchronized (mLock) {
+            try  {
+                if (mIServiceController != null) {
+                    mIServiceController.updateBarringInfo(
+                            phone.getPhoneId(), phone.getSubId(), info);
+                }
+            } catch (RemoteException e) {
+                loge("updateBarringInfo e=" + e);
+            }
+        }
     }
 
     /**
@@ -260,6 +434,19 @@ public class DomainSelectionController {
 
     /**
      * Notifies the {@link DomainSelectionConnection} instances registered
+     * of the service connection.
+     */
+    private void notifyServiceConnected() {
+        for (DomainSelectionConnection c : mConnections) {
+            c.onServiceConnected();
+            Phone phone = c.getPhone();
+            updateServiceState(phone, phone.getServiceStateTracker().getServiceState());
+            updateBarringInfo(phone, phone.mCi.getLastBarringInfo());
+        }
+    }
+
+    /**
+     * Notifies the {@link DomainSelectionConnection} instances registered
      * of the service disconnection.
      */
     private void notifyServiceDisconnected() {
@@ -269,11 +456,119 @@ public class DomainSelectionController {
     }
 
     /**
-     * Gets the {@link Executor} which executes methods of {@link DomainSelectionService.}
-     * @return {@link Executor} instance.
+     * Sets the binder interface to communicate with {@link domainSelectionService}.
      */
-    public @NonNull Executor getDomainSelectionServiceExecutor() {
-        return mDomainSelectionService.getCachedExecutor();
+    protected void setServiceController(@NonNull IBinder serviceController) {
+        mIServiceController = IDomainSelectionServiceController.Stub.asInterface(serviceController);
+    }
+
+    /**
+     * Sends request to bind to {@link DomainSelectionService}.
+     *
+     * @param componentName The {@link ComponentName} instance.
+     * @return {@code true} if the service is in the process of being bound, {@code false} if it
+     *         has failed.
+     */
+    public boolean bind(@NonNull ComponentName componentName) {
+        mComponentName = componentName;
+        mUnbind = false;
+        return bind();
+    }
+
+    private boolean bind() {
+        logd("bind isBindingOrBound=" + mIsBound);
+        synchronized (mLock) {
+            if (mUnbind) return false;
+            if (!mIsBound) {
+                mIsBound = true;
+                Intent serviceIntent = new Intent(DomainSelectionService.SERVICE_INTERFACE)
+                        .setComponent(mComponentName);
+                mServiceConnection = new DomainSelectionServiceConnection();
+                int serviceFlags = Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE
+                        | Context.BIND_IMPORTANT;
+                logi("binding DomainSelectionService");
+                try {
+                    boolean bindSucceeded = mContext.bindService(serviceIntent,
+                            mServiceConnection, serviceFlags);
+                    if (!bindSucceeded) {
+                        loge("binding failed retrying in "
+                                + mBackoff.getCurrentDelay() + " mS");
+                        mIsBound = false;
+                        notifyBindFailure();
+                    }
+                    return bindSucceeded;
+                } catch (Exception e) {
+                    mIsBound = false;
+                    notifyBindFailure();
+                    loge("binding e=" + e.getMessage() + ", retrying in "
+                            + mBackoff.getCurrentDelay() + " mS");
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+    }
+
+    /**
+     * Unbinds the service.
+     */
+    public void unbind() {
+        synchronized (mLock) {
+            mUnbind = true;
+            stopBackoffTimer();
+            mIsBound = false;
+            setServiceController(null);
+            unbindService();
+        }
+    }
+
+    private void unbindService() {
+        synchronized (mLock) {
+            if (mServiceConnection != null) {
+                logi("unbinding Service");
+                mContext.unbindService(mServiceConnection);
+                mServiceConnection = null;
+            }
+        }
+    }
+
+    /**
+     * Gets the current delay to rebind service.
+     */
+    @VisibleForTesting
+    public long getBindDelay() {
+        return mBackoff.getCurrentDelay();
+    }
+
+    /**
+     * Stops backoff timer.
+     */
+    @VisibleForTesting
+    public void stopBackoffTimer() {
+        logi("stopBackoffTimer " + mBackoffStarted);
+        mBackoffStarted = false;
+        mBackoff.stop();
+    }
+
+    private void notifyBindFailure() {
+        logi("notifyBindFailure started=" + mBackoffStarted + ", unbind=" + mUnbind);
+        if (mUnbind) return;
+        if (mBackoffStarted) {
+            mBackoff.notifyFailed();
+        } else {
+            mBackoffStarted = true;
+            mBackoff.start();
+        }
+        logi("notifyBindFailure currentDelay=" + getBindDelay());
+    }
+
+    /**
+     * Returns the Handler instance.
+     */
+    @VisibleForTesting
+    public Handler getHandlerForTest() {
+        return mHandler;
     }
 
     /**

@@ -15,8 +15,11 @@
  */
 package android.net;
 
+import static android.net.IpSecManager.Flags.IPSEC_TRANSFORM_STATE;
 import static android.net.IpSecManager.INVALID_RESOURCE_ID;
 
+import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -26,6 +29,8 @@ import android.annotation.SystemApi;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Binder;
+import android.os.OutcomeReceiver;
+import android.os.RemoteException;
 import android.os.ServiceSpecificException;
 import android.util.Log;
 
@@ -38,6 +43,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.net.InetAddress;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * This class represents a transform, which roughly corresponds to an IPsec Security Association.
@@ -118,7 +124,7 @@ public final class IpSecTransform implements AutoCloseable {
     private IpSecTransform activate()
             throws IOException, IpSecManager.ResourceUnavailableException,
                     IpSecManager.SpiUnavailableException {
-        synchronized (this) {
+        synchronized (mLock) {
             try {
                 IpSecTransformResponse result = getIpSecManager(mContext).createTransform(
                         mConfig, new Binder(), mContext.getOpPackageName());
@@ -158,20 +164,23 @@ public final class IpSecTransform implements AutoCloseable {
     public void close() {
         Log.d(TAG, "Removing Transform with Id " + mResourceId);
 
-        // Always safe to attempt cleanup
-        if (mResourceId == INVALID_RESOURCE_ID) {
-            mCloseGuard.close();
-            return;
-        }
-        try {
-            getIpSecManager(mContext).deleteTransform(mResourceId);
-        } catch (Exception e) {
-            // On close we swallow all random exceptions since failure to close is not
-            // actionable by the user.
-            Log.e(TAG, "Failed to close " + this + ", Exception=" + e);
-        } finally {
-            mResourceId = INVALID_RESOURCE_ID;
-            mCloseGuard.close();
+        synchronized(mLock) {
+            // Always safe to attempt cleanup
+            if (mResourceId == INVALID_RESOURCE_ID) {
+                mCloseGuard.close();
+                return;
+            }
+
+            try {
+                    getIpSecManager(mContext).deleteTransform(mResourceId);
+            } catch (Exception e) {
+                // On close we swallow all random exceptions since failure to close is not
+                // actionable by the user.
+                Log.e(TAG, "Failed to close " + this + ", Exception=" + e);
+            } finally {
+                mResourceId = INVALID_RESOURCE_ID;
+                mCloseGuard.close();
+            }
         }
     }
 
@@ -190,14 +199,56 @@ public final class IpSecTransform implements AutoCloseable {
     }
 
     private final IpSecConfig mConfig;
-    private int mResourceId;
+    private final Object mLock = new Object();
+    private int mResourceId; // Partly guarded by mLock to ensure basic safety, not correctness
     private final Context mContext;
     private final CloseGuard mCloseGuard = CloseGuard.get();
 
     /** @hide */
     @VisibleForTesting
     public int getResourceId() {
-        return mResourceId;
+        synchronized(mLock) {
+            return mResourceId;
+        }
+    }
+
+    /**
+     * Retrieve the current state of this IpSecTransform.
+     *
+     * @param executor The {@link Executor} on which to call the supplied callback.
+     * @param callback Callback that's called after the transform state is ready or when an error
+     *     occurs.
+     * @see IpSecTransformState
+     */
+    @FlaggedApi(IPSEC_TRANSFORM_STATE)
+    public void requestIpSecTransformState(
+            @CallbackExecutor @NonNull Executor executor,
+            @NonNull OutcomeReceiver<IpSecTransformState, RuntimeException> callback) {
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        // TODO: Consider adding check to prevent DDoS attack.
+
+        try {
+            IpSecTransformState ipSecTransformState;
+            synchronized(mLock) {
+                ipSecTransformState = getIpSecManager(mContext).getTransformState(mResourceId);
+            }
+            executor.execute(
+                    () -> {
+                        callback.onResult(ipSecTransformState);
+                    });
+        } catch (IllegalStateException e) {
+            executor.execute(
+                    () -> {
+                        callback.onError(e);
+                    });
+        } catch (RemoteException e) {
+            executor.execute(
+                    () -> {
+                        callback.onError(e.rethrowFromSystemServer());
+                    });
+        }
     }
 
     /**

@@ -194,6 +194,9 @@ public class AdapterStateListener extends IUwbAdapterStateCallbacks.Stub {
             case AdapterState.STATE_ENABLED_ACTIVE:
                 return AdapterStateCallback.STATE_ENABLED_ACTIVE;
 
+            case AdapterState.STATE_ENABLED_HW_IDLE:
+                return AdapterStateCallback.STATE_ENABLED_HW_IDLE;
+
             case AdapterState.STATE_DISABLED:
             default:
                 return AdapterStateCallback.STATE_DISABLED;

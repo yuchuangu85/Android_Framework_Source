@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/base/media/java/android/media/tv/tunerresourcemanager/tv_tuner_resource_manager_aidl_interface-java-source/gen/android/media/tv/tunerresourcemanager/ITunerResourceManager.java.d -o out/soong/.intermediates/frameworks/base/media/java/android/media/tv/tunerresourcemanager/tv_tuner_resource_manager_aidl_interface-java-source/gen -Nframeworks/base/media/java/android/media/tv/tunerresourcemanager/aidl frameworks/base/media/java/android/media/tv/tunerresourcemanager/aidl/android/media/tv/tunerresourcemanager/ITunerResourceManager.aidl
  */
 package android.media.tv.tunerresourcemanager;
 /**
@@ -561,6 +562,7 @@ public interface ITunerResourceManager extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.media.tv.tunerresourcemanager.ITunerResourceManager
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -590,13 +592,9 @@ public interface ITunerResourceManager extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -2050,7 +2048,8 @@ public interface ITunerResourceManager extends android.os.IInterface
     static final int TRANSACTION_getClientPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 31);
     static final int TRANSACTION_getConfigPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 32);
   }
-  public static final java.lang.String DESCRIPTOR = "android$media$tv$tunerresourcemanager$ITunerResourceManager".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.media.tv.tunerresourcemanager.ITunerResourceManager";
   /**
    * This API is used by the client to register their profile with the Tuner Resource manager.
    * 

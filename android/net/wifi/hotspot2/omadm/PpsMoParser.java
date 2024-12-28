@@ -424,7 +424,7 @@ public final class PpsMoParser {
                     try {
                         config = parsePpsNode(child);
                     } catch (ParsingException e) {
-                        Log.e(TAG, e.getMessage());
+                        Log.e(TAG, e.getMessage(), e);
                         return null;
                     }
                     break;

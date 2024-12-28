@@ -22,6 +22,7 @@ import static android.hardware.radio.V1_0.DeviceStateType.LOW_DATA_EXPECTED;
 import static android.hardware.radio.V1_0.DeviceStateType.POWER_SAVE_MODE;
 import static android.telephony.TelephonyManager.HAL_SERVICE_NETWORK;
 
+import android.annotation.NonNull;
 import android.app.UiModeManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -47,6 +48,7 @@ import android.util.LocalLog;
 import android.view.Display;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
 
@@ -92,10 +94,14 @@ public class DeviceStateMonitor extends Handler {
     private static final int NR_NSA_TRACKING_INDICATIONS_ALWAYS_ON = 2;
 
     private final Phone mPhone;
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
 
     private final LocalLog mLocalLog = new LocalLog(64);
 
     private final RegistrantList mPhysicalChannelConfigRegistrants = new RegistrantList();
+    private final RegistrantList mSignalStrengthReportDecisionCallbackRegistrants =
+            new RegistrantList();
 
     private final NetworkRequest mWifiNetworkRequest =
             new NetworkRequest.Builder()
@@ -269,8 +275,9 @@ public class DeviceStateMonitor extends Handler {
      *
      * @param phone Phone object
      */
-    public DeviceStateMonitor(Phone phone) {
+    public DeviceStateMonitor(Phone phone, @NonNull FeatureFlags featureFlags) {
         mPhone = phone;
+        mFeatureFlags = featureFlags;
         DisplayManager dm = (DisplayManager) phone.getContext().getSystemService(
                 Context.DISPLAY_SERVICE);
         dm.registerDisplayListener(mDisplayListener, null);
@@ -602,6 +609,15 @@ public class DeviceStateMonitor extends Handler {
             // use a null message since we don't care of receiving response
             mPhone.mCi.getBarringInfo(null);
         }
+
+        // Determine whether to notify registrants about the non-terrestrial signal strength change.
+        if (mFeatureFlags.oemEnabledSatelliteFlag()) {
+            if (shouldEnableSignalStrengthReports()) {
+                mSignalStrengthReportDecisionCallbackRegistrants.notifyResult(true);
+            } else {
+                mSignalStrengthReportDecisionCallbackRegistrants.notifyResult(false);
+            }
+        }
     }
 
     /**
@@ -775,6 +791,33 @@ public class DeviceStateMonitor extends Handler {
      */
     public void unregisterForPhysicalChannelConfigNotifChanged(Handler h) {
         mPhysicalChannelConfigRegistrants.remove(h);
+    }
+
+    /**
+     * Register a callback to decide whether signal strength should be notified or not.
+     * @param h Handler to notify
+     * @param what msg.what when the message is delivered
+     * @param obj AsyncResult.userObj when the message is delivered
+     */
+    public void registerForSignalStrengthReportDecision(Handler h, int what, Object obj) {
+        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
+            Rlog.d(TAG, "oemEnabledSatelliteFlag is disabled");
+            return;
+        }
+        Registrant r = new Registrant(h, what, obj);
+        mSignalStrengthReportDecisionCallbackRegistrants.add(r);
+    }
+
+    /**
+     * Register a callback to decide whether signal strength should be notified or not.
+     * @param h Handler to notify
+     */
+    public void unregisterForSignalStrengthReportDecision(Handler h) {
+        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
+            Rlog.d(TAG, "oemEnabledSatelliteFlag is disabled");
+            return;
+        }
+        mSignalStrengthReportDecisionCallbackRegistrants.remove(h);
     }
 
     /**

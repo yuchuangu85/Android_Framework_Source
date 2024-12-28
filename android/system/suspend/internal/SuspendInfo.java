@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version 28 --ninja -d out/soong/.intermediates/system/hardware/interfaces/suspend/aidl/android.system.suspend.control.internal-java-source/gen/android/system/suspend/internal/SuspendInfo.java.d -o out/soong/.intermediates/system/hardware/interfaces/suspend/aidl/android.system.suspend.control.internal-java-source/gen -Nsystem/hardware/interfaces/suspend/aidl system/hardware/interfaces/suspend/aidl/android/system/suspend/internal/SuspendInfo.aidl
  */
 package android.system.suspend.internal;
 public class SuspendInfo implements android.os.Parcelable

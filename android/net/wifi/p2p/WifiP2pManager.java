@@ -17,6 +17,7 @@
 package android.net.wifi.p2p;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -50,6 +51,7 @@ import android.os.RemoteException;
 import android.text.TextUtils;
 import android.util.CloseGuard;
 import android.util.Log;
+import android.util.SparseArray;
 import android.view.Display;
 
 import androidx.annotation.RequiresApi;
@@ -57,6 +59,7 @@ import androidx.annotation.RequiresApi;
 import com.android.internal.util.AsyncChannel;
 import com.android.internal.util.Protocol;
 import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -224,6 +227,20 @@ public class WifiP2pManager {
      */
     public static final String EXTRA_PARAM_KEY_INFORMATION_ELEMENT_LIST =
             "android.net.wifi.p2p.EXTRA_PARAM_KEY_INFORMATION_ELEMENT_LIST";
+
+    /**
+     * Extra for transporting discovery config with vendor-specific data
+     * @hide
+     */
+    public static final String EXTRA_PARAM_KEY_DISCOVERY_CONFIG =
+            "android.net.wifi.p2p.EXTRA_PARAM_KEY_DISCOVERY_CONFIG";
+
+    /**
+     * Extra for transporting extended listening parameters
+     * @hide
+     */
+    public static final String EXTRA_PARAM_KEY_EXT_LISTEN_PARAMS =
+            "android.net.wifi.p2p.EXTRA_PARAM_KEY_EXT_LISTEN_PARAMS";
 
     /**
      * Key for transporting a bundle of extra information.
@@ -522,21 +539,27 @@ public class WifiP2pManager {
 
     /**
      * Run P2P scan on all channels.
-     * @hide
      */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
     public static final int WIFI_P2P_SCAN_FULL = 0;
 
     /**
      * Run P2P scan only on social channels.
-     * @hide
      */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
     public static final int WIFI_P2P_SCAN_SOCIAL = 1;
 
     /**
      * Run P2P scan only on a specific channel.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final int WIFI_P2P_SCAN_SINGLE_FREQ = 2;
+
+    /**
+     * Run P2P scan with config Params.
      * @hide
      */
-    public static final int WIFI_P2P_SCAN_SINGLE_FREQ = 2;
+    public static final int WIFI_P2P_SCAN_WITH_CONFIG_PARAMS = 3;
 
     /** @hide */
     @IntDef(prefix = {"WIFI_P2P_SCAN_"}, value = {
@@ -546,6 +569,12 @@ public class WifiP2pManager {
     @Retention(RetentionPolicy.SOURCE)
     public @interface WifiP2pScanType {
     }
+
+    /**
+     * Enter the P2P listen state with additional parameters.
+     * @hide
+     */
+    public static final int WIFI_P2P_EXT_LISTEN_WITH_PARAMS = 1;
 
     /**
      * No channel specified for discover Peers APIs. Let lower layer decide the frequencies to scan
@@ -559,6 +588,8 @@ public class WifiP2pManager {
      * set during Wi-Fi Direct (P2P) discovery.
      */
     private static final int WIFI_P2P_VENDOR_ELEMENTS_MAXIMUM_LENGTH = 512;
+
+    private Context mContext;
 
     IWifiP2pManager mService;
 
@@ -833,6 +864,7 @@ public class WifiP2pManager {
     /** @hide */
     public static final int RESPONSE_GET_LISTEN_STATE                 = BASE + 118;
 
+    private static final SparseArray<IWifiP2pListener> sWifiP2pListenerMap = new SparseArray<>();
     /**
      * Create a new WifiP2pManager instance. Applications use
      * {@link android.content.Context#getSystemService Context.getSystemService()} to retrieve
@@ -1219,6 +1251,376 @@ public class WifiP2pManager {
         void onPinGenerated(@NonNull MacAddress deviceAddress, @NonNull String pin);
     }
 
+    /**
+     * Interface used to listen to Wi-Fi p2p various changes such as device state change,
+     * discovery started/stopped, connection change, etc.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public interface WifiP2pListener {
+        /**
+         * Called when Wi-Fi p2p has been enabled or disabled.
+         * @see #WIFI_P2P_STATE_CHANGED_ACTION
+         * @see #requestP2pState(Channel, P2pStateListener)
+         *
+         * @param state indicates whether Wi-Fi p2p is enabled or disabled.
+         *          @see #WIFI_P2P_STATE_ENABLED
+         *          @see #WIFI_P2P_STATE_DISABLED
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onP2pStateChanged(@WifiP2pState int state) {
+        }
+
+        /**
+         * Called when peer discovery has either started or stopped.
+         * @see #WIFI_P2P_DISCOVERY_CHANGED_ACTION
+         * @see #requestDiscoveryState(Channel, DiscoveryStateListener)
+         *
+         * @param state indicates whether discovery has started or stopped.
+         *          @see #WIFI_P2P_DISCOVERY_STARTED
+         *          @see #WIFI_P2P_DISCOVERY_STOPPED
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onDiscoveryStateChanged(@WifiP2pDiscoveryState int state) {
+        }
+
+        /**
+         * Called when peer listen has either started or stopped.
+         * @see #ACTION_WIFI_P2P_LISTEN_STATE_CHANGED
+         * @see #getListenState(Channel, Executor, Consumer)
+         *
+         * @param state indicates whether listen has started or stopped.
+         *          @see #WIFI_P2P_LISTEN_STARTED
+         *          @see #WIFI_P2P_LISTEN_STOPPED
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onListenStateChanged(@WifiP2pListenState int state) {
+        }
+
+        /**
+         * Called when this device details have changed.
+         * @see #WIFI_P2P_THIS_DEVICE_CHANGED_ACTION
+         * @see #requestDeviceInfo(Channel, DeviceInfoListener)
+         *
+         * @param p2pDevice provides this device details.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onDeviceConfigurationChanged(@Nullable WifiP2pDevice p2pDevice) {
+        }
+
+        /**
+         * Called when the available peer list has changed. This can be sent as a result of peers
+         * being found, lost or updated.
+         * @see #WIFI_P2P_PEERS_CHANGED_ACTION
+         * @see #requestPeers(Channel, PeerListListener)
+         *
+         * @param p2pDeviceList provides the full list of current peers.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onPeerListChanged(@NonNull WifiP2pDeviceList p2pDeviceList) {
+        }
+
+        /**
+         * Called when remembered persistent groups have changed.
+         * @see #ACTION_WIFI_P2P_PERSISTENT_GROUPS_CHANGED
+         * @see #requestPersistentGroupInfo(Channel, PersistentGroupInfoListener)
+         *
+         * @param p2pGroupList provides the full list of p2p group.
+         *
+         * @hide
+         */
+        @SystemApi
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onPersistentGroupsChanged(@NonNull WifiP2pGroupList p2pGroupList) {
+        }
+
+        /**
+         * Called when either group owner or group client is creating p2p group.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onGroupCreating() {
+        }
+
+        /**
+         * Called when group negotiation has been rejected by user.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onGroupNegotiationRejectedByUser() {
+        }
+
+        /**
+         * Called when group creation has failed.
+         *
+         * @param reason provides the group creation failure reason.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onGroupCreationFailed(@GroupCreationFailureReason int reason) {
+        }
+
+        /**
+         * Called when either group owner or group client has created p2p group successfully.
+         *
+         * @param p2pInfo  provides the p2p connection info.
+         * @param p2pGroup provides the details of the group.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onGroupCreated(@NonNull WifiP2pInfo p2pInfo,
+                @NonNull WifiP2pGroup p2pGroup) {
+        }
+
+        /**
+         * Called to indicate group owner that a group client has joined p2p group successfully.
+         *
+         * @param p2pInfo  provides the p2p connection info.
+         * @param p2pGroup provides the details of the group.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onPeerClientJoined(@NonNull WifiP2pInfo p2pInfo,
+                @NonNull WifiP2pGroup p2pGroup) {
+        }
+
+        /**
+         * Called to indicate group owner that a group client has disconnected.
+         *
+         * @param p2pInfo  provides the p2p connection info.
+         * @param p2pGroup provides the details of the group.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onPeerClientDisconnected(@NonNull WifiP2pInfo p2pInfo,
+                @NonNull WifiP2pGroup p2pGroup) {
+        }
+
+        /**
+         * Called when the frequency of a formed group has been changed.
+         *
+         * @param p2pInfo  provides the p2p connection info.
+         * @param p2pGroup provides the details of the group.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onFrequencyChanged(@NonNull WifiP2pInfo p2pInfo,
+                @NonNull WifiP2pGroup p2pGroup) {
+        }
+
+        /**
+         * Called when p2p group has been removed.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        default void onGroupRemoved() {
+        }
+    }
+
+    /**
+     * P2p group creation failed because the connection has been cancelled.
+     * Used in {@link WifiP2pListener#onGroupCreationFailed(int reason)}.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final int GROUP_CREATION_FAILURE_REASON_CONNECTION_CANCELLED = 0;
+    /**
+     * P2p group creation failed because it has timed out.
+     * Used in {@link WifiP2pListener#onGroupCreationFailed(int reason)}.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final int GROUP_CREATION_FAILURE_REASON_TIMED_OUT = 1;
+    /**
+     * P2p group creation failed because user has rejected.
+     * Used in {@link WifiP2pListener#onGroupCreationFailed(int reason)}.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final int GROUP_CREATION_FAILURE_REASON_USER_REJECTED = 2;
+    /**
+     * P2p group creation failed because provision discovery has failed.
+     * Used in {@link WifiP2pListener#onGroupCreationFailed(int reason)}.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final int GROUP_CREATION_FAILURE_REASON_PROVISION_DISCOVERY_FAILED = 3;
+    /**
+     * P2p group creation failed because the group has been removed.
+     * Used in {@link WifiP2pListener#onGroupCreationFailed(int reason)}.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final int GROUP_CREATION_FAILURE_REASON_GROUP_REMOVED = 4;
+    /**
+     * P2p group creation failed because invitation has failed.
+     * Used in {@link WifiP2pListener#onGroupCreationFailed(int reason)}.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public static final int GROUP_CREATION_FAILURE_REASON_INVITATION_FAILED = 5;
+
+    /**
+     * @hide
+     */
+    @IntDef(prefix = {"GROUP_CREATION_FAILURE_REASON_"}, value = {
+            GROUP_CREATION_FAILURE_REASON_CONNECTION_CANCELLED,
+            GROUP_CREATION_FAILURE_REASON_TIMED_OUT,
+            GROUP_CREATION_FAILURE_REASON_USER_REJECTED,
+            GROUP_CREATION_FAILURE_REASON_PROVISION_DISCOVERY_FAILED,
+            GROUP_CREATION_FAILURE_REASON_GROUP_REMOVED,
+            GROUP_CREATION_FAILURE_REASON_INVITATION_FAILED
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface GroupCreationFailureReason {
+    }
+
+    /**
+     * Helper class to support wifi p2p listener.
+     */
+    private static class OnWifiP2pListenerProxy extends IWifiP2pListener.Stub {
+        @NonNull
+        private Executor mExecutor;
+        @NonNull
+        private WifiP2pListener mListener;
+
+        OnWifiP2pListenerProxy(@NonNull Executor executor,
+                @NonNull WifiP2pListener listener) {
+            Objects.requireNonNull(executor);
+            Objects.requireNonNull(listener);
+            mExecutor = executor;
+            mListener = listener;
+        }
+
+        @Override
+        public void onP2pStateChanged(@WifiP2pState int state) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onP2pStateChanged(state));
+        }
+
+        @Override
+        public void onDiscoveryStateChanged(@WifiP2pDiscoveryState int state) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onDiscoveryStateChanged(state));
+        }
+
+        @Override
+        public void onListenStateChanged(@WifiP2pListenState int state) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onListenStateChanged(state));
+        }
+
+        @Override
+        public void onDeviceConfigurationChanged(WifiP2pDevice p2pDevice) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onDeviceConfigurationChanged(p2pDevice));
+        }
+
+        @Override
+        public void onPeerListChanged(WifiP2pDeviceList p2pDeviceList) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onPeerListChanged(p2pDeviceList));
+        }
+
+        @Override
+        public void onPersistentGroupsChanged(WifiP2pGroupList p2pGroupList) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onPersistentGroupsChanged(p2pGroupList));
+        }
+
+        @Override
+        public void onGroupCreating() {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onGroupCreating());
+        }
+
+        @Override
+        public void onGroupNegotiationRejectedByUser() {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onGroupNegotiationRejectedByUser());
+        }
+
+        @Override
+        public void onGroupCreationFailed(@GroupCreationFailureReason int reason) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onGroupCreationFailed(reason));
+        }
+
+        @Override
+        public void onGroupCreated(WifiP2pInfo p2pInfo, WifiP2pGroup p2pGroup) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onGroupCreated(p2pInfo, p2pGroup));
+        }
+
+        @Override
+        public void onPeerClientJoined(WifiP2pInfo p2pInfo, WifiP2pGroup p2pGroup) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onPeerClientJoined(p2pInfo, p2pGroup));
+        }
+
+        @Override
+        public void onPeerClientDisconnected(WifiP2pInfo p2pInfo, WifiP2pGroup p2pGroup) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onPeerClientDisconnected(p2pInfo, p2pGroup));
+        }
+
+        @Override
+        public void onFrequencyChanged(WifiP2pInfo p2pInfo, WifiP2pGroup p2pGroup) {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onFrequencyChanged(p2pInfo, p2pGroup));
+        }
+
+        @Override
+        public void onGroupRemoved() {
+            Binder.clearCallingIdentity();
+            mExecutor.execute(() -> mListener.onGroupRemoved());
+        }
+    }
+
+    /**
+     * Add a listener to listen to Wi-Fi p2p various changes.
+     *
+     * @param executor the Executor on which to execute the callbacks.
+     * @param listener listener for the Wi-Fi p2p connection changes.
+     * @throws SecurityException        if the caller is missing required permissions.
+     * @throws IllegalArgumentException if incorrect input arguments are provided.
+     */
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.ACCESS_WIFI_STATE
+    }, conditional = true)
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public void registerWifiP2pListener(@NonNull @CallbackExecutor Executor executor,
+            @NonNull WifiP2pListener listener) {
+        Log.d(TAG, "registerWifiP2pListener: listener=" + listener + ", executor=" + executor);
+        final int listenerIdentifier = System.identityHashCode(listener);
+        synchronized (sWifiP2pListenerMap) {
+            try {
+                IWifiP2pListener.Stub listenerProxy = new OnWifiP2pListenerProxy(executor,
+                        listener);
+                sWifiP2pListenerMap.put(listenerIdentifier, listenerProxy);
+                Bundle extras = prepareExtrasBundleWithAttributionSource(mContext);
+                mService.registerWifiP2pListener(listenerProxy, mContext.getOpPackageName(),
+                        extras);
+            } catch (RemoteException e) {
+                sWifiP2pListenerMap.remove(listenerIdentifier);
+                throw e.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    /**
+     * Remove a listener added using
+     * {@link #registerWifiP2pListener(Executor, WifiP2pListener)}
+     *
+     * @param listener the listener to be removed.
+     * @throws IllegalArgumentException if incorrect input arguments are provided.
+     */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public void unregisterWifiP2pListener(@NonNull WifiP2pListener listener) {
+        Log.d(TAG, "unregisterWifiP2pListener: listener=" + listener);
+        final int listenerIdentifier = System.identityHashCode(listener);
+        synchronized (sWifiP2pListenerMap) {
+            try {
+                if (!sWifiP2pListenerMap.contains(listenerIdentifier)) {
+                    Log.w(TAG, "Unknown external listener " + listenerIdentifier);
+                    return;
+                }
+                mService.unregisterWifiP2pListener(sWifiP2pListenerMap.get(listenerIdentifier));
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            } finally {
+                sWifiP2pListenerMap.remove(listenerIdentifier);
+            }
+        }
+    }
 
     /**
      * A channel that connects the application to the Wifi p2p framework.
@@ -1618,6 +2020,7 @@ public class WifiP2pManager {
         extras.putInt(EXTRA_PARAM_KEY_DISPLAY_ID, displayId);
         Channel channel = initializeChannel(srcContext, srcLooper, listener,
                 getMessenger(binder, srcContext.getOpPackageName(), extras), binder);
+        mContext = srcContext;
         return channel;
     }
 
@@ -1818,6 +2221,45 @@ public class WifiP2pManager {
         Bundle extras = prepareExtrasBundle(channel);
         extras.putInt(EXTRA_PARAM_KEY_PEER_DISCOVERY_FREQ, frequencyMhz);
         channel.mAsyncChannel.sendMessage(prepareMessage(DISCOVER_PEERS, WIFI_P2P_SCAN_SINGLE_FREQ,
+                channel.putListener(listener), extras, channel.mContext));
+    }
+
+    /**
+     * Initiate peer discovery. A discovery process involves scanning for available Wi-Fi peers
+     * for the purpose of establishing a connection. See {@link #discoverPeers(
+     * Channel, ActionListener)} for more details.
+     *
+     * This method accepts a {@link WifiP2pDiscoveryConfig} object specifying the desired
+     * parameters for the peer discovery. The configuration object allows the specification of the
+     * scan type (ex. FULL, SOCIAL) and the inclusion of vendor-specific configuration data.
+     *
+     * The application must have {@link android.Manifest.permission#NEARBY_WIFI_DEVICES} with
+     * android:usesPermissionFlags="neverForLocation". If the application does not declare
+     * android:usesPermissionFlags="neverForLocation", then it must also have
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
+     *
+     * @param channel is the channel created at {@link #initialize}
+     * @param config is the configuration for this peer discovery
+     * @param listener for callbacks on success or failure.
+     */
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+            }, conditional = true)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public void startPeerDiscovery(
+            @NonNull Channel channel,
+            @NonNull WifiP2pDiscoveryConfig config,
+            @Nullable ActionListener listener) {
+        if (!isChannelConstrainedDiscoverySupported()) {
+            throw new UnsupportedOperationException();
+        }
+        checkChannel(channel);
+        Objects.requireNonNull(config);
+        Bundle extras = prepareExtrasBundle(channel);
+        extras.putParcelable(EXTRA_PARAM_KEY_DISCOVERY_CONFIG, config);
+        channel.mAsyncChannel.sendMessage(prepareMessage(DISCOVER_PEERS,
+                WIFI_P2P_SCAN_WITH_CONFIG_PARAMS,
                 channel.putListener(listener), extras, channel.mContext));
     }
 
@@ -2040,6 +2482,38 @@ public class WifiP2pManager {
         Bundle extras = prepareExtrasBundle(channel);
         channel.mAsyncChannel.sendMessage(prepareMessage(START_LISTEN, 0,
                 channel.putListener(listener), extras, channel.mContext));
+    }
+
+    /**
+     * Force P2P to enter the listen state. See {@link #startListening(Channel, ActionListener)}
+     * for more details.
+     *
+     * This method accepts a {@link WifiP2pExtListenParams} object containing additional
+     * parameters.
+     *
+     * @param channel is the channel created at @link #initialize(Context, Looper, ChannelListener)}
+     * @param params are the parameters for this listen request.
+     * @param listener for callbacks on success or failure.
+     * @hide
+     */
+    @SystemApi
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+            }, conditional = true)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public void startListening(
+            @NonNull Channel channel,
+            @NonNull WifiP2pExtListenParams params,
+            @Nullable ActionListener listener) {
+        checkChannel(channel);
+        Bundle extras = prepareExtrasBundle(channel);
+        Objects.requireNonNull(params);
+        extras.putParcelable(EXTRA_PARAM_KEY_EXT_LISTEN_PARAMS, params);
+        channel.mAsyncChannel.sendMessage(prepareMessage(START_LISTEN,
+                WIFI_P2P_EXT_LISTEN_WITH_PARAMS, channel.putListener(listener), extras,
+                channel.mContext));
     }
 
     /**

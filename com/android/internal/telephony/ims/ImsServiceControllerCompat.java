@@ -38,6 +38,7 @@ import com.android.ims.internal.IImsFeatureStatusCallback;
 import com.android.ims.internal.IImsMMTelFeature;
 import com.android.ims.internal.IImsServiceController;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlagsImpl;
 
 /**
  * Manages the Binding lifecycle of one ImsService as well as the relevant ImsFeatures that the
@@ -76,7 +77,7 @@ public class ImsServiceControllerCompat extends ImsServiceController {
     public ImsServiceControllerCompat(Context context, ComponentName componentName,
             ImsServiceController.ImsServiceControllerCallbacks callbacks,
             ImsFeatureBinderRepository repo) {
-        super(context, componentName, callbacks, repo);
+        super(context, componentName, callbacks, repo, new FeatureFlagsImpl());
         mMmTelFeatureFactory = MmTelFeatureCompatAdapter::new;
     }
 
@@ -84,7 +85,8 @@ public class ImsServiceControllerCompat extends ImsServiceController {
     public ImsServiceControllerCompat(Context context, ComponentName componentName,
             ImsServiceControllerCallbacks callbacks, Handler handler, RebindRetry rebindRetry,
             ImsFeatureBinderRepository repo, MmTelFeatureCompatFactory factory) {
-        super(context, componentName, callbacks, handler, rebindRetry, repo);
+        super(context, componentName, callbacks, handler, rebindRetry, repo,
+                new FeatureFlagsImpl());
         mMmTelFeatureFactory = factory;
     }
 
@@ -118,13 +120,13 @@ public class ImsServiceControllerCompat extends ImsServiceController {
     public final void disableIms(int slotId, int subId) {
         MmTelFeatureCompatAdapter adapter = mMmTelCompatAdapters.get(slotId);
         if (adapter == null) {
-            Log.w(TAG, "enableIms: adapter null for slot :" + slotId);
+            Log.w(TAG, "disableIms: adapter null for slot :" + slotId);
             return;
         }
         try {
             adapter.disableIms();
         } catch (RemoteException e) {
-            Log.w(TAG, "Couldn't enable IMS: " + e.getMessage());
+            Log.w(TAG, "Couldn't disableIms IMS: " + e.getMessage());
         }
     }
 

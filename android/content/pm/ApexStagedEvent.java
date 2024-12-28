@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen/android/content/pm/ApexStagedEvent.java.d -o out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen -Nframeworks/native/libs/binder/aidl frameworks/native/libs/binder/aidl/android/content/pm/ApexStagedEvent.aidl
  */
 package android.content.pm;
 /**

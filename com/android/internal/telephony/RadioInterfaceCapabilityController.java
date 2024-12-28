@@ -86,6 +86,13 @@ public class RadioInterfaceCapabilityController extends Handler {
         register();
     }
 
+    private void requestCapabilities() {
+        if (mRadioInterfaceCapabilities != null) return;
+
+        mRadioConfig.getHalDeviceCapabilities(obtainMessage(
+                EVENT_GET_HAL_DEVICE_CAPABILITIES_DONE));
+    }
+
     /**
      * Gets the radio interface capabilities for the device
      */
@@ -95,8 +102,7 @@ public class RadioInterfaceCapabilityController extends Handler {
             // Only incur cost of synchronization block if mRadioInterfaceCapabilities isn't null
             synchronized (mLockRadioInterfaceCapabilities) {
                 if (mRadioInterfaceCapabilities == null) {
-                    mRadioConfig.getHalDeviceCapabilities(
-                            obtainMessage(EVENT_GET_HAL_DEVICE_CAPABILITIES_DONE));
+                    requestCapabilities();
                     try {
                         if (Looper.myLooper() != getLooper()) {
                             mLockRadioInterfaceCapabilities.wait(2000);
@@ -158,7 +164,7 @@ public class RadioInterfaceCapabilityController extends Handler {
         switch (msg.what) {
             case Phone.EVENT_RADIO_AVAILABLE:
             case Phone.EVENT_RADIO_ON:
-                getCapabilities();
+                requestCapabilities();
                 break;
             case EVENT_GET_HAL_DEVICE_CAPABILITIES_DONE:
                 setupCapabilities((AsyncResult) msg.obj);

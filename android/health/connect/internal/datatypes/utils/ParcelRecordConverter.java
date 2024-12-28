@@ -31,6 +31,7 @@ import java.util.Objects;
  * @hide
  */
 public final class ParcelRecordConverter {
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private static volatile ParcelRecordConverter sParcelRecordConverter = null;
 
     private final Map<Integer, Class<? extends RecordInternal<?>>> mDataTypeClassMap;

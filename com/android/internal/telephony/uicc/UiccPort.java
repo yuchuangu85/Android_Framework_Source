@@ -29,6 +29,9 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.IccLogicalChannelRequest;
 import com.android.internal.telephony.TelephonyComponentFactory;
+import com.android.internal.telephony.flags.FeatureFlags;
+import com.android.internal.telephony.flags.FeatureFlagsImpl;
+import com.android.internal.telephony.flags.Flags;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -39,6 +42,7 @@ import java.util.List;
 public class UiccPort {
     protected static final String LOG_TAG = "UiccPort";
     protected static final boolean DBG = true;
+    private static @NonNull FeatureFlags sFlags = new FeatureFlagsImpl();
 
     // The lock object is created by UiccSlot that owns this UiccCard - this is to share the lock
     // between UiccSlot, UiccCard, EuiccCard, UiccPort, EuiccPort and UiccProfile for now.
@@ -54,8 +58,9 @@ public class UiccPort {
     private int mPortIdx;
     private int mPhysicalSlotIndex;
 
-    // The list of the opened logical channel record. The channels will be closed by us when
-    // detecting client died without closing them in advance.
+    // The list of the opened logical channel record.
+    // The channels will be closed by us when detecting client died without closing them in advance.
+    // The same lock should be used to protect both access of the list and the individual record.
     @GuardedBy("mOpenChannelRecords")
     private final List<OpenLogicalChannelRecord> mOpenChannelRecords = new ArrayList<>();
 
@@ -80,7 +85,7 @@ public class UiccPort {
             if (mUiccProfile == null) {
                 mUiccProfile = TelephonyComponentFactory.getInstance()
                         .inject(UiccProfile.class.getName()).makeUiccProfile(
-                                mContext, mCi, ics, mPhoneId, uiccCard, mLock);
+                                mContext, mCi, ics, mPhoneId, uiccCard, mLock, sFlags);
             } else {
                 mUiccProfile.update(mContext, mCi, ics);
             }
@@ -98,11 +103,13 @@ public class UiccPort {
             }
             mUiccProfile = null;
         }
+        cleanupOpenLogicalChannelRecordsIfNeeded();
     }
 
     @Override
     protected void finalize() {
         if (DBG) log("UiccPort finalized");
+        cleanupOpenLogicalChannelRecordsIfNeeded();
     }
 
     /**
@@ -386,8 +393,10 @@ public class UiccPort {
     public void onLogicalChannelOpened(@NonNull IccLogicalChannelRequest request) {
         OpenLogicalChannelRecord record = new OpenLogicalChannelRecord(request);
         try {
-            request.binder.linkToDeath(record, /*flags=*/ 0);
-            addOpenLogicalChannelRecord(record);
+            synchronized (mOpenChannelRecords) {
+                request.binder.linkToDeath(record, /*flags=*/ 0);
+                mOpenChannelRecords.add(record);
+            }
             if (DBG) log("onLogicalChannelOpened: monitoring client " + record);
         } catch (RemoteException | NullPointerException ex) {
             loge("IccOpenLogicChannel client has died, clean up manually");
@@ -403,11 +412,13 @@ public class UiccPort {
      */
     public void onLogicalChannelClosed(int channelId) {
         OpenLogicalChannelRecord record = getOpenLogicalChannelRecord(channelId);
-        if (record != null && record.mRequest != null && record.mRequest.binder != null) {
-            if (DBG) log("onLogicalChannelClosed: stop monitoring client " + record);
-            record.mRequest.binder.unlinkToDeath(record, /*flags=*/ 0);
-            removeOpenLogicalChannelRecord(record);
-            record.mRequest.binder = null;
+        synchronized (mOpenChannelRecords) {
+            if (record != null && record.mRequest != null && record.mRequest.binder != null) {
+                if (DBG) log("onLogicalChannelClosed: stop monitoring client " + record);
+                record.mRequest.binder.unlinkToDeath(record, /*flags=*/ 0);
+                record.mRequest.binder = null;
+                mOpenChannelRecords.remove(record);
+            }
         }
     }
 
@@ -425,15 +436,21 @@ public class UiccPort {
         return null;
     }
 
-    private void addOpenLogicalChannelRecord(OpenLogicalChannelRecord record) {
-        synchronized (mOpenChannelRecords) {
-            mOpenChannelRecords.add(record);
-        }
-    }
-
-    private void removeOpenLogicalChannelRecord(OpenLogicalChannelRecord record) {
-        synchronized (mOpenChannelRecords) {
-            mOpenChannelRecords.remove(record);
+    /**
+     * Clean up records when logical channels underneath have been released, in cases like SIM
+     * removal or modem reset. The obsoleted records may trigger a redundant release of logical
+     * channel that may have been assigned to other client.
+     */
+    private void cleanupOpenLogicalChannelRecordsIfNeeded() {
+        if (Flags.cleanupOpenLogicalChannelRecordOnDispose()) {
+            synchronized (mOpenChannelRecords) {
+                for (OpenLogicalChannelRecord record : mOpenChannelRecords) {
+                    if (DBG) log("Clean up " + record);
+                    record.mRequest.binder.unlinkToDeath(record, /*flags=*/ 0);
+                    record.mRequest.binder = null;
+                }
+                mOpenChannelRecords.clear();
+            }
         }
     }
 

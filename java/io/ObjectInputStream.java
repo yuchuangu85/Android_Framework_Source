@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static java.io.ObjectStreamClass.processQueue;
 import sun.reflect.misc.ReflectUtil;
 import dalvik.system.VMStack;
-import jdk.internal.misc.SharedSecrets;
+import jdk.internal.access.SharedSecrets;
 
 /**
  * An ObjectInputStream deserializes primitive data and objects previously

@@ -84,12 +84,14 @@ public final class RecordMigrationPayload extends MigrationPayload implements Pa
     }
 
     /** Returns origin package name associated with this payload. */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public String getOriginPackageName() {
         return mRecordInternal.getPackageName();
     }
 
     /** Returns origin application name associated with this payload. */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public String getOriginAppName() {
         return mRecordInternal.getAppName();

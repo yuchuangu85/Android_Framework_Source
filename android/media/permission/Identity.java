@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/base/media/media_permission-aidl-java-source/gen/android/media/permission/Identity.java.d -o out/soong/.intermediates/frameworks/base/media/media_permission-aidl-java-source/gen -Nframeworks/base/media/aidl frameworks/base/media/aidl/android/media/permission/Identity.aidl
  */
 package android.media.permission;
 /**
@@ -70,7 +71,7 @@ public class Identity implements android.os.Parcelable
     _aidl_sj.add("pid: " + (pid));
     _aidl_sj.add("packageName: " + (java.util.Objects.toString(packageName)));
     _aidl_sj.add("attributionTag: " + (java.util.Objects.toString(attributionTag)));
-    return "android.media.permission.Identity" + _aidl_sj.toString()  ;
+    return "Identity" + _aidl_sj.toString()  ;
   }
   @Override
   public boolean equals(Object other) {

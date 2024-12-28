@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/sounddose-aidl-java-source/gen/android/media/SoundDoseRecord.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/sounddose-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/SoundDoseRecord.aidl
  */
 package android.media;
 /** Record containing information about the computed sound dose. */
@@ -69,7 +70,7 @@ public class SoundDoseRecord implements android.os.Parcelable
     _aidl_sj.add("duration: " + (duration));
     _aidl_sj.add("value: " + (value));
     _aidl_sj.add("averageMel: " + (averageMel));
-    return "android.media.SoundDoseRecord" + _aidl_sj.toString()  ;
+    return "SoundDoseRecord" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

@@ -23,6 +23,7 @@ import static com.android.internal.telephony.RILConstants.RADIO_NOT_AVAILABLE;
 import static com.android.internal.telephony.RILConstants.REQUEST_NOT_SUPPORTED;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_GET_HAL_DEVICE_CAPABILITIES;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_GET_PHONE_CAPABILITY;
+import static com.android.internal.telephony.RILConstants.RIL_REQUEST_GET_SIMULTANEOUS_CALLING_SUPPORT;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_GET_SLOT_STATUS;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_LOGICAL_TO_PHYSICAL_SLOT_MAPPING;
 import static com.android.internal.telephony.RILConstants.RIL_REQUEST_SET_PREFERRED_DATA_MODEM;
@@ -60,11 +61,6 @@ public class RadioConfig extends Handler {
 
     static final int EVENT_HIDL_SERVICE_DEAD = 1;
     static final int EVENT_AIDL_SERVICE_DEAD = 2;
-    static final HalVersion RADIO_CONFIG_HAL_VERSION_UNKNOWN = new HalVersion(-1, -1);
-    static final HalVersion RADIO_CONFIG_HAL_VERSION_1_0 = new HalVersion(1, 0);
-    static final HalVersion RADIO_CONFIG_HAL_VERSION_1_1 = new HalVersion(1, 1);
-    static final HalVersion RADIO_CONFIG_HAL_VERSION_1_3 = new HalVersion(1, 3);
-    static final HalVersion RADIO_CONFIG_HAL_VERSION_2_0 = new HalVersion(2, 0);
 
     private final boolean mIsMobileNetworkSupported;
     private final SparseArray<RILRequest> mRequestList = new SparseArray<>();
@@ -79,6 +75,8 @@ public class RadioConfig extends Handler {
     private static RadioConfig sRadioConfig;
 
     protected Registrant mSimSlotStatusRegistrant;
+
+    protected Registrant mSimultaneousCallingSupportStatusRegistrant;
 
     private boolean isMobileDataCapable(Context context) {
         final TelephonyManager tm = context.getSystemService(TelephonyManager.class);
@@ -292,13 +290,12 @@ public class RadioConfig extends Handler {
 
         if (service != null) {
             mRadioConfigProxy.setAidl(
-                    RADIO_CONFIG_HAL_VERSION_2_0,
                     android.hardware.radio.config.IRadioConfig.Stub.asInterface(service));
         }
 
         if (mRadioConfigProxy.isEmpty()) {
             try {
-                mRadioConfigProxy.setHidl(RADIO_CONFIG_HAL_VERSION_1_3,
+                mRadioConfigProxy.setHidl(RIL.RADIO_HAL_VERSION_1_3,
                         android.hardware.radio.config.V1_3.IRadioConfig.getService(true));
             } catch (RemoteException | NoSuchElementException e) {
                 mRadioConfigProxy.clear();
@@ -308,7 +305,7 @@ public class RadioConfig extends Handler {
 
         if (mRadioConfigProxy.isEmpty()) {
             try {
-                mRadioConfigProxy.setHidl(RADIO_CONFIG_HAL_VERSION_1_1,
+                mRadioConfigProxy.setHidl(RIL.RADIO_HAL_VERSION_1_1,
                         android.hardware.radio.config.V1_1.IRadioConfig.getService(true));
             } catch (RemoteException | NoSuchElementException e) {
                 mRadioConfigProxy.clear();
@@ -317,13 +314,7 @@ public class RadioConfig extends Handler {
         }
 
         if (mRadioConfigProxy.isEmpty()) {
-            try {
-                mRadioConfigProxy.setHidl(RADIO_CONFIG_HAL_VERSION_1_0,
-                        android.hardware.radio.config.V1_0.IRadioConfig.getService(true));
-            } catch (RemoteException | NoSuchElementException e) {
-                mRadioConfigProxy.clear();
-                loge("getHidlRadioConfigProxy1_0: RadioConfigProxy getService | linkToDeath: " + e);
-            }
+            loge("IRadioConfig <1.1 is no longer supported.");
         }
 
         if (!mRadioConfigProxy.isEmpty()) {
@@ -485,13 +476,41 @@ public class RadioConfig extends Handler {
     }
 
     /**
+     * Wrapper function for IRadioConfig.getSimultaneousCallingSupport().
+     */
+    public void updateSimultaneousCallingSupport(Message result) {
+        RadioConfigProxy proxy = getRadioConfigProxy(null);
+        if (proxy.isEmpty()) return;
+
+        if (proxy.getVersion().less(RIL.RADIO_HAL_VERSION_2_2)) {
+            if (result != null) {
+                AsyncResult.forMessage(result, null,
+                        CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
+                result.sendToTarget();
+            }
+            return;
+        }
+
+        RILRequest rr = obtainRequest(RIL_REQUEST_GET_SIMULTANEOUS_CALLING_SUPPORT, result,
+                mDefaultWorkSource);
+        if (DBG) {
+            logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
+        }
+        try {
+            proxy.updateSimultaneousCallingSupport(rr.mSerial);
+        } catch (RemoteException | RuntimeException e) {
+            resetProxyAndRequestList("updateSimultaneousCallingSupport", e);
+        }
+    }
+
+    /**
      * Wrapper function for IRadioConfig.getPhoneCapability().
      */
     public void getPhoneCapability(Message result) {
         RadioConfigProxy proxy = getRadioConfigProxy(null);
         if (proxy.isEmpty()) return;
 
-        if (proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_1)) {
+        if (proxy.getVersion().less(RIL.RADIO_HAL_VERSION_1_1)) {
             if (result != null) {
                 AsyncResult.forMessage(result, null,
                         CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
@@ -519,7 +538,7 @@ public class RadioConfig extends Handler {
      */
     public boolean isSetPreferredDataCommandSupported() {
         RadioConfigProxy proxy = getRadioConfigProxy(null);
-        return !proxy.isEmpty() && proxy.getVersion().greaterOrEqual(RADIO_CONFIG_HAL_VERSION_1_1);
+        return !proxy.isEmpty() && proxy.getVersion().greaterOrEqual(RIL.RADIO_HAL_VERSION_1_1);
     }
 
     /**
@@ -550,7 +569,7 @@ public class RadioConfig extends Handler {
         RadioConfigProxy proxy = getRadioConfigProxy(result);
         if (proxy.isEmpty()) return;
 
-        if (proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_1)) {
+        if (proxy.getVersion().less(RIL.RADIO_HAL_VERSION_1_1)) {
             if (result != null) {
                 AsyncResult.forMessage(
                         result, null, CommandException.fromRilErrno(REQUEST_NOT_SUPPORTED));
@@ -570,6 +589,14 @@ public class RadioConfig extends Handler {
         } catch (RemoteException | RuntimeException e) {
             resetProxyAndRequestList("setNumOfLiveModems", e);
         }
+    }
+
+    /**
+     * Register a handler to get SIM slots that support simultaneous calling changed notifications.
+     */
+    public void registerForSimultaneousCallingSupportStatusChanged(Handler h, int what,
+            Object obj) {
+        mSimultaneousCallingSupportStatusRegistrant = new Registrant(h, what, obj);
     }
 
     /**
@@ -596,7 +623,7 @@ public class RadioConfig extends Handler {
         RadioConfigProxy proxy = getRadioConfigProxy(Message.obtain(result));
         if (proxy.isEmpty()) return;
 
-        if (proxy.getVersion().less(RADIO_CONFIG_HAL_VERSION_1_3)) {
+        if (proxy.getVersion().less(RIL.RADIO_HAL_VERSION_1_3)) {
             if (result != null) {
                 if (DBG) {
                     logd("RIL_REQUEST_GET_HAL_DEVICE_CAPABILITIES > REQUEST_NOT_SUPPORTED");

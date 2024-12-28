@@ -45,14 +45,13 @@ public interface RSAPrivateCrtKey extends RSAPrivateKey {
      * The type fingerprint that is set to indicate
      * serialization compatibility with a previous
      * version of the type.
+     *
+     * @deprecated A {@code serialVersionUID} field in an interface is
+     * ineffectual. Do not use; no replacement.
      */
-    // Android-removed: (b/260847206) revert once aosp/master is marked as V.
-    // * @deprecated A {@code serialVersionUID} field in an interface is
-    // * ineffectual. Do not use; no replacement.
-    // */
-    // @Deprecated
-    // @SuppressWarnings("serial")
-    // @java.io.Serial
+    @Deprecated
+    @SuppressWarnings("serial")
+    @java.io.Serial
     static final long serialVersionUID = -5682214253527700368L;
 
     /**

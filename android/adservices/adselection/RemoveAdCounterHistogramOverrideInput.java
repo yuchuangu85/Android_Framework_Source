@@ -16,7 +16,6 @@
 
 package android.adservices.adselection;
 
-import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_AD_COUNTER_KEY_MESSAGE;
 import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_BUYER_MESSAGE;
 import static android.adservices.adselection.UpdateAdCounterHistogramRequest.UNSET_AD_EVENT_TYPE_MESSAGE;
 import static android.adservices.common.FrequencyCapFilters.AD_EVENT_TYPE_INVALID;
@@ -43,7 +42,7 @@ import java.util.Objects;
  */
 public final class RemoveAdCounterHistogramOverrideInput implements Parcelable {
     @FrequencyCapFilters.AdEventType private final int mAdEventType;
-    @NonNull private final String mAdCounterKey;
+    private final int mAdCounterKey;
     @NonNull private final AdTechIdentifier mBuyer;
 
     @NonNull
@@ -74,7 +73,7 @@ public final class RemoveAdCounterHistogramOverrideInput implements Parcelable {
         Objects.requireNonNull(in);
 
         mAdEventType = in.readInt();
-        mAdCounterKey = in.readString();
+        mAdCounterKey = in.readInt();
         mBuyer = AdTechIdentifier.fromString(in.readString());
     }
 
@@ -100,7 +99,7 @@ public final class RemoveAdCounterHistogramOverrideInput implements Parcelable {
      * represent a grouping to filter on.
      */
     @NonNull
-    public String getAdCounterKey() {
+    public int getAdCounterKey() {
         return mAdCounterKey;
     }
 
@@ -129,9 +128,9 @@ public final class RemoveAdCounterHistogramOverrideInput implements Parcelable {
         return "RemoveAdCounterHistogramOverrideInput{"
                 + "mAdEventType="
                 + mAdEventType
-                + ", mAdCounterKey='"
+                + ", mAdCounterKey="
                 + mAdCounterKey
-                + "', mBuyer="
+                + ", mBuyer="
                 + mBuyer
                 + '}';
     }
@@ -141,14 +140,14 @@ public final class RemoveAdCounterHistogramOverrideInput implements Parcelable {
         Objects.requireNonNull(dest);
 
         dest.writeInt(mAdEventType);
-        dest.writeString(mAdCounterKey);
+        dest.writeInt(mAdCounterKey);
         dest.writeString(mBuyer.toString());
     }
 
     /** Builder for {@link RemoveAdCounterHistogramOverrideInput} objects. */
     public static final class Builder {
         @FrequencyCapFilters.AdEventType private int mAdEventType = AD_EVENT_TYPE_INVALID;
-        @Nullable private String mAdCounterKey;
+        private int mAdCounterKey;
         @Nullable private AdTechIdentifier mBuyer;
 
         public Builder() {}
@@ -170,8 +169,7 @@ public final class RemoveAdCounterHistogramOverrideInput implements Parcelable {
          * <p>See {@link #getAdCounterKey()} for more information.
          */
         @NonNull
-        public Builder setAdCounterKey(@NonNull String adCounterKey) {
-            Objects.requireNonNull(adCounterKey, NULL_AD_COUNTER_KEY_MESSAGE);
+        public Builder setAdCounterKey(int adCounterKey) {
             mAdCounterKey = adCounterKey;
             return this;
         }
@@ -199,7 +197,6 @@ public final class RemoveAdCounterHistogramOverrideInput implements Parcelable {
                 throws NullPointerException, IllegalArgumentException {
             Preconditions.checkArgument(
                     mAdEventType != AD_EVENT_TYPE_INVALID, UNSET_AD_EVENT_TYPE_MESSAGE);
-            Objects.requireNonNull(mAdCounterKey, NULL_AD_COUNTER_KEY_MESSAGE);
             Objects.requireNonNull(mBuyer, NULL_BUYER_MESSAGE);
 
             return new RemoveAdCounterHistogramOverrideInput(this);

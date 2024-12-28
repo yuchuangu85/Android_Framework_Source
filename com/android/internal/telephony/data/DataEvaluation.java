@@ -36,18 +36,23 @@ import java.util.Set;
  */
 public class DataEvaluation {
     /** The reason for this evaluation */
-    private final @NonNull DataEvaluationReason mDataEvaluationReason;
+    @NonNull
+    private final DataEvaluationReason mDataEvaluationReason;
 
     /** Data disallowed reasons. There could be multiple reasons for not allowing data. */
-    private final @NonNull Set<DataDisallowedReason> mDataDisallowedReasons = new HashSet<>();
+    @NonNull
+    private final Set<DataDisallowedReason> mDataDisallowedReasons = new HashSet<>();
 
     /** Data allowed reason. It is intended to only have one allowed reason. */
-    private @NonNull DataAllowedReason mDataAllowedReason = DataAllowedReason.NONE;
+    @NonNull
+    private DataAllowedReason mDataAllowedReason = DataAllowedReason.NONE;
 
-    private @Nullable DataProfile mCandidateDataProfile = null;
+    @Nullable
+    private DataProfile mCandidateDataProfile = null;
 
     /** The timestamp of evaluation time */
-    private @CurrentTimeMillisLong long mEvaluatedTime = 0;
+    @CurrentTimeMillisLong
+    private long mEvaluatedTime = 0;
 
     /**
      * Constructor
@@ -155,6 +160,21 @@ public class DataEvaluation {
     }
 
     /**
+     * Check if all the disallowed reasons are a subset of the given reason.
+     *
+     * @param reasons The given reason to check
+     * @return {@code true} if it doesn't contain any disallowed reasons other than the given
+     * reasons.
+     */
+    public boolean isSubsetOf(DataDisallowedReason... reasons) {
+        int matched = 0;
+        for (DataDisallowedReason requestedReason : reasons) {
+            if (mDataDisallowedReasons.contains(requestedReason)) matched++;
+        }
+        return matched == mDataDisallowedReasons.size();
+    }
+
+    /**
      * Check if the any of the disallowed reasons match one of the provided reason.
      *
      * @param reasons The given reasons to check.
@@ -242,7 +262,9 @@ public class DataEvaluation {
         /** Tracking area code changed. */
         TAC_CHANGED(true),
         /** Unsatisfied network request detached. */
-        UNSATISFIED_REQUEST_DETACHED(true);
+        UNSATISFIED_REQUEST_DETACHED(true),
+        /** track bootstrap sim data usage */
+        CHECK_DATA_USAGE(false);
 
         /**
          * {@code true} if the evaluation is due to environmental changes (i.e. SIM removal,
@@ -290,6 +312,8 @@ public class DataEvaluation {
         SIM_NOT_READY(true),
         /** Concurrent voice and data is not allowed. */
         CONCURRENT_VOICE_DATA_NOT_ALLOWED(true),
+        /** Service option not supported. */
+        SERVICE_OPTION_NOT_SUPPORTED(true),
         /** Carrier notified data should be restricted. */
         DATA_RESTRICTED_BY_NETWORK(true),
         /** Radio power is off (i.e. airplane mode on) */
@@ -325,7 +349,11 @@ public class DataEvaluation {
         /** Data enabled settings are not ready. */
         DATA_SETTINGS_NOT_READY(true),
         /** Handover max retry stopped but network is not on the preferred transport. */
-        HANDOVER_RETRY_STOPPED(true);
+        HANDOVER_RETRY_STOPPED(true),
+        /** BootStrap sim data limit reached. */
+        DATA_LIMIT_REACHED(true),
+        /** Data network connectivity transport not allowed. */
+        DATA_NETWORK_TRANSPORT_NOT_ALLOWED(true);
 
         private final boolean mIsHardReason;
 
@@ -395,7 +423,7 @@ public class DataEvaluation {
     public String toString() {
         StringBuilder evaluationStr = new StringBuilder();
         evaluationStr.append("Data evaluation: evaluation reason:" + mDataEvaluationReason + ", ");
-        if (mDataDisallowedReasons.size() > 0) {
+        if (!mDataDisallowedReasons.isEmpty()) {
             evaluationStr.append("Data disallowed reasons:");
             for (DataDisallowedReason reason : mDataDisallowedReasons) {
                 evaluationStr.append(" ").append(reason);

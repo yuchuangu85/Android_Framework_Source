@@ -25,8 +25,23 @@ public final class ClientConstants {
     // Status code constants.
     public static final int STATUS_SUCCESS = 0;
     public static final int STATUS_INTERNAL_ERROR = 1;
+    public static final int STATUS_TRAINING_FAILED = 2;
+    public static final int STATUS_KILL_SWITCH_ENABLED = 3;
+    public static final int STATUS_NOT_ENOUGH_DATA = 4;
 
-    public static final String EXTRA_COLLECTION_NAME = "android.federatedcompute.collection_name";
+    public static final String EXTRA_POPULATION_NAME = "android.federatedcompute.population_name";
+
+    public static final String EXTRA_TASK_ID = "android.federatedcompute.task_id";
+
+    public static final String EXTRA_CONTEXT_DATA = "android.federatedcompute.context_data";
+    public static final String EXTRA_ELIGIBILITY_MIN_EXAMPLE =
+            "android.federatedcompute.eligibility_min_example";
+
+    public static final String EXTRA_COMPUTATION_RESULT =
+            "android.federatedcompute.computation_result";
+
+    public static final String EXTRA_EXAMPLE_CONSUMPTION_LIST =
+            "android.federatedcompute.example_consumption_list";
 
     // ExampleStoreService related constants.
     public static final String EXAMPLE_STORE_ACTION = "android.federatedcompute.EXAMPLE_STORE";
@@ -34,12 +49,17 @@ public final class ClientConstants {
             "android.federatedcompute.example_iterator_criteria";
     public static final String EXTRA_EXAMPLE_ITERATOR_RESUMPTION_TOKEN =
             "android.federatedcompute.example_iterator_resumption_token";
+
+    public static final String EXTRA_COLLECTION_URI =
+            "android.federatedcompute.collection_uri";
     public static final String EXTRA_EXAMPLE_ITERATOR_RESULT =
             "android.federatedcompute.example_iterator_result";
 
     // ResultHandlingService related constants.
     public static final String RESULT_HANDLING_SERVICE_ACTION =
             "android.federatedcompute.COMPUTATION_RESULT";
+
+    public static final String ODP_APEX_KEYWORD = "ondevicepersonalization";
 
     private ClientConstants() {}
 }

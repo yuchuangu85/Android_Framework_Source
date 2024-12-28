@@ -110,6 +110,8 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
             case UNSPECIFIED:
             case ScanResult.WIFI_BAND_24_GHZ:
             case ScanResult.WIFI_BAND_5_GHZ:
+            case ScanResult.WIFI_BAND_5_GHZ_LOW:
+            case ScanResult.WIFI_BAND_5_GHZ_HIGH:
             case ScanResult.WIFI_BAND_6_GHZ:
             case ScanResult.WIFI_BAND_60_GHZ:
                 return true;
@@ -329,7 +331,10 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
 
         /**
          * Set the associated enterprise configuration for this network. Needed for authenticating
-         * to WPA2-EAP networks. See {@link WifiEnterpriseConfig} for description.
+         * to WPA2-EAP networks. See {@link WifiEnterpriseConfig} for description. Local-only
+         * connection will not support Trust On First Use (TOFU). If TOFU is enabled on this
+         * Enterprise Config, framework will reject the connection. See {@link
+         * WifiEnterpriseConfig#enableTrustOnFirstUse}
          *
          * @param enterpriseConfig Instance of {@link WifiEnterpriseConfig}.
          * @return Instance of {@link Builder} to enable chaining of the builder method.
@@ -367,8 +372,11 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
         /**
          * Set the associated enterprise configuration for this network. Needed for authenticating
          * to standard WPA3-Enterprise networks. See {@link WifiEnterpriseConfig} for description.
-         * For WPA3-Enterprise in 192-bit security mode networks,
-         * see {@link #setWpa3Enterprise192BitModeConfig(WifiEnterpriseConfig)} for description.
+         * For WPA3-Enterprise in 192-bit security mode networks, see {@link
+         * #setWpa3Enterprise192BitModeConfig(WifiEnterpriseConfig)} for description. Local-only
+         * connection will not support Trust On First Use (TOFU). If TOFU is enabled on this
+         * Enterprise Config, framework will reject the connection. See {@link
+         * WifiEnterpriseConfig#enableTrustOnFirstUse}
          *
          * @param enterpriseConfig Instance of {@link WifiEnterpriseConfig}.
          * @return Instance of {@link Builder} to enable chaining of the builder method.
@@ -384,15 +392,17 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
         /**
          * Set the associated enterprise configuration for this network. Needed for authenticating
          * to WPA3-Enterprise in 192-bit security mode networks. See {@link WifiEnterpriseConfig}
-         * for description. Both the client and CA certificates must be provided,
-         * and must be of type of either sha384WithRSAEncryption with key length of 3072bit or
-         * more (OID 1.2.840.113549.1.1.12), or ecdsa-with-SHA384 with key length of 384bit or
-         * more (OID 1.2.840.10045.4.3.3).
+         * for description. Both the client and CA certificates must be provided, and must be of
+         * type of either sha384WithRSAEncryption with key length of 3072bit or more (OID
+         * 1.2.840.113549.1.1.12), or ecdsa-with-SHA384 with key length of 384bit or more (OID
+         * 1.2.840.10045.4.3.3). Local-only connection will not support Trust On First Use (TOFU).
+         * If TOFU is enabled on this Enterprise Config, framework will reject the connection. See
+         * {@link WifiEnterpriseConfig#enableTrustOnFirstUse}
          *
          * @param enterpriseConfig Instance of {@link WifiEnterpriseConfig}.
          * @return Instance of {@link Builder} to enable chaining of the builder method.
-         * @throws IllegalArgumentException if the EAP type or certificates do not
-         *                                  meet 192-bit mode requirements.
+         * @throws IllegalArgumentException if the EAP type or certificates do not meet 192-bit mode
+         *     requirements.
          */
         public @NonNull Builder setWpa3Enterprise192BitModeConfig(
                 @NonNull WifiEnterpriseConfig enterpriseConfig) {

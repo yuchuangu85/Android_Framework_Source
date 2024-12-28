@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 /**
@@ -143,7 +144,7 @@ public final class AdSelectionSignals implements Parcelable {
      * @hide
      */
     public int getSizeInBytes() {
-        return this.mSignals.getBytes().length;
+        return this.mSignals.getBytes(StandardCharsets.UTF_8).length;
     }
 
     private void validate(String inputString) {

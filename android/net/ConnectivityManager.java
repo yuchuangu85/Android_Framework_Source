@@ -26,9 +26,11 @@ import static android.net.NetworkRequest.Type.TRACK_SYSTEM_DEFAULT;
 import static android.net.QosCallback.QosCallbackRegistrationException;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresApi;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
@@ -72,6 +74,7 @@ import android.util.Range;
 import android.util.SparseIntArray;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.modules.utils.build.SdkLevel;
 
 import libcore.net.event.NetworkEventDispatcher;
 
@@ -114,6 +117,22 @@ import java.util.concurrent.RejectedExecutionException;
 public class ConnectivityManager {
     private static final String TAG = "ConnectivityManager";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+
+    // TODO : remove this class when udc-mainline-prod is abandoned and android.net.flags.Flags is
+    // available here
+    /** @hide */
+    public static class Flags {
+        static final String SET_DATA_SAVER_VIA_CM =
+                "com.android.net.flags.set_data_saver_via_cm";
+        static final String SUPPORT_IS_UID_NETWORKING_BLOCKED =
+                "com.android.net.flags.support_is_uid_networking_blocked";
+        static final String BASIC_BACKGROUND_RESTRICTIONS_ENABLED =
+                "com.android.net.flags.basic_background_restrictions_enabled";
+        static final String METERED_NETWORK_FIREWALL_CHAINS =
+                "com.android.net.flags.metered_network_firewall_chains";
+        static final String BLOCKED_REASON_OEM_DENY_CHAINS =
+                "com.android.net.flags.blocked_reason_oem_deny_chains";
+    }
 
     /**
      * A change in network connectivity has occurred. A default connection has either
@@ -886,6 +905,29 @@ public class ConnectivityManager {
     public static final int BLOCKED_REASON_LOW_POWER_STANDBY = 1 << 5;
 
     /**
+     * Flag to indicate that an app is subject to default background restrictions that would
+     * result in its network access being blocked.
+     *
+     * @hide
+     */
+    @FlaggedApi(Flags.BASIC_BACKGROUND_RESTRICTIONS_ENABLED)
+    @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
+    public static final int BLOCKED_REASON_APP_BACKGROUND = 1 << 6;
+
+    /**
+     * Flag to indicate that an app is subject to OEM-specific application restrictions that would
+     * result in its network access being blocked.
+     *
+     * @see #FIREWALL_CHAIN_OEM_DENY_1
+     * @see #FIREWALL_CHAIN_OEM_DENY_2
+     * @see #FIREWALL_CHAIN_OEM_DENY_3
+     * @hide
+     */
+    @FlaggedApi(Flags.BLOCKED_REASON_OEM_DENY_CHAINS)
+    @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
+    public static final int BLOCKED_REASON_OEM_DENY = 1 << 7;
+
+    /**
      * Flag to indicate that an app is subject to Data saver restrictions that would
      * result in its metered network access being blocked.
      *
@@ -924,6 +966,8 @@ public class ConnectivityManager {
             BLOCKED_REASON_RESTRICTED_MODE,
             BLOCKED_REASON_LOCKDOWN_VPN,
             BLOCKED_REASON_LOW_POWER_STANDBY,
+            BLOCKED_REASON_APP_BACKGROUND,
+            BLOCKED_REASON_OEM_DENY,
             BLOCKED_METERED_REASON_DATA_SAVER,
             BLOCKED_METERED_REASON_USER_RESTRICTED,
             BLOCKED_METERED_REASON_ADMIN_DISABLED,
@@ -941,7 +985,6 @@ public class ConnectivityManager {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 130143562)
     private final IConnectivityManager mService;
 
-    // LINT.IfChange(firewall_chain)
     /**
      * Firewall chain for device idle (doze mode).
      * Allowlist of apps that have network access in device idle.
@@ -981,6 +1024,16 @@ public class ConnectivityManager {
      */
     @SystemApi(client = MODULE_LIBRARIES)
     public static final int FIREWALL_CHAIN_LOW_POWER_STANDBY = 5;
+
+    /**
+     * Firewall chain used for always-on default background restrictions.
+     * Allowlist of apps that have access because either they are in the foreground or they are
+     * exempted for specific situations while in the background.
+     * @hide
+     */
+    @FlaggedApi(Flags.BASIC_BACKGROUND_RESTRICTIONS_ENABLED)
+    @SystemApi(client = MODULE_LIBRARIES)
+    public static final int FIREWALL_CHAIN_BACKGROUND = 6;
 
     /**
      * Firewall chain used for OEM-specific application restrictions.
@@ -1033,6 +1086,61 @@ public class ConnectivityManager {
     @SystemApi(client = MODULE_LIBRARIES)
     public static final int FIREWALL_CHAIN_OEM_DENY_3 = 9;
 
+    /**
+     * Firewall chain for allow list on metered networks
+     *
+     * UIDs added to this chain have access to metered networks, unless they're also in one of the
+     * denylist, {@link #FIREWALL_CHAIN_METERED_DENY_USER},
+     * {@link #FIREWALL_CHAIN_METERED_DENY_ADMIN}
+     *
+     * Note that this chain is used from a separate bpf program that is triggered by iptables and
+     * can not be controlled by {@link ConnectivityManager#setFirewallChainEnabled}.
+     *
+     * @hide
+     */
+    // TODO: Merge this chain with data saver and support setFirewallChainEnabled
+    @FlaggedApi(Flags.METERED_NETWORK_FIREWALL_CHAINS)
+    @SystemApi(client = MODULE_LIBRARIES)
+    public static final int FIREWALL_CHAIN_METERED_ALLOW = 10;
+
+    /**
+     * Firewall chain for user-set restrictions on metered networks
+     *
+     * UIDs added to this chain do not have access to metered networks.
+     * UIDs should be added to this chain based on user settings.
+     * To restrict metered network based on admin configuration (e.g. enterprise policies),
+     * {@link #FIREWALL_CHAIN_METERED_DENY_ADMIN} should be used.
+     * This chain corresponds to {@link #BLOCKED_METERED_REASON_USER_RESTRICTED}
+     *
+     * Note that this chain is used from a separate bpf program that is triggered by iptables and
+     * can not be controlled by {@link ConnectivityManager#setFirewallChainEnabled}.
+     *
+     * @hide
+     */
+    // TODO: Support setFirewallChainEnabled to control this chain
+    @FlaggedApi(Flags.METERED_NETWORK_FIREWALL_CHAINS)
+    @SystemApi(client = MODULE_LIBRARIES)
+    public static final int FIREWALL_CHAIN_METERED_DENY_USER = 11;
+
+    /**
+     * Firewall chain for admin-set restrictions on metered networks
+     *
+     * UIDs added to this chain do not have access to metered networks.
+     * UIDs should be added to this chain based on admin configuration (e.g. enterprise policies).
+     * To restrict metered network based on user settings, {@link #FIREWALL_CHAIN_METERED_DENY_USER}
+     * should be used.
+     * This chain corresponds to {@link #BLOCKED_METERED_REASON_ADMIN_DISABLED}
+     *
+     * Note that this chain is used from a separate bpf program that is triggered by iptables and
+     * can not be controlled by {@link ConnectivityManager#setFirewallChainEnabled}.
+     *
+     * @hide
+     */
+    // TODO: Support setFirewallChainEnabled to control this chain
+    @FlaggedApi(Flags.METERED_NETWORK_FIREWALL_CHAINS)
+    @SystemApi(client = MODULE_LIBRARIES)
+    public static final int FIREWALL_CHAIN_METERED_DENY_ADMIN = 12;
+
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(flag = false, prefix = "FIREWALL_CHAIN_", value = {
@@ -1041,12 +1149,15 @@ public class ConnectivityManager {
         FIREWALL_CHAIN_POWERSAVE,
         FIREWALL_CHAIN_RESTRICTED,
         FIREWALL_CHAIN_LOW_POWER_STANDBY,
+        FIREWALL_CHAIN_BACKGROUND,
         FIREWALL_CHAIN_OEM_DENY_1,
         FIREWALL_CHAIN_OEM_DENY_2,
-        FIREWALL_CHAIN_OEM_DENY_3
+        FIREWALL_CHAIN_OEM_DENY_3,
+        FIREWALL_CHAIN_METERED_ALLOW,
+        FIREWALL_CHAIN_METERED_DENY_USER,
+        FIREWALL_CHAIN_METERED_DENY_ADMIN
     })
     public @interface FirewallChain {}
-    // LINT.ThenChange(packages/modules/Connectivity/service/native/include/Common.h)
 
     /**
      * A firewall rule which allows or drops packets depending on existing policy.
@@ -3811,11 +3922,28 @@ public class ConnectivityManager {
     @RequiresPermission(anyOf = {
             NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK,
             android.Manifest.permission.NETWORK_FACTORY})
-    public Network registerNetworkAgent(INetworkAgent na, NetworkInfo ni, LinkProperties lp,
-            NetworkCapabilities nc, @NonNull NetworkScore score, NetworkAgentConfig config,
-            int providerId) {
+    public Network registerNetworkAgent(@NonNull INetworkAgent na, @NonNull NetworkInfo ni,
+            @NonNull LinkProperties lp, @NonNull NetworkCapabilities nc,
+            @NonNull NetworkScore score, @NonNull NetworkAgentConfig config, int providerId) {
+        return registerNetworkAgent(na, ni, lp, nc, null /* localNetworkConfig */, score, config,
+                providerId);
+    }
+
+    /**
+     * @hide
+     * Register a NetworkAgent with ConnectivityService.
+     * @return Network corresponding to NetworkAgent.
+     */
+    @RequiresPermission(anyOf = {
+            NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK,
+            android.Manifest.permission.NETWORK_FACTORY})
+    public Network registerNetworkAgent(@NonNull INetworkAgent na, @NonNull NetworkInfo ni,
+            @NonNull LinkProperties lp, @NonNull NetworkCapabilities nc,
+            @Nullable LocalNetworkConfig localNetworkConfig, @NonNull NetworkScore score,
+            @NonNull NetworkAgentConfig config, int providerId) {
         try {
-            return mService.registerNetworkAgent(na, ni, lp, nc, score, config, providerId);
+            return mService.registerNetworkAgent(na, ni, lp, nc, score, localNetworkConfig, config,
+                    providerId);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -3924,16 +4052,21 @@ public class ConnectivityManager {
          * @param network The {@link Network} of the satisfying network.
          * @param networkCapabilities The {@link NetworkCapabilities} of the satisfying network.
          * @param linkProperties The {@link LinkProperties} of the satisfying network.
+         * @param localInfo The {@link LocalNetworkInfo} of the satisfying network, or null
+         *                  if this network is not a local network.
          * @param blocked Whether access to the {@link Network} is blocked due to system policy.
          * @hide
          */
         public final void onAvailable(@NonNull Network network,
                 @NonNull NetworkCapabilities networkCapabilities,
-                @NonNull LinkProperties linkProperties, @BlockedReason int blocked) {
+                @NonNull LinkProperties linkProperties,
+                @Nullable LocalNetworkInfo localInfo,
+                @BlockedReason int blocked) {
             // Internally only this method is called when a new network is available, and
             // it calls the callback in the same way and order that older versions used
             // to call so as not to change the behavior.
             onAvailable(network, networkCapabilities, linkProperties, blocked != 0);
+            if (null != localInfo) onLocalNetworkInfoChanged(network, localInfo);
             onBlockedStatusChanged(network, blocked);
         }
 
@@ -3950,7 +4083,8 @@ public class ConnectivityManager {
          */
         public void onAvailable(@NonNull Network network,
                 @NonNull NetworkCapabilities networkCapabilities,
-                @NonNull LinkProperties linkProperties, boolean blocked) {
+                @NonNull LinkProperties linkProperties,
+                boolean blocked) {
             onAvailable(network);
             if (!networkCapabilities.hasCapability(
                     NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)) {
@@ -4077,6 +4211,19 @@ public class ConnectivityManager {
                 @NonNull LinkProperties linkProperties) {}
 
         /**
+         * Called when there is a change in the {@link LocalNetworkInfo} for this network.
+         *
+         * This is only called for local networks, that is those with the
+         * NET_CAPABILITY_LOCAL_NETWORK network capability.
+         *
+         * @param network the {@link Network} whose local network info has changed.
+         * @param localNetworkInfo the new {@link LocalNetworkInfo} for this network.
+         * @hide
+         */
+        public void onLocalNetworkInfoChanged(@NonNull Network network,
+                @NonNull LocalNetworkInfo localNetworkInfo) {}
+
+        /**
          * Called when the network the framework connected to for this request suspends data
          * transmission temporarily.
          *
@@ -4170,27 +4317,29 @@ public class ConnectivityManager {
     }
 
     /** @hide */
-    public static final int CALLBACK_PRECHECK            = 1;
+    public static final int CALLBACK_PRECHECK                   = 1;
     /** @hide */
-    public static final int CALLBACK_AVAILABLE           = 2;
+    public static final int CALLBACK_AVAILABLE                  = 2;
     /** @hide arg1 = TTL */
-    public static final int CALLBACK_LOSING              = 3;
+    public static final int CALLBACK_LOSING                     = 3;
     /** @hide */
-    public static final int CALLBACK_LOST                = 4;
+    public static final int CALLBACK_LOST                       = 4;
     /** @hide */
-    public static final int CALLBACK_UNAVAIL             = 5;
+    public static final int CALLBACK_UNAVAIL                    = 5;
     /** @hide */
-    public static final int CALLBACK_CAP_CHANGED         = 6;
+    public static final int CALLBACK_CAP_CHANGED                = 6;
     /** @hide */
-    public static final int CALLBACK_IP_CHANGED          = 7;
+    public static final int CALLBACK_IP_CHANGED                 = 7;
     /** @hide obj = NetworkCapabilities, arg1 = seq number */
-    private static final int EXPIRE_LEGACY_REQUEST       = 8;
+    private static final int EXPIRE_LEGACY_REQUEST              = 8;
     /** @hide */
-    public static final int CALLBACK_SUSPENDED           = 9;
+    public static final int CALLBACK_SUSPENDED                  = 9;
     /** @hide */
-    public static final int CALLBACK_RESUMED             = 10;
+    public static final int CALLBACK_RESUMED                    = 10;
     /** @hide */
-    public static final int CALLBACK_BLK_CHANGED         = 11;
+    public static final int CALLBACK_BLK_CHANGED                = 11;
+    /** @hide */
+    public static final int CALLBACK_LOCAL_NETWORK_INFO_CHANGED = 12;
 
     /** @hide */
     public static String getCallbackName(int whichCallback) {
@@ -4206,6 +4355,7 @@ public class ConnectivityManager {
             case CALLBACK_SUSPENDED:    return "CALLBACK_SUSPENDED";
             case CALLBACK_RESUMED:      return "CALLBACK_RESUMED";
             case CALLBACK_BLK_CHANGED:  return "CALLBACK_BLK_CHANGED";
+            case CALLBACK_LOCAL_NETWORK_INFO_CHANGED: return "CALLBACK_LOCAL_NETWORK_INFO_CHANGED";
             default:
                 return Integer.toString(whichCallback);
         }
@@ -4260,7 +4410,8 @@ public class ConnectivityManager {
                 case CALLBACK_AVAILABLE: {
                     NetworkCapabilities cap = getObject(message, NetworkCapabilities.class);
                     LinkProperties lp = getObject(message, LinkProperties.class);
-                    callback.onAvailable(network, cap, lp, message.arg1);
+                    LocalNetworkInfo lni = getObject(message, LocalNetworkInfo.class);
+                    callback.onAvailable(network, cap, lp, lni, message.arg1);
                     break;
                 }
                 case CALLBACK_LOSING: {
@@ -4283,6 +4434,11 @@ public class ConnectivityManager {
                 case CALLBACK_IP_CHANGED: {
                     LinkProperties lp = getObject(message, LinkProperties.class);
                     callback.onLinkPropertiesChanged(network, lp);
+                    break;
+                }
+                case CALLBACK_LOCAL_NETWORK_INFO_CHANGED: {
+                    final LocalNetworkInfo info = getObject(message, LocalNetworkInfo.class);
+                    callback.onLocalNetworkInfoChanged(network, info);
                     break;
                 }
                 case CALLBACK_SUSPENDED: {
@@ -5941,6 +6097,35 @@ public class ConnectivityManager {
     }
 
     /**
+     * Sets data saver switch.
+     *
+     * <p>This API configures the bandwidth control, and filling data saver status in BpfMap,
+     * which is intended for internal use by the network stack to optimize performance
+     * when frequently checking data saver status for multiple uids without doing IPC.
+     * It does not directly control the global data saver mode that users manage in settings.
+     * To query the comprehensive data saver status for a specific UID, including allowlist
+     * considerations, use {@link #getRestrictBackgroundStatus}.
+     *
+     * @param enable True if enable.
+     * @throws IllegalStateException if failed.
+     * @hide
+     */
+    @FlaggedApi(Flags.SET_DATA_SAVER_VIA_CM)
+    @SystemApi(client = MODULE_LIBRARIES)
+    @RequiresPermission(anyOf = {
+            android.Manifest.permission.NETWORK_SETTINGS,
+            android.Manifest.permission.NETWORK_STACK,
+            NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK
+    })
+    public void setDataSaverEnabled(final boolean enable) {
+        try {
+            mService.setDataSaverEnabled(enable);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Adds the specified UID to the list of UIds that are allowed to use data on metered networks
      * even when background data is restricted. The deny list takes precedence over the allow list.
      *
@@ -5956,7 +6141,7 @@ public class ConnectivityManager {
     })
     public void addUidToMeteredNetworkAllowList(final int uid) {
         try {
-            mService.updateMeteredNetworkAllowList(uid, true /* add */);
+            mService.setUidFirewallRule(FIREWALL_CHAIN_METERED_ALLOW, uid, FIREWALL_RULE_ALLOW);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -5979,7 +6164,7 @@ public class ConnectivityManager {
     })
     public void removeUidFromMeteredNetworkAllowList(final int uid) {
         try {
-            mService.updateMeteredNetworkAllowList(uid, false /* remove */);
+            mService.setUidFirewallRule(FIREWALL_CHAIN_METERED_ALLOW, uid, FIREWALL_RULE_DENY);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -5989,10 +6174,17 @@ public class ConnectivityManager {
      * Adds the specified UID to the list of UIDs that are not allowed to use background data on
      * metered networks. Takes precedence over {@link #addUidToMeteredNetworkAllowList}.
      *
+     * On V+, {@link #setUidFirewallRule} should be used with
+     * {@link #FIREWALL_CHAIN_METERED_DENY_USER} or {@link #FIREWALL_CHAIN_METERED_DENY_ADMIN}
+     * based on the reason so that users can receive {@link #BLOCKED_METERED_REASON_USER_RESTRICTED}
+     * or {@link #BLOCKED_METERED_REASON_ADMIN_DISABLED}, respectively.
+     * This API always uses {@link #FIREWALL_CHAIN_METERED_DENY_USER}.
+     *
      * @param uid uid of target app
      * @throws IllegalStateException if updating deny list failed.
      * @hide
      */
+    // TODO(b/332649177): Deprecate this API after V
     @SystemApi(client = MODULE_LIBRARIES)
     @RequiresPermission(anyOf = {
             android.Manifest.permission.NETWORK_SETTINGS,
@@ -6001,7 +6193,7 @@ public class ConnectivityManager {
     })
     public void addUidToMeteredNetworkDenyList(final int uid) {
         try {
-            mService.updateMeteredNetworkDenyList(uid, true /* add */);
+            mService.setUidFirewallRule(FIREWALL_CHAIN_METERED_DENY_USER, uid, FIREWALL_RULE_DENY);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6012,10 +6204,17 @@ public class ConnectivityManager {
      * networks if background data is not restricted. The deny list takes precedence over the
      * allow list.
      *
+     * On V+, {@link #setUidFirewallRule} should be used with
+     * {@link #FIREWALL_CHAIN_METERED_DENY_USER} or {@link #FIREWALL_CHAIN_METERED_DENY_ADMIN}
+     * based on the reason so that users can receive {@link #BLOCKED_METERED_REASON_USER_RESTRICTED}
+     * or {@link #BLOCKED_METERED_REASON_ADMIN_DISABLED}, respectively.
+     * This API always uses {@link #FIREWALL_CHAIN_METERED_DENY_USER}.
+     *
      * @param uid uid of target app
      * @throws IllegalStateException if updating deny list failed.
      * @hide
      */
+    // TODO(b/332649177): Deprecate this API after V
     @SystemApi(client = MODULE_LIBRARIES)
     @RequiresPermission(anyOf = {
             android.Manifest.permission.NETWORK_SETTINGS,
@@ -6024,7 +6223,7 @@ public class ConnectivityManager {
     })
     public void removeUidFromMeteredNetworkDenyList(final int uid) {
         try {
-            mService.updateMeteredNetworkDenyList(uid, false /* remove */);
+            mService.setUidFirewallRule(FIREWALL_CHAIN_METERED_DENY_USER, uid, FIREWALL_RULE_ALLOW);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -6081,6 +6280,10 @@ public class ConnectivityManager {
 
     /**
      * Enables or disables the specified firewall chain.
+     *
+     * Note that metered firewall chains can not be controlled by this API.
+     * See {@link #FIREWALL_CHAIN_METERED_ALLOW}, {@link #FIREWALL_CHAIN_METERED_DENY_USER}, and
+     * {@link #FIREWALL_CHAIN_METERED_DENY_ADMIN} for more detail.
      *
      * @param chain target chain.
      * @param enable whether the chain should be enabled.
@@ -6149,10 +6352,68 @@ public class ConnectivityManager {
         }
     }
 
+    /**
+     * Return whether the network is blocked for the given uid and metered condition.
+     *
+     * Similar to {@link NetworkPolicyManager#isUidNetworkingBlocked}, but directly reads the BPF
+     * maps and therefore considerably faster. For use by the NetworkStack process only.
+     *
+     * @param uid The target uid.
+     * @param isNetworkMetered Whether the target network is metered.
+     *
+     * @return True if all networking with the given condition is blocked. Otherwise, false.
+     * @throws IllegalStateException if the map cannot be opened.
+     * @throws ServiceSpecificException if the read fails.
+     * @hide
+     */
+    // This isn't protected by a standard Android permission since it can't
+    // afford to do IPC for performance reasons. Instead, the access control
+    // is provided by linux file group permission AID_NET_BW_ACCT and the
+    // selinux context fs_bpf_net*.
+    // Only the system server process and the network stack have access.
+    @FlaggedApi(Flags.SUPPORT_IS_UID_NETWORKING_BLOCKED)
+    @SystemApi(client = MODULE_LIBRARIES)
+    // Note b/326143935 kernel bug can trigger crash on some T device.
+    @RequiresApi(VERSION_CODES.UPSIDE_DOWN_CAKE)
+    @RequiresPermission(NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK)
+    public boolean isUidNetworkingBlocked(int uid, boolean isNetworkMetered) {
+        if (!SdkLevel.isAtLeastU()) {
+            throw new IllegalStateException(
+                    "isUidNetworkingBlocked is not supported on pre-U devices");
+        }
+        final NetworkStackBpfNetMaps reader = NetworkStackBpfNetMaps.getInstance();
+        // Note that before V, the data saver status in bpf is written by ConnectivityService
+        // when receiving {@link #ACTION_RESTRICT_BACKGROUND_CHANGED}. Thus,
+        // the status is not synchronized.
+        // On V+, the data saver status is set by platform code when enabling/disabling
+        // data saver, which is synchronized.
+        return reader.isUidNetworkingBlocked(uid, isNetworkMetered);
+    }
+
     /** @hide */
     public IBinder getCompanionDeviceManagerProxyService() {
         try {
             return mService.getCompanionDeviceManagerProxyService();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    private static final Object sRoutingCoordinatorManagerLock = new Object();
+    @GuardedBy("sRoutingCoordinatorManagerLock")
+    private static RoutingCoordinatorManager sRoutingCoordinatorManager = null;
+    /** @hide */
+    @RequiresApi(Build.VERSION_CODES.S)
+    public RoutingCoordinatorManager getRoutingCoordinatorManager() {
+        try {
+            synchronized (sRoutingCoordinatorManagerLock) {
+                if (null == sRoutingCoordinatorManager) {
+                    sRoutingCoordinatorManager = new RoutingCoordinatorManager(mContext,
+                            IRoutingCoordinator.Stub.asInterface(
+                                    mService.getRoutingCoordinatorService()));
+                }
+                return sRoutingCoordinatorManager;
+            }
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

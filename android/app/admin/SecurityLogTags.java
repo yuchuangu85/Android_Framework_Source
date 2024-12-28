@@ -139,6 +139,9 @@ public class SecurityLogTags {
   /** 210043 security_package_uninstalled (package_name|3),(version_code|1),(user_id|1) */
   public static final int SECURITY_PACKAGE_UNINSTALLED = 210043;
 
+  /** 210044 security_backup_service_toggled (package|3),(admin_user|1),(enabled|1) */
+  public static final int SECURITY_BACKUP_SERVICE_TOGGLED = 210044;
+
   public static void writeSecurityAdbShellInteractive() {
     android.util.EventLog.writeEvent(SECURITY_ADB_SHELL_INTERACTIVE);
   }
@@ -309,5 +312,9 @@ public class SecurityLogTags {
 
   public static void writeSecurityPackageUninstalled(String packageName, int versionCode, int userId) {
     android.util.EventLog.writeEvent(SECURITY_PACKAGE_UNINSTALLED, packageName, versionCode, userId);
+  }
+
+  public static void writeSecurityBackupServiceToggled(String package_, int adminUser, int enabled) {
+    android.util.EventLog.writeEvent(SECURITY_BACKUP_SERVICE_TOGGLED, package_, adminUser, enabled);
   }
 }

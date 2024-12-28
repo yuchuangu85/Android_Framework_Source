@@ -29,9 +29,9 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
  * Denotes that a numeric parameter, field or method return value is expected
  * to represent a pixel dimension.
  *
- * @memberDoc This units of this value are pixels.
- * @paramDoc This units of this value are pixels.
- * @returnDoc This units of this value are pixels.
+ * @memberDoc The units of this value are pixels.
+ * @paramDoc The units of this value are pixels.
+ * @returnDoc The units of this value are pixels.
  * {@hide}
  */
 @Documented

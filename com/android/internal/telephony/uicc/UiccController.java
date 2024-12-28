@@ -597,17 +597,17 @@ public class UiccController extends Handler {
                         log("Received EVENT_RADIO_AVAILABLE/EVENT_RADIO_ON, calling "
                                 + "getIccCardStatus");
                     }
-                    mCis[phoneId].getIccCardStatus(obtainMessage(EVENT_GET_ICC_STATUS_DONE,
-                            phoneId));
                     // slot status should be the same on all RILs; request it only for phoneId 0
                     if (phoneId == 0) {
                         if (DBG) {
                             log("Received EVENT_RADIO_AVAILABLE/EVENT_RADIO_ON for phoneId 0, "
-                                    + "calling getIccSlotsStatus");
+                                    + "calling getSimSlotsStatus");
                         }
                         mRadioConfig.getSimSlotsStatus(obtainMessage(EVENT_GET_SLOT_STATUS_DONE,
                                 phoneId));
                     }
+                    mCis[phoneId].getIccCardStatus(obtainMessage(EVENT_GET_ICC_STATUS_DONE,
+                            phoneId));
                     break;
                 case EVENT_GET_ICC_STATUS_DONE:
                     if (DBG) log("Received EVENT_GET_ICC_STATUS_DONE");
@@ -804,12 +804,14 @@ public class UiccController extends Handler {
             UiccSlot slot = UiccController.getInstance().getUiccSlotForPhone(phoneId);
             int slotId = UiccController.getInstance().getSlotIdFromPhoneId(phoneId);
             intent.putExtra(PhoneConstants.SLOT_KEY, slotId);
+            int portIndex = -1;
             if (slot != null) {
-                intent.putExtra(PhoneConstants.PORT_KEY, slot.getPortIndexFromPhoneId(phoneId));
+                portIndex = slot.getPortIndexFromPhoneId(phoneId);
+                intent.putExtra(PhoneConstants.PORT_KEY, portIndex);
             }
             Rlog.d(LOG_TAG, "Broadcasting intent ACTION_SIM_CARD_STATE_CHANGED "
                     + TelephonyManager.simStateToString(state) + " for phone: " + phoneId
-                    + " slot: " + slotId + " port: " + slot.getPortIndexFromPhoneId(phoneId));
+                    + " slot: " + slotId + " port: " + portIndex);
             mContext.sendBroadcast(intent, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
             TelephonyMetrics.getInstance().updateSimState(phoneId, state);
         }
@@ -995,6 +997,12 @@ public class UiccController extends Handler {
                             return;
                         }
 
+                        if (!SubscriptionManager.isValidPhoneId(phoneId)) {
+                            Rlog.e(LOG_TAG, "updateSimState: Cannot update carrier services. "
+                                    + "Invalid phone id " + phoneId);
+                            return;
+                        }
+
                         // At this point, the SIM state must be a final state (meaning we won't
                         // get more SIM state updates). So resolve the carrier id and update the
                         // carrier services.
@@ -1037,11 +1045,6 @@ public class UiccController extends Handler {
             slotId = index;
         }
 
-        if (!mCis[0].supportsEid()) {
-            // we will never get EID from the HAL, so set mDefaultEuiccCardId to UNSUPPORTED_CARD_ID
-            if (DBG) log("eid is not supported");
-            mDefaultEuiccCardId = UNSUPPORTED_CARD_ID;
-        }
         mPhoneIdToSlotId[index] = slotId;
 
         if (VDBG) logPhoneIdToSlotIdMapping();
@@ -1795,6 +1798,8 @@ public class UiccController extends Handler {
             }
         }
         pw.decreaseIndent();
+        pw.println();
+        mCarrierServiceBindHelper.dump(fd, pw, args);
         pw.println();
         pw.println("sLocalLog= ");
         pw.increaseIndent();

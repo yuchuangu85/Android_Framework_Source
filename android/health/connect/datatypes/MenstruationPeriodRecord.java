@@ -16,6 +16,7 @@
 package android.health.connect.datatypes;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.health.connect.internal.datatypes.MenstruationPeriodRecordInternal;
 
 import java.time.Instant;
@@ -41,7 +42,14 @@ public final class MenstruationPeriodRecord extends IntervalRecord {
             @NonNull Instant endTime,
             @NonNull ZoneOffset endZoneOffset,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
     }
 
     /**
@@ -52,7 +60,7 @@ public final class MenstruationPeriodRecord extends IntervalRecord {
      *     otherwise.
      */
     @Override
-    public boolean equals(@NonNull Object object) {
+    public boolean equals(@Nullable Object object) {
         return super.equals(object);
     }
 

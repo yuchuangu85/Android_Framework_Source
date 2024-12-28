@@ -399,6 +399,36 @@ public class RangingManager extends android.uwb.IUwbRangingCallbacks.Stub {
     }
 
     @Override
+    public void onDataTransferPhaseConfigured(SessionHandle sessionHandle,
+            PersistableBundle parameters) {
+        synchronized (this) {
+            if (!hasSession(sessionHandle)) {
+                Log.w(mTag, "onDataTransferPhaseConfigured - received unexpected SessionHandle: "
+                        + sessionHandle);
+                return;
+            }
+
+            RangingSession session = mRangingSessionTable.get(sessionHandle);
+            session.onDataTransferPhaseConfigured(parameters);
+        }
+    }
+
+    @Override
+    public void onDataTransferPhaseConfigFailed(SessionHandle sessionHandle,
+            @RangingChangeReason int reason, PersistableBundle parameters) {
+        synchronized (this) {
+            if (!hasSession(sessionHandle)) {
+                Log.w(mTag, "onDataTransferPhaseConfigFailed - received unknown SessionHandle: "
+                        + sessionHandle);
+                return;
+            }
+
+            RangingSession session = mRangingSessionTable.get(sessionHandle);
+            session.onDataTransferPhaseConfigFailed(reason, parameters);
+        }
+    }
+
+    @Override
     public void onDataReceived(SessionHandle sessionHandle, UwbAddress remoteDeviceAddress,
             PersistableBundle parameters, byte[] data) {
         synchronized (this) {
@@ -443,6 +473,65 @@ public class RangingManager extends android.uwb.IUwbRangingCallbacks.Stub {
         }
     }
 
+    @Override
+    public void onHybridSessionControllerConfigured(SessionHandle sessionHandle,
+            PersistableBundle parameters) {
+        synchronized (this) {
+            if (!hasSession(sessionHandle)) {
+                Log.w(mTag, "onHybridSessionControllerConfigured - received unexpected"
+                        + "SessionHandle: " + sessionHandle);
+                return;
+            }
+
+            RangingSession session = mRangingSessionTable.get(sessionHandle);
+            session.onHybridSessionControllerConfigured(parameters);
+        }
+    }
+
+    @Override
+    public void onHybridSessionControllerConfigurationFailed(SessionHandle sessionHandle,
+            @RangingChangeReason int reason, PersistableBundle parameters) {
+        synchronized (this) {
+            if (!hasSession(sessionHandle)) {
+                Log.w(mTag, "onHybridSessionControllerConfigurationFailed - received"
+                        + "unexpected SessionHandle: " + sessionHandle);
+                return;
+            }
+
+            RangingSession session = mRangingSessionTable.get(sessionHandle);
+            session.onHybridSessionControllerConfigurationFailed(reason, parameters);
+        }
+    }
+
+    @Override
+    public void onHybridSessionControleeConfigured(SessionHandle sessionHandle,
+            PersistableBundle parameters) {
+        synchronized (this) {
+            if (!hasSession(sessionHandle)) {
+                Log.w(mTag, "onHybridSessionControleeConfigured - received unexpected"
+                        + "SessionHandle: " + sessionHandle);
+                return;
+            }
+
+            RangingSession session = mRangingSessionTable.get(sessionHandle);
+            session.onHybridSessionControleeConfigured(parameters);
+        }
+    }
+
+    @Override
+    public void onHybridSessionControleeConfigurationFailed(SessionHandle sessionHandle,
+            @RangingChangeReason int reason, PersistableBundle parameters) {
+        synchronized (this) {
+            if (!hasSession(sessionHandle)) {
+                Log.w(mTag, "onHybridSessionControleeConfigurationFailed - received"
+                        + "unexpected SessionHandle: " + sessionHandle);
+                return;
+            }
+
+            RangingSession session = mRangingSessionTable.get(sessionHandle);
+            session.onHybridSessionControleeConfigurationFailed(reason, parameters);
+        }
+    }
 
     @Override
     public void onServiceConnected(SessionHandle sessionHandle,
@@ -504,6 +593,9 @@ public class RangingManager extends android.uwb.IUwbRangingCallbacks.Stub {
 
             case RangingChangeReason.INSUFFICIENT_SLOTS_PER_RR:
                 return RangingSession.Callback.REASON_INSUFFICIENT_SLOTS_PER_RR;
+
+            case RangingChangeReason.INBAND_SESSION_STOP:
+                return RangingSession.Callback.REASON_INBAND_SESSION_STOP;
 
             case RangingChangeReason.UNKNOWN:
             default:

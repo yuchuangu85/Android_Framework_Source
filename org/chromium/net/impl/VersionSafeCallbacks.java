@@ -4,20 +4,19 @@
 
 package org.chromium.net.impl;
 
-import android.net.http.BidirectionalStream;
-import android.net.http.HeaderBlock;
-import android.net.http.HttpException;
-import android.net.http.NetworkQualityRttListener;
-import android.net.http.NetworkQualityThroughputListener;
-import android.net.http.RequestFinishedInfo;
-import android.net.http.UploadDataProvider;
-import android.net.http.UploadDataSink;
-import android.net.http.UrlRequest;
-import android.net.http.UrlResponseInfo;
+import org.chromium.net.BidirectionalStream;
+import org.chromium.net.CronetEngine;
+import org.chromium.net.CronetException;
+import org.chromium.net.NetworkQualityRttListener;
+import org.chromium.net.NetworkQualityThroughputListener;
+import org.chromium.net.RequestFinishedInfo;
+import org.chromium.net.UploadDataProvider;
+import org.chromium.net.UploadDataSink;
+import org.chromium.net.UrlRequest;
+import org.chromium.net.UrlResponseInfo;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.time.Instant;
 import java.util.concurrent.Executor;
 
 /**
@@ -31,10 +30,8 @@ import java.util.concurrent.Executor;
  * supported in all versions of the API should forgo a version check.
  */
 public class VersionSafeCallbacks {
-    /**
-     * Wrap a {@link UrlRequest.Callback} in a version safe manner.
-     */
-    public static final class UrlRequestCallback implements UrlRequest.Callback {
+    /** Wrap a {@link UrlRequest.Callback} in a version safe manner. */
+    public static final class UrlRequestCallback extends UrlRequest.Callback {
         private final UrlRequest.Callback mWrappedCallback;
 
         public UrlRequestCallback(UrlRequest.Callback callback) {
@@ -64,7 +61,7 @@ public class VersionSafeCallbacks {
         }
 
         @Override
-        public void onFailed(UrlRequest request, UrlResponseInfo info, HttpException error) {
+        public void onFailed(UrlRequest request, UrlResponseInfo info, CronetException error) {
             mWrappedCallback.onFailed(request, info, error);
         }
 
@@ -74,10 +71,8 @@ public class VersionSafeCallbacks {
         }
     }
 
-    /**
-     * Wrap a {@link UrlRequest.StatusListener} in a version safe manner.
-     */
-    public static final class UrlRequestStatusListener implements UrlRequest.StatusListener {
+    /** Wrap a {@link UrlRequest.StatusListener} in a version safe manner. */
+    public static final class UrlRequestStatusListener extends UrlRequest.StatusListener {
         private final UrlRequest.StatusListener mWrappedListener;
 
         public UrlRequestStatusListener(UrlRequest.StatusListener listener) {
@@ -90,10 +85,8 @@ public class VersionSafeCallbacks {
         }
     }
 
-    /**
-     * Wrap a {@link BidirectionalStream.Callback} in a version safe manner.
-     */
-    public static final class BidirectionalStreamCallback implements BidirectionalStream.Callback {
+    /** Wrap a {@link BidirectionalStream.Callback} in a version safe manner. */
+    public static final class BidirectionalStreamCallback extends BidirectionalStream.Callback {
         private final BidirectionalStream.Callback mWrappedCallback;
 
         public BidirectionalStreamCallback(BidirectionalStream.Callback callback) {
@@ -111,20 +104,28 @@ public class VersionSafeCallbacks {
         }
 
         @Override
-        public void onReadCompleted(BidirectionalStream stream, UrlResponseInfo info,
-                ByteBuffer buffer, boolean endOfStream) {
+        public void onReadCompleted(
+                BidirectionalStream stream,
+                UrlResponseInfo info,
+                ByteBuffer buffer,
+                boolean endOfStream) {
             mWrappedCallback.onReadCompleted(stream, info, buffer, endOfStream);
         }
 
         @Override
-        public void onWriteCompleted(BidirectionalStream stream, UrlResponseInfo info,
-                ByteBuffer buffer, boolean endOfStream) {
+        public void onWriteCompleted(
+                BidirectionalStream stream,
+                UrlResponseInfo info,
+                ByteBuffer buffer,
+                boolean endOfStream) {
             mWrappedCallback.onWriteCompleted(stream, info, buffer, endOfStream);
         }
 
         @Override
-        public void onResponseTrailersReceived(BidirectionalStream stream, UrlResponseInfo info,
-                HeaderBlock trailers) {
+        public void onResponseTrailersReceived(
+                BidirectionalStream stream,
+                UrlResponseInfo info,
+                UrlResponseInfo.HeaderBlock trailers) {
             mWrappedCallback.onResponseTrailersReceived(stream, info, trailers);
         }
 
@@ -135,7 +136,7 @@ public class VersionSafeCallbacks {
 
         @Override
         public void onFailed(
-                BidirectionalStream stream, UrlResponseInfo info, HttpException error) {
+                BidirectionalStream stream, UrlResponseInfo info, CronetException error) {
             mWrappedCallback.onFailed(stream, info, error);
         }
 
@@ -145,9 +146,7 @@ public class VersionSafeCallbacks {
         }
     }
 
-    /**
-     * Wrap a {@link UploadDataProvider} in a version safe manner.
-     */
+    /** Wrap a {@link UploadDataProvider} in a version safe manner. */
     public static final class UploadDataProviderWrapper extends UploadDataProvider {
         private final UploadDataProvider mWrappedProvider;
 
@@ -176,9 +175,7 @@ public class VersionSafeCallbacks {
         }
     }
 
-    /**
-     * Wrap a {@link RequestFinishedInfo.Listener} in a version safe manner.
-     */
+    /** Wrap a {@link RequestFinishedInfo.Listener} in a version safe manner. */
     public static final class RequestFinishedInfoListener extends RequestFinishedInfo.Listener {
         private final RequestFinishedInfo.Listener mWrappedListener;
 
@@ -212,8 +209,8 @@ public class VersionSafeCallbacks {
         }
 
         @Override
-        public void onRttObservation(int rttMs, Instant observationInstant, int source) {
-            mWrappedListener.onRttObservation(rttMs, observationInstant, source);
+        public void onRttObservation(int rttMs, long whenMs, int source) {
+            mWrappedListener.onRttObservation(rttMs, whenMs, source);
         }
 
         @Override
@@ -250,8 +247,8 @@ public class VersionSafeCallbacks {
         }
 
         @Override
-        public void onThroughputObservation(int throughputKbps, Instant observationInstant, int source) {
-            mWrappedListener.onThroughputObservation(throughputKbps, observationInstant, source);
+        public void onThroughputObservation(int throughputKbps, long whenMs, int source) {
+            mWrappedListener.onThroughputObservation(throughputKbps, whenMs, source);
         }
 
         @Override
@@ -271,6 +268,20 @@ public class VersionSafeCallbacks {
             }
             return mWrappedListener.equals(
                     ((NetworkQualityThroughputListenerWrapper) o).mWrappedListener);
+        }
+    }
+
+    /** Wrap a {@link CronetEngine.Builder.LibraryLoader} in a version safe manner. */
+    public static final class LibraryLoader extends CronetEngine.Builder.LibraryLoader {
+        private final CronetEngine.Builder.LibraryLoader mWrappedLoader;
+
+        public LibraryLoader(CronetEngine.Builder.LibraryLoader libraryLoader) {
+            mWrappedLoader = libraryLoader;
+        }
+
+        @Override
+        public void loadLibrary(String libName) {
+            mWrappedLoader.loadLibrary(libName);
         }
     }
 }

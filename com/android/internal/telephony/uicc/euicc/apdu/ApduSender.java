@@ -17,9 +17,13 @@
 package com.android.internal.telephony.uicc.euicc.apdu;
 
 import android.annotation.Nullable;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
+import android.preference.PreferenceManager;
 import android.telephony.IccOpenLogicalChannelResponse;
+import android.util.Base64;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.uicc.IccIoResult;
@@ -30,6 +34,7 @@ import com.android.telephony.Rlog;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 /**
  * This class sends a list of APDU commands to an AID on a UICC. A logical channel will be opened
@@ -52,6 +57,9 @@ public class ApduSender {
     private static final int SW1_NO_ERROR = 0x91;
 
     private static final int WAIT_TIME_MS = 2000;
+    private static final String CHANNEL_ID_PRE = "esim-channel";
+    private static final String ISD_R_AID = "A0000005591010FFFFFFFF8900000100";
+    private static final String CHANNEL_RESPONSE_ID_PRE = "esim-res-id";
 
     private static void logv(String msg) {
         Rlog.v(LOG_TAG, msg);
@@ -66,6 +74,9 @@ public class ApduSender {
     private final OpenLogicalChannelInvocation mOpenChannel;
     private final CloseLogicalChannelInvocation mCloseChannel;
     private final TransmitApduLogicalChannelInvocation mTransmitApdu;
+    private final Context mContext;
+    private final String mChannelKey;
+    private final String mChannelResponseKey;
 
     // Lock for accessing mChannelOpened. We only allow to open a single logical channel at any
     // time for an AID.
@@ -75,12 +86,17 @@ public class ApduSender {
     /**
      * @param aid The AID that will be used to open a logical channel to.
      */
-    public ApduSender(CommandsInterface ci, String aid, boolean supportExtendedApdu) {
+    public ApduSender(Context context, int phoneId, CommandsInterface ci, String aid,
+            boolean supportExtendedApdu) {
         mAid = aid;
+        mContext = context;
         mSupportExtendedApdu = supportExtendedApdu;
         mOpenChannel = new OpenLogicalChannelInvocation(ci);
         mCloseChannel = new CloseLogicalChannelInvocation(ci);
         mTransmitApdu = new TransmitApduLogicalChannelInvocation(ci);
+        mChannelKey = CHANNEL_ID_PRE + "_" + phoneId;
+        mChannelResponseKey = CHANNEL_RESPONSE_ID_PRE + "_" + phoneId;
+        closeExistingChannelIfExists();
     }
 
     /**
@@ -129,6 +145,20 @@ public class ApduSender {
             public void onResult(IccOpenLogicalChannelResponse openChannelResponse) {
                 int channel = openChannelResponse.getChannel();
                 int status = openChannelResponse.getStatus();
+                byte[] selectResponse = openChannelResponse.getSelectResponse();
+                if (mAid.equals(ISD_R_AID)
+                      && status == IccOpenLogicalChannelResponse.STATUS_NO_SUCH_ELEMENT) {
+                    channel = PreferenceManager.getDefaultSharedPreferences(mContext)
+                                .getInt(mChannelKey, IccOpenLogicalChannelResponse.INVALID_CHANNEL);
+                    if (channel != IccOpenLogicalChannelResponse.INVALID_CHANNEL) {
+                        logv("Try to use already opened channel: " + channel);
+                        status = IccOpenLogicalChannelResponse.STATUS_NO_ERROR;
+                        String storedResponse = PreferenceManager
+                                .getDefaultSharedPreferences(mContext)
+                                      .getString(mChannelResponseKey, "");
+                        selectResponse = Base64.decode(storedResponse, Base64.DEFAULT);
+                    }
+                }
                 if (channel == IccOpenLogicalChannelResponse.INVALID_CHANNEL
                         || status != IccOpenLogicalChannelResponse.STATUS_NO_ERROR) {
                     synchronized (mChannelLock) {
@@ -143,8 +173,15 @@ public class ApduSender {
 
                 RequestBuilder builder = new RequestBuilder(channel, mSupportExtendedApdu);
                 Throwable requestException = null;
+                if (mAid.equals(ISD_R_AID)) {
+                   PreferenceManager.getDefaultSharedPreferences(mContext)
+                         .edit().putInt(mChannelKey, channel).apply();
+                   PreferenceManager.getDefaultSharedPreferences(mContext)
+                        .edit().putString(mChannelResponseKey,
+                           Base64.encodeToString(selectResponse, Base64.DEFAULT)).apply();
+                }
                 try {
-                    requestProvider.buildRequest(openChannelResponse.getSelectResponse(), builder);
+                    requestProvider.buildRequest(selectResponse, builder);
                 } catch (Throwable e) {
                     requestException = e;
                 }
@@ -223,7 +260,7 @@ public class ApduSender {
             AsyncResultCallback<IccIoResult> resultCallback,
             Handler handler) {
         ByteArrayOutputStream resultBuilder =
-                responseBuilder == null ? new ByteArrayOutputStream() : responseBuilder;
+            responseBuilder == null ? new ByteArrayOutputStream() : responseBuilder;
         if (lastResponse.payload != null) {
             try {
                 resultBuilder.write(lastResponse.payload);
@@ -267,6 +304,12 @@ public class ApduSender {
             @Override
             public void onResult(Boolean aBoolean) {
                 synchronized (mChannelLock) {
+                    if (mAid.equals(ISD_R_AID)) {
+                      PreferenceManager.getDefaultSharedPreferences(mContext)
+                             .edit().remove(mChannelKey).apply();
+                      PreferenceManager.getDefaultSharedPreferences(mContext)
+                             .edit().remove(mChannelResponseKey).apply();
+                    }
                     mChannelOpened = false;
                     mChannelLock.notify();
                 }
@@ -278,5 +321,40 @@ public class ApduSender {
                 }
             }
         }, handler);
+    }
+
+    /**
+     * Cleanup the existing opened channel which was remainined opened earlier due
+     * to failure or crash.
+     */
+    private void closeExistingChannelIfExists() {
+        if (mCloseChannel != null) {
+            int channelId = PreferenceManager.getDefaultSharedPreferences(mContext)
+                .getInt(mChannelKey, IccOpenLogicalChannelResponse.INVALID_CHANNEL);
+            if (channelId != IccOpenLogicalChannelResponse.INVALID_CHANNEL) {
+                logv("Trying to clean up the opened channel : " +  channelId);
+                synchronized (mChannelLock) {
+                    mChannelOpened = true;
+                    mChannelLock.notify();
+                }
+                mCloseChannel.invoke(channelId, new AsyncResultCallback<Boolean>() {
+                    @Override
+                    public void onResult(Boolean isSuccess) {
+                        if (isSuccess) {
+                          logv("Channel closed successfully: " +  channelId);
+                          PreferenceManager.getDefaultSharedPreferences(mContext)
+                                 .edit().remove(mChannelResponseKey).apply();
+                          PreferenceManager.getDefaultSharedPreferences(mContext)
+                                 .edit().remove(mChannelKey).apply();
+                       }
+
+                       synchronized (mChannelLock) {
+                           mChannelOpened = false;
+                           mChannelLock.notify();
+                      }
+                    }
+                }, new Handler());
+            }
+        }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -33,10 +33,6 @@ import dalvik.annotation.compat.VersionCodes;
 import dalvik.system.VMRuntime;
 
 import java.security.*;
-
-// Android-removed: not using JavaLangAccess.fastUUID.
-// import jdk.internal.misc.JavaLangAccess;
-// import jdk.internal.misc.SharedSecrets;
 
 /**
  * A class that represents an immutable universally unique identifier (UUID).
@@ -83,6 +79,7 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
     /**
      * Explicit serialVersionUID for interoperability.
      */
+    @java.io.Serial
     private static final long serialVersionUID = -4856846361193249489L;
 
     /*
@@ -188,6 +185,45 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
         return new UUID(md5Bytes);
     }
 
+    private static final byte[] NIBBLES;
+    static {
+        byte[] ns = new byte[256];
+        Arrays.fill(ns, (byte) -1);
+        ns['0'] = 0;
+        ns['1'] = 1;
+        ns['2'] = 2;
+        ns['3'] = 3;
+        ns['4'] = 4;
+        ns['5'] = 5;
+        ns['6'] = 6;
+        ns['7'] = 7;
+        ns['8'] = 8;
+        ns['9'] = 9;
+        ns['A'] = 10;
+        ns['B'] = 11;
+        ns['C'] = 12;
+        ns['D'] = 13;
+        ns['E'] = 14;
+        ns['F'] = 15;
+        ns['a'] = 10;
+        ns['b'] = 11;
+        ns['c'] = 12;
+        ns['d'] = 13;
+        ns['e'] = 14;
+        ns['f'] = 15;
+        NIBBLES = ns;
+    }
+
+    private static long parse4Nibbles(String name, int pos) {
+        byte[] ns = NIBBLES;
+        char ch1 = name.charAt(pos);
+        char ch2 = name.charAt(pos + 1);
+        char ch3 = name.charAt(pos + 2);
+        char ch4 = name.charAt(pos + 3);
+        return (ch1 | ch2 | ch3 | ch4) > 0xff ?
+                -1 : ns[ch1] << 12 | ns[ch2] << 8 | ns[ch3] << 4 | ns[ch4];
+    }
+
     /**
      * Since Android 14 {@link #fromString} does more strict input argument
      * validation.
@@ -223,7 +259,7 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
             return fromStringJava8(name);
         }
 
-        return fromStringJava11(name);
+        return fromStringCurrentJava(name);
         // END Android-changed: Java 8 behaviour is more lenient and the new implementation
         // might break apps (b/254278943).
     }
@@ -232,7 +268,32 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      * Extracted for testing purposes only.
      * @hide
      */
-    public static UUID fromStringJava11(String name) {
+    public static UUID fromStringCurrentJava(String name) {
+        if (name.length() == 36) {
+            char ch1 = name.charAt(8);
+            char ch2 = name.charAt(13);
+            char ch3 = name.charAt(18);
+            char ch4 = name.charAt(23);
+            if (ch1 == '-' && ch2 == '-' && ch3 == '-' && ch4 == '-') {
+                long msb1 = parse4Nibbles(name, 0);
+                long msb2 = parse4Nibbles(name, 4);
+                long msb3 = parse4Nibbles(name, 9);
+                long msb4 = parse4Nibbles(name, 14);
+                long lsb1 = parse4Nibbles(name, 19);
+                long lsb2 = parse4Nibbles(name, 24);
+                long lsb3 = parse4Nibbles(name, 28);
+                long lsb4 = parse4Nibbles(name, 32);
+                if ((msb1 | msb2 | msb3 | msb4 | lsb1 | lsb2 | lsb3 | lsb4) >= 0) {
+                    return new UUID(
+                            msb1 << 48 | msb2 << 32 | msb3 << 16 | msb4,
+                            lsb1 << 48 | lsb2 << 32 | lsb3 << 16 | lsb4);
+                }
+            }
+        }
+        return fromString1(name);
+    }
+
+    private static UUID fromString1(String name) {
         int len = name.length();
         if (len > 36) {
             throw new IllegalArgumentException("UUID string too large");
@@ -454,6 +515,7 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      *
      * @return  A string representation of this {@code UUID}
      */
+    @Override
     public String toString() {
         // Android-changed: using old implementation.
         // return jla.fastUUID(leastSigBits, mostSigBits);
@@ -475,6 +537,7 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      *
      * @return  A hash code value for this {@code UUID}
      */
+    @Override
     public int hashCode() {
         long hilo = mostSigBits ^ leastSigBits;
         return ((int)(hilo >> 32)) ^ (int) hilo;
@@ -492,6 +555,7 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      * @return  {@code true} if the objects are the same; {@code false}
      *          otherwise
      */
+    @Override
     public boolean equals(Object obj) {
         if ((null == obj) || (obj.getClass() != UUID.class))
             return false;
@@ -516,6 +580,7 @@ public final class UUID implements java.io.Serializable, Comparable<UUID> {
      *          greater than {@code val}
      *
      */
+    @Override
     public int compareTo(UUID val) {
         // The ordering is intentionally set up so that the UUIDs
         // can simply be numerically compared as two numbers

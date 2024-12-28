@@ -25,6 +25,7 @@ import android.icu.text.Collator;
 import android.icu.text.Normalizer2;
 import android.icu.text.UnicodeSet;
 import android.icu.text.UnicodeSetIterator;
+import android.icu.util.ICUInputTooLongException;
 import android.icu.util.ULocale;
 
 /**
@@ -866,10 +867,21 @@ public final class CollationBuilder extends CollationRuleParser.Sink {
         return ce32;
     }
 
+    // ICU-22517
+    // This constant defines a limit for the addOnlyClosure to return
+    // error, to avoid taking a long time for canonical closure expansion.
+    // Please let us know if you have a reasonable use case that needed
+    // for a practical Collation rule that needs to increase this limit.
+    // This value is needed for compiling a rule with eight Hangul syllables such as
+    // "&a=b쫊쫊쫊쫊쫊쫊쫊쫊" without error, which should be more than realistic
+    // usage.
+    static private int kClosureLoopLimit = 6560;
+
     private int addOnlyClosure(CharSequence nfdPrefix, CharSequence nfdString,
                 long[] newCEs, int newCEsLength, int ce32) {
         // Map from canonically equivalent input to the CEs. (But not from the all-NFD input.)
         // TODO: make CanonicalIterator work with CharSequence, or maybe change arguments here to String
+        int loop = 0;
         if(nfdPrefix.length() == 0) {
             CanonicalIterator stringIter = new CanonicalIterator(nfdString.toString());
             String prefix = "";
@@ -877,6 +889,9 @@ public final class CollationBuilder extends CollationRuleParser.Sink {
                 String str = stringIter.next();
                 if(str == null) { break; }
                 if(ignoreString(str) || str.contentEquals(nfdString)) { continue; }
+                if (loop++ > kClosureLoopLimit) {
+                    throw new ICUInputTooLongException("Too many closure");
+                }
                 ce32 = addIfDifferent(prefix, str, newCEs, newCEsLength, ce32);
             }
         } else {
@@ -891,6 +906,9 @@ public final class CollationBuilder extends CollationRuleParser.Sink {
                     String str = stringIter.next();
                     if(str == null) { break; }
                     if(ignoreString(str) || (samePrefix && str.contentEquals(nfdString))) { continue; }
+                    if (loop++ > kClosureLoopLimit) {
+                        throw new ICUInputTooLongException("Too many closure");
+                    }
                     ce32 = addIfDifferent(prefix, str, newCEs, newCEsLength, ce32);
                 }
                 stringIter.reset();

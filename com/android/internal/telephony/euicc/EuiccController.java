@@ -15,12 +15,17 @@
  */
 package com.android.internal.telephony.euicc;
 
+import static android.content.pm.PackageManager.FEATURE_TELEPHONY_EUICC;
+import static android.telephony.TelephonyManager.ENABLE_FEATURE_MAPPING;
+
 import android.Manifest;
 import android.Manifest.permission;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
+import android.app.admin.DevicePolicyManager;
+import android.app.admin.flags.Flags;
 import android.app.compat.CompatChanges;
 import android.content.ComponentName;
 import android.content.Context;
@@ -29,7 +34,11 @@ import android.content.pm.ComponentInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemProperties;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.Settings;
 import android.service.euicc.DownloadSubscriptionResult;
 import android.service.euicc.EuiccService;
@@ -51,6 +60,7 @@ import android.telephony.euicc.EuiccInfo;
 import android.telephony.euicc.EuiccManager;
 import android.telephony.euicc.EuiccManager.OtaStatus;
 import android.text.TextUtils;
+import android.util.ArraySet;
 import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
@@ -60,6 +70,7 @@ import com.android.internal.telephony.CarrierPrivilegesTracker;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.euicc.EuiccConnector.OtaStatusChangedCallback;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccController;
@@ -68,13 +79,16 @@ import com.android.internal.telephony.uicc.UiccSlot;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.Stack;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /** Backing implementation of {@link android.telephony.euicc.EuiccManager}. */
 public class EuiccController extends IEuiccController.Stub {
@@ -111,17 +125,20 @@ public class EuiccController extends IEuiccController.Stub {
     private final TelephonyManager mTelephonyManager;
     private final AppOpsManager mAppOpsManager;
     private final PackageManager mPackageManager;
+    private final FeatureFlags mFeatureFlags;
+    private final int mVendorApiLevel;
 
     // These values should be set or updated upon 1) system boot, 2) EuiccService/LPA is bound to
     // the phone process, 3) values are updated remotely by server flags.
     private List<String> mSupportedCountries;
     private List<String> mUnsupportedCountries;
+    private List<Integer> mPsimConversionSupportedCarrierIds;
 
     /** Initialize the instance. Should only be called once. */
-    public static EuiccController init(Context context) {
+    public static EuiccController init(Context context, FeatureFlags featureFlags) {
         synchronized (EuiccController.class) {
             if (sInstance == null) {
-                sInstance = new EuiccController(context);
+                sInstance = new EuiccController(context, featureFlags);
             } else {
                 Log.wtf(TAG, "init() called multiple times! sInstance = " + sInstance);
             }
@@ -141,14 +158,14 @@ public class EuiccController extends IEuiccController.Stub {
         return sInstance;
     }
 
-    private EuiccController(Context context) {
-        this(context, new EuiccConnector(context));
+    private EuiccController(Context context, FeatureFlags featureFlags) {
+        this(context, new EuiccConnector(context), featureFlags);
         TelephonyFrameworkInitializer
                 .getTelephonyServiceManager().getEuiccControllerService().register(this);
     }
 
     @VisibleForTesting
-    public EuiccController(Context context, EuiccConnector connector) {
+    public EuiccController(Context context, EuiccConnector connector, FeatureFlags featureFlags) {
         mContext = context;
         mConnector = connector;
         mSubscriptionManager = (SubscriptionManager)
@@ -157,6 +174,9 @@ public class EuiccController extends IEuiccController.Stub {
                 context.getSystemService(Context.TELEPHONY_SERVICE);
         mAppOpsManager = (AppOpsManager) context.getSystemService(Context.APP_OPS_SERVICE);
         mPackageManager = context.getPackageManager();
+        mFeatureFlags = featureFlags;
+        mVendorApiLevel = SystemProperties.getInt(
+                "ro.vendor.api_level", Build.VERSION.DEVICE_INITIAL_SDK_INT);
     }
 
     /**
@@ -191,6 +211,19 @@ public class EuiccController extends IEuiccController.Stub {
             boolean usePortIndex = resolutionIntent.getBooleanExtra(
                     EuiccService.EXTRA_RESOLUTION_USE_PORT_INDEX, false);
             resolutionExtras.putBoolean(EuiccService.EXTRA_RESOLUTION_USE_PORT_INDEX, usePortIndex);
+
+            if (!EuiccService.ACTION_RESOLVE_NO_PRIVILEGES.equals(resolutionIntent.getAction())
+                    || !resolutionExtras.containsKey(EuiccService.EXTRA_RESOLUTION_PORT_INDEX)) {
+                // Port index resolution is requested only through the ACTION_RESOLVE_NO_PRIVILEGES
+                // action. Therefore, if the action is not ACTION_RESOLVE_NO_PRIVILEGES, use the
+                // port index from the resolution intent.
+                // (OR) If the action is ACTION_RESOLVE_NO_PRIVILEGES and resolutionExtras does not
+                // contain the EXTRA_RESOLUTION_PORT_INDEX key, retrieve the port index from
+                // resolutionIntent.
+                resolutionExtras.putInt(EuiccService.EXTRA_RESOLUTION_PORT_INDEX,
+                        resolutionIntent.getIntExtra(EuiccService.EXTRA_RESOLUTION_PORT_INDEX,
+                                TelephonyManager.DEFAULT_PORT_INDEX));
+            }
             Log.i(TAG, " continueOperation portIndex: " + resolutionExtras.getInt(
                     EuiccService.EXTRA_RESOLUTION_PORT_INDEX) + " usePortIndex: " + usePortIndex);
             op.continueOperation(cardId, resolutionExtras, callbackIntent);
@@ -226,6 +259,36 @@ public class EuiccController extends IEuiccController.Stub {
             }
 
             return blockingGetEidFromEuiccService(cardId);
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
+    }
+
+    /**
+     * Return the available memory in bytes of the eUICC.
+     *
+     * <p>For API simplicity, this call blocks until completion; while it requires an IPC to load,
+     * that IPC should generally be fast, and the available memory shouldn't be needed in the normal
+     * course of operation.
+     */
+    @Override
+    public long getAvailableMemoryInBytes(int cardId, String callingPackage) {
+        boolean callerCanReadPhoneStatePrivileged = callerCanReadPhoneStatePrivileged();
+        boolean callerCanReadPhoneState = callerCanReadPhoneState();
+        mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
+        long token = Binder.clearCallingIdentity();
+        try {
+            if (!callerCanReadPhoneStatePrivileged
+                    && !callerCanReadPhoneState
+                    && !canManageSubscriptionOnTargetSim(
+                            cardId, callingPackage, false, TelephonyManager.INVALID_PORT_INDEX)) {
+                throw new SecurityException(
+                        "Must have READ_PHONE_STATE permission or READ_PRIVILEGED_PHONE_STATE"
+                            + " permission or carrier privileges to read the available memory for"
+                            + "cardId="
+                                + cardId);
+            }
+            return blockingGetAvailableMemoryInBytesFromEuiccService(cardId);
         } finally {
             Binder.restoreCallingIdentity(token);
         }
@@ -557,12 +620,32 @@ public class EuiccController extends IEuiccController.Stub {
     void downloadSubscription(int cardId, int portIndex, DownloadableSubscription subscription,
             boolean switchAfterDownload, String callingPackage, boolean forceDeactivateSim,
             Bundle resolvedBundle, PendingIntent callbackIntent) {
-        boolean callerCanWriteEmbeddedSubscriptions = callerCanWriteEmbeddedSubscriptions();
         mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
+
+        boolean callerHasAdminPrivileges = false;
+        if (Flags.esimManagementEnabled()) {
+            callerHasAdminPrivileges = callerCanManageDevicePolicyManagedSubscriptions(
+                    callingPackage);
+            if (callerHasAdminPrivileges && (switchAfterDownload && !shouldAllowSwitchAfterDownload(
+                    callingPackage))) {
+                // Throw error if calling admin does not have privileges to enable
+                // subscription silently after download but switchAfterDownload is passed as true.
+                sendResult(callbackIntent, ERROR, null);
+                return;
+            }
+            if (mContext.getSystemService(UserManager.class).hasUserRestriction(
+                    UserManager.DISALLOW_SIM_GLOBALLY) && !callerHasAdminPrivileges) {
+                // Only admin managed subscriptions are allowed, but the caller is not authorised to
+                // download admin managed subscriptions. Abort.
+                sendResult(callbackIntent, ERROR, null);
+                return;
+            }
+        }
         // Don't try to resolve the port index for apps which are not targeting on T for backward
         // compatibility. instead always use default port 0.
         boolean shouldResolvePortIndex = isCompatChangeEnabled(callingPackage,
                 EuiccManager.SHOULD_RESOLVE_PORT_INDEX_FOR_APPS);
+        boolean callerCanWriteEmbeddedSubscriptions = callerCanWriteEmbeddedSubscriptions();
 
         long token = Binder.clearCallingIdentity();
         try {
@@ -576,17 +659,19 @@ public class EuiccController extends IEuiccController.Stub {
                         == TelephonyManager.INVALID_PORT_INDEX);
             }
             Log.d(TAG, " downloadSubscription cardId: " + cardId + " switchAfterDownload: "
-                    + switchAfterDownload + " portIndex: " + portIndex
-                    + " forceDeactivateSim: " + forceDeactivateSim + " callingPackage: "
-                    + callingPackage
+                    + switchAfterDownload + " portIndex: " + portIndex + " forceDeactivateSim: "
+                    + forceDeactivateSim + " callingPackage: " + callingPackage
                     + " isConsentNeededToResolvePortIndex: " + isConsentNeededToResolvePortIndex
-                    + " shouldResolvePortIndex:" + shouldResolvePortIndex);
-            if (!isConsentNeededToResolvePortIndex && callerCanWriteEmbeddedSubscriptions) {
+                    + " shouldResolvePortIndex:" + shouldResolvePortIndex
+                    + " callerHasAdminPrivileges:" + callerHasAdminPrivileges);
+            if (!isConsentNeededToResolvePortIndex && (callerCanWriteEmbeddedSubscriptions
+                    || callerHasAdminPrivileges)) {
                 // With WRITE_EMBEDDED_SUBSCRIPTIONS, we can skip profile-specific permission checks
                 // and move straight to the profile download.
                 downloadSubscriptionPrivileged(cardId, portIndex, token, subscription,
                         switchAfterDownload, forceDeactivateSim, callingPackage, resolvedBundle,
-                        callbackIntent);
+                        callbackIntent, callerHasAdminPrivileges,
+                        getCurrentEmbeddedSubscriptionIds(cardId));
                 return;
             }
 
@@ -722,11 +807,30 @@ public class EuiccController extends IEuiccController.Stub {
                         true /* withUserConsent */, portIndex));
     }
 
+    void downloadSubscriptionPrivileged(int cardId, int portIndex, final long callingToken,
+            DownloadableSubscription subscription, boolean switchAfterDownload,
+            boolean forceDeactivateSim, final String callingPackage,
+            Bundle resolvedBundle, final PendingIntent callbackIntent) {
+        downloadSubscriptionPrivileged(
+                cardId,
+                portIndex,
+                callingToken,
+                subscription,
+                switchAfterDownload,
+                forceDeactivateSim,
+                callingPackage,
+                resolvedBundle,
+                callbackIntent,
+                false /* markAsOwnedByAdmin */,
+                new ArraySet<>() /* existingSubscriptions */);
+    }
+
     // Continue to download subscription without checking anything.
     void downloadSubscriptionPrivileged(int cardId, int portIndex, final long callingToken,
             DownloadableSubscription subscription, boolean switchAfterDownload,
             boolean forceDeactivateSim, final String callingPackage, Bundle resolvedBundle,
-            final PendingIntent callbackIntent) {
+            final PendingIntent callbackIntent, boolean markAsOwnedByAdmin,
+            Set<Integer> existingSubscriptions) {
         mConnector.downloadSubscription(
                 cardId,
                 portIndex,
@@ -755,10 +859,19 @@ public class EuiccController extends IEuiccController.Stub {
                                     // Since we're not switching, nothing will trigger a
                                     // subscription list refresh on its own, so request one here.
                                     refreshSubscriptionsAndSendResult(
-                                            callbackIntent, resultCode, extrasIntent);
+                                            callbackIntent,
+                                            resultCode,
+                                            extrasIntent,
+                                            markAsOwnedByAdmin,
+                                            callingPackage,
+                                            cardId,
+                                            existingSubscriptions);
                                     return;
+                                } else if (markAsOwnedByAdmin) {
+                                    refreshSubscriptionsOwnership(true, callingPackage, cardId,
+                                            existingSubscriptions);
                                 }
-                                break;
+                            break;
                             case EuiccService.RESULT_MUST_DEACTIVATE_SIM:
                                 resultCode = RESOLVABLE_ERROR;
                                 addResolutionIntentWithPort(extrasIntent,
@@ -957,6 +1070,9 @@ public class EuiccController extends IEuiccController.Stub {
     public void deleteSubscription(int cardId, int subscriptionId, String callingPackage,
             PendingIntent callbackIntent) {
         boolean callerCanWriteEmbeddedSubscriptions = callerCanWriteEmbeddedSubscriptions();
+        boolean callerIsAdmin =
+                Flags.esimManagementEnabled()
+                        && callerCanManageDevicePolicyManagedSubscriptions(callingPackage);
         mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
 
         long token = Binder.clearCallingIdentity();
@@ -967,13 +1083,14 @@ public class EuiccController extends IEuiccController.Stub {
                 sendResult(callbackIntent, ERROR, null /* extrasIntent */);
                 return;
             }
-
+            boolean adminOwned = callerIsAdmin && sub.getGroupOwner().equals(callingPackage);
             // For both single active SIM device and multi-active SIM device, if the caller is
             // system or the caller manage the target subscription, we let it continue. This is
             // because deleting subscription won't change status of any other subscriptions.
             if (!callerCanWriteEmbeddedSubscriptions
-                    && !mSubscriptionManager.canManageSubscription(sub, callingPackage)) {
-                Log.e(TAG, "No permissions: " + subscriptionId);
+                    && !mSubscriptionManager.canManageSubscription(sub, callingPackage)
+                    && !adminOwned) {
+                Log.e(TAG, "No permissions: " + subscriptionId + " adminOwned=" + adminOwned);
                 sendResult(callbackIntent, ERROR, null /* extrasIntent */);
                 return;
             }
@@ -1222,8 +1339,13 @@ public class EuiccController extends IEuiccController.Stub {
                     SubscriptionInfo subscriptionInfo =
                               mSubscriptionManager.getActiveSubscriptionInfoForSimSlotIndex(
                                     slot.getPhoneIdFromPortIndex(portIndex));
-                    if (subscriptionInfo == null || subscriptionInfo.isOpportunistic()) {
-                            // If the port is active and empty/opportunistic, return the portIndex.
+                    if (subscriptionInfo == null
+                        || subscriptionInfo.isOpportunistic()
+                        || (mFeatureFlags.esimBootstrapProvisioningFlag()
+                            && subscriptionInfo.getProfileClass()
+                            == SubscriptionManager.PROFILE_CLASS_PROVISIONING)) {
+                            // If the port is active and has empty/opportunistic/provisioning
+                            // profiles then return the portIndex.
                         return portIndex;
                     }
                 }
@@ -1591,9 +1713,48 @@ public class EuiccController extends IEuiccController.Stub {
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     public void refreshSubscriptionsAndSendResult(
             PendingIntent callbackIntent, int resultCode, Intent extrasIntent) {
+        refreshSubscriptionsAndSendResult(
+                callbackIntent,
+                resultCode,
+                extrasIntent,
+                /* isCallerAdmin= */ false,
+                /* callingPackage= */ "",
+                /* cardId */ -1,
+                /* subscriptionsBefore= */ new ArraySet<>());
+    }
+
+    /** Refresh the embedded subscription list and dispatch the given result upon completion. */
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
+    public void refreshSubscriptionsAndSendResult(
+            PendingIntent callbackIntent,
+            int resultCode,
+            Intent extrasIntent,
+            boolean isCallerAdmin,
+            String callingPackage,
+            int cardId,
+            Set<Integer> subscriptionsBefore) {
         SubscriptionManagerService.getInstance().updateEmbeddedSubscriptions(
                 List.of(mTelephonyManager.getCardIdForDefaultEuicc()),
-                () -> sendResult(callbackIntent, resultCode, extrasIntent));
+                () -> {
+                    refreshSubscriptionsOwnership(isCallerAdmin, callingPackage, cardId,
+                            subscriptionsBefore);
+                    sendResult(callbackIntent, resultCode, extrasIntent);
+                });
+
+    }
+
+    private void refreshSubscriptionsOwnership(boolean isCallerAdmin, String callingPackage,
+            int cardId, Set<Integer> subscriptionsBefore) {
+        if (Flags.esimManagementEnabled() && isCallerAdmin) {
+            // Mark the newly downloaded subscriptions as being owned by an admin so
+            // that actions for that subscription can be restricted,
+            // and the admin is limited to effecting only these subscriptions.
+            Set<Integer> subscriptionsAfter = getCurrentEmbeddedSubscriptionIds(cardId);
+            subscriptionsAfter.removeAll(subscriptionsBefore);
+            for (int subId : subscriptionsAfter) {
+                SubscriptionManagerService.getInstance().setGroupOwner(subId, callingPackage);
+            }
+        }
     }
 
     /** Dispatch the given callback intent with the given result code and data. */
@@ -1709,6 +1870,23 @@ public class EuiccController extends IEuiccController.Stub {
         return null;
     }
 
+    private Set<Integer> getCurrentEmbeddedSubscriptionIds(int cardId) {
+        if (!Flags.esimManagementEnabled()) {
+            return new ArraySet<>();
+        }
+        List<SubscriptionInfo> subscriptionInfos =
+                mSubscriptionManager.getAvailableSubscriptionInfoList();
+        int subCount = (subscriptionInfos != null) ? subscriptionInfos.size() : 0;
+        Set<Integer> currentEmbeddedSubscriptionIds = new ArraySet<>();
+        for (int i = 0; i < subCount; i++) {
+            SubscriptionInfo subscriptionInfo = subscriptionInfos.get(i);
+            if (subscriptionInfo.isEmbedded() && subscriptionInfo.getCardId() == cardId) {
+                currentEmbeddedSubscriptionIds.add(subscriptionInfo.getSubscriptionId());
+            }
+        }
+        return currentEmbeddedSubscriptionIds;
+    }
+
     @Nullable
     private String blockingGetEidFromEuiccService(int cardId) {
         CountDownLatch latch = new CountDownLatch(1);
@@ -1726,6 +1904,42 @@ public class EuiccController extends IEuiccController.Stub {
             }
         });
         return awaitResult(latch, eidRef);
+    }
+
+    private long blockingGetAvailableMemoryInBytesFromEuiccService(int cardId)
+            throws UnsupportedOperationException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Long> memoryRef =
+                new AtomicReference<>(EuiccManager.EUICC_MEMORY_FIELD_UNAVAILABLE);
+        AtomicReference<Exception> exceptionRef = new AtomicReference();
+        mConnector.getAvailableMemoryInBytes(
+                cardId,
+                new EuiccConnector.GetAvailableMemoryInBytesCommandCallback() {
+                    @Override
+                    public void onGetAvailableMemoryInBytesComplete(long availableMemoryInBytes) {
+                        memoryRef.set(availableMemoryInBytes);
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onUnsupportedOperationExceptionComplete(String message) {
+                        exceptionRef.set(new UnsupportedOperationException(message));
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onEuiccServiceUnavailable() {
+                        latch.countDown();
+                    }
+                });
+        try {
+            return awaitResultOrException(latch, memoryRef, exceptionRef);
+        } catch (UnsupportedOperationException uoe) {
+            throw uoe;
+        } catch (Exception e) {
+            // Other type of exceptions are not expected here but re-throw in case that happens.
+            throw new UnsupportedOperationException(e);
+        }
     }
 
     private @OtaStatus int blockingGetOtaStatusFromEuiccService(int cardId) {
@@ -1772,6 +1986,24 @@ public class EuiccController extends IEuiccController.Stub {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+        return resultRef.get();
+    }
+
+    private static <T> T awaitResultOrException(
+            CountDownLatch latch,
+            AtomicReference<T> resultRef,
+            AtomicReference<Exception> resultException)
+            throws Exception {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        if (resultException.get() != null) {
+            throw resultException.get();
+        }
+
         return resultRef.get();
     }
 
@@ -1935,15 +2167,66 @@ public class EuiccController extends IEuiccController.Stub {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    private boolean callerCanReadPhoneState() {
+        return mContext.checkCallingOrSelfPermission(Manifest.permission.READ_PHONE_STATE)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
     private boolean callerCanWriteEmbeddedSubscriptions() {
         return mContext.checkCallingOrSelfPermission(
                 Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS)
                 == PackageManager.PERMISSION_GRANTED;
     }
 
+    private DevicePolicyManager retrieveDevicePolicyManagerFromUserContext(UserHandle userHandle) {
+        Context userContext;
+        long ident = Binder.clearCallingIdentity();
+        try {
+            userContext = mContext.createPackageContextAsUser(
+                    mContext.getPackageName(), /* flags= */ 0, userHandle);
+        } catch (PackageManager.NameNotFoundException e) {
+            Log.e(TAG, "Unknown package name");
+            return null;
+        } finally {
+            Binder.restoreCallingIdentity(ident);
+        }
+        return userContext.getSystemService(DevicePolicyManager.class);
+    }
+
+    private boolean callerCanManageDevicePolicyManagedSubscriptions(String callingPackage) {
+        DevicePolicyManager devicePolicyManager = getDevicePolicyManager();
+        boolean isAdmin =
+                devicePolicyManager != null && (devicePolicyManager.isProfileOwnerApp(
+                        callingPackage)
+                        || devicePolicyManager.isDeviceOwnerApp(callingPackage));
+        return isAdmin || mContext.checkCallingOrSelfPermission(
+                Manifest.permission.MANAGE_DEVICE_POLICY_MANAGED_SUBSCRIPTIONS)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean shouldAllowSwitchAfterDownload(String callingPackage) {
+        DevicePolicyManager devicePolicyManager = getDevicePolicyManager();
+        return devicePolicyManager != null && (devicePolicyManager.isDeviceOwnerApp(callingPackage)
+                || (devicePolicyManager.isProfileOwnerApp(callingPackage)
+                && devicePolicyManager.isOrganizationOwnedDeviceWithManagedProfile()));
+    }
+
+    private DevicePolicyManager getDevicePolicyManager() {
+        // create device policy manager with the correct context associated with the caller.
+        DevicePolicyManager devicePolicyManager =
+                retrieveDevicePolicyManagerFromUserContext(Binder.getCallingUserHandle());
+        if (devicePolicyManager == null) {
+            Log.w(TAG, "Unable to get device policy manager");
+        }
+        return devicePolicyManager;
+    }
+
     @Override
     public boolean isSimPortAvailable(int cardId, int portIndex, String callingPackage) {
         mAppOpsManager.checkPackage(Binder.getCallingUid(), callingPackage);
+
+        enforceTelephonyFeatureWithException(callingPackage, "isSimPortAvailable");
+
         // If calling app is targeted for Android U and beyond, check for other conditions
         // to decide the port availability.
         boolean shouldCheckConditionsForInactivePort = isCompatChangeEnabled(callingPackage,
@@ -2049,5 +2332,60 @@ public class EuiccController extends IEuiccController.Stub {
         Log.i(TAG, "isCompatChangeEnabled changeId: " + changeId
                 + " changeEnabled: " + changeEnabled);
         return changeEnabled;
+    }
+
+
+    @Override
+    public void setPsimConversionSupportedCarriers(int[] carrierIds) {
+        if (!callerCanWriteEmbeddedSubscriptions()) {
+            throw new SecurityException(
+                    "Must have WRITE_EMBEDDED_SUBSCRIPTIONS to "
+                            + "set pSIM conversion supported carriers");
+        }
+        mPsimConversionSupportedCarrierIds = Arrays.stream(carrierIds).boxed()
+                .collect(Collectors.toList());
+    }
+
+
+
+    @Override
+    public boolean isPsimConversionSupported(int carrierId) {
+        if (!callerCanWriteEmbeddedSubscriptions()) {
+            throw new SecurityException(
+                    "Must have WRITE_EMBEDDED_SUBSCRIPTIONS "
+                            + "to check if the carrier is supported pSIM conversion");
+        }
+        if (mPsimConversionSupportedCarrierIds == null
+                || mPsimConversionSupportedCarrierIds.isEmpty()) {
+            return false;
+        }
+        return mPsimConversionSupportedCarrierIds.contains(carrierId);
+    }
+
+    /**
+     * Make sure the device has required telephony feature
+     *
+     * @throws UnsupportedOperationException if the device does not have required telephony feature
+     */
+    private void enforceTelephonyFeatureWithException(@Nullable String callingPackage,
+            @NonNull String methodName) {
+        if (callingPackage == null || mPackageManager == null) {
+            return;
+        }
+
+        if (!mFeatureFlags.enforceTelephonyFeatureMappingForPublicApis()
+                || !CompatChanges.isChangeEnabled(ENABLE_FEATURE_MAPPING, callingPackage,
+                Binder.getCallingUserHandle())
+                || mVendorApiLevel < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            // Skip to check associated telephony feature,
+            // if compatibility change is not enabled for the current process or
+            // the SDK version of vendor partition is less than Android V.
+            return;
+        }
+
+        if (!mPackageManager.hasSystemFeature(FEATURE_TELEPHONY_EUICC)) {
+            throw new UnsupportedOperationException(
+                    methodName + " is unsupported without " + FEATURE_TELEPHONY_EUICC);
+        }
     }
 }

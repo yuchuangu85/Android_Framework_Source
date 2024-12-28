@@ -26,11 +26,13 @@ import static android.net.NetworkStats.ROAMING_NO;
 import static android.net.NetworkStats.ROAMING_YES;
 import static android.net.NetworkStats.SET_ALL;
 import static android.net.NetworkStats.SET_DEFAULT;
+import static android.net.NetworkStats.SET_FOREGROUND;
 import static android.net.NetworkStats.TAG_NONE;
 import static android.net.NetworkStats.UID_ALL;
 import static android.net.NetworkTemplate.MATCH_BLUETOOTH;
 import static android.net.NetworkTemplate.MATCH_ETHERNET;
 import static android.net.NetworkTemplate.MATCH_MOBILE;
+import static android.net.NetworkTemplate.MATCH_PROXY;
 import static android.net.NetworkTemplate.MATCH_WIFI;
 import static android.net.TrafficStats.UID_REMOVED;
 import static android.text.format.DateUtils.WEEK_IN_MILLIS;
@@ -49,6 +51,7 @@ import android.service.NetworkStatsCollectionStatsProto;
 import android.telephony.SubscriptionPlan;
 import android.text.format.DateUtils;
 import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.AtomicFile;
 import android.util.IndentingPrintWriter;
 import android.util.Log;
@@ -57,6 +60,7 @@ import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.FileRotator;
+import com.android.modules.utils.FastDataInput;
 import com.android.net.module.util.CollectionUtils;
 import com.android.net.module.util.NetworkStatsUtils;
 
@@ -113,15 +117,28 @@ public class NetworkStatsCollection implements FileRotator.Reader, FileRotator.W
     private long mEndMillis;
     private long mTotalBytes;
     private boolean mDirty;
+    private final boolean mUseFastDataInput;
 
     /**
      * Construct a {@link NetworkStatsCollection} object.
      *
-     * @param bucketDuration duration of the buckets in this object, in milliseconds.
+     * @param bucketDurationMillis duration of the buckets in this object, in milliseconds.
      * @hide
      */
     public NetworkStatsCollection(long bucketDurationMillis) {
+        this(bucketDurationMillis, false /* useFastDataInput */);
+    }
+
+    /**
+     * Construct a {@link NetworkStatsCollection} object.
+     *
+     * @param bucketDurationMillis duration of the buckets in this object, in milliseconds.
+     * @param useFastDataInput true if using {@link FastDataInput} is preferred. Otherwise, false.
+     * @hide
+     */
+    public NetworkStatsCollection(long bucketDurationMillis, boolean useFastDataInput) {
         mBucketDurationMillis = bucketDurationMillis;
+        mUseFastDataInput = useFastDataInput;
         reset();
     }
 
@@ -480,7 +497,11 @@ public class NetworkStatsCollection implements FileRotator.Reader, FileRotator.W
     /** @hide */
     @Override
     public void read(InputStream in) throws IOException {
-        read((DataInput) new DataInputStream(in));
+        if (mUseFastDataInput) {
+            read(FastDataInput.obtain(in));
+        } else {
+            read((DataInput) new DataInputStream(in));
+        }
     }
 
     private void read(DataInput in) throws IOException {
@@ -784,6 +805,7 @@ public class NetworkStatsCollection implements FileRotator.Reader, FileRotator.W
         dumpCheckin(pw, start, end, new NetworkTemplate.Builder(MATCH_WIFI).build(), "wifi");
         dumpCheckin(pw, start, end, new NetworkTemplate.Builder(MATCH_ETHERNET).build(), "eth");
         dumpCheckin(pw, start, end, new NetworkTemplate.Builder(MATCH_BLUETOOTH).build(), "bt");
+        dumpCheckin(pw, start, end, new NetworkTemplate.Builder(MATCH_PROXY).build(), "proxy");
     }
 
     /**
@@ -920,6 +942,100 @@ public class NetworkStatsCollection implements FileRotator.Reader, FileRotator.W
             }
             return collection;
         }
+    }
+
+
+    private static String str(NetworkStatsCollection.Key key) {
+        StringBuilder sb = new StringBuilder()
+                .append(key.ident.toString())
+                .append(" uid=").append(key.uid);
+        if (key.set != SET_FOREGROUND) {
+            sb.append(" set=").append(key.set);
+        }
+        if (key.tag != 0) {
+            sb.append(" tag=").append(key.tag);
+        }
+        return sb.toString();
+    }
+
+    // The importer will modify some keys when importing them.
+    // In order to keep the comparison code simple, add such special cases here and simply
+    // ignore them. This should not impact fidelity much because the start/end checks and the total
+    // bytes check still need to pass.
+    private static boolean couldKeyChangeOnImport(NetworkStatsCollection.Key key) {
+        if (key.ident.isEmpty()) return false;
+        final NetworkIdentity firstIdent = key.ident.iterator().next();
+
+        // Non-mobile network with non-empty RAT type.
+        // This combination is invalid and the NetworkIdentity.Builder will throw if it is passed
+        // in, but it looks like it was previously possible to persist it to disk. The importer sets
+        // the RAT type to NETWORK_TYPE_ALL.
+        if (firstIdent.getType() != ConnectivityManager.TYPE_MOBILE
+                && firstIdent.getRatType() != NetworkTemplate.NETWORK_TYPE_ALL) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Compare two {@link NetworkStatsCollection} instances and returning a human-readable
+     * string description of difference for debugging purpose.
+     *
+     * @hide
+     */
+    @Nullable
+    public static String compareStats(NetworkStatsCollection migrated,
+                                      NetworkStatsCollection legacy, boolean allowKeyChange) {
+        final Map<NetworkStatsCollection.Key, NetworkStatsHistory> migEntries =
+                migrated.getEntries();
+        final Map<NetworkStatsCollection.Key, NetworkStatsHistory> legEntries = legacy.getEntries();
+
+        final ArraySet<NetworkStatsCollection.Key> unmatchedLegKeys =
+                new ArraySet<>(legEntries.keySet());
+
+        for (NetworkStatsCollection.Key legKey : legEntries.keySet()) {
+            final NetworkStatsHistory legHistory = legEntries.get(legKey);
+            final NetworkStatsHistory migHistory = migEntries.get(legKey);
+
+            if (migHistory == null && allowKeyChange && couldKeyChangeOnImport(legKey)) {
+                unmatchedLegKeys.remove(legKey);
+                continue;
+            }
+
+            if (migHistory == null) {
+                return "Missing migrated history for legacy key " + str(legKey)
+                        + ", legacy history was " + legHistory;
+            }
+            if (!migHistory.isSameAs(legHistory)) {
+                return "Difference in history for key " + legKey + "; legacy history " + legHistory
+                        + ", migrated history " + migHistory;
+            }
+            unmatchedLegKeys.remove(legKey);
+        }
+
+        if (!unmatchedLegKeys.isEmpty()) {
+            final NetworkStatsHistory first = legEntries.get(unmatchedLegKeys.valueAt(0));
+            return "Found unmatched legacy keys: count=" + unmatchedLegKeys.size()
+                    + ", first unmatched collection " + first;
+        }
+
+        if (migrated.getStartMillis() != legacy.getStartMillis()
+                || migrated.getEndMillis() != legacy.getEndMillis()) {
+            return "Start / end of the collections "
+                    + migrated.getStartMillis() + "/" + legacy.getStartMillis() + " and "
+                    + migrated.getEndMillis() + "/" + legacy.getEndMillis()
+                    + " don't match";
+        }
+
+        if (migrated.getTotalBytes() != legacy.getTotalBytes()) {
+            return "Total bytes " + migrated.getTotalBytes() + " and " + legacy.getTotalBytes()
+                    + " don't match for collections with start/end "
+                    + migrated.getStartMillis()
+                    + "/" + legacy.getStartMillis();
+        }
+
+        return null;
     }
 
     /**

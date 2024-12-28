@@ -20,6 +20,8 @@ import android.annotation.NonNull;
 import android.net.Network;
 import android.net.ipsec.ike.IkeSessionCallback;
 
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
+
 import java.util.Objects;
 
 /**
@@ -61,5 +63,15 @@ public final class IkeNetworkLostException extends IkeNonProtocolException {
     @NonNull
     public Network getNetwork() {
         return mNetwork;
+    }
+
+    /**
+     * Returns the error code for metrics
+     *
+     * @hide
+     */
+    @Override
+    public int getMetricsErrorCode() {
+        return IkeMetrics.IKE_ERROR_NETWORK_LOST;
     }
 }

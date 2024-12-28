@@ -20,6 +20,7 @@ import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.Manifest.permission;
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -96,7 +97,8 @@ public final class UwbManager {
         @IntDef(value = {
                 STATE_ENABLED_INACTIVE,
                 STATE_ENABLED_ACTIVE,
-                STATE_DISABLED})
+                STATE_DISABLED,
+                STATE_ENABLED_HW_IDLE})
         @interface State {}
 
         /**
@@ -142,6 +144,14 @@ public final class UwbManager {
          * Indicates that UWB is enabled and has active ranging session
          */
         int STATE_ENABLED_ACTIVE = 2;
+
+        /**
+         * The state when UWB is enabled by user but the hardware is not enabled since no clients
+         * have requested for it.
+         * Only sent if the device supports {@link #isUwbHwIdleTurnOffEnabled()} feature.
+         */
+        @FlaggedApi("com.android.uwb.flags.hw_state")
+        int STATE_ENABLED_HW_IDLE = 3;
 
         /**
          * Invoked when underlying UWB adapter's state is changed
@@ -545,6 +555,22 @@ public final class UwbManager {
     }
 
     /**
+     * Get uwbs timestamp in micros.
+     *
+     * @return uwb device timestamp in micros.
+     */
+    @NonNull
+    @RequiresPermission(permission.UWB_PRIVILEGED)
+    @FlaggedApi("com.android.uwb.flags.query_timestamp_micros")
+    public long queryUwbsTimestampMicros() {
+        try {
+            return mUwbAdapter.queryUwbsTimestampMicros();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Get the timestamp resolution for events in nanoseconds
      * <p>This value defines the maximum error of all timestamps for events reported to
      * {@link RangingSession.Callback}.
@@ -694,9 +720,7 @@ public final class UwbManager {
      */
     public boolean isUwbEnabled() {
         int adapterState = getAdapterState();
-        return adapterState == AdapterStateCallback.STATE_ENABLED_ACTIVE
-                || adapterState == AdapterStateCallback.STATE_ENABLED_INACTIVE;
-
+        return adapterState != AdapterStateCallback.STATE_DISABLED;
     }
 
     /**
@@ -715,6 +739,90 @@ public final class UwbManager {
         mAdapterStateListener.setEnabled(enabled);
     }
 
+    /**
+     * Whether UWB hardware will automatically turn off when there are no clients requesting it.
+     * This feature is only turned on non-phone form factor devices which needs to keep the UWB
+     * hardware turned to avoid battery drain.
+     *
+     * <p>
+     * If the device supports automatically turning off UWB hardware, the state of UWB hardware
+     * is controlled by:
+     * <li> UWB user toggle state or Airplane mode state, AND </li>
+     * <li> Whether any clients are actively enabling UWB </li>
+     * </p>
+     *
+     * @return true if enabled, false otherwise.
+     *
+     * @see #isUwbHwEnableRequested()
+     * @see #requestUwbHwEnable(boolean)
+     */
+    @FlaggedApi("com.android.uwb.flags.hw_state")
+    @RequiresPermission(permission.UWB_PRIVILEGED)
+    public boolean isUwbHwIdleTurnOffEnabled() {
+        try {
+            return mUwbAdapter.isHwIdleTurnOffEnabled();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Whether this client has requested for UWB hardware to be enabled or disabled.
+     * Only supported on devices which supports hw idle turn off (indicated by
+     * {@link #isUwbHwIdleTurnOffEnabled()})
+     *
+     * <p>
+     * This does not indicate the global state of UWB, this only indicates whether this app
+     * (identified by {@link Context#getAttributionSource()}) has requested for UWB hardware to be
+     * enabled or disabled.
+     * </p>
+     *
+     * @return true if enabled, false otherwise.
+     * @throws IllegalStateException if the device does not support this feature
+     *
+     * @see #isUwbHwIdleTurnOffEnabled()
+     * @see #requestUwbHwEnable(boolean)
+     */
+    @FlaggedApi("com.android.uwb.flags.hw_state")
+    @RequiresPermission(permission.UWB_PRIVILEGED)
+    public boolean isUwbHwEnableRequested() {
+        try {
+            return mUwbAdapter.isHwEnableRequested(mContext.getAttributionSource());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * This client has requested for UWB hardware to be enabled or disabled.
+     * Only supported on devices which supports hw idle turn off (indicated by
+     * {@link #isUwbHwIdleTurnOffEnabled()})
+     *
+     * <p>
+     * This does not indicate the global state of UWB, this only indicates whether this app
+     * (identified by {@link Context#getAttributionSource()}) has requested for UWB hardware to be
+     * enabled or disabled.
+     * If UWB is enabled by the user and has at least 1 privileged client requesting UWB toggle on,
+     * then UWB hardware is enabled, else the UWB hardware is disabled.
+     * </p>
+     *
+     * @param enabled value representing intent to disable or enable UWB.
+     * @throws IllegalStateException if the device does not support this feature
+     *
+     * @see #isUwbHwIdleTurnOffEnabled()
+     * @see #isUwbHwEnableRequested() ()
+     */
+    @FlaggedApi("com.android.uwb.flags.hw_state")
+    @RequiresPermission(permission.UWB_PRIVILEGED)
+    public void requestUwbHwEnabled(boolean enabled) {
+        try {
+            mUwbAdapter.requestHwEnabled(
+                    enabled, mContext.getAttributionSource(),
+                    new Binder(mContext.getPackageName()));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
 
     /**
      * Returns a list of UWB chip infos in a {@link PersistableBundle}.
@@ -1019,6 +1127,7 @@ public final class UwbManager {
     @RequiresPermission(permission.UWB_PRIVILEGED)
     public @SendVendorUciStatus int sendVendorUciMessage(
             @IntRange(from = 0, to = 15) int gid, int oid, @NonNull byte[] payload) {
+        Objects.requireNonNull(payload, "Payload must not be null");
         try {
             return mUwbAdapter.sendVendorUciMessage(MESSAGE_TYPE_COMMAND, gid, oid, payload);
         } catch (RemoteException e) {

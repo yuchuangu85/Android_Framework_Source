@@ -23,6 +23,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 import com.android.adservices.AdServicesParcelableUtil;
+import com.android.internal.util.Preconditions;
 
 import java.util.HashSet;
 import java.util.Objects;
@@ -30,10 +31,17 @@ import java.util.Set;
 
 /** Represents data specific to an ad that is necessary for ad selection and rendering. */
 public final class AdData implements Parcelable {
+    /** @hide */
+    public static final String NUM_AD_COUNTER_KEYS_EXCEEDED_FORMAT =
+            "AdData should have no more than %d ad counter keys";
+    /** @hide */
+    public static final int MAX_NUM_AD_COUNTER_KEYS = 10;
+
     @NonNull private final Uri mRenderUri;
     @NonNull private final String mMetadata;
-    @NonNull private final Set<String> mAdCounterKeys;
+    @NonNull private final Set<Integer> mAdCounterKeys;
     @Nullable private final AdFilters mAdFilters;
+    @Nullable private final String mAdRenderId;
 
     @NonNull
     public static final Creator<AdData> CREATOR =
@@ -58,6 +66,7 @@ public final class AdData implements Parcelable {
         mMetadata = builder.mMetadata;
         mAdCounterKeys = builder.mAdCounterKeys;
         mAdFilters = builder.mAdFilters;
+        mAdRenderId = builder.mAdRenderId;
     }
 
     private AdData(@NonNull Parcel in) {
@@ -67,10 +76,11 @@ public final class AdData implements Parcelable {
         mMetadata = in.readString();
         mAdCounterKeys =
                 AdServicesParcelableUtil.readNullableFromParcel(
-                        in, AdServicesParcelableUtil::readStringSetFromParcel);
+                        in, AdServicesParcelableUtil::readIntegerSetFromParcel);
         mAdFilters =
                 AdServicesParcelableUtil.readNullableFromParcel(
                         in, AdFilters.CREATOR::createFromParcel);
+        mAdRenderId = in.readString();
     }
 
     @Override
@@ -80,11 +90,12 @@ public final class AdData implements Parcelable {
         mRenderUri.writeToParcel(dest, flags);
         dest.writeString(mMetadata);
         AdServicesParcelableUtil.writeNullableToParcel(
-                dest, mAdCounterKeys, AdServicesParcelableUtil::writeStringSetToParcel);
+                dest, mAdCounterKeys, AdServicesParcelableUtil::writeIntegerSetToParcel);
         AdServicesParcelableUtil.writeNullableToParcel(
                 dest,
                 mAdFilters,
                 (targetParcel, sourceFilters) -> sourceFilters.writeToParcel(targetParcel, flags));
+        dest.writeString(mAdRenderId);
     }
 
     /** @hide */
@@ -118,17 +129,16 @@ public final class AdData implements Parcelable {
     /**
      * Gets the set of keys used in counting events.
      *
+     * <p>No more than 10 ad counter keys may be associated with an ad.
+     *
      * <p>The keys and counts per key are used in frequency cap filtering during ad selection to
      * disqualify associated ads from being submitted to bidding.
      *
      * <p>Note that these keys can be overwritten along with the ads and other bidding data for a
      * custom audience during the custom audience's daily update.
-     *
-     * @hide
      */
-    // TODO(b/221876775): Unhide for frequency cap API review
     @NonNull
-    public Set<String> getAdCounterKeys() {
+    public Set<Integer> getAdCounterKeys() {
         return mAdCounterKeys;
     }
 
@@ -137,13 +147,25 @@ public final class AdData implements Parcelable {
      *
      * <p>The filters, if met or exceeded, exclude the associated ad from participating in ad
      * selection. They are optional and if {@code null} specify that no filters apply to this ad.
-     *
-     * @hide
      */
-    // TODO(b/221876775): Unhide for app install/frequency cap API review
     @Nullable
     public AdFilters getAdFilters() {
         return mAdFilters;
+    }
+
+    /**
+     * Gets the ad render id for server auctions.
+     *
+     * <p>Ad render id is collected for each {@link AdData} when server auction request is received.
+     *
+     * <p>Any {@link AdData} without ad render id will be ineligible for server-side auction.
+     *
+     * <p>The overall size of the CA is limited. The size of this field is considered using
+     * {@link String#getBytes()} in {@code UTF-8} encoding.
+     */
+    @Nullable
+    public String getAdRenderId() {
+        return mAdRenderId;
     }
 
     /** Checks whether two {@link AdData} objects contain the same information. */
@@ -155,7 +177,8 @@ public final class AdData implements Parcelable {
         return mRenderUri.equals(adData.mRenderUri)
                 && mMetadata.equals(adData.mMetadata)
                 && mAdCounterKeys.equals(adData.mAdCounterKeys)
-                && Objects.equals(mAdFilters, adData.mAdFilters);
+                && Objects.equals(mAdFilters, adData.mAdFilters)
+                && Objects.equals(mAdRenderId, adData.mAdRenderId);
     }
 
     /** Returns the hash of the {@link AdData} object's data. */
@@ -172,27 +195,23 @@ public final class AdData implements Parcelable {
                 + ", mMetadata='"
                 + mMetadata
                 + '\''
-                + generateAdCounterKeyString()
-                + generateAdFilterString()
+                + ", mAdCounterKeys="
+                + mAdCounterKeys
+                + ", mAdFilters="
+                + mAdFilters
+                + ", mAdRenderId='"
+                + mAdRenderId
+                + '\''
                 + '}';
-    }
-
-    private String generateAdCounterKeyString() {
-        // TODO(b/221876775) Add ad counter keys String when unhidden
-        return "";
-    }
-
-    private String generateAdFilterString() {
-        // TODO(b/266837113) Add ad filters String when unhidden
-        return "";
     }
 
     /** Builder for {@link AdData} objects. */
     public static final class Builder {
         @Nullable private Uri mRenderUri;
         @Nullable private String mMetadata;
-        @NonNull private Set<String> mAdCounterKeys = new HashSet<>();
+        @NonNull private Set<Integer> mAdCounterKeys = new HashSet<>();
         @Nullable private AdFilters mAdFilters;
+        @Nullable private String mAdRenderId;
 
         // TODO(b/232883403): We may need to add @NonNUll members as args.
         public Builder() {}
@@ -232,14 +251,19 @@ public final class AdData implements Parcelable {
         /**
          * Sets the set of keys used in counting events.
          *
-         * <p>See {@link #getAdCounterKeys()} for more information.
+         * <p>No more than 10 ad counter keys may be associated with an ad.
          *
-         * @hide
+         * <p>See {@link #getAdCounterKeys()} for more information.
          */
-        // TODO(b/221876775): Unhide for frequency cap API review
         @NonNull
-        public AdData.Builder setAdCounterKeys(@NonNull Set<String> adCounterKeys) {
+        public AdData.Builder setAdCounterKeys(@NonNull Set<Integer> adCounterKeys) {
             Objects.requireNonNull(adCounterKeys);
+            Preconditions.checkArgument(
+                    !adCounterKeys.contains(null), "Ad counter keys must not contain null value");
+            Preconditions.checkArgument(
+                    adCounterKeys.size() <= MAX_NUM_AD_COUNTER_KEYS,
+                    NUM_AD_COUNTER_KEYS_EXCEEDED_FORMAT,
+                    MAX_NUM_AD_COUNTER_KEYS);
             mAdCounterKeys = adCounterKeys;
             return this;
         }
@@ -248,13 +272,21 @@ public final class AdData implements Parcelable {
          * Sets all {@link AdFilters} associated with the ad.
          *
          * <p>See {@link #getAdFilters()} for more information.
-         *
-         * @hide
          */
-        // TODO(b/221876775): Unhide for app install/frequency cap API review
         @NonNull
         public AdData.Builder setAdFilters(@Nullable AdFilters adFilters) {
             mAdFilters = adFilters;
+            return this;
+        }
+
+        /**
+         * Sets the ad render id for server auction
+         *
+         * <p>See {@link AdData#getAdRenderId()} for more information.
+         */
+        @NonNull
+        public AdData.Builder setAdRenderId(@Nullable String adRenderId) {
+            mAdRenderId = adRenderId;
             return this;
         }
 
@@ -265,9 +297,9 @@ public final class AdData implements Parcelable {
          */
         @NonNull
         public AdData build() {
-            Objects.requireNonNull(mRenderUri);
+            Objects.requireNonNull(mRenderUri, "The render URI has not been provided");
             // TODO(b/231997523): Add JSON field validation.
-            Objects.requireNonNull(mMetadata);
+            Objects.requireNonNull(mMetadata, "The metadata has not been provided");
 
             return new AdData(this);
         }

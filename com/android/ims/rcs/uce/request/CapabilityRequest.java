@@ -51,6 +51,8 @@ public abstract class CapabilityRequest implements UceRequest {
     protected volatile long mCoordinatorId;
     protected volatile boolean mIsFinished;
     protected volatile boolean mSkipGettingFromCache;
+    protected int mCurrentRetryCount;
+    protected boolean mRetryEnabled;
 
     public CapabilityRequest(int subId, @UceRequestType int type, RequestManagerCallback callback) {
         mSubId = subId;
@@ -59,6 +61,8 @@ public abstract class CapabilityRequest implements UceRequest {
         mRequestManagerCallback = callback;
         mRequestResponse = new CapabilityRequestResponse();
         mTaskId = UceUtils.generateTaskId();
+        mCurrentRetryCount = 0;
+        mRetryEnabled = false;
     }
 
     @VisibleForTesting
@@ -70,6 +74,8 @@ public abstract class CapabilityRequest implements UceRequest {
         mRequestManagerCallback = callback;
         mRequestResponse = requestResponse;
         mTaskId = UceUtils.generateTaskId();
+        mCurrentRetryCount = 0;
+        mRetryEnabled = false;
     }
 
     @Override
@@ -183,6 +189,22 @@ public abstract class CapabilityRequest implements UceRequest {
         } else {
             requestCapabilities(requestCapUris);
         }
+    }
+
+    public int getRetryCount() {
+        return mCurrentRetryCount;
+    }
+
+    public void setRetryCount(int retryCount) {
+        mCurrentRetryCount = retryCount;
+    }
+
+    public boolean isRetryEnabled() {
+        return mRetryEnabled;
+    }
+
+    public void setRetryEnabled(boolean enabled) {
+        mRetryEnabled = enabled;
     }
 
     // Check whether this request is allowed to be executed or not.

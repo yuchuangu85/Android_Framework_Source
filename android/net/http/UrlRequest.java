@@ -174,7 +174,7 @@ public abstract class UrlRequest {
          * Sets specific UID to use when accounting socket traffic caused by this request. See
          * {@link android.net.TrafficStats} for more information. Designed for use when performing
          * an operation on behalf of another application. Caller must hold
-         * {@link android.Manifest.permission#MODIFY_NETWORK_ACCOUNTING} permission. By default
+         * {@code android.Manifest.permission#MODIFY_NETWORK_ACCOUNTING} permission. By default
          * traffic is attributed to UID of caller.
          * <p>
          * <b>NOTE:</b>Setting a UID disallows sharing of sockets with requests
@@ -187,38 +187,6 @@ public abstract class UrlRequest {
          */
         @NonNull
         public abstract Builder setTrafficStatsUid(int uid);
-
-        /**
-         * Associates the annotation object with this request. May add more than one. Passed through
-         * to a {@link RequestFinishedInfo.Listener}, see {@link
-         * RequestFinishedInfo#getAnnotations}.
-         *
-         * @param annotation an object to pass on to the {@link RequestFinishedInfo.Listener} with a
-         * {@link RequestFinishedInfo}.
-         * @return the builder to facilitate chaining.
-         *
-         * {@hide}
-         */
-        public Builder addRequestAnnotation(Object annotation) {
-            return this;
-        }
-
-        /**
-         * Sets a listener that gets invoked after {@link Callback#onCanceled onCanceled()}, {@link
-         * Callback#onFailed onFailed()} or {@link Callback#onSucceeded onSucceeded()} return.
-         *
-         * <p>The listener is invoked  with the request finished info on an
-         * {@link java.util.concurrent.Executor} provided by {@link
-         * RequestFinishedInfo.Listener#getExecutor getExecutor()}.
-         *
-         * @param listener the listener for finished requests.
-         * @return the builder to facilitate chaining.
-         *
-         * {@hide}
-         */
-        public Builder setRequestFinishedListener(RequestFinishedInfo.Listener listener) {
-            return this;
-        }
 
         /**
          * Creates a {@link UrlRequest} using configuration within this {@link Builder}. The
@@ -249,7 +217,11 @@ public abstract class UrlRequest {
          * The redirect will not be followed until the URLRequest's {@link
          * UrlRequest#followRedirect} method is called, either synchronously or asynchronously.
          *
-         * @param request Request being redirected.
+         * @param request Request being redirected. <strong>This is not guaranteed to be the same
+         *        object as the one received by other callbacks, nor is it guaranteed to be the one
+         *        returned by {@link URLRequest.Builder#build}.</strong> However, method calls on
+         *        this object will have the same effects as calls on the original
+         *        {@link URLRequest}.
          * @param info Response information.
          * @param newLocationUrl Location where request is redirected.
          * @throws Exception if an error occurs while processing a redirect. {@link #onFailed} will
@@ -270,7 +242,11 @@ public abstract class UrlRequest {
          * onSucceeded()} and {@link Callback#onFailed onFailed()}, until {@link UrlRequest#read
          * UrlRequest.read()} is called to attempt to start reading the response body.
          *
-         * @param request Request that started to get response.
+         * @param request Request that started to get response. <strong>This is not guaranteed to be
+         *        the same object as the one received by other callbacks, nor is it guaranteed to be
+         *        the one returned by {@link URLRequest.Builder#build}.</strong> However, method
+         *        calls on this object will have the same effects as calls on the original
+         *        {@link URLRequest}.
          * @param info Response information.
          * @throws Exception if an error occurs while processing response start. {@link #onFailed}
          *         will
@@ -290,7 +266,11 @@ public abstract class UrlRequest {
          * onSucceeded()} and {@link Callback#onFailed onFailed()}, until {@link UrlRequest#read
          * UrlRequest.read()} is called to attempt to continue reading the response body.
          *
-         * @param request Request that received data.
+         * @param request Request that received data. <strong>This is not guaranteed to be the same
+         *        object as the one received by other callbacks, nor is it guaranteed to be the one
+         *        returned by {@link URLRequest.Builder#build}.</strong> However, method calls on
+         *        this object will have the same effects as calls on the original
+         *        {@link URLRequest}.
          * @param info Response information.
          * @param byteBuffer The buffer that was passed in to {@link UrlRequest#read
          *         UrlRequest.read()},
@@ -310,7 +290,11 @@ public abstract class UrlRequest {
          * Invoked when request is completed successfully. Once invoked, no other {@link Callback}
          * methods will be invoked.
          *
-         * @param request Request that succeeded.
+         * @param request Request that succeeded. <strong>This is not guaranteed to be the same
+         *        object as the one received by other callbacks, nor is it guaranteed to be the one
+         *        returned by {@link URLRequest.Builder#build}.</strong> However, method calls on
+         *        this object will have the same effects as calls on the original
+         *        {@link URLRequest}.
          * @param info Response information.
          */
          void onSucceeded(
@@ -321,7 +305,11 @@ public abstract class UrlRequest {
          * other {@link Callback} methods will be invoked. {@code error} provides information about
          * the failure.
          *
-         * @param request Request that failed.
+         * @param request Request that failed. <strong>This is not guaranteed to be the same
+         *        object as the one received by other callbacks, nor is it guaranteed to be the one
+         *        returned by {@link URLRequest.Builder#build}.</strong> However, method calls on
+         *        this object will have the same effects as calls on the original
+         *        {@link URLRequest}.
          * @param info Response information. May be {@code null} if no response was received.
          * @param error information about error.
          */
@@ -332,7 +320,11 @@ public abstract class UrlRequest {
          * Invoked if request was canceled via {@link UrlRequest#cancel}. Once invoked, no other
          * {@link Callback} methods will be invoked. Default implementation takes no action.
          *
-         * @param request Request that was canceled.
+         * @param request Request that was canceled. <strong>This is not guaranteed to be the same
+         *        object as the one received by other callbacks, nor is it guaranteed to be the one
+         *        returned by {@link URLRequest.Builder#build}.</strong> However, method calls on
+         *        this object will have the same effects as calls on the original
+         *        {@link URLRequest}.
          * @param info Response information. May be {@code null} if no response was received.
          */
         void onCanceled(@NonNull UrlRequest request, @Nullable UrlResponseInfo info);

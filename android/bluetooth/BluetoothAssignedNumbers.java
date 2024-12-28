@@ -20,11 +20,11 @@ import android.annotation.SystemApi;
 
 /**
  * Bluetooth Assigned Numbers.
- * <p>
- * For now we only include Company ID values.
  *
- * @see <a href="https://www.bluetooth.org/technical/assignednumbers/identifiers.htm"> The Official
- * Bluetooth SIG Member Website | Company Identifiers</a>
+ * <p>For now we only include Company ID values.
+ *
+ * @see <a href="https://www.bluetooth.org/technical/assignednumbers/identifiers.htm">The Official
+ *     Bluetooth SIG Member Website | Company Identifiers</a>
  */
 public class BluetoothAssignedNumbers {
 
@@ -1167,18 +1167,17 @@ public class BluetoothAssignedNumbers {
     /*
      * You can't instantiate one of these.
      */
-    private BluetoothAssignedNumbers() {
-    }
+    private BluetoothAssignedNumbers() {}
 
     /**
-     * The values of {@code OrganizationId} are assigned by Bluetooth SIG. For more
-     * details refer to Transport Discovery Service Organization IDs.
+     * The values of {@code OrganizationId} are assigned by Bluetooth SIG. For more details refer to
+     * Transport Discovery Service Organization IDs.
      * (https://www.bluetooth.com/specifications/assigned-numbers/)
      *
      * @hide
      */
     @SystemApi
-    public class OrganizationId {
+    public static class OrganizationId {
         /*
          * This is for Bluetooth SIG Organization ID .
          */
@@ -1189,12 +1188,9 @@ public class BluetoothAssignedNumbers {
          */
         public static final int WIFI_ALLIANCE_NEIGHBOR_AWARENESS_NETWORKING = 0x02;
 
-        /**
-         * This is for WiFi Alliance Service Advertisement Organization ID.
-         */
+        /** This is for WiFi Alliance Service Advertisement Organization ID. */
         public static final int WIFI_ALLIANCE_SERVICE_ADVERTISEMENT = 0x03;
 
-        private OrganizationId() {
-        }
+        private OrganizationId() {}
     }
 }

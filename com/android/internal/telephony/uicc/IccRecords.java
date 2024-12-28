@@ -1687,7 +1687,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
     }
 
     public void loadFdnRecords() {
-        if (mParentApp != null) {
+        if (mParentApp != null && mAdnCache != null) {
             log("Loading FdnRecords");
             mAdnCache.requestLoadAllAdnLike(IccConstants.EF_FDN, EF_EXT2,
                     obtainMessage(EVENT_GET_FDN_DONE));

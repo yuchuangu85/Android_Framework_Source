@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 58d15e9e2c355be7b3dda6d4d34effd672bfd1cb --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen/android/hardware/radio/RadioResponseInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3/android/hardware/radio/RadioResponseInfo.aidl
  */
 package android.hardware.radio;
+/** @hide */
 public class RadioResponseInfo implements android.os.Parcelable
 {
   public int type;
@@ -58,7 +60,7 @@ public class RadioResponseInfo implements android.os.Parcelable
     _aidl_sj.add("type: " + (android.hardware.radio.RadioResponseType.$.toString(type)));
     _aidl_sj.add("serial: " + (serial));
     _aidl_sj.add("error: " + (android.hardware.radio.RadioError.$.toString(error)));
-    return "android.hardware.radio.RadioResponseInfo" + _aidl_sj.toString()  ;
+    return "RadioResponseInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

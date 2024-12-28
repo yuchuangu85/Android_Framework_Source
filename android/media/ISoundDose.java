@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/sounddose-aidl-java-source/gen/android/media/ISoundDose.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/sounddose-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/ISoundDose.aidl
  */
 package android.media;
 /**
@@ -48,6 +49,21 @@ public interface ISoundDose extends android.os.IInterface
     {
     }
     /**
+     * Resets the list of stored device categories for the native layer. Should
+     * only be called once at boot time after parsing the existing AudioDeviceCategories.
+     */
+    @Override public void initCachedAudioDeviceCategories(android.media.ISoundDose.AudioDeviceCategory[] audioDevices) throws android.os.RemoteException
+    {
+    }
+    /**
+     * Sets whether a device for a given address and type is a headphone or not.
+     * This is used to determine whether we compute the CSD on the given device
+     * since we can not rely completely on the device annotations.
+     */
+    @Override public void setAudioDeviceCategory(android.media.ISoundDose.AudioDeviceCategory audioDevice) throws android.os.RemoteException
+    {
+    }
+    /**
      * -------------------------- Test API methods --------------------------
      * /** Get the currently used RS2 upper bound.
      */
@@ -85,6 +101,7 @@ public interface ISoundDose extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.media.ISoundDose
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -114,13 +131,9 @@ public interface ISoundDose extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -158,6 +171,22 @@ public interface ISoundDose extends android.os.IInterface
           _arg0 = data.readBoolean();
           data.enforceNoDataAvail();
           this.setCsdEnabled(_arg0);
+          break;
+        }
+        case TRANSACTION_initCachedAudioDeviceCategories:
+        {
+          android.media.ISoundDose.AudioDeviceCategory[] _arg0;
+          _arg0 = data.createTypedArray(android.media.ISoundDose.AudioDeviceCategory.CREATOR);
+          data.enforceNoDataAvail();
+          this.initCachedAudioDeviceCategories(_arg0);
+          break;
+        }
+        case TRANSACTION_setAudioDeviceCategory:
+        {
+          android.media.ISoundDose.AudioDeviceCategory _arg0;
+          _arg0 = data.readTypedObject(android.media.ISoundDose.AudioDeviceCategory.CREATOR);
+          data.enforceNoDataAvail();
+          this.setAudioDeviceCategory(_arg0);
           break;
         }
         case TRANSACTION_getOutputRs2UpperBound:
@@ -294,6 +323,39 @@ public interface ISoundDose extends android.os.IInterface
         }
       }
       /**
+       * Resets the list of stored device categories for the native layer. Should
+       * only be called once at boot time after parsing the existing AudioDeviceCategories.
+       */
+      @Override public void initCachedAudioDeviceCategories(android.media.ISoundDose.AudioDeviceCategory[] audioDevices) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedArray(audioDevices, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_initCachedAudioDeviceCategories, _data, null, android.os.IBinder.FLAG_ONEWAY);
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      /**
+       * Sets whether a device for a given address and type is a headphone or not.
+       * This is used to determine whether we compute the CSD on the given device
+       * since we can not rely completely on the device annotations.
+       */
+      @Override public void setAudioDeviceCategory(android.media.ISoundDose.AudioDeviceCategory audioDevice) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(audioDevice, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setAudioDeviceCategory, _data, null, android.os.IBinder.FLAG_ONEWAY);
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      /**
        * -------------------------- Test API methods --------------------------
        * /** Get the currently used RS2 upper bound.
        */
@@ -384,13 +446,16 @@ public interface ISoundDose extends android.os.IInterface
     static final int TRANSACTION_resetCsd = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
     static final int TRANSACTION_updateAttenuation = (android.os.IBinder.FIRST_CALL_TRANSACTION + 2);
     static final int TRANSACTION_setCsdEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 3);
-    static final int TRANSACTION_getOutputRs2UpperBound = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
-    static final int TRANSACTION_getCsd = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
-    static final int TRANSACTION_isSoundDoseHalSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
-    static final int TRANSACTION_forceUseFrameworkMel = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
-    static final int TRANSACTION_forceComputeCsdOnAllDevices = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
+    static final int TRANSACTION_initCachedAudioDeviceCategories = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
+    static final int TRANSACTION_setAudioDeviceCategory = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
+    static final int TRANSACTION_getOutputRs2UpperBound = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
+    static final int TRANSACTION_getCsd = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
+    static final int TRANSACTION_isSoundDoseHalSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
+    static final int TRANSACTION_forceUseFrameworkMel = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
+    static final int TRANSACTION_forceComputeCsdOnAllDevices = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
   }
-  public static final java.lang.String DESCRIPTOR = "android$media$ISoundDose".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.media.ISoundDose";
   /** Set a new RS2 upper bound used for momentary exposure warnings. */
   public void setOutputRs2UpperBound(float rs2Value) throws android.os.RemoteException;
   /**
@@ -420,6 +485,17 @@ public interface ISoundDose extends android.os.IInterface
    */
   public void setCsdEnabled(boolean enabled) throws android.os.RemoteException;
   /**
+   * Resets the list of stored device categories for the native layer. Should
+   * only be called once at boot time after parsing the existing AudioDeviceCategories.
+   */
+  public void initCachedAudioDeviceCategories(android.media.ISoundDose.AudioDeviceCategory[] audioDevices) throws android.os.RemoteException;
+  /**
+   * Sets whether a device for a given address and type is a headphone or not.
+   * This is used to determine whether we compute the CSD on the given device
+   * since we can not rely completely on the device annotations.
+   */
+  public void setAudioDeviceCategory(android.media.ISoundDose.AudioDeviceCategory audioDevice) throws android.os.RemoteException;
+  /**
    * -------------------------- Test API methods --------------------------
    * /** Get the currently used RS2 upper bound.
    */
@@ -435,4 +511,70 @@ public interface ISoundDose extends android.os.IInterface
   public void forceUseFrameworkMel(boolean useFrameworkMel) throws android.os.RemoteException;
   /** Enables/Disables the computation of CSD on all devices. */
   public void forceComputeCsdOnAllDevices(boolean computeCsdOnAllDevices) throws android.os.RemoteException;
+  /**
+   * Structure containing a device identifier by address and type together with
+   * the categorization whether it is a headphone or not.
+   */
+  public static class AudioDeviceCategory implements android.os.Parcelable
+  {
+    public java.lang.String address;
+    public int internalAudioType = 0;
+    public boolean csdCompatible = false;
+    public static final android.os.Parcelable.Creator<AudioDeviceCategory> CREATOR = new android.os.Parcelable.Creator<AudioDeviceCategory>() {
+      @Override
+      public AudioDeviceCategory createFromParcel(android.os.Parcel _aidl_source) {
+        AudioDeviceCategory _aidl_out = new AudioDeviceCategory();
+        _aidl_out.readFromParcel(_aidl_source);
+        return _aidl_out;
+      }
+      @Override
+      public AudioDeviceCategory[] newArray(int _aidl_size) {
+        return new AudioDeviceCategory[_aidl_size];
+      }
+    };
+    @Override public final void writeToParcel(android.os.Parcel _aidl_parcel, int _aidl_flag)
+    {
+      int _aidl_start_pos = _aidl_parcel.dataPosition();
+      _aidl_parcel.writeInt(0);
+      _aidl_parcel.writeString(address);
+      _aidl_parcel.writeInt(internalAudioType);
+      _aidl_parcel.writeBoolean(csdCompatible);
+      int _aidl_end_pos = _aidl_parcel.dataPosition();
+      _aidl_parcel.setDataPosition(_aidl_start_pos);
+      _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
+      _aidl_parcel.setDataPosition(_aidl_end_pos);
+    }
+    public final void readFromParcel(android.os.Parcel _aidl_parcel)
+    {
+      int _aidl_start_pos = _aidl_parcel.dataPosition();
+      int _aidl_parcelable_size = _aidl_parcel.readInt();
+      try {
+        if (_aidl_parcelable_size < 4) throw new android.os.BadParcelableException("Parcelable too small");;
+        if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+        address = _aidl_parcel.readString();
+        if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+        internalAudioType = _aidl_parcel.readInt();
+        if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+        csdCompatible = _aidl_parcel.readBoolean();
+      } finally {
+        if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
+          throw new android.os.BadParcelableException("Overflow in the size of parcelable");
+        }
+        _aidl_parcel.setDataPosition(_aidl_start_pos + _aidl_parcelable_size);
+      }
+    }
+    @Override
+    public String toString() {
+      java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
+      _aidl_sj.add("address: " + (java.util.Objects.toString(address)));
+      _aidl_sj.add("internalAudioType: " + (internalAudioType));
+      _aidl_sj.add("csdCompatible: " + (csdCompatible));
+      return "AudioDeviceCategory" + _aidl_sj.toString()  ;
+    }
+    @Override
+    public int describeContents() {
+      int _mask = 0;
+      return _mask;
+    }
+  }
 }

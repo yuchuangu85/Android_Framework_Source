@@ -52,6 +52,7 @@ public class ExerciseSegmentInternal {
                 .setSegmentType(parcel.readInt());
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     static List<ExerciseSegmentInternal> populateSegmentsFromParcel(Parcel parcel) {
         int size = parcel.readInt();
         if (size == 0) {

@@ -19,6 +19,7 @@ package android.health.connect;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.health.connect.datatypes.AggregationType;
+import android.health.connect.datatypes.DataOrigin;
 import android.health.connect.internal.datatypes.utils.AggregationTypeIdMapper;
 import android.util.ArrayMap;
 
@@ -26,6 +27,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Class to represent the response from {@link HealthConnectManager#aggregateGroupByPeriod}
@@ -107,5 +109,14 @@ public final class AggregateRecordsGroupedByPeriodResponse<T> {
     @Nullable
     public ZoneOffset getZoneOffset(@NonNull AggregationType<T> aggregationType) {
         return AggregateRecordsResponse.getZoneOffsetInternal(aggregationType, mResult);
+    }
+
+    /**
+     * Returns a set of {@link DataOrigin}s for the underlying aggregation record, empty set if the
+     * corresponding aggregation doesn't exist and or if multiple records were present.
+     */
+    @NonNull
+    public Set<DataOrigin> getDataOrigins(@NonNull AggregationType<T> aggregationType) {
+        return AggregateRecordsResponse.getDataOriginsInternal(aggregationType, mResult);
     }
 }

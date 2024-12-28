@@ -29,6 +29,8 @@ package java.nio;
 import java.io.FileDescriptor;
 import java.util.Objects;
 
+import dalvik.annotation.codegen.CovariantReturnType;
+import dalvik.annotation.compat.VersionCodes;
 import dalvik.system.VMRuntime;
 import libcore.io.Memory;
 import sun.misc.Cleaner;
@@ -115,18 +117,21 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         cleaner = null;
     }
 
+    // BEGIN Android-changed: Remove MemorySegmentProxy and merge with read-only buffer.
     /** @hide */
     public DirectByteBuffer(int cap, long addr,
                             FileDescriptor fd,
                             Runnable unmapper,
                             boolean isReadOnly) {
-        super(-1, 0, cap, cap, fd);
+        super(-1, 0, cap, cap, fd, false);
         this.isReadOnly = isReadOnly;
         memoryRef = new MemoryRef(addr, null);
         address = addr;
         cleaner = Cleaner.create(memoryRef, unmapper);
     }
+    // END Android-changed: Remove MemorySegmentProxy and merge with read-only buffer.
 
+    // BEGIN Android-changed: Android needs MemoryRef for direct allocated buffer.
     // For duplicates and slices
     DirectByteBuffer(MemoryRef memoryRef,         // package-private
                      int mark, int pos, int lim, int cap,
@@ -143,6 +148,7 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         address = memoryRef.allocatedAddress + off;
         cleaner = null;
     }
+    // END Android-changed: Android needs MemoryRef for direct allocated buffer.
 
     @Override
     public final Object attachment() {
@@ -152,6 +158,11 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
     @Override
     public final Cleaner cleaner() {
         return cleaner;
+    }
+
+    @Override
+    Object base() {
+        return null;
     }
 
     @Override
@@ -179,7 +190,9 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
                                               0,
                                               length,
                                               length,
-                                              index << 0,
+        // Android-changed: The constructor's argument means the offset from the allocated address.
+                                              // index << 0,
+                                              index + offset,
                                               isReadOnly);
     }
 
@@ -318,6 +331,8 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         return this;
     }
 
+    // Android-changed: covariant overloads of *Buffer methods that return this.
+    @CovariantReturnType(returnType = MappedByteBuffer.class, presentAfter = 34)
     @Override
     public final ByteBuffer compact() {
         if (!memoryRef.isAccessible) {

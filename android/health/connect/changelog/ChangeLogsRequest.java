@@ -103,13 +103,16 @@ public final class ChangeLogsRequest implements Parcelable {
          *     number of entries to be returned i.e. sum of the response within {@link
          *     ChangeLogsResponse}
          *     <p>If not set default is 1000 and maximum value is 5000.
-         * @throws IllegalArgumentException if requested pageSize > 5000
+         * @throws IllegalArgumentException if requested pageSize > 5000 or < 1
          */
         @NonNull
         public Builder setPageSize(@IntRange(from = 1, to = 5000) int pageSize) {
             if (pageSize > MAXIMUM_PAGE_SIZE) {
                 throw new IllegalArgumentException(
-                        "Maximum page size " + MAXIMUM_PAGE_SIZE + " requested " + pageSize);
+                        "Maximum page size: " + MAXIMUM_PAGE_SIZE + ", requested: " + pageSize);
+            }
+            if (pageSize < 1) {
+                throw new IllegalArgumentException("Minimum page size: 1, requested: " + pageSize);
             }
             mPageSize = pageSize;
             return this;

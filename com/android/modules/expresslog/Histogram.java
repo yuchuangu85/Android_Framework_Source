@@ -20,14 +20,12 @@ import android.annotation.FloatRange;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 
-import com.android.modules.expresslog.StatsExpressLog;
-
 import java.util.Arrays;
 
 /** Histogram encapsulates StatsD write API calls */
 public final class Histogram {
 
-    private final long mMetricIdHash;
+    private final String mMetricId;
     private final BinOptions mBinOptions;
 
     /**
@@ -37,7 +35,7 @@ public final class Histogram {
      * @param binOptions to calculate bin index for samples
      */
     public Histogram(@NonNull String metricId, @NonNull BinOptions binOptions) {
-        mMetricIdHash = Utils.hashString(metricId);
+        mMetricId = metricId;
         mBinOptions = binOptions;
     }
 
@@ -47,9 +45,10 @@ public final class Histogram {
      * @param sample value
      */
     public void logSample(float sample) {
+        final long hash = MetricIds.getMetricIdHash(mMetricId, MetricIds.METRIC_TYPE_HISTOGRAM);
         final int binIndex = mBinOptions.getBinForSample(sample);
-        StatsExpressLog.write(StatsExpressLog.EXPRESS_HISTOGRAM_SAMPLE_REPORTED, mMetricIdHash,
-                /*count*/ 1, binIndex);
+        StatsExpressLog.write(
+                StatsExpressLog.EXPRESS_HISTOGRAM_SAMPLE_REPORTED, hash, /*count*/ 1, binIndex);
     }
 
     /**
@@ -59,9 +58,15 @@ public final class Histogram {
      * @param sample value
      */
     public void logSampleWithUid(int uid, float sample) {
+        final long hash =
+                MetricIds.getMetricIdHash(mMetricId, MetricIds.METRIC_TYPE_HISTOGRAM_WITH_UID);
         final int binIndex = mBinOptions.getBinForSample(sample);
-        StatsExpressLog.write(StatsExpressLog.EXPRESS_UID_HISTOGRAM_SAMPLE_REPORTED,
-                mMetricIdHash, /*count*/ 1, binIndex, uid);
+        StatsExpressLog.write(
+                StatsExpressLog.EXPRESS_UID_HISTOGRAM_SAMPLE_REPORTED,
+                hash, /*count*/
+                1,
+                binIndex,
+                uid);
     }
 
     /** Used by Histogram to map data sample to corresponding bin */

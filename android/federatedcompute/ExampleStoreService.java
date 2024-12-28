@@ -19,6 +19,7 @@ package android.federatedcompute;
 import android.annotation.NonNull;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.federatedcompute.aidl.IExampleStoreCallback;
 import android.federatedcompute.aidl.IExampleStoreService;
 import android.os.Bundle;
@@ -37,7 +38,6 @@ import android.os.IBinder;
  *   <service android:enabled="true" android:exported="true" android:name=".YourServiceClass">
  *     <intent-filter>
  *       <action android:name="com.android.federatedcompute.EXAMPLE_STORE"/>
- *       <data android:scheme="app"/>
  *     </intent-filter>
  *   </service>
  * </application>
@@ -46,7 +46,10 @@ import android.os.IBinder;
  * @hide
  */
 public abstract class ExampleStoreService extends Service {
-    private static final String TAG = "ExampleStoreService";
+    private static final String TAG = ExampleStoreService.class.getSimpleName();
+
+    private static final String BIND_EXAMPLE_STORE_SERVICE =
+            "android.permission.BIND_EXAMPLE_STORE_SERVICE";
     private IBinder mIBinder;
 
     @Override
@@ -62,15 +65,32 @@ public abstract class ExampleStoreService extends Service {
     class ServiceBinder extends IExampleStoreService.Stub {
         @Override
         public void startQuery(Bundle params, IExampleStoreCallback callback) {
+            if (!ExampleStoreService.this.checkCallerPermission()) {
+                throw new SecurityException(
+                        "Unauthorized startQuery call to ExampleStore.");
+            }
             ExampleStoreService.this.startQuery(
                     params, new ExampleStoreQueryCallbackImpl(callback));
         }
     }
+
+    /**
+     * To be overridden by implementation to provide checks if caller has specific permission to be
+     * used in ServiceBinder call.
+     *
+     * @return true if permission granted
+     */
+    protected boolean checkCallerPermission() {
+        return checkCallingOrSelfPermission(BIND_EXAMPLE_STORE_SERVICE)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
     /**
      * The abstract method that client apps should implement to start a new example store query
      * using the given selection criteria.
      */
     public abstract void startQuery(@NonNull Bundle params, @NonNull QueryCallback callback);
+
     /**
      * The client apps use this callback to return their ExampleStoreIterator implementation to the
      * federated training service.
@@ -78,7 +98,8 @@ public abstract class ExampleStoreService extends Service {
     public interface QueryCallback {
         /** Called when the iterator is ready for use. */
         void onStartQuerySuccess(@NonNull ExampleStoreIterator iterator);
-        /** Called when an error occurred and the iterator cannot not be created. */
+
+        /** Called when an error occurred and the iterator cannot be created. */
         void onStartQueryFailure(int errorCode);
     }
 }

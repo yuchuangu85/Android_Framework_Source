@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/CellInfoWcdma.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/CellInfoWcdma.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public class CellInfoWcdma implements android.os.Parcelable
 {
   public android.hardware.radio.network.CellIdentityWcdma cellIdentityWcdma;
@@ -53,7 +55,7 @@ public class CellInfoWcdma implements android.os.Parcelable
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
     _aidl_sj.add("cellIdentityWcdma: " + (java.util.Objects.toString(cellIdentityWcdma)));
     _aidl_sj.add("signalStrengthWcdma: " + (java.util.Objects.toString(signalStrengthWcdma)));
-    return "android.hardware.radio.network.CellInfoWcdma" + _aidl_sj.toString()  ;
+    return "CellInfoWcdma" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

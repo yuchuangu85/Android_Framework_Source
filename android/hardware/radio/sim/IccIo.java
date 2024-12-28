@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash ea7be3035be8d4869237a6478d2e0bb0efcc1e87 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen/android/hardware/radio/sim/IccIo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3/android/hardware/radio/sim/IccIo.aidl
  */
 package android.hardware.radio.sim;
+/** @hide */
 public class IccIo implements android.os.Parcelable
 {
   public int command = 0;
@@ -88,7 +90,7 @@ public class IccIo implements android.os.Parcelable
     _aidl_sj.add("data: " + (java.util.Objects.toString(data)));
     _aidl_sj.add("pin2: " + (java.util.Objects.toString(pin2)));
     _aidl_sj.add("aid: " + (java.util.Objects.toString(aid)));
-    return "android.hardware.radio.sim.IccIo" + _aidl_sj.toString()  ;
+    return "IccIo" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

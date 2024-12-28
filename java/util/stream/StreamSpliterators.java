@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2013, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -57,7 +57,7 @@ class StreamSpliterators {
      * <p>A wrapping spliterator produced from a sequential stream
      * cannot be split if there are stateful operations present.
      */
-    private static abstract class AbstractWrappingSpliterator<P_IN, P_OUT,
+    private abstract static class AbstractWrappingSpliterator<P_IN, P_OUT,
                                                               T_BUFFER extends AbstractSpinedBuffer>
             implements Spliterator<P_OUT> {
 
@@ -103,7 +103,7 @@ class StreamSpliterators {
         T_BUFFER buffer;
 
         /**
-         * True if full traversal has occurred (with possible cancelation).
+         * True if full traversal has occurred (with possible cancellation).
          * If doing a partial traversal, there may be still elements in buffer.
          */
         boolean finished;
@@ -186,7 +186,7 @@ class StreamSpliterators {
 
         @Override
         public Spliterator<P_OUT> trySplit() {
-            if (isParallel && !finished) {
+            if (isParallel && buffer == null && !finished) {
                 init();
 
                 Spliterator<P_IN> split = spliterator.trySplit();
@@ -217,19 +217,17 @@ class StreamSpliterators {
 
         @Override
         public final long estimateSize() {
-            init();
+            long exactSizeIfKnown = getExactSizeIfKnown();
             // Use the estimate of the wrapped spliterator
             // Note this may not be accurate if there are filter/flatMap
             // operations filtering or adding elements to the stream
-            return spliterator.estimateSize();
+            return exactSizeIfKnown == -1 ? spliterator.estimateSize() : exactSizeIfKnown;
         }
 
         @Override
         public final long getExactSizeIfKnown() {
             init();
-            return StreamOpFlag.SIZED.isKnown(ph.getStreamAndOpFlags())
-                   ? spliterator.getExactSizeIfKnown()
-                   : -1;
+            return ph.exactOutputSizeIfKnown(spliterator);
         }
 
         @Override
@@ -607,7 +605,7 @@ class StreamSpliterators {
      * {@code SUBSIZED}.
      *
      */
-    static abstract class SliceSpliterator<T, T_SPLITR extends Spliterator<T>> {
+    abstract static class SliceSpliterator<T, T_SPLITR extends Spliterator<T>> {
         // The start index of the slice
         final long sliceOrigin;
         // One past the last index of the slice
@@ -753,7 +751,7 @@ class StreamSpliterators {
             }
         }
 
-        static abstract class OfPrimitive<T,
+        abstract static class OfPrimitive<T,
                 T_SPLITR extends Spliterator.OfPrimitive<T, T_CONS, T_SPLITR>,
                 T_CONS>
                 extends SliceSpliterator<T, T_SPLITR>
@@ -897,14 +895,15 @@ class StreamSpliterators {
      * Note: The source spliterator may report {@code ORDERED} since that
      * spliterator be the result of a previous pipeline stage that was
      * collected to a {@code Node}. It is the order of the pipeline stage
-     * that governs whether the this slice spliterator is to be used or not.
+     * that governs whether this slice spliterator is to be used or not.
      */
-    static abstract class UnorderedSliceSpliterator<T, T_SPLITR extends Spliterator<T>> {
+    abstract static class UnorderedSliceSpliterator<T, T_SPLITR extends Spliterator<T>> {
         static final int CHUNK_SIZE = 1 << 7;
 
         // The spliterator to slice
         protected final T_SPLITR s;
         protected final boolean unlimited;
+        protected final int chunkSize;
         private final long skipThreshold;
         private final AtomicLong permits;
 
@@ -912,6 +911,8 @@ class StreamSpliterators {
             this.s = s;
             this.unlimited = limit < 0;
             this.skipThreshold = limit >= 0 ? limit : 0;
+            this.chunkSize = limit >= 0 ? (int)Math.min(CHUNK_SIZE,
+                                                        ((skip + limit) / AbstractTask.getLeafTarget()) + 1) : CHUNK_SIZE;
             this.permits = new AtomicLong(limit >= 0 ? skip + limit : skip);
         }
 
@@ -921,6 +922,7 @@ class StreamSpliterators {
             this.unlimited = parent.unlimited;
             this.permits = parent.permits;
             this.skipThreshold = parent.skipThreshold;
+            this.chunkSize = parent.chunkSize;
         }
 
         /**
@@ -1029,13 +1031,13 @@ class StreamSpliterators {
                 PermitStatus permitStatus;
                 while ((permitStatus = permitStatus()) != PermitStatus.NO_MORE) {
                     if (permitStatus == PermitStatus.MAYBE_MORE) {
-                        // Optimistically traverse elements up to a threshold of CHUNK_SIZE
+                        // Optimistically traverse elements up to a threshold of chunkSize
                         if (sb == null)
-                            sb = new ArrayBuffer.OfRef<>(CHUNK_SIZE);
+                            sb = new ArrayBuffer.OfRef<>(chunkSize);
                         else
                             sb.reset();
                         long permitsRequested = 0;
-                        do { } while (s.tryAdvance(sb) && ++permitsRequested < CHUNK_SIZE);
+                        do { } while (s.tryAdvance(sb) && ++permitsRequested < chunkSize);
                         if (permitsRequested == 0)
                             return;
                         sb.forEach(action, acquirePermits(permitsRequested));
@@ -1060,7 +1062,7 @@ class StreamSpliterators {
          * @param <T_BUFF> the type of the spined buffer. Must also be a type of
          *        {@code T_CONS}.
          */
-        static abstract class OfPrimitive<
+        abstract static class OfPrimitive<
                 T,
                 T_CONS,
                 T_BUFF extends ArrayBuffer.OfPrimitive<T_CONS>,
@@ -1102,15 +1104,15 @@ class StreamSpliterators {
                 PermitStatus permitStatus;
                 while ((permitStatus = permitStatus()) != PermitStatus.NO_MORE) {
                     if (permitStatus == PermitStatus.MAYBE_MORE) {
-                        // Optimistically traverse elements up to a threshold of CHUNK_SIZE
+                        // Optimistically traverse elements up to a threshold of chunkSize
                         if (sb == null)
-                            sb = bufferCreate(CHUNK_SIZE);
+                            sb = bufferCreate(chunkSize);
                         else
                             sb.reset();
                         @SuppressWarnings("unchecked")
                         T_CONS sbc = (T_CONS) sb;
                         long permitsRequested = 0;
-                        do { } while (s.tryAdvance(sbc) && ++permitsRequested < CHUNK_SIZE);
+                        do { } while (s.tryAdvance(sbc) && ++permitsRequested < chunkSize);
                         if (permitsRequested == 0)
                             return;
                         sb.forEach(action, acquirePermits(permitsRequested));
@@ -1324,7 +1326,7 @@ class StreamSpliterators {
      * The {@code tryAdvance} method always returns true.
      *
      */
-    static abstract class InfiniteSupplyingSpliterator<T> implements Spliterator<T> {
+    abstract static class InfiniteSupplyingSpliterator<T> implements Spliterator<T> {
         long estimate;
 
         protected InfiniteSupplyingSpliterator(long estimate) {
@@ -1442,7 +1444,7 @@ class StreamSpliterators {
     }
 
     // @@@ Consolidate with Node.Builder
-    static abstract class ArrayBuffer {
+    abstract static class ArrayBuffer {
         int index;
 
         void reset() {
@@ -1470,7 +1472,7 @@ class StreamSpliterators {
             }
         }
 
-        static abstract class OfPrimitive<T_CONS> extends ArrayBuffer {
+        abstract static class OfPrimitive<T_CONS> extends ArrayBuffer {
             int index;
 
             @Override

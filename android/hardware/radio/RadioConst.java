@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 58d15e9e2c355be7b3dda6d4d34effd672bfd1cb --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen/android/hardware/radio/RadioConst.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3/android/hardware/radio/RadioConst.aidl
  */
 package android.hardware.radio;
+/** @hide */
 public class RadioConst implements android.os.Parcelable
 {
   @Override
@@ -47,7 +49,7 @@ public class RadioConst implements android.os.Parcelable
   @Override
   public String toString() {
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
-    return "android.hardware.radio.RadioConst" + _aidl_sj.toString()  ;
+    return "RadioConst" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

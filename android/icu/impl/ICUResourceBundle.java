@@ -274,7 +274,7 @@ public  class ICUResourceBundle extends UResourceBundle {
                     }
                 }
             } catch (Throwable t) {
-                //System.err.println("Error in - " + new Integer(i).toString()
+                //System.err.println("Error in - " + i
                 // + " - " + t.toString());
                 // ignore the err - just skip that resource
             }
@@ -402,11 +402,11 @@ public  class ICUResourceBundle extends UResourceBundle {
     }
 
     /**
-     * Locates the resource specified by `path` in this resource bundle (performing any necessary fallback and
-     * following any aliases) and calls the specified `sink`'s `put()` method with that resource.  Then walks the
-     * bundle's parent chain, calling `put()` on the sink for each item in the parent chain.
+     * Locates the resource specified by {@code path} in this resource bundle (performing any necessary fallback
+     * and following any aliases) and calls the specified {@code sink}'s {@code put()} method with that resource.
+     * Then walks the bundle's parent chain, calling {@code put()} on the sink for each item in the parent chain.
      * @param path The path of the desired resource
-     * @param sink A `UResource.Sink` that gets called for each resource in the parent chain
+     * @param sink A {@code UResource.Sink} that gets called for each resource in the parent chain
      */
     public void getAllItemsWithFallback(String path, UResource.Sink sink)
             throws MissingResourceException {
@@ -435,16 +435,16 @@ public  class ICUResourceBundle extends UResourceBundle {
     }
 
     /**
-     * Locates the resource specified by `path` in this resource bundle (performing any necessary fallback and
+     * Locates the resource specified by {@code path} in this resource bundle (performing any necessary fallback and
      * following any aliases) and, if the resource is a table resource, iterates over its immediate child resources (again,
-     * following any aliases to get the individual resource values), and calls the specified `sink`'s `put()` method
-     * for each child resource (passing it that resource's key and either its actual value or, if that value is an
+     * following any aliases to get the individual resource values), and calls the specified {@code sink}'s {@code put()}
+     * method for each child resource (passing it that resource's key and either its actual value or, if that value is an
      * alias, the value you get by following the alias).  Then walks back over the bundle's parent chain,
      * similarly iterating over each parent table resource's child resources.
      * Does not descend beyond one level of table children.
      * @param path The path of the desired resource
-     * @param sink A `UResource.Sink` that gets called for each child resource of the specified resource (and each child
-     * of the resources in its parent chain).
+     * @param sink A {@code UResource.Sink} that gets called for each child resource of the specified resource (and each
+     * child of the resources in its parent chain).
      */
     public void getAllChildrenWithFallback(final String path, final UResource.Sink sink)
             throws MissingResourceException {
@@ -464,7 +464,43 @@ public  class ICUResourceBundle extends UResourceBundle {
                         ReaderValue aliasedValue = new ReaderValue();
                         aliasedValue.reader = aliasedResourceImpl.wholeBundle.reader;
                         aliasedValue.res = aliasedResourceImpl.getResource();
-                        sink.put(key, aliasedValue, noFallback);
+
+                        if (aliasedValue.getType() != TABLE) {
+                            sink.put(key, aliasedValue, noFallback);
+                        } else {
+                            // if the resource we're aliasing over to is a table, the sink might iterate over its contents.
+                            // If it does, it'll get only the things defined in the actual alias target, not the things
+                            // the target inherits from its parent resources.  So we walk the parent chain for the *alias target*,
+                            // calling sink.put() for each of the parent tables we could be inheriting from.  This means
+                            // that sink.put() has to iterate over the children of multiple tables to get all of the inherited
+                            // resource values, but it already has to do that to handle normal vertical inheritance.
+                            int aliasedValueType = TABLE;
+                            String tablePath = aliasPath.substring("/LOCALE/".length());
+                            UResource.Key keyCopy = key.clone(); // sink.put() changes the key
+                            sink.put(keyCopy, aliasedValue, noFallback);
+                            while (aliasedValueType == TABLE && aliasedResource.getParent() != null) {
+                                ICUResourceBundle newAliasedResource = aliasedResource.getParent().findWithFallback(tablePath);
+                                if (newAliasedResource.key.equals(aliasedResource.key)) {
+                                    aliasedResource = newAliasedResource;
+                                } else {
+                                    // the findWithFallback() call above might follow an alias.  If it does, we'll get
+                                    // back the alias target at the wrong level (e.g., if we're in en_CA, we're calling
+                                    // findWithFallback() on en, and if it follows an alias, we get back the alias target
+                                    // in en, even if it also exists in en_CA).  So we check the keys to see if we followed
+                                    // an alias, and if we did, we re-fetch the alias target from our original resource bundle
+                                    tablePath = tablePath.substring(0, tablePath.lastIndexOf('/'));
+                                    tablePath += "/" + newAliasedResource.key;
+                                    aliasedResource = ICUResourceBundle.this.findWithFallback(tablePath);
+                                }
+                                aliasedResourceImpl = (ICUResourceBundleImpl) aliasedResource;
+                                aliasedValue = new ReaderValue();
+                                aliasedValue.reader = aliasedResourceImpl.wholeBundle.reader;
+                                aliasedValue.res = aliasedResourceImpl.getResource();
+                                aliasedValueType = aliasedValue.getType(); // sink.put() messes up the value
+                                keyCopy = key.clone(); // sink.put() messes up the key
+                                sink.put(keyCopy, aliasedValue, noFallback);
+                            }
+                        }
                     } else {
                         sink.put(key, value, noFallback);
                     }
@@ -1293,7 +1329,7 @@ public  class ICUResourceBundle extends UResourceBundle {
         return result;
     }
 
-    private static String getParentLocaleID(String name, String origName, OpenType openType) {
+    public static String getParentLocaleID(String name, String origName, OpenType openType) {
         // early out if the locale ID has a variant code or ends with _
         if (name.endsWith("_") || !ULocale.getVariant(name).isEmpty()) {
             int lastUnderbarPos = name.lastIndexOf('_');

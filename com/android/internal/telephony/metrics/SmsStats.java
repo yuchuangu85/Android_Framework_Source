@@ -57,6 +57,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.nano.PersistAtomsProto.IncomingSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingShortCodeSms;
 import com.android.internal.telephony.nano.PersistAtomsProto.OutgoingSms;
@@ -157,18 +158,18 @@ public class SmsStats {
     /** Create a new atom when an outgoing SMS is sent. */
     public void onOutgoingSms(boolean isOverIms, boolean is3gpp2, boolean fallbackToCs,
             @SmsManager.Result int sendErrorCode, long messageId, boolean isFromDefaultApp,
-            long intervalMillis) {
+            long intervalMillis, boolean isEmergency) {
         onOutgoingSms(isOverIms, is3gpp2, fallbackToCs, sendErrorCode, NO_ERROR_CODE,
-                messageId, isFromDefaultApp, intervalMillis);
+                messageId, isFromDefaultApp, intervalMillis, isEmergency);
     }
 
     /** Create a new atom when an outgoing SMS is sent. */
     public void onOutgoingSms(boolean isOverIms, boolean is3gpp2, boolean fallbackToCs,
             @SmsManager.Result int sendErrorCode, int networkErrorCode, long messageId,
-            boolean isFromDefaultApp, long intervalMillis) {
+            boolean isFromDefaultApp, long intervalMillis, boolean isEmergency) {
         OutgoingSms proto =
                 getOutgoingDefaultProto(is3gpp2, isOverIms, messageId, isFromDefaultApp,
-                        intervalMillis);
+                        intervalMillis, isEmergency);
 
         // The field errorCode is used for up-to-Android-13 devices. From Android 14, sendErrorCode
         // and networkErrorCode will be used. The field errorCode will be deprecated when most
@@ -234,12 +235,13 @@ public class SmsStats {
         proto.messageId = RANDOM.nextLong();
         proto.count = 1;
         proto.isManagedProfile = mPhone.isManagedProfile();
+        proto.isNtn = isNonTerrestrialNetwork();
         return proto;
     }
 
     /** Create a proto for a normal {@code OutgoingSms} with default values. */
     private OutgoingSms getOutgoingDefaultProto(boolean is3gpp2, boolean isOverIms,
-            long messageId, boolean isFromDefaultApp, long intervalMillis) {
+            long messageId, boolean isFromDefaultApp, long intervalMillis, boolean isEmergency) {
         OutgoingSms proto = new OutgoingSms();
         proto.smsFormat = getSmsFormat(is3gpp2);
         proto.smsTech = getSmsTech(isOverIms, is3gpp2);
@@ -260,6 +262,8 @@ public class SmsStats {
         proto.intervalMillis = intervalMillis;
         proto.count = 1;
         proto.isManagedProfile = mPhone.isManagedProfile();
+        proto.isEmergency = isEmergency;
+        proto.isNtn = isNonTerrestrialNetwork();
         return proto;
     }
 
@@ -386,7 +390,7 @@ public class SmsStats {
 
     private boolean getIsRoaming() {
         ServiceState serviceState = getServiceState();
-        return serviceState != null ? serviceState.getRoaming() : false;
+        return ServiceStateStats.isNetworkRoaming(serviceState);
     }
 
     private int getCarrierId() {
@@ -395,6 +399,20 @@ public class SmsStats {
             phone = mPhone.getDefaultPhone();
         }
         return phone.getCarrierId();
+    }
+
+    private boolean isNonTerrestrialNetwork() {
+        if (!Flags.carrierEnabledSatelliteFlag()) {
+            return false;
+        }
+
+        ServiceState ss = getServiceState();
+        if (ss != null) {
+            return ss.isUsingNonTerrestrialNetwork();
+        } else {
+            Rlog.e(TAG, "isNonTerrestrialNetwork(), ServiceState is null");
+            return false;
+        }
     }
 
     private void loge(String format, Object... args) {

@@ -29,7 +29,7 @@ import java.util.Objects;
 
 /**
  * Captures the body temperature of a user. Each record represents a single instantaneous body
- * temperature measuremen
+ * temperature measurement.
  */
 @Identifier(recordIdentifier = RecordTypeIdentifier.RECORD_TYPE_BODY_TEMPERATURE)
 public final class BodyTemperatureRecord extends InstantRecord {
@@ -91,6 +91,7 @@ public final class BodyTemperatureRecord extends InstantRecord {
      * @param o the reference object with which to compare.
      * @return {@code true} if this object is the same as the obj
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

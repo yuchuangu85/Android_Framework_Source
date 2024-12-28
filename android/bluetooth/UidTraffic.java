@@ -109,19 +109,25 @@ public final class UidTraffic implements Cloneable, Parcelable {
     /** @hide */
     @Override
     public String toString() {
-        return "UidTraffic{mAppUid=" + mAppUid + ", mRxBytes=" + mRxBytes + ", mTxBytes="
-                + mTxBytes + '}';
+        return "UidTraffic{mAppUid="
+                + mAppUid
+                + ", mRxBytes="
+                + mRxBytes
+                + ", mTxBytes="
+                + mTxBytes
+                + '}';
     }
 
-    public static final @NonNull Creator<UidTraffic> CREATOR = new Creator<UidTraffic>() {
-        @Override
-        public UidTraffic createFromParcel(Parcel source) {
-            return new UidTraffic(source);
-        }
+    public static final @NonNull Creator<UidTraffic> CREATOR =
+            new Creator<UidTraffic>() {
+                @Override
+                public UidTraffic createFromParcel(Parcel source) {
+                    return new UidTraffic(source);
+                }
 
-        @Override
-        public UidTraffic[] newArray(int size) {
-            return new UidTraffic[size];
-        }
-    };
+                @Override
+                public UidTraffic[] newArray(int size) {
+                    return new UidTraffic[size];
+                }
+            };
 }

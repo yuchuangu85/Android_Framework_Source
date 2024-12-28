@@ -16,31 +16,20 @@
 
 package android.federatedcompute;
 
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-
 import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.Intent;
-import android.content.ServiceConnection;
-import android.content.pm.ResolveInfo;
-import android.content.pm.ServiceInfo;
 import android.federatedcompute.aidl.IFederatedComputeCallback;
 import android.federatedcompute.aidl.IFederatedComputeService;
 import android.federatedcompute.common.ScheduleFederatedComputeRequest;
-import android.ondevicepersonalization.OnDevicePersonalizationException;
-import android.os.IBinder;
 import android.os.OutcomeReceiver;
-import android.os.RemoteException;
-import android.util.Log;
 
-import com.android.internal.annotations.GuardedBy;
+import com.android.federatedcompute.internal.util.AbstractServiceBinder;
+import com.android.federatedcompute.internal.util.LogUtil;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 
 /**
@@ -48,28 +37,38 @@ import java.util.concurrent.Executor;
  *
  * @hide
  */
-final class FederatedComputeManager {
-    private static final String TAG = "FederatedComputeManager";
+public final class FederatedComputeManager {
+    /**
+     * Constant that represents the service name for {@link FederatedComputeManager} to be used in
+     * {@link android.ondevicepersonalization.OnDevicePersonalizationFrameworkInitializer
+     * #registerServiceWrappers}
+     *
+     * @hide
+     */
+    public static final String FEDERATED_COMPUTE_SERVICE = "federated_compute_service";
+
+    private static final String TAG = FederatedComputeManager.class.getSimpleName();
     private static final String FEDERATED_COMPUTATION_SERVICE_INTENT_FILTER_NAME =
             "android.federatedcompute.FederatedComputeService";
-    private static final int BINDER_CONNECTION_TIMEOUT_MS = 5000;
-
-    // A CountDownloadLatch which will be opened when the connection is established or any error
-    // occurs.
-    private CountDownLatch mConnectionCountDownLatch;
-    // Concurrency mLock.
-    private final Object mLock = new Object();
-
-    @GuardedBy("mLock")
-    private IFederatedComputeService mFcpService;
-
-    @GuardedBy("mLock")
-    private ServiceConnection mServiceConnection;
+    private static final String FEDERATED_COMPUTATION_SERVICE_PACKAGE =
+            "com.android.federatedcompute.services";
+    private static final String ALT_FEDERATED_COMPUTATION_SERVICE_PACKAGE =
+            "com.google.android.federatedcompute";
 
     private final Context mContext;
 
-    FederatedComputeManager(Context context) {
+    private final AbstractServiceBinder<IFederatedComputeService> mServiceBinder;
+
+    public FederatedComputeManager(Context context) {
         this.mContext = context;
+        this.mServiceBinder =
+                AbstractServiceBinder.getServiceBinderByIntent(
+                        context,
+                        FEDERATED_COMPUTATION_SERVICE_INTENT_FILTER_NAME,
+                        List.of(
+                                FEDERATED_COMPUTATION_SERVICE_PACKAGE,
+                                ALT_FEDERATED_COMPUTATION_SERVICE_PACKAGE),
+                        IFederatedComputeService.Stub::asInterface);
     }
 
     /**
@@ -77,147 +76,90 @@ final class FederatedComputeManager {
      *
      * @hide
      */
-    public void scheduleFederatedCompute(
+    public void schedule(
             @NonNull ScheduleFederatedComputeRequest request,
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(request);
-        final IFederatedComputeService service = getService(executor);
+        final IFederatedComputeService service = mServiceBinder.getService(executor);
         try {
             IFederatedComputeCallback federatedComputeCallback =
                     new IFederatedComputeCallback.Stub() {
                         @Override
                         public void onSuccess() {
+                            LogUtil.d(TAG, ": schedule onSuccess() called");
                             executor.execute(() -> callback.onResult(null));
+                            unbindFromService();
                         }
 
                         @Override
                         public void onFailure(int errorCode) {
+                            LogUtil.d(
+                                    TAG,
+                                    ": schedule onFailure() called with errorCode %d",
+                                    errorCode);
                             executor.execute(
                                     () ->
                                             callback.onError(
-                                                    new OnDevicePersonalizationException(
-                                                            errorCode)));
+                                                    new FederatedComputeException(errorCode)));
+                            unbindFromService();
                         }
                     };
-            service.scheduleFederatedCompute(
-                    request.getTrainingOptions(), federatedComputeCallback);
-        } catch (RemoteException e) {
-            Log.e(TAG, "Remote Exception", e);
+            service.schedule(
+                    mContext.getPackageName(),
+                    request.getTrainingOptions(),
+                    federatedComputeCallback);
+        } catch (Exception e) {
+            LogUtil.e(TAG, e, "Exception when schedule federated job");
             executor.execute(() -> callback.onError(e));
-        }
-    }
-
-    private IFederatedComputeService getService(@NonNull Executor executor) {
-        synchronized (mLock) {
-            if (mFcpService != null) {
-                return mFcpService;
-            }
-            if (mServiceConnection == null) {
-                Intent intent = new Intent(FEDERATED_COMPUTATION_SERVICE_INTENT_FILTER_NAME);
-                ComponentName serviceComponent = resolveService(intent);
-                if (serviceComponent == null) {
-                    Log.e(TAG, "Invalid component for federatedcompute service");
-                    throw new IllegalStateException(
-                            "Invalid component for federatedcompute service");
-                }
-                intent.setComponent(serviceComponent);
-                // This latch will open when the connection is established or any error occurs.
-                mConnectionCountDownLatch = new CountDownLatch(1);
-                mServiceConnection = new FederatedComputeServiceConnection();
-                boolean result =
-                        mContext.bindService(
-                                intent, Context.BIND_AUTO_CREATE, executor, mServiceConnection);
-                if (!result) {
-                    mServiceConnection = null;
-                    throw new IllegalStateException("Unable to bind to the service");
-                } else {
-                    Log.i(TAG, "bindService() succeeded...");
-                }
-            } else {
-                Log.i(TAG, "bindService() already pending...");
-            }
-            try {
-                mConnectionCountDownLatch.await(BINDER_CONNECTION_TIMEOUT_MS, MILLISECONDS);
-            } catch (InterruptedException e) {
-                throw new IllegalStateException("Thread interrupted"); // TODO Handle it better.
-            }
-            synchronized (mLock) {
-                if (mFcpService == null) {
-                    throw new IllegalStateException("Failed to connect to the service");
-                }
-                return mFcpService;
-            }
+            unbindFromService();
         }
     }
 
     /**
-     * Find the ComponentName of the service, given its intent and package manager.
+     * Cancel FederatedCompute task.
      *
-     * @return ComponentName of the service. Null if the service is not found.
+     * @hide
      */
-    @Nullable
-    private ComponentName resolveService(@NonNull Intent intent) {
-        List<ResolveInfo> services = mContext.getPackageManager().queryIntentServices(intent, 0);
-        if (services == null || services.isEmpty()) {
-            Log.e(TAG, "Failed to find federatedcompute service");
-            return null;
-        }
+    public void cancel(
+            @NonNull ComponentName ownerComponent,
+            @NonNull String populationName,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull OutcomeReceiver<Object, Exception> callback) {
+        Objects.requireNonNull(populationName);
+        final IFederatedComputeService service = mServiceBinder.getService(executor);
+        try {
+            IFederatedComputeCallback federatedComputeCallback =
+                    new IFederatedComputeCallback.Stub() {
+                        @Override
+                        public void onSuccess() {
+                            LogUtil.d(TAG, ": cancel onSuccess() called");
+                            executor.execute(() -> callback.onResult(null));
+                            unbindFromService();
+                        }
 
-        for (int i = 0; i < services.size(); i++) {
-            ServiceInfo serviceInfo = services.get(i).serviceInfo;
-            if (serviceInfo == null) {
-                Log.e(TAG, "Failed to find serviceInfo for federatedcompute service.");
-                return null;
-            }
-            // There should only be one matching service inside the given package.
-            // If there's more than one, return the first one found.
-            return new ComponentName(serviceInfo.packageName, serviceInfo.name);
+                        @Override
+                        public void onFailure(int errorCode) {
+                            LogUtil.d(
+                                    TAG,
+                                    ": cancel onFailure() called with errorCode %d",
+                                    errorCode);
+                            executor.execute(
+                                    () ->
+                                            callback.onError(
+                                                    new FederatedComputeException(errorCode)));
+                            unbindFromService();
+                        }
+                    };
+            service.cancel(ownerComponent, populationName, federatedComputeCallback);
+        } catch (Exception e) {
+            LogUtil.e(TAG, e, "Exception when cancel federated job %s", populationName);
+            executor.execute(() -> callback.onError(e));
+            unbindFromService();
         }
-        Log.e(TAG, "Didn't find any matching federatedcompute service.");
-        return null;
     }
 
     public void unbindFromService() {
-        synchronized (mLock) {
-            if (mServiceConnection != null) {
-                Log.i(TAG, "unbinding...");
-                mContext.unbindService(mServiceConnection);
-            }
-            mServiceConnection = null;
-            mFcpService = null;
-        }
-    }
-
-    private class FederatedComputeServiceConnection implements ServiceConnection {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder service) {
-            Log.d(TAG, "onServiceConnected");
-            synchronized (mLock) {
-                mFcpService = IFederatedComputeService.Stub.asInterface(service);
-            }
-            mConnectionCountDownLatch.countDown();
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            Log.d(TAG, "onServiceDisconnected");
-            unbindFromService();
-            mConnectionCountDownLatch.countDown();
-        }
-
-        @Override
-        public void onBindingDied(ComponentName name) {
-            Log.e(TAG, "onBindingDied");
-            unbindFromService();
-            mConnectionCountDownLatch.countDown();
-        }
-
-        @Override
-        public void onNullBinding(ComponentName name) {
-            Log.e(TAG, "onNullBinding shouldn't happen.");
-            unbindFromService();
-            mConnectionCountDownLatch.countDown();
-        }
+        mServiceBinder.unbindFromService();
     }
 }

@@ -17,16 +17,21 @@
 package com.android.internal.telephony;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
+import android.os.AsyncResult;
 import android.os.BadParcelableException;
 import android.os.Bundle;
+import android.os.PersistableBundle;
 import android.telephony.AccessNetworkConstants;
+import android.telephony.CellSignalStrengthLte;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
+import android.telephony.SignalStrength;
 import android.telephony.TelephonyManager;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsConferenceState;
@@ -46,6 +51,7 @@ import com.android.telephony.Rlog;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -163,6 +169,7 @@ public class TelephonyTester {
     private static List<ImsExternalCallState> mImsExternalCallStates = null;
 
     private Intent mServiceStateTestIntent;
+    private SignalStrengthTestable mSignalStrengthTest;
 
     private Phone mPhone;
 
@@ -386,11 +393,68 @@ public class TelephonyTester {
     }
 
     /**
+     * Testable signal strength that mocks its fields.
+     */
+    private class SignalStrengthTestable extends SignalStrength {
+        private SignalStrengthTestable() {
+            super();
+        }
+
+        public void mockLevel(int level) {
+            try {
+                Field lteField = SignalStrength.class.getDeclaredField("mLte");
+                lteField.setAccessible(true);
+                CellSignalStrengthLte lte = (CellSignalStrengthLte) lteField.get(this);
+
+                Field lvlField = CellSignalStrengthLte.class.getDeclaredField("mLevel");
+                lvlField.setAccessible(true);
+                lvlField.set(lte, level);
+            } catch (Exception e) {
+                log("SignalStrengthTestable: mockLevel " + e);
+            }
+        }
+
+        @Override
+        public void updateLevel(PersistableBundle cc, ServiceState ss) {
+            log("SignalStrengthTestable: updateLevel: do nothing ");
+        }
+
+        @Override
+        public String toString() {
+            return "SignalStrengthTestable-" + getLevel();
+        }
+    }
+
+    /** {@link android.telephony.SignalStrength} */
+    public void setSignalStrength(int level) {
+        if (level > -1) {
+            log("setSignalStrength: level " + level);
+            mSignalStrengthTest = new SignalStrengthTestable();
+            mSignalStrengthTest.mockLevel(level);
+            AsyncResult ar = new AsyncResult(null, mSignalStrengthTest, null);
+            mPhone.getSignalStrengthController().sendMessage(mPhone.getSignalStrengthController()
+                    .obtainMessage(SignalStrengthController.EVENT_POLL_SIGNAL_STRENGTH_DONE, ar));
+        } else {
+            log("setSignalStrength: clear mock");
+            mSignalStrengthTest = null;
+            mPhone.getSignalStrengthController().getSignalStrengthFromCi();
+        }
+    }
+
+    /** {@link android.telephony.SignalStrength} */
+    @Nullable
+    public SignalStrength getOverriddenSignalStrength() {
+        return mSignalStrengthTest;
+    }
+
+    /**
      * Set the service state test intent.
      *
      * @param intent The service state test intent.
      */
     public void setServiceStateTestIntent(@NonNull Intent intent) {
+        // Don't process if the intent is not prepared for this phone slot.
+        if (mPhone.getPhoneId() != intent.getIntExtra(EXTRA_PHONE_ID, mPhone.getPhoneId())) return;
         mServiceStateTestIntent = intent;
         // Trigger the service state update. The replacement will be done in
         // overrideServiceState().
@@ -400,10 +464,6 @@ public class TelephonyTester {
 
     void overrideServiceState(ServiceState ss) {
         if (mServiceStateTestIntent == null || ss == null) return;
-        if (mPhone.getPhoneId() != mServiceStateTestIntent.getIntExtra(
-                EXTRA_PHONE_ID, mPhone.getPhoneId())) {
-            return;
-        }
         if (mServiceStateTestIntent.hasExtra(EXTRA_ACTION)
                 && ACTION_RESET.equals(mServiceStateTestIntent.getStringExtra(EXTRA_ACTION))) {
             log("Service state override reset");

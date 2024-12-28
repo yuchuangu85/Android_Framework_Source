@@ -1170,7 +1170,7 @@ public final class NetworkTemplate implements Parcelable {
          * @param matchRule the target match rule to be checked.
          */
         private static void assertRequestableMatchRule(final int matchRule) {
-            if (!isKnownMatchRule(matchRule) || matchRule == MATCH_PROXY) {
+            if (!isKnownMatchRule(matchRule)) {
                 throw new IllegalArgumentException("Invalid match rule: "
                         + getMatchRuleName(matchRule));
             }

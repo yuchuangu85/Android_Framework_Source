@@ -29,6 +29,7 @@ import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
+import android.telephony.AnomalyReporter;
 import android.telephony.SmsMessage;
 import android.text.TextUtils;
 
@@ -37,6 +38,7 @@ import com.android.internal.telephony.uicc.IccFileHandler;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 import java.util.Locale;
 /**
  * Factory class, used for decoding raw byte arrays, received from baseband,
@@ -88,6 +90,11 @@ public class CommandParamsFactory extends Handler {
     private static final int MAX_GSM7_DEFAULT_CHARS = 239;
     private static final int MAX_UCS2_CHARS = 118;
 
+    // To Report Anomaly
+    public static final UUID NPE_WHEN_CALLED_SEND_CMD_PARAMS_UUID =
+            UUID.fromString("c2b85688-516e-11ee-be56-0242ac120002");
+    public static final String NPE_WHEN_CALLED_SEND_CMD_PARAMS_ERROR_MSG =
+            "mCaller[RilMessageDecoder] is Null when called SendCmdParams";
     /**
      * Returns a singleton instance of CommandParamsFactory
      * @param caller Class used for queuing raw ril messages, decoding them into
@@ -306,7 +313,13 @@ public class CommandParamsFactory extends Handler {
     }
 
     private void sendCmdParams(ResultCode resCode) {
-        mCaller.sendMsgParamsDecoded(resCode, mCmdParams);
+        if (mCaller != null) {
+            mCaller.sendMsgParamsDecoded(resCode, mCmdParams);
+        } else {
+            CatLog.e(this, "mCaller[RilMessageDecoder] is NULL");
+            AnomalyReporter.reportAnomaly(NPE_WHEN_CALLED_SEND_CMD_PARAMS_UUID,
+                    NPE_WHEN_CALLED_SEND_CMD_PARAMS_ERROR_MSG);
+        }
     }
 
     /**

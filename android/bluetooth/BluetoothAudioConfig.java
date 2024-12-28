@@ -24,9 +24,8 @@ import android.os.Parcelable;
 /**
  * Represents the audio configuration for a Bluetooth A2DP source device.
  *
- * {@see BluetoothA2dpSink}
- *
- * {@hide}
+ * @see BluetoothA2dpSink
+ * @hide
  */
 public final class BluetoothAudioConfig implements Parcelable {
 
@@ -44,7 +43,8 @@ public final class BluetoothAudioConfig implements Parcelable {
     public boolean equals(@Nullable Object o) {
         if (o instanceof BluetoothAudioConfig) {
             BluetoothAudioConfig bac = (BluetoothAudioConfig) o;
-            return (bac.mSampleRate == mSampleRate && bac.mChannelConfig == mChannelConfig
+            return (bac.mSampleRate == mSampleRate
+                    && bac.mChannelConfig == mChannelConfig
                     && bac.mAudioFormat == mAudioFormat);
         }
         return false;
@@ -57,8 +57,13 @@ public final class BluetoothAudioConfig implements Parcelable {
 
     @Override
     public String toString() {
-        return "{mSampleRate:" + mSampleRate + ",mChannelConfig:" + mChannelConfig
-                + ",mAudioFormat:" + mAudioFormat + "}";
+        return "{mSampleRate:"
+                + mSampleRate
+                + ",mChannelConfig:"
+                + mChannelConfig
+                + ",mAudioFormat:"
+                + mAudioFormat
+                + "}";
     }
 
     @Override
@@ -66,18 +71,19 @@ public final class BluetoothAudioConfig implements Parcelable {
         return 0;
     }
 
-    public static final @NonNull Creator<BluetoothAudioConfig> CREATOR = new Creator<>() {
-        public BluetoothAudioConfig createFromParcel(Parcel in) {
-            int sampleRate = in.readInt();
-            int channelConfig = in.readInt();
-            int audioFormat = in.readInt();
-            return new BluetoothAudioConfig(sampleRate, channelConfig, audioFormat);
-        }
+    public static final @NonNull Creator<BluetoothAudioConfig> CREATOR =
+            new Creator<>() {
+                public BluetoothAudioConfig createFromParcel(Parcel in) {
+                    int sampleRate = in.readInt();
+                    int channelConfig = in.readInt();
+                    int audioFormat = in.readInt();
+                    return new BluetoothAudioConfig(sampleRate, channelConfig, audioFormat);
+                }
 
-        public BluetoothAudioConfig[] newArray(int size) {
-            return new BluetoothAudioConfig[size];
-        }
-    };
+                public BluetoothAudioConfig[] newArray(int size) {
+                    return new BluetoothAudioConfig[size];
+                }
+            };
 
     @Override
     public void writeToParcel(Parcel out, int flags) {

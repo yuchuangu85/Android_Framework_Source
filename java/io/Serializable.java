@@ -168,7 +168,7 @@ package java.io;
  *
  * Android implementation of serialVersionUID computation will change slightly
  * for some classes if you're targeting android N. In order to preserve compatibility,
- * this change is only enabled is the application target SDK version is set to
+ * this change is only enabled if the application target SDK version is set to
  * 24 or higher. It is highly recommended to use an explicit serialVersionUID
  * field to avoid compatibility issues.
  *

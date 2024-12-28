@@ -16,12 +16,26 @@
 
 package android.net.wifi.p2p;
 
+import android.annotation.FlaggedApi;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SystemApi;
 import android.compat.annotation.UnsupportedAppUsage;
+import android.net.MacAddress;
+import android.net.wifi.OuiKeyedData;
+import android.net.wifi.ParcelUtil;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.Log;
+
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.net.Inet4Address;
+import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -89,6 +103,9 @@ public class WifiP2pGroup implements Parcelable {
 
     /** The frequency (in MHz) used by this group */
     private int mFrequency;
+
+    /** List of {@link OuiKeyedData} providing vendor-specific configuration data. */
+    private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
 
     /**
      * P2P Client IPV4 address allocated via EAPOL-Key exchange.
@@ -261,7 +278,45 @@ public class WifiP2pGroup implements Parcelable {
         for (WifiP2pDevice client : mClients) {
             if (client.equals(device)) return;
         }
-        mClients.add(device);
+        mClients.add(new WifiP2pDevice(device));
+    }
+
+    /** @hide */
+    public void setClientInterfaceMacAddress(@NonNull String deviceAddress,
+            @NonNull final MacAddress interfaceMacAddress) {
+        if (null == interfaceMacAddress) {
+            Log.e("setClientInterfaceMacAddress", "cannot set null interface mac address");
+            return;
+        }
+        for (WifiP2pDevice client : mClients) {
+            if (client.deviceAddress.equals(deviceAddress)) {
+                Log.i("setClientInterfaceMacAddress", "device: " + deviceAddress
+                        + " interfaceAddress: " + interfaceMacAddress.toString());
+                client.setInterfaceMacAddress(interfaceMacAddress);
+                break;
+            }
+        }
+    }
+    /** @hide */
+    public void setClientIpAddress(@NonNull final MacAddress interfaceMacAddress,
+            @NonNull final InetAddress ipAddress) {
+        if (null == interfaceMacAddress) {
+            Log.e("setClientIpAddress", "cannot set IP address with null interface mac address");
+            return;
+        }
+        if (null == ipAddress) {
+            Log.e("setClientIpAddress", "Null IP - Failed to set IP address in WifiP2pDevice");
+            return;
+        }
+        for (WifiP2pDevice client : mClients) {
+            if (interfaceMacAddress.equals(client.getInterfaceMacAddress())) {
+                Log.i("setClientIpAddress", "Update the IP address"
+                        + " device: " + client.deviceAddress + " interfaceAddress: "
+                        + interfaceMacAddress.toString() + " IP: " + ipAddress.getHostAddress());
+                client.setIpAddress(ipAddress);
+                break;
+            }
+        }
     }
 
     /** @hide */
@@ -340,6 +395,44 @@ public class WifiP2pGroup implements Parcelable {
         this.mFrequency = freq;
     }
 
+    /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * #setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @NonNull
+    @SystemApi
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData;
+    }
+
+    /**
+     * Set additional vendor-provided configuration data.
+     *
+     * @param vendorData List of {@link OuiKeyedData} containing the vendor-provided
+     *     configuration data. Note that multiple elements with the same OUI are allowed.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SystemApi
+    public void setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        if (vendorData == null) {
+            throw new IllegalArgumentException("setVendorData received a null value");
+        }
+        mVendorData = new ArrayList<>(vendorData);
+    }
+
     public String toString() {
         StringBuffer sbuf = new StringBuffer();
         sbuf.append("network: ").append(mNetworkName);
@@ -351,6 +444,7 @@ public class WifiP2pGroup implements Parcelable {
         sbuf.append("\n interface: ").append(mInterface);
         sbuf.append("\n networkId: ").append(mNetId);
         sbuf.append("\n frequency: ").append(mFrequency);
+        sbuf.append("\n vendorData: ").append(mVendorData);
         return sbuf.toString();
     }
 
@@ -370,6 +464,9 @@ public class WifiP2pGroup implements Parcelable {
             mInterface = source.getInterface();
             mNetId = source.getNetworkId();
             mFrequency = source.getFrequency();
+            if (SdkLevel.isAtLeastV()) {
+                mVendorData = new ArrayList<>(source.getVendorData());
+            }
         }
     }
 
@@ -386,6 +483,9 @@ public class WifiP2pGroup implements Parcelable {
         dest.writeString(mInterface);
         dest.writeInt(mNetId);
         dest.writeInt(mFrequency);
+        if (SdkLevel.isAtLeastV()) {
+            dest.writeList(mVendorData);
+        }
     }
 
     /** Implement the Parcelable interface */
@@ -404,6 +504,9 @@ public class WifiP2pGroup implements Parcelable {
                 group.setInterface(in.readString());
                 group.setNetworkId(in.readInt());
                 group.setFrequency(in.readInt());
+                if (SdkLevel.isAtLeastV()) {
+                    group.setVendorData(ParcelUtil.readOuiKeyedDataList(in));
+                }
                 return group;
             }
 

@@ -122,8 +122,7 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
     /**
      * Get public broadcast metadata for this Broadcast Group.
      *
-     * @return public broadcast metadata for this Broadcast Group,
-     * null if no public metadata exists
+     * @return public broadcast metadata for this Broadcast Group, null if no public metadata exists
      * @hide
      */
     @SystemApi
@@ -179,8 +178,7 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
      *
      * @hide
      */
-    @SystemApi
-    @NonNull
+    @SystemApi @NonNull
     public static final Creator<BluetoothLeBroadcastSettings> CREATOR =
             new Creator<>() {
                 public @NonNull BluetoothLeBroadcastSettings createFromParcel(@NonNull Parcel in) {
@@ -191,7 +189,7 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
                     byte[] broadcastCode = null;
                     if (codeLen != -1) {
                         broadcastCode = new byte[codeLen];
-                        if (codeLen > 0) {
+                        if (codeLen >= 0) {
                             in.readByteArray(broadcastCode);
                         }
                     }
@@ -225,6 +223,7 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
         private byte[] mBroadcastCode = null;
         private BluetoothLeAudioContentMetadata mPublicBroadcastMetadata = null;
         private List<BluetoothLeBroadcastSubgroupSettings> mSubgroupSettings = new ArrayList<>();
+
         /**
          * Create an empty builder.
          *
@@ -265,13 +264,23 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
         /**
          * Set broadcast name for the broadcast group.
          *
+         * <p>As defined in Public Broadcast Profile V1.0, section 5.1. Broadcast_Name AD Type is a
+         * UTF-8 encoded string containing a minimum of 4 characters and a maximum of 32
+         * human-readable characters.
+         *
          * @param broadcastName Broadcast name for this broadcast group, null if no name provided
+         * @throws IllegalArgumentException if name is non-null and its length is less than 4
+         *     characters or greater than 32 characters
          * @return this builder
          * @hide
          */
         @SystemApi
         @NonNull
         public Builder setBroadcastName(@Nullable String broadcastName) {
+            if (broadcastName != null
+                    && ((broadcastName.length() > 32) || (broadcastName.length() < 4))) {
+                throw new IllegalArgumentException("Invalid broadcast name length");
+            }
             mBroadcastName = broadcastName;
             return this;
         }
@@ -279,31 +288,35 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
         /**
          * Set the Broadcast Code currently set for this broadcast group.
          *
-         * <p>Only needed when encryption is enabled
-         *
-         * <p>As defined in Volume 3, Part C, Section 3.2.6 of Bluetooth Core Specification, Version
-         * 5.3, Broadcast Code is used to encrypt a broadcast audio stream.
-         *
-         * <p>It must be a UTF-8 string that has at least 4 octets and should not exceed 16 octets.
+         * <p>Only needed when encryption is enabled As defined in Volume 3, Part C, Section 3.2.6
+         * of Bluetooth Core Specification, Version 5.3, Broadcast Code is used to encrypt a
+         * broadcast audio stream. It must be a UTF-8 string that has at least 4 octets and should
+         * not exceed 16 octets.
          *
          * @param broadcastCode Broadcast Code for this broadcast group, null if code is not
-         *     required
+         *     required for non-encrypted broadcast
+         * @throws IllegalArgumentException if name is non-null and its length is less than 4
+         *     characters or greater than 16 characters
          * @return this builder
          * @hide
          */
         @SystemApi
         @NonNull
         public Builder setBroadcastCode(@Nullable byte[] broadcastCode) {
+            if (broadcastCode != null
+                    && ((broadcastCode.length > 16) || (broadcastCode.length < 4))) {
+                throw new IllegalArgumentException("Invalid broadcast code length");
+            }
             mBroadcastCode = broadcastCode;
             return this;
         }
 
         /**
-         * Set public broadcast metadata for this Broadcast Group.
-         * PBS should include the Program_Info length-type-value (LTV) structure metadata
+         * Set public broadcast metadata for this Broadcast Group. PBS should include the
+         * Program_Info length-type-value (LTV) structure metadata
          *
-         * @param  publicBroadcastMetadata public broadcast metadata for this Broadcast Group,
-                                           null if no public meta data provided
+         * @param publicBroadcastMetadata public broadcast metadata for this Broadcast Group, null
+         *     if no public meta data provided
          * @return this builder
          * @hide
          */
@@ -358,8 +371,11 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
                 throw new IllegalArgumentException("Must contain at least one subgroup");
             }
             return new BluetoothLeBroadcastSettings(
-                    mIsPublicBroadcast, mBroadcastName, mBroadcastCode,
-                    mPublicBroadcastMetadata, mSubgroupSettings);
+                    mIsPublicBroadcast,
+                    mBroadcastName,
+                    mBroadcastCode,
+                    mPublicBroadcastMetadata,
+                    mSubgroupSettings);
         }
     }
 }

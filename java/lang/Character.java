@@ -35,8 +35,6 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-// BEGIN Android-removed: dynamic constants not supported on Android.
-/*
 import java.lang.constant.Constable;
 import java.lang.constant.DynamicConstantDesc;
 import java.util.Optional;
@@ -44,8 +42,6 @@ import static java.lang.constant.ConstantDescs.BSM_EXPLICIT_CAST;
 import static java.lang.constant.ConstantDescs.CD_char;
 import static java.lang.constant.ConstantDescs.CD_int;
 import static java.lang.constant.ConstantDescs.DEFAULT_NAME;
-*/
-// END Android-removed: dynamic constants not supported on Android.
 
 // Android-changed: Remove reference to a specific unicode standard version
 /**
@@ -195,9 +191,7 @@ import static java.lang.constant.ConstantDescs.DEFAULT_NAME;
  */
 @jdk.internal.ValueBased
 public final
-class Character implements java.io.Serializable, Comparable<Character> {
-// Android-removed: no Constable support.
-// , Constable
+class Character implements java.io.Serializable, Comparable<Character>, Constable {
     /**
      * The minimum radix available for conversion to and from strings.
      * The constant value of this field is the smallest value permitted
@@ -699,20 +693,18 @@ class Character implements java.io.Serializable, Comparable<Character> {
             DIRECTIONALITY_NONSPACING_MARK, DIRECTIONALITY_BOUNDARY_NEUTRAL };
     // END Android-added: Use ICU.
 
-    // BEGIN Android-removed: dynamic constants not supported on Android.
     /**
      * Returns an {@link Optional} containing the nominal descriptor for this
      * instance.
      *
      * @return an {@link Optional} describing the {@linkplain Character} instance
      * @since 15
-     *
+     * @hide
+     */
     @Override
     public Optional<DynamicConstantDesc<Character>> describeConstable() {
         return Optional.of(DynamicConstantDesc.ofNamed(BSM_EXPLICIT_CAST, DEFAULT_NAME, CD_char, (int) value));
     }
-    */
-    // END Android-removed: dynamic constants not supported on Android.
 
     /**
      * Instances of this class represent particular subsets of the Unicode
@@ -8749,12 +8741,10 @@ class Character implements java.io.Serializable, Comparable<Character> {
      *      {@code codePoint} is not a {@linkplain #isValidCodePoint
      *      valid Unicode code point}.
      * @since 11
-     *
+     */
     public static String toString(int codePoint) {
         return String.valueOfCodePoint(codePoint);
     }
-    */
-    // END Android-removed: expose after String.valueOfCodePoint() is imported.
 
     /**
      * Determines whether the specified code point is a valid
@@ -11823,10 +11813,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
      * @throws NullPointerException if {@code name} is {@code null}
      *
      * @since 9
-     *
+     */
     public static int codePointOf(String name) {
         name = name.trim().toUpperCase(Locale.ROOT);
-        int cp = CharacterName.getInstance().getCodePoint(name);
+        // Android-changed: Use ICU4C.
+        // int cp = CharacterName.getInstance().getCodePoint(name);
+        int cp = codePointOfImpl(name);
         if (cp != -1)
             return cp;
         try {
@@ -11839,10 +11831,12 @@ class Character implements java.io.Serializable, Comparable<Character> {
         } catch (Exception x) {}
         throw new IllegalArgumentException("Unrecognized character name :" + name);
     }
-    */
     // END Android-removed: expose after CharacterName.getCodePoint() is imported.
 
     // Android-added: Use ICU.
-    // Implement getNameImpl() natively.
+    // Implement getNameImpl() and codePointOfImpl() natively.
     private static native String getNameImpl(int codePoint);
+
+    @FastNative
+    private static native int codePointOfImpl(String name);
 }

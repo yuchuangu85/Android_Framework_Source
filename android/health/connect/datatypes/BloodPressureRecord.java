@@ -15,10 +15,12 @@
  */
 package android.health.connect.datatypes;
 
+import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_BLOOD_PRESSURE;
 import static android.health.connect.datatypes.validation.ValidationUtils.validateIntDefValue;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.health.connect.HealthConnectManager;
 import android.health.connect.datatypes.units.Pressure;
 import android.health.connect.datatypes.validation.ValidationUtils;
 import android.health.connect.internal.datatypes.BloodPressureRecordInternal;
@@ -36,6 +38,78 @@ import java.util.Set;
  */
 @Identifier(recordIdentifier = RecordTypeIdentifier.RECORD_TYPE_BLOOD_PRESSURE)
 public final class BloodPressureRecord extends InstantRecord {
+    /**
+     * Metric identifier to get average diastolic pressure using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Pressure> DIASTOLIC_AVG =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.BLOOD_PRESSURE_RECORD_DIASTOLIC_AVG,
+                    AggregationType.AVG,
+                    RECORD_TYPE_BLOOD_PRESSURE,
+                    Pressure.class);
+
+    /**
+     * Metric identifier to get maximum diastolic pressure using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Pressure> DIASTOLIC_MAX =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.BLOOD_PRESSURE_RECORD_DIASTOLIC_MAX,
+                    AggregationType.MAX,
+                    RECORD_TYPE_BLOOD_PRESSURE,
+                    Pressure.class);
+
+    /**
+     * Metric identifier to get minimum diastolic pressure using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Pressure> DIASTOLIC_MIN =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.BLOOD_PRESSURE_RECORD_DIASTOLIC_MIN,
+                    AggregationType.MIN,
+                    RECORD_TYPE_BLOOD_PRESSURE,
+                    Pressure.class);
+
+    /**
+     * Metric identifier to get average systolic pressure using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Pressure> SYSTOLIC_AVG =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.BLOOD_PRESSURE_RECORD_SYSTOLIC_AVG,
+                    AggregationType.AVG,
+                    RECORD_TYPE_BLOOD_PRESSURE,
+                    Pressure.class);
+
+    /**
+     * Metric identifier to get maximum systolic pressure using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Pressure> SYSTOLIC_MAX =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.BLOOD_PRESSURE_RECORD_SYSTOLIC_MAX,
+                    AggregationType.MAX,
+                    RECORD_TYPE_BLOOD_PRESSURE,
+                    Pressure.class);
+
+    /**
+     * Metric identifier to get minimum systolic pressure using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Pressure> SYSTOLIC_MIN =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.BLOOD_PRESSURE_RECORD_SYSTOLIC_MIN,
+                    AggregationType.MIN,
+                    RECORD_TYPE_BLOOD_PRESSURE,
+                    Pressure.class);
+
     private final int mMeasurementLocation;
     private final Pressure mSystolic;
     private final Pressure mDiastolic;
@@ -206,6 +280,7 @@ public final class BloodPressureRecord extends InstantRecord {
      * @param o the reference object with which to compare.
      * @return {@code true} if this object is the same as the obj
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

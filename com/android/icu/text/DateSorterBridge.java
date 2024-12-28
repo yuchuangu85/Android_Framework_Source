@@ -26,6 +26,8 @@ import java.util.MissingResourceException;
 
 /**
  * This class is used by android.webkit.DateSorter.
+ *
+ * @hide
  */
 @libcore.api.CorePlatformApi
 public class DateSorterBridge {
@@ -34,6 +36,8 @@ public class DateSorterBridge {
 
     /**
      * @throws AssertionError for the legacy behavior when the ICU data is missing
+     *
+     * @hide
      */
     @libcore.api.CorePlatformApi
     public static DateSorterBridge createInstance(Locale locale) throws AssertionError {
@@ -62,11 +66,17 @@ public class DateSorterBridge {
         today = caseMap.apply(locale, breakIterator, todayStr);
     }
 
+    /**
+     * @hide
+     */
     @libcore.api.CorePlatformApi
     public String getYesterday() {
         return yesterday;
     }
 
+    /**
+     * @hide
+     */
     @libcore.api.CorePlatformApi
     public String getToday() {
         return today;

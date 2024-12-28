@@ -32,14 +32,71 @@
 
 package sun.util.locale;
 
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.system.VMRuntime;
+
+import jdk.internal.vm.annotation.Stable;
+
 import java.lang.ref.SoftReference;
 import java.util.StringJoiner;
 
 public final class BaseLocale {
 
-    public static final String SEP = "_";
+    public static @Stable BaseLocale[] constantBaseLocales;
+    public static final byte ENGLISH = 0,
+            FRENCH = 1,
+            GERMAN = 2,
+            ITALIAN = 3,
+            JAPANESE = 4,
+            KOREAN = 5,
+            CHINESE = 6,
+            SIMPLIFIED_CHINESE = 7,
+            TRADITIONAL_CHINESE = 8,
+            FRANCE = 9,
+            GERMANY = 10,
+            ITALY = 11,
+            JAPAN = 12,
+            KOREA = 13,
+            UK = 14,
+            US = 15,
+            CANADA = 16,
+            CANADA_FRENCH = 17,
+            ROOT = 18,
+            NUM_CONSTANTS = 19;
+    static {
+        // Android-removed: CDS is not supported.
+        // CDS.initializeFromArchive(BaseLocale.class);
+        BaseLocale[] baseLocales = constantBaseLocales;
+        if (baseLocales == null) {
+            baseLocales = new BaseLocale[NUM_CONSTANTS];
+            baseLocales[ENGLISH] = createInstance("en", "");
+            baseLocales[FRENCH] = createInstance("fr", "");
+            baseLocales[GERMAN] = createInstance("de", "");
+            baseLocales[ITALIAN] = createInstance("it", "");
+            baseLocales[JAPANESE] = createInstance("ja", "");
+            baseLocales[KOREAN] = createInstance("ko", "");
+            baseLocales[CHINESE] = createInstance("zh", "");
+            baseLocales[SIMPLIFIED_CHINESE] = createInstance("zh", "CN");
+            baseLocales[TRADITIONAL_CHINESE] = createInstance("zh", "TW");
+            baseLocales[FRANCE] = createInstance("fr", "FR");
+            baseLocales[GERMANY] = createInstance("de", "DE");
+            baseLocales[ITALY] = createInstance("it", "IT");
+            baseLocales[JAPAN] = createInstance("ja", "JP");
+            baseLocales[KOREA] = createInstance("ko", "KR");
+            baseLocales[UK] = createInstance("en", "GB");
+            baseLocales[US] = createInstance("en", "US");
+            baseLocales[CANADA] = createInstance("en", "CA");
+            baseLocales[CANADA_FRENCH] = createInstance("fr", "CA");
+            baseLocales[ROOT] = createInstance("", "");
+            constantBaseLocales = baseLocales;
+        }
+    }
 
-    private static final Cache CACHE = new Cache();
+    public static final String SEP = "_";
 
     private final String language;
     private final String script;
@@ -47,6 +104,35 @@ public final class BaseLocale {
     private final String variant;
 
     private volatile int hash;
+
+    // BEGIN Android-added: flag to control Locale behaviour with legacy locales.
+    /**
+     * On Android V+ when this flag is enabled language codes are no longer
+     * converted to their obsolete forms: iw maps to he, ji maps to yi, and in maps to id.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.VANILLA_ICE_CREAM)
+    public static final long USE_NEW_ISO_LOCALE_CODES = 291868760L;
+
+    private static boolean useOldIsoCodes() {
+        return !(VMRuntime.getSdkVersion() >= VersionCodes.VANILLA_ICE_CREAM &&
+                Compatibility.isChangeEnabled(USE_NEW_ISO_LOCALE_CODES));
+    }
+    // END Android-added: flag to control Locale behaviour with legacy locales.
+
+    // Android-removed: call method instead of using static field value. Otherwise it can't
+    // be tested as value won't be overridden.
+    /*
+     * Boolean for the old ISO language code compatibility.
+     *
+    private static final boolean OLD_ISO_CODES = GetPropertyAction.privilegedGetProperties()
+            .getProperty("java.locale.useOldISOCodes", "false")
+            .equalsIgnoreCase("true");
+
+    private static final boolean OLD_ISO_CODES = useOldIsoCodes();
+    */
 
     // This method must be called with normalize = false only when creating the
     // Locale.* constants and non-normalized BaseLocale$Keys used for lookup.
@@ -67,28 +153,63 @@ public final class BaseLocale {
 
     // Called for creating the Locale.* constants. No argument
     // validation is performed.
-    public static BaseLocale createInstance(String language, String region) {
-        BaseLocale base = new BaseLocale(language, "", region, "", false);
-        CACHE.put(new Key(base), base);
-        return base;
+    private static BaseLocale createInstance(String language, String region) {
+        return new BaseLocale(language, "", region, "", false);
     }
 
     public static BaseLocale getInstance(String language, String script,
                                          String region, String variant) {
-        // JDK uses deprecated ISO639.1 language codes for he, yi and id
-        if (language != null) {
-            if (LocaleUtils.caseIgnoreMatch(language, "he")) {
-                language = "iw";
-            } else if (LocaleUtils.caseIgnoreMatch(language, "yi")) {
-                language = "ji";
-            } else if (LocaleUtils.caseIgnoreMatch(language, "id")) {
-                language = "in";
+
+        if (script == null) {
+            script = "";
+        }
+        if (region == null) {
+            region = "";
+        }
+        if (language == null) {
+            language = null;
+        }
+        if (variant == null) {
+            variant = "";
+        }
+
+        // Non-allocating for most uses
+        language = LocaleUtils.toLowerString(language);
+        region = LocaleUtils.toUpperString(region);
+
+        // Check for constant base locales first
+        if (script.isEmpty() && variant.isEmpty()) {
+            for (BaseLocale baseLocale : constantBaseLocales) {
+                if (baseLocale.getLanguage().equals(language)
+                        && baseLocale.getRegion().equals(region)) {
+                    return baseLocale;
+                }
             }
         }
 
+        // JDK uses deprecated ISO639.1 language codes for he, yi and id
+        if (!language.isEmpty()) {
+            language = convertOldISOCodes(language);
+        }
+
         Key key = new Key(language, script, region, variant, false);
-        BaseLocale baseLocale = CACHE.get(key);
-        return baseLocale;
+        return Cache.CACHE.get(key);
+    }
+
+    public static String convertOldISOCodes(String language) {
+        return switch (language) {
+            // Android-changed: call method instead of using static field value. Otherwise it can't
+            // be tested as value won't be overridden.
+            /*
+            case "he", "iw" -> OLD_ISO_CODES ? "iw" : "he";
+            case "id", "in" -> OLD_ISO_CODES ? "in" : "id";
+            case "yi", "ji" -> OLD_ISO_CODES ? "ji" : "yi";
+            */
+            case "he", "iw" -> useOldIsoCodes() ? "iw" : "he";
+            case "id", "in" -> useOldIsoCodes() ? "in" : "id";
+            case "yi", "ji" -> useOldIsoCodes() ? "ji" : "yi";
+            default -> language;
+        };
     }
 
     public String getLanguage() {
@@ -165,7 +286,7 @@ public final class BaseLocale {
      * @hide
      */
     public static void cleanCache() {
-        CACHE.cleanStaleEntries();
+        Cache.CACHE.cleanStaleEntries();
     }
     // END Android-added: Add a static method to clear the stale entries in Zygote
 
@@ -184,46 +305,8 @@ public final class BaseLocale {
         private final boolean normalized;
         private final int hash;
 
-        /**
-         * Creates a Key. language and region must be normalized
-         * (intern'ed in the proper case).
-         */
-        private Key(BaseLocale locale) {
-            this.holder = locale;
-            this.holderRef = null;
-            this.normalized = true;
-            String language = locale.getLanguage();
-            String region = locale.getRegion();
-            assert LocaleUtils.toLowerString(language).intern() == language
-                    && LocaleUtils.toUpperString(region).intern() == region
-                    && locale.getVariant() == ""
-                    && locale.getScript() == "";
-
-            int h = language.hashCode();
-            if (region != "") {
-                int len = region.length();
-                for (int i = 0; i < len; i++) {
-                    h = 31 * h + LocaleUtils.toLower(region.charAt(i));
-                }
-            }
-            hash = h;
-        }
-
         private Key(String language, String script, String region,
                     String variant, boolean normalize) {
-            if (language == null) {
-                language = "";
-            }
-            if (script == null) {
-                script = "";
-            }
-            if (region == null) {
-                region = "";
-            }
-            if (variant == null) {
-                variant = "";
-            }
-
             BaseLocale locale = new BaseLocale(language, script, region, variant, normalize);
             this.normalized = normalize;
             if (normalized) {
@@ -303,6 +386,8 @@ public final class BaseLocale {
     }
 
     private static class Cache extends LocaleObjectCache<Key, BaseLocale> {
+
+        private static final Cache CACHE = new Cache();
 
         public Cache() {
         }

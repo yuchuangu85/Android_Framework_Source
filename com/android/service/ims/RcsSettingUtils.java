@@ -43,6 +43,7 @@ import android.telephony.ims.feature.MmTelFeature;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
 
 import com.android.ims.internal.Logger;
+import com.android.internal.telephony.flags.Flags;
 
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -360,7 +361,9 @@ public class RcsSettingUtils {
     public static int getDefaultSubscriptionId(Context context) {
         SubscriptionManager sm = context.getSystemService(SubscriptionManager.class);
         if (sm == null) return SubscriptionManager.INVALID_SUBSCRIPTION_ID;
-            List<SubscriptionInfo> infos = sm.getActiveSubscriptionInfoList();
+        sm = sm.createForAllUserProfiles();
+
+        List<SubscriptionInfo> infos = sm.getActiveSubscriptionInfoList();
         if (infos == null || infos.isEmpty()) {
             // There are no active subscriptions right now.
             return SubscriptionManager.INVALID_SUBSCRIPTION_ID;

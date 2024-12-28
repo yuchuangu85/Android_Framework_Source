@@ -84,21 +84,6 @@ public abstract class NetworkException extends HttpException {
     public abstract int getErrorCode();
 
     /**
-     * Returns an internal error code. This may provide more specific error
-     * diagnosis than {@link #getErrorCode}, but the constant values are not exposed publicly and
-     * may change over time. See
-     * <a href=https://chromium.googlesource.com/chromium/src/+/main/net/base/net_error_list.h>
-     * here</a> for the latest list of values.
-     *
-     * @return internal error code or 0 if the internal error code is unknown
-     *
-     * {@hide as semantics aren't stable}
-     */
-    public int getInternalErrorCode() {
-        return 0;
-    }
-
-    /**
      * Returns {@code true} if retrying this request right away might succeed, {@code false}
      * otherwise. For example returns {@code true} when {@link #getErrorCode} returns {@link
      * #ERROR_NETWORK_CHANGED} because trying the request might succeed using the new network

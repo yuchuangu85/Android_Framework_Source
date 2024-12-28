@@ -15,6 +15,8 @@ import java.nio.charset.CharsetEncoder;
 
 /**
  * This class is used from native code associated with {@link NativeConverter}.
+ *
+ * @hide
  */
 public final class CharsetICU extends Charset {
     private final String icuCanonicalName;

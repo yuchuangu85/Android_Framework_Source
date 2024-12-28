@@ -9,16 +9,16 @@ import static android.icu.impl.CharacterIteration.current32;
 import static android.icu.impl.CharacterIteration.next32;
 import static android.icu.impl.CharacterIteration.previous32;
 
+import java.text.CharacterIterator;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+
 import android.icu.impl.ICUData;
 import android.icu.text.UnicodeSet;
 import android.icu.util.UResourceBundle;
 import android.icu.util.UResourceBundleIterator;
-
-import java.text.CharacterIterator;
-import java.util.Arrays;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.HashMap;
 
 enum ModelIndex {
     kUWStart(0), kBWStart(6), kTWStart(9);

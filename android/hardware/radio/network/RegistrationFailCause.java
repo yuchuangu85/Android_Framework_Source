@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/RegistrationFailCause.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/RegistrationFailCause.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public @interface RegistrationFailCause {
   public static final int NONE = 0;
   public static final int IMSI_UNKNOWN_IN_HLR = 2;
@@ -18,7 +20,10 @@ public @interface RegistrationFailCause {
   public static final int ROAMING_NOT_ALLOWED = 13;
   public static final int GPRS_SERVICES_NOT_ALLOWED_IN_PLMN = 14;
   public static final int NO_SUITABLE_CELLS = 15;
+  /** @deprecated MSC_TEMPORARILY_NOT_REACHABLE value is wrong and should not be used. Use MSC_TEMP_NOT_REACHABLE instead. */
+  @Deprecated
   public static final int MSC_TEMPORARILY_NOT_REACHABLE = 15;
+  public static final int MSC_TEMP_NOT_REACHABLE = 16;
   public static final int NETWORK_FAILURE = 17;
   public static final int MAC_FAILURE = 20;
   public static final int SYNC_FAILURE = 21;
@@ -73,6 +78,7 @@ public @interface RegistrationFailCause {
       if (_aidl_v == GPRS_SERVICES_NOT_ALLOWED_IN_PLMN) return "GPRS_SERVICES_NOT_ALLOWED_IN_PLMN";
       if (_aidl_v == NO_SUITABLE_CELLS) return "NO_SUITABLE_CELLS";
       if (_aidl_v == MSC_TEMPORARILY_NOT_REACHABLE) return "MSC_TEMPORARILY_NOT_REACHABLE";
+      if (_aidl_v == MSC_TEMP_NOT_REACHABLE) return "MSC_TEMP_NOT_REACHABLE";
       if (_aidl_v == NETWORK_FAILURE) return "NETWORK_FAILURE";
       if (_aidl_v == MAC_FAILURE) return "MAC_FAILURE";
       if (_aidl_v == SYNC_FAILURE) return "SYNC_FAILURE";

@@ -28,6 +28,7 @@ import android.content.res.Resources;
 import android.net.wifi.util.Environment;
 import android.os.UserHandle;
 import android.util.Log;
+import android.util.SparseArray;
 
 import androidx.annotation.Nullable;
 
@@ -59,6 +60,9 @@ public class WifiContext extends ContextWrapper {
     private AssetManager mWifiAssetsFromApk;
     private Resources mWifiResourcesFromApk;
     private Resources.Theme mWifiThemeFromApk;
+    private Context mResourcesApkContext;
+    private SparseArray<WifiStringResourceWrapper> mWifiStringResourceWrapperSparseArray =
+            new SparseArray<>();
 
     public WifiContext(@NonNull Context contextBase) {
         super(contextBase);
@@ -134,16 +138,20 @@ public class WifiContext extends ContextWrapper {
         return info.activityInfo.applicationInfo.packageName;
     }
 
-    private Context getResourcesApkContext() {
+    /** Get the Resource APK context */
+    public Context getResourcesApkContext() {
+        if (mResourcesApkContext != null) {
+            return mResourcesApkContext;
+        }
         try {
             String packageName = getWifiOverlayApkPkgName();
             if (packageName != null) {
-                return createPackageContext(packageName, 0);
+                mResourcesApkContext = createPackageContext(packageName, 0);
             }
         } catch (PackageManager.NameNotFoundException e) {
             Log.wtf(TAG, "Failed to load resources", e);
         }
-        return null;
+        return mResourcesApkContext;
     }
 
     /**
@@ -201,12 +209,19 @@ public class WifiContext extends ContextWrapper {
         mWifiAssetsFromApk = null;
         mWifiResourcesFromApk = null;
         mWifiThemeFromApk = null;
+        mResourcesApkContext = null;
+        mWifiStringResourceWrapperSparseArray.clear();
     }
 
     /**
      * Returns an instance of WifiStringResourceWrapper with the given subId and carrierId.
      */
     public WifiStringResourceWrapper getStringResourceWrapper(int subId, int carrierId) {
-        return new WifiStringResourceWrapper(this, subId, carrierId);
+        if (mWifiStringResourceWrapperSparseArray.contains(subId)) {
+            return mWifiStringResourceWrapperSparseArray.get(subId);
+        }
+        WifiStringResourceWrapper wrapper = new WifiStringResourceWrapper(this, subId, carrierId);
+        mWifiStringResourceWrapperSparseArray.append(subId, wrapper);
+        return wrapper;
     }
 }

@@ -4,7 +4,7 @@
 
 package org.chromium.net.urlconnection;
 
-import android.net.http.ExperimentalHttpEngine;
+import org.chromium.net.ExperimentalCronetEngine;
 
 import androidx.annotation.VisibleForTesting;
 
@@ -26,9 +26,9 @@ import java.net.URLStreamHandler;
  */
 @VisibleForTesting
 public class CronetHttpURLStreamHandler extends URLStreamHandler {
-    private final ExperimentalHttpEngine mCronetEngine;
+    private final ExperimentalCronetEngine mCronetEngine;
 
-    public CronetHttpURLStreamHandler(ExperimentalHttpEngine cronetEngine) {
+    public CronetHttpURLStreamHandler(ExperimentalCronetEngine cronetEngine) {
         mCronetEngine = cronetEngine;
     }
 

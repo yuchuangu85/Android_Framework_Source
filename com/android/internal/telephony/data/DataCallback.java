@@ -28,7 +28,8 @@ import java.util.concurrent.Executor;
  */
 public class DataCallback {
     /** The executor of the callback. */
-    private final @NonNull Executor mExecutor;
+    @NonNull
+    private final Executor mExecutor;
 
     /**
      * Constructor
@@ -43,7 +44,8 @@ public class DataCallback {
      * @return The executor of the callback.
      */
     @VisibleForTesting
-    public @NonNull Executor getExecutor() {
+    @NonNull
+    public Executor getExecutor() {
         return mExecutor;
     }
 

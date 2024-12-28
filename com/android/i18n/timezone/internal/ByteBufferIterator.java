@@ -20,6 +20,8 @@ import java.nio.ByteBuffer;
 
 /**
  * A {@link BufferIterator} that wraps a {@link ByteBuffer}.
+ *
+ * @hide
  */
 public class ByteBufferIterator extends BufferIterator {
 

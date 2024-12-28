@@ -28,6 +28,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.net.ConnectivityManager.MultipathPreference;
 import android.os.Binder;
 import android.os.Build;
@@ -36,6 +37,7 @@ import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.ArraySet;
+import android.util.Log;
 import android.util.Range;
 
 import com.android.net.module.util.ConnectivitySettingsUtils;
@@ -55,6 +57,7 @@ import java.util.StringJoiner;
  */
 @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
 public class ConnectivitySettingsManager {
+    private static final String TAG = ConnectivitySettingsManager.class.getSimpleName();
 
     private ConnectivitySettingsManager() {}
 
@@ -173,7 +176,9 @@ public class ConnectivitySettingsManager {
 
     /**
      * When detecting a captive portal, immediately disconnect from the
-     * network and do not reconnect to that network in the future.
+     * network and do not reconnect to that network in the future; except
+     * on Wear platform companion proxy networks (transport BLUETOOTH)
+     * will stay behind captive portal.
      */
     public static final int CAPTIVE_PORTAL_MODE_AVOID = 2;
 
@@ -696,16 +701,34 @@ public class ConnectivitySettingsManager {
     /**
      * Set global http proxy settings from given {@link ProxyInfo}.
      *
+     * <p class="note">
+     * While a {@link ProxyInfo} for a PAC proxy can be specified, not all devices support
+     * PAC proxies. In particular, smaller devices like watches often do not have the capabilities
+     * necessary to interpret the PAC file. In such cases, calling this API with a PAC proxy
+     * results in undefined behavior, including possibly breaking networking for applications.
+     * You can test for this by checking for the presence of {@link PackageManager.FEATURE_WEBVIEW}.
+     * </p>
+     *
      * @param context The {@link Context} to set the setting.
      * @param proxyInfo The {@link ProxyInfo} for global http proxy settings which build from
      *                    {@link ProxyInfo#buildPacProxy(Uri)} or
      *                    {@link ProxyInfo#buildDirectProxy(String, int, List)}
+     * @throws UnsupportedOperationException if |proxyInfo| codes for a PAC proxy but the system
+     *                                       does not support PAC proxies.
      */
     public static void setGlobalProxy(@NonNull Context context, @NonNull ProxyInfo proxyInfo) {
         final String host = proxyInfo.getHost();
         final int port = proxyInfo.getPort();
         final String exclusionList = proxyInfo.getExclusionListAsString();
         final String pacFileUrl = proxyInfo.getPacFileUrl().toString();
+
+
+        if (!TextUtils.isEmpty(pacFileUrl)) {
+            final PackageManager pm = context.getPackageManager();
+            if (null != pm && !pm.hasSystemFeature(PackageManager.FEATURE_WEBVIEW)) {
+                Log.wtf(TAG, "PAC proxy can't be installed on a device without FEATURE_WEBVIEW");
+            }
+        }
 
         if (TextUtils.isEmpty(pacFileUrl)) {
             Settings.Global.putString(context.getContentResolver(), GLOBAL_HTTP_PROXY_HOST, host);

@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/AccessTechnologySpecificInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/AccessTechnologySpecificInfo.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public final class AccessTechnologySpecificInfo implements android.os.Parcelable {
   // tags for union fields
   public final static int noinit = 0;  // boolean noinit;
@@ -205,11 +207,11 @@ public final class AccessTechnologySpecificInfo implements android.os.Parcelable
   @Override
   public String toString() {
     switch (_tag) {
-    case noinit: return "android.hardware.radio.network.AccessTechnologySpecificInfo.noinit(" + (getNoinit()) + ")";
-    case cdmaInfo: return "android.hardware.radio.network.AccessTechnologySpecificInfo.cdmaInfo(" + (java.util.Objects.toString(getCdmaInfo())) + ")";
-    case eutranInfo: return "android.hardware.radio.network.AccessTechnologySpecificInfo.eutranInfo(" + (java.util.Objects.toString(getEutranInfo())) + ")";
-    case ngranNrVopsInfo: return "android.hardware.radio.network.AccessTechnologySpecificInfo.ngranNrVopsInfo(" + (java.util.Objects.toString(getNgranNrVopsInfo())) + ")";
-    case geranDtmSupported: return "android.hardware.radio.network.AccessTechnologySpecificInfo.geranDtmSupported(" + (getGeranDtmSupported()) + ")";
+    case noinit: return "AccessTechnologySpecificInfo.noinit(" + (getNoinit()) + ")";
+    case cdmaInfo: return "AccessTechnologySpecificInfo.cdmaInfo(" + (java.util.Objects.toString(getCdmaInfo())) + ")";
+    case eutranInfo: return "AccessTechnologySpecificInfo.eutranInfo(" + (java.util.Objects.toString(getEutranInfo())) + ")";
+    case ngranNrVopsInfo: return "AccessTechnologySpecificInfo.ngranNrVopsInfo(" + (java.util.Objects.toString(getNgranNrVopsInfo())) + ")";
+    case geranDtmSupported: return "AccessTechnologySpecificInfo.geranDtmSupported(" + (getGeranDtmSupported()) + ")";
     }
     throw new IllegalStateException("unknown field: " + _tag);
   }

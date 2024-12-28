@@ -204,6 +204,20 @@ public abstract class Reference<T> {
        return queue != null && queue.enqueue(this);
     }
 
+    /**
+     * Throws {@link CloneNotSupportedException}. A {@code Reference} cannot be
+     * meaningfully cloned. Construct a new {@code Reference} instead.
+     *
+     * @return never returns normally
+     * @throws  CloneNotSupportedException always
+     *
+     * @since 11
+     */
+    @Override
+    protected Object clone() throws CloneNotSupportedException {
+        throw new CloneNotSupportedException();
+    }
+
     /* -- Constructors -- */
 
     Reference(T referent) {

@@ -58,16 +58,14 @@ public final class BluetoothLeBroadcastSubgroupSettings implements Parcelable {
      *
      * @hide
      */
-    @SystemApi
-    public static final int QUALITY_STANDARD = 0;
+    @SystemApi public static final int QUALITY_STANDARD = 0;
 
     /**
      * Indicates high quality for this subgroup audio configuration.
      *
      * @hide
      */
-    @SystemApi
-    public static final int QUALITY_HIGH = 1;
+    @SystemApi public static final int QUALITY_HIGH = 1;
 
     private BluetoothLeBroadcastSubgroupSettings(
             int preferredQuality, BluetoothLeAudioContentMetadata contentMetadata) {
@@ -140,8 +138,7 @@ public final class BluetoothLeBroadcastSubgroupSettings implements Parcelable {
      *
      * @hide
      */
-    @SystemApi
-    @NonNull
+    @SystemApi @NonNull
     public static final Creator<BluetoothLeBroadcastSubgroupSettings> CREATOR =
             new Creator<>() {
                 public @NonNull BluetoothLeBroadcastSubgroupSettings createFromParcel(

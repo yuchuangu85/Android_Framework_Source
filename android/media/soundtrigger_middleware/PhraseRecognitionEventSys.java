@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.soundtrigger.types_interface/2/preprocessed.aidl -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/base/media/media_permission-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/base/media/soundtrigger_middleware-aidl-java-source/gen/android/media/soundtrigger_middleware/PhraseRecognitionEventSys.java.d -o out/soong/.intermediates/frameworks/base/media/soundtrigger_middleware-aidl-java-source/gen -Nframeworks/base/media/aidl frameworks/base/media/aidl/android/media/soundtrigger_middleware/PhraseRecognitionEventSys.aidl
  */
 package android.media.soundtrigger_middleware;
 /**
@@ -72,7 +73,7 @@ public class PhraseRecognitionEventSys implements android.os.Parcelable
     _aidl_sj.add("phraseRecognitionEvent: " + (java.util.Objects.toString(phraseRecognitionEvent)));
     _aidl_sj.add("halEventReceivedMillis: " + (halEventReceivedMillis));
     _aidl_sj.add("token: " + (java.util.Objects.toString(token)));
-    return "android.media.soundtrigger_middleware.PhraseRecognitionEventSys" + _aidl_sj.toString()  ;
+    return "PhraseRecognitionEventSys" + _aidl_sj.toString()  ;
   }
   @Override
   public boolean equals(Object other) {

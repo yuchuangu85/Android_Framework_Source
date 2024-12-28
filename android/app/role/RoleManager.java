@@ -18,6 +18,7 @@ package android.app.role;
 
 import android.Manifest;
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -27,6 +28,9 @@ import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.UserHandleAware;
 import android.annotation.UserIdInt;
+import android.app.compat.CompatChanges;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Binder;
@@ -35,6 +39,7 @@ import android.os.Process;
 import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.os.UserHandle;
+import android.permission.flags.Flags;
 import android.util.ArrayMap;
 import android.util.SparseArray;
 
@@ -42,7 +47,10 @@ import androidx.annotation.RequiresApi;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
+import com.android.modules.utils.build.SdkLevel;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
@@ -138,6 +146,15 @@ public final class RoleManager {
     public static final String ROLE_NOTES = "android.app.role.NOTES";
 
     /**
+     * The name of the Wallet role.
+     *
+     * @see android.nfc.cardemulation.CardEmulation
+     */
+    @FlaggedApi(Flags.FLAG_WALLET_ROLE_ENABLED)
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    public static final String ROLE_WALLET = "android.app.role.WALLET";
+
+    /**
      * The name of the system wellbeing role.
      *
      * @hide
@@ -197,6 +214,7 @@ public final class RoleManager {
      * @hide
      */
     @IntDef(flag = true, value = { MANAGE_HOLDERS_FLAG_DONT_KILL_APP })
+    @Retention(RetentionPolicy.SOURCE)
     public @interface ManageHoldersFlags {}
 
     /**
@@ -208,6 +226,17 @@ public final class RoleManager {
      */
     @SystemApi
     public static final int MANAGE_HOLDERS_FLAG_DONT_KILL_APP = 1;
+
+    /**
+     * For apps targeting Android V and above, several methods are now user-handle-aware, which
+     * means they use the user contained within the context. For apps targeting an SDK version
+     * <em>below</em> this, the user of the calling process will be used.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    public static final long ROLE_MANAGER_USER_HANDLE_AWARE = 303742236L;
 
     /**
      * The action used to request user approval of a role for an application.
@@ -284,10 +313,12 @@ public final class RoleManager {
      *
      * @return whether the role is available in the system
      */
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public boolean isRoleAvailable(@NonNull String roleName) {
         Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        UserHandle user = getContextUserIfAppropriate();
         try {
-            return mService.isRoleAvailable(roleName);
+            return mService.isRoleAvailableAsUser(roleName, user.getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -300,10 +331,13 @@ public final class RoleManager {
      *
      * @return whether the calling application is holding the role
      */
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public boolean isRoleHeld(@NonNull String roleName) {
         Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        UserHandle user = getContextUserIfAppropriate();
         try {
-            return mService.isRoleHeld(roleName, mContext.getPackageName());
+            return mService.isRoleHeldAsUser(roleName, mContext.getPackageName(),
+                    user.getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -326,8 +360,9 @@ public final class RoleManager {
     @NonNull
     @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
     @SystemApi
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public List<String> getRoleHolders(@NonNull String roleName) {
-        return getRoleHoldersAsUser(roleName, Process.myUserHandle());
+        return getRoleHoldersAsUser(roleName, getContextUserIfAppropriate());
     }
 
     /**
@@ -475,10 +510,10 @@ public final class RoleManager {
     }
 
     /**
-     * Get package names of the applications holding the role for a default application.
+     * Get package name of the application holding the role for a default application.
      * <p>
-     * <strong>Note:</strong> Using this API requires holding
-     * {@code android.permission.MANAGE_DEFAULT_APPLICATIONS}.
+     * Only roles describing default applications can be used with this method. They can have
+     * at most one holder.
      *
      * @param roleName the name of the default application role to get
      *
@@ -506,8 +541,8 @@ public final class RoleManager {
     /**
      * Set a specific application as the default application.
      * <p>
-     * <strong>Note:</strong> Using this API requires holding
-     * {@code android.permission.MANAGE_DEFAULT_APPLICATIONS}.
+     * Only roles describing default applications can be used with this method. They can have
+     * at most one holder.
      *
      * @param roleName the name of the default application role to set the role holder for
      * @param packageName the package name of the application to set as the default application,
@@ -527,8 +562,8 @@ public final class RoleManager {
     public void setDefaultApplication(@NonNull String roleName, @Nullable String packageName,
             @ManageHoldersFlags int flags, @CallbackExecutor @NonNull Executor executor,
             @NonNull Consumer<Boolean> callback) {
+        // Prior to Android V some devices might require the "packageName" to be non-null.
         Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
-        Preconditions.checkStringNotEmpty(packageName, "packageName cannot be null or empty");
         Objects.requireNonNull(executor, "executor cannot be null");
         Objects.requireNonNull(callback, "callback cannot be null");
         try {
@@ -690,6 +725,53 @@ public final class RoleManager {
     }
 
     /**
+     * Check whether role currently enables fallback to default holder.
+     * <p>
+     * This is based on the "None" holder being actively selected, in which case don't fallback.
+     *
+     * @param roleName the name of the role being queried
+     *
+     * @return whether fallback is enabled for the provided role
+     *
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @FlaggedApi(Flags.FLAG_SYSTEM_SERVER_ROLE_CONTROLLER_ENABLED)
+    @UserHandleAware
+    @SystemApi
+    public boolean isRoleFallbackEnabled(@NonNull String roleName) {
+        try {
+            return mService.isRoleFallbackEnabledAsUser(roleName,
+                    mContext.getUser().getIdentifier());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set whether role should fallback to a default role holder.
+     *
+     * @param roleName the name of the role being queried.
+     * @param fallbackEnabled whether to enable fallback holders for this role.
+     *
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @FlaggedApi(Flags.FLAG_SYSTEM_SERVER_ROLE_CONTROLLER_ENABLED)
+    @UserHandleAware
+    @SystemApi
+    public void setRoleFallbackEnabled(@NonNull String roleName, boolean fallbackEnabled) {
+        try {
+            mService.setRoleFallbackEnabledAsUser(roleName, fallbackEnabled,
+                    mContext.getUser().getIdentifier());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Set the names of all the available roles. Should only be called from
      * {@link android.app.role.RoleControllerService}.
      * <p>
@@ -706,10 +788,12 @@ public final class RoleManager {
     @Deprecated
     @RequiresPermission(PERMISSION_MANAGE_ROLES_FROM_CONTROLLER)
     @SystemApi
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public void setRoleNamesFromController(@NonNull List<String> roleNames) {
         Objects.requireNonNull(roleNames, "roleNames cannot be null");
+        UserHandle user = getContextUserIfAppropriate();
         try {
-            mService.setRoleNamesFromController(roleNames);
+            mService.setRoleNamesFromControllerAsUser(roleNames, user.getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -740,12 +824,15 @@ public final class RoleManager {
     @Deprecated
     @RequiresPermission(PERMISSION_MANAGE_ROLES_FROM_CONTROLLER)
     @SystemApi
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public boolean addRoleHolderFromController(@NonNull String roleName,
             @NonNull String packageName) {
         Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
         Preconditions.checkStringNotEmpty(packageName, "packageName cannot be null or empty");
+        UserHandle user = getContextUserIfAppropriate();
         try {
-            return mService.addRoleHolderFromController(roleName, packageName);
+            return mService.addRoleHolderFromControllerAsUser(roleName, packageName,
+                    user.getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -776,12 +863,15 @@ public final class RoleManager {
     @Deprecated
     @RequiresPermission(PERMISSION_MANAGE_ROLES_FROM_CONTROLLER)
     @SystemApi
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public boolean removeRoleHolderFromController(@NonNull String roleName,
             @NonNull String packageName) {
         Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
         Preconditions.checkStringNotEmpty(packageName, "packageName cannot be null or empty");
+        UserHandle user = getContextUserIfAppropriate();
         try {
-            return mService.removeRoleHolderFromController(roleName, packageName);
+            return mService.removeRoleHolderFromControllerAsUser(roleName, packageName,
+                    user.getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -802,13 +892,20 @@ public final class RoleManager {
     @NonNull
     @RequiresPermission(PERMISSION_MANAGE_ROLES_FROM_CONTROLLER)
     @SystemApi
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public List<String> getHeldRolesFromController(@NonNull String packageName) {
         Preconditions.checkStringNotEmpty(packageName, "packageName cannot be null or empty");
+        UserHandle user = getContextUserIfAppropriate();
         try {
-            return mService.getHeldRolesFromController(packageName);
+            return mService.getHeldRolesFromControllerAsUser(packageName, user.getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
+    }
+
+    private UserHandle getContextUserIfAppropriate() {
+        return CompatChanges.isChangeEnabled(ROLE_MANAGER_USER_HANDLE_AWARE) ? mContext.getUser()
+                : Process.myUserHandle();
     }
 
     /**
@@ -878,6 +975,28 @@ public final class RoleManager {
     }
 
     /**
+     * Allows getting the role holder for {@link #ROLE_EMERGENCY} without requiring
+     * {@link Manifest.permission#OBSERVE_ROLE_HOLDERS}.
+     *
+     * @param userId the user ID to get the default emergency package for
+     * @return the package name of the default emergency app, or {@code null} if none
+     *
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_GET_EMERGENCY_ROLE_HOLDER_API_ENABLED)
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @RequiresPermission(Manifest.permission.READ_PRIVILEGED_PHONE_STATE)
+    @Nullable
+    @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
+    public String getEmergencyRoleHolder(@UserIdInt int userId) {
+        try {
+            return mService.getEmergencyRoleHolder(userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Check whether a role should be visible to user.
      *
      * @param roleName name of the role to check for
@@ -888,10 +1007,29 @@ public final class RoleManager {
      */
     @RequiresApi(Build.VERSION_CODES.S)
     @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     @SystemApi
     public void isRoleVisible(@NonNull String roleName,
             @NonNull @CallbackExecutor Executor executor, @NonNull Consumer<Boolean> callback) {
-        getRoleControllerManager().isRoleVisible(roleName, executor, callback);
+        if (SdkLevel.isAtLeastV() && Flags.systemServerRoleControllerEnabled()) {
+            int userId = getContextUserIfAppropriate().getIdentifier();
+            boolean visible;
+            try {
+                visible = mService.isRoleVisibleAsUser(roleName, userId);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+            executor.execute(() -> {
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    callback.accept(visible);
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            });
+        } else {
+            getRoleControllerManager().isRoleVisible(roleName, executor, callback);
+        }
     }
 
     /**
@@ -910,11 +1048,30 @@ public final class RoleManager {
      */
     @RequiresApi(Build.VERSION_CODES.S)
     @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @UserHandleAware(enabledSinceTargetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     @SystemApi
     public void isApplicationVisibleForRole(@NonNull String roleName, @NonNull String packageName,
             @NonNull @CallbackExecutor Executor executor, @NonNull Consumer<Boolean> callback) {
-        getRoleControllerManager().isApplicationVisibleForRole(roleName, packageName, executor,
-                callback);
+        if (SdkLevel.isAtLeastV() && Flags.systemServerRoleControllerEnabled()) {
+            int userId = getContextUserIfAppropriate().getIdentifier();
+            boolean visible;
+            try {
+                visible = mService.isApplicationVisibleForRoleAsUser(roleName, packageName, userId);
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+            executor.execute(() -> {
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    callback.accept(visible);
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            });
+        } else {
+            getRoleControllerManager().isApplicationVisibleForRole(roleName, packageName, executor,
+                    callback);
+        }
     }
 
     @NonNull

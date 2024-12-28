@@ -18,36 +18,44 @@ package android.app.appsearch;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.os.Bundle;
+import android.app.appsearch.safeparcel.AbstractSafeParcelable;
+import android.app.appsearch.safeparcel.SafeParcelable;
+import android.os.Parcel;
+import android.os.Parcelable;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * This class represents a page of {@link SearchResult}s
  *
  * @hide
  */
-public class SearchResultPage {
-    public static final String RESULTS_FIELD = "results";
-    public static final String NEXT_PAGE_TOKEN_FIELD = "nextPageToken";
+@SafeParcelable.Class(creator = "SearchResultPageCreator")
+public class SearchResultPage extends AbstractSafeParcelable {
+    @NonNull
+    public static final Parcelable.Creator<SearchResultPage> CREATOR =
+            new SearchResultPageCreator();
+
+    @Field(id = 1, getter = "getNextPageToken")
     private final long mNextPageToken;
 
-    @Nullable private List<SearchResult> mResults;
+    @Nullable
+    @Field(id = 2, getter = "getResults")
+    private final List<SearchResult> mResults;
 
-    @NonNull private final Bundle mBundle;
-
-    public SearchResultPage(@NonNull Bundle bundle) {
-        mBundle = Objects.requireNonNull(bundle);
-        mNextPageToken = mBundle.getLong(NEXT_PAGE_TOKEN_FIELD);
+    @Constructor
+    public SearchResultPage(
+            @Param(id = 1) long nextPageToken,
+            @Param(id = 2) @Nullable List<SearchResult> results) {
+        mNextPageToken = nextPageToken;
+        mResults = results;
     }
 
-    /** Returns the {@link Bundle} of this class. */
-    @NonNull
-    public Bundle getBundle() {
-        return mBundle;
+    /** Default constructor for {@link SearchResultPage}. */
+    public SearchResultPage() {
+        mNextPageToken = 0;
+        mResults = Collections.emptyList();
     }
 
     /** Returns the Token to get next {@link SearchResultPage}. */
@@ -57,19 +65,15 @@ public class SearchResultPage {
 
     /** Returns all {@link android.app.appsearch.SearchResult}s of this page */
     @NonNull
-    @SuppressWarnings("deprecation")
     public List<SearchResult> getResults() {
         if (mResults == null) {
-            ArrayList<Bundle> resultBundles = mBundle.getParcelableArrayList(RESULTS_FIELD);
-            if (resultBundles == null) {
-                mResults = Collections.emptyList();
-            } else {
-                mResults = new ArrayList<>(resultBundles.size());
-                for (int i = 0; i < resultBundles.size(); i++) {
-                    mResults.add(new SearchResult(resultBundles.get(i)));
-                }
-            }
+            return Collections.emptyList();
         }
         return mResults;
+    }
+
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        SearchResultPageCreator.writeToParcel(this, dest, flags);
     }
 }

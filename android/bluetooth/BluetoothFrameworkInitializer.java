@@ -36,12 +36,12 @@ public class BluetoothFrameworkInitializer {
     private static volatile Consumer<Context> sBinderCallsStatsInitializer;
 
     /**
-     * Sets an instance of {@link BluetoothServiceManager} that allows
-     * the bluetooth mainline module to register/obtain bluetooth binder services. This is called
-     * by the platform during the system initialization.
+     * Sets an instance of {@link BluetoothServiceManager} that allows the bluetooth mainline module
+     * to register/obtain bluetooth binder services. This is called by the platform during the
+     * system initialization.
      *
-     * @param bluetoothServiceManager instance of {@link BluetoothServiceManager} that allows
-     * the bluetooth mainline module to register/obtain bluetoothd binder services.
+     * @param bluetoothServiceManager instance of {@link BluetoothServiceManager} that allows the
+     *     bluetooth mainline module to register/obtain bluetoothd binder services.
      */
     public static void setBluetoothServiceManager(
             @NonNull BluetoothServiceManager bluetoothServiceManager) {
@@ -63,10 +63,10 @@ public class BluetoothFrameworkInitializer {
 
     /**
      * Called by {@link ActivityThread}'s static initializer to set the callback enabling Bluetooth
-     * {@link BinderCallsStats} registeration.
+     * {@link BinderCallsStats} registration.
      *
      * @param binderCallsStatsConsumer called by bluetooth service to create a new binder calls
-     *        stats observer
+     *     stats observer
      */
     public static void setBinderCallsStatsInitializer(
             @NonNull Consumer<Context> binderCallsStatsConsumer) {
@@ -90,14 +90,16 @@ public class BluetoothFrameworkInitializer {
     }
 
     /**
-     * Called by {@link SystemServiceRegistry}'s static initializer and registers BT service
-     * to {@link Context}, so that {@link Context#getSystemService} can return them.
+     * Called by {@link SystemServiceRegistry}'s static initializer and registers BT service to
+     * {@link Context}, so that {@link Context#getSystemService} can return them.
      *
-     * @throws IllegalStateException if this is called from anywhere besides
-     * {@link SystemServiceRegistry}
+     * @throws IllegalStateException if this is called from anywhere besides {@link
+     *     SystemServiceRegistry}
      */
     public static void registerServiceWrappers() {
-        SystemServiceRegistry.registerContextAwareService(Context.BLUETOOTH_SERVICE,
-                BluetoothManager.class, context -> new BluetoothManager(context));
+        SystemServiceRegistry.registerContextAwareService(
+                Context.BLUETOOTH_SERVICE,
+                BluetoothManager.class,
+                context -> new BluetoothManager(context));
     }
 }

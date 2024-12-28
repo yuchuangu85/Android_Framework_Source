@@ -130,16 +130,25 @@ public final class DnsPacketUtils {
 
         /**
          * Parses the domain / target name of a DNS record.
+         */
+        public static String parseName(final ByteBuffer buf, int depth,
+                boolean isNameCompressionSupported) throws
+                BufferUnderflowException, DnsPacket.ParseException {
+            return parseName(buf, depth, MAXLABELCOUNT, isNameCompressionSupported);
+        }
+
+        /**
+         * Parses the domain / target name of a DNS record.
          *
          * As described in RFC 1035 Section 4.1.3, the NAME field of a DNS Resource Record always
          * supports Name Compression, whereas domain names contained in the RDATA payload of a DNS
          * record may or may not support Name Compression, depending on the record TYPE. Moreover,
          * even if Name Compression is supported, its usage is left to the implementation.
          */
-        public static String parseName(ByteBuffer buf, int depth,
+        public static String parseName(final ByteBuffer buf, int depth, int maxLabelCount,
                 boolean isNameCompressionSupported) throws
                 BufferUnderflowException, DnsPacket.ParseException {
-            if (depth > MAXLABELCOUNT) {
+            if (depth > maxLabelCount) {
                 throw new DnsPacket.ParseException("Failed to parse name, too many labels");
             }
             final int len = Byte.toUnsignedInt(buf.get());
@@ -158,7 +167,8 @@ public final class DnsPacketUtils {
                             "Parse compression name fail, invalid compression");
                 }
                 buf.position(offset);
-                final String pointed = parseName(buf, depth + 1, isNameCompressionSupported);
+                final String pointed = parseName(buf, depth + 1, maxLabelCount,
+                        isNameCompressionSupported);
                 buf.position(oldPos);
                 return pointed;
             } else {
@@ -168,7 +178,8 @@ public final class DnsPacketUtils {
                 if (head.length() > MAXLABELSIZE) {
                     throw new DnsPacket.ParseException("Parse name fail, invalid label length");
                 }
-                final String tail = parseName(buf, depth + 1, isNameCompressionSupported);
+                final String tail = parseName(buf, depth + 1, maxLabelCount,
+                        isNameCompressionSupported);
                 return TextUtils.isEmpty(tail) ? head : head + "." + tail;
             }
         }

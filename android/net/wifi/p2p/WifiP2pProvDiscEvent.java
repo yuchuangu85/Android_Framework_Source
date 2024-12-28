@@ -16,7 +16,17 @@
 
 package android.net.wifi.p2p;
 
+import android.annotation.NonNull;
 import android.compat.annotation.UnsupportedAppUsage;
+import android.net.wifi.OuiKeyedData;
+import android.os.Build;
+
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
  * A class representing a Wi-Fi p2p provisional discovery request/response
@@ -44,9 +54,46 @@ public class WifiP2pProvDiscEvent {
     @UnsupportedAppUsage
     public String pin;
 
+    /** List of {@link OuiKeyedData} providing vendor-specific configuration data. */
+    private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
+
+    /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * #setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @NonNull
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData;
+    }
+
     @UnsupportedAppUsage
     public WifiP2pProvDiscEvent() {
         device = new WifiP2pDevice();
+    }
+
+    /**
+     * Set additional vendor-provided configuration data.
+     *
+     * @param vendorData List of {@link android.net.wifi.OuiKeyedData} containing the
+     *                   vendor-provided configuration data. Note that multiple elements with
+     *                   the same OUI are allowed.
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @NonNull
+    public void setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        if (vendorData == null) {
+            throw new IllegalArgumentException("setVendorData received a null value");
+        }
+        mVendorData = vendorData;
     }
 
     /**
@@ -87,6 +134,7 @@ public class WifiP2pProvDiscEvent {
         sbuf.append(device);
         sbuf.append("\n event: ").append(event);
         sbuf.append("\n pin: ").append(pin);
+        sbuf.append("\n vendorData: ").append(mVendorData);
         return sbuf.toString();
     }
 }

@@ -459,4 +459,23 @@ public class UceUtils {
         }
         return value;
     }
+
+    /**
+     * The time interval of milliseconds for the subscribe retry.
+     *
+     * @return The time interval of milliseconds for the subscribe retry.
+     */
+    public static long getSubscribeRetryInterval(Context context, int subId) {
+        CarrierConfigManager configManager = context.getSystemService(CarrierConfigManager.class);
+        if (configManager == null) {
+            return -1L;
+        }
+        PersistableBundle config = configManager.getConfigForSubId(subId);
+        if (config == null) {
+            return -1L;
+        }
+
+        return config.getLong(
+                CarrierConfigManager.Ims.KEY_SUBSCRIBE_RETRY_DURATION_MILLIS_LONG, -1L);
+    }
 }

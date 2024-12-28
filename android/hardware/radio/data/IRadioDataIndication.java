@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash cd8913a3f9d39f1cc0a5fcf9e90257be94ec38df --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen/android/hardware/radio/data/IRadioDataIndication.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3/android/hardware/radio/data/IRadioDataIndication.aidl
  */
 package android.hardware.radio.data;
+/** @hide */
 public interface IRadioDataIndication extends android.os.IInterface
 {
   /**
@@ -10,8 +12,8 @@ public interface IRadioDataIndication extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "cb458326b02e0e87143f24118543e8cc7d6a9e8e";
+  public static final int VERSION = 3;
+  public static final String HASH = "cd8913a3f9d39f1cc0a5fcf9e90257be94ec38df";
   /** Default implementation for IRadioDataIndication. */
   public static class Default implements android.hardware.radio.data.IRadioDataIndication
   {
@@ -47,6 +49,7 @@ public interface IRadioDataIndication extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.data.IRadioDataIndication
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -77,25 +80,19 @@ public interface IRadioDataIndication extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -296,6 +293,7 @@ public interface IRadioDataIndication extends android.os.IInterface
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$data$IRadioDataIndication".replace('$', '.');
   public void dataCallListChanged(int type, android.hardware.radio.data.SetupDataCallResult[] dcList) throws android.os.RemoteException;
   public void keepaliveStatus(int type, android.hardware.radio.data.KeepaliveStatus status) throws android.os.RemoteException;

@@ -19,7 +19,6 @@ package com.android.net.module.util;
 import static android.net.DnsResolver.TYPE_A;
 import static android.net.DnsResolver.TYPE_AAAA;
 
-import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
 import static com.android.internal.annotations.VisibleForTesting.Visibility.PRIVATE;
 import static com.android.net.module.util.DnsPacketUtils.DnsRecordParser.domainNameToLabels;
 
@@ -57,6 +56,7 @@ public abstract class DnsPacket {
      */
     // TODO: Define the constant as a public constant in DnsResolver since it can never change.
     private static final int TYPE_CNAME = 5;
+    public static final int TYPE_SVCB = 64;
 
     /**
      * Thrown when parsing packet failed.
@@ -245,14 +245,16 @@ public abstract class DnsPacket {
      *     /                     RDATA                     /
      *     /                                               /
      *     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+     *
+     * Note that this class is meant to be used by composition and not inheritance, and
+     * that classes implementing more specific DNS records should call #parse.
      */
-    // TODO: Make DnsResourceRecord and DnsQuestion subclasses of DnsRecord, and construct
-    //  corresponding object from factory methods.
+    // TODO: Make DnsResourceRecord and DnsQuestion subclasses of DnsRecord.
     public static class DnsRecord {
         // Refer to RFC 1035 section 2.3.4 for MAXNAMESIZE.
         // NAME_NORMAL and NAME_COMPRESSION are used for checking name compression,
         // refer to rfc 1035 section 4.1.4.
-        private static final int MAXNAMESIZE = 255;
+        public static final int MAXNAMESIZE = 255;
         public static final int NAME_NORMAL = 0;
         public static final int NAME_COMPRESSION = 0xC0;
 
@@ -281,8 +283,7 @@ public abstract class DnsPacket {
          * @param buf ByteBuffer input of record, must be in network byte order
          *         (which is the default).
          */
-        @VisibleForTesting(visibility = PACKAGE)
-        public DnsRecord(@RecordType int rType, @NonNull ByteBuffer buf)
+        protected DnsRecord(@RecordType int rType, @NonNull ByteBuffer buf)
                 throws BufferUnderflowException, ParseException {
             Objects.requireNonNull(buf);
             this.rType = rType;
@@ -303,6 +304,33 @@ public abstract class DnsPacket {
             } else {
                 ttl = 0;
                 mRdata = null;
+            }
+        }
+
+        /**
+         * Create a new DnsRecord or subclass of DnsRecord instance from a positioned ByteBuffer.
+         *
+         * Peek the nsType, sending the buffer to corresponding DnsRecord subclass constructors
+         * to allow constructing the corresponding object.
+         */
+        @VisibleForTesting(visibility = PRIVATE)
+        public static DnsRecord parse(@RecordType int rType, @NonNull ByteBuffer buf)
+                throws BufferUnderflowException, ParseException {
+            Objects.requireNonNull(buf);
+            final int oldPos = buf.position();
+            // Parsed name not used, just for jumping to nsType position.
+            DnsRecordParser.parseName(buf, 0 /* Parse depth */,
+                    true /* isNameCompressionSupported */);
+            // Peek the nsType.
+            final int nsType = Short.toUnsignedInt(buf.getShort());
+            buf.position(oldPos);
+            // Return a DnsRecord instance by default for backward compatibility, this is useful
+            // when a partner supports new type of DnsRecord but does not inherit DnsRecord.
+            switch (nsType) {
+                case TYPE_SVCB:
+                    return new DnsSvcbRecord(rType, buf);
+                default:
+                    return new DnsRecord(rType, buf);
             }
         }
 
@@ -507,7 +535,7 @@ public abstract class DnsPacket {
             mRecords[i] = new ArrayList(count);
             for (int j = 0; j < count; ++j) {
                 try {
-                    mRecords[i].add(new DnsRecord(i, buffer));
+                    mRecords[i].add(DnsRecord.parse(i, buffer));
                 } catch (BufferUnderflowException e) {
                     throw new ParseException("Parse record fail", e);
                 }

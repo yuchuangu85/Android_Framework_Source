@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl-java-source/gen/android/media/AudioMix.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/AudioMix.aidl
  */
 package android.media;
 /** {@hide} */
@@ -17,6 +18,10 @@ public class AudioMix implements android.os.Parcelable
   public boolean allowPrivilegedMediaPlaybackCapture = false;
   /** Indicates if the caller can capture voice communication output */
   public boolean voiceCommunicationCaptureAllowed = false;
+  /** Identifies the owner of the AudioPolicy that this AudioMix belongs to */
+  public android.os.IBinder mToken;
+  /** Indicates the Id of the VirtualDevice this AudioMix was registered for */
+  public int mVirtualDeviceId = 0;
   public static final android.os.Parcelable.Creator<AudioMix> CREATOR = new android.os.Parcelable.Creator<AudioMix>() {
     @Override
     public AudioMix createFromParcel(android.os.Parcel _aidl_source) {
@@ -41,6 +46,8 @@ public class AudioMix implements android.os.Parcelable
     _aidl_parcel.writeInt(cbFlags);
     _aidl_parcel.writeBoolean(allowPrivilegedMediaPlaybackCapture);
     _aidl_parcel.writeBoolean(voiceCommunicationCaptureAllowed);
+    _aidl_parcel.writeStrongBinder(mToken);
+    _aidl_parcel.writeInt(mVirtualDeviceId);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -68,6 +75,10 @@ public class AudioMix implements android.os.Parcelable
       allowPrivilegedMediaPlaybackCapture = _aidl_parcel.readBoolean();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       voiceCommunicationCaptureAllowed = _aidl_parcel.readBoolean();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      mToken = _aidl_parcel.readStrongBinder();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      mVirtualDeviceId = _aidl_parcel.readInt();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");

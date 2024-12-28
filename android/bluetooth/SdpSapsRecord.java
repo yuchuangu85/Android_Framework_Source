@@ -59,7 +59,6 @@ public class SdpSapsRecord implements Parcelable {
         dest.writeInt(mRfcommChannelNumber);
         dest.writeInt(mProfileVersion);
         dest.writeString(mServiceName);
-
     }
 
     @Override
@@ -78,13 +77,14 @@ public class SdpSapsRecord implements Parcelable {
         return ret;
     }
 
-    public static final Parcelable.Creator CREATOR = new Parcelable.Creator() {
-        public SdpSapsRecord createFromParcel(Parcel in) {
-            return new SdpSapsRecord(in);
-        }
+    public static final Parcelable.Creator CREATOR =
+            new Parcelable.Creator() {
+                public SdpSapsRecord createFromParcel(Parcel in) {
+                    return new SdpSapsRecord(in);
+                }
 
-        public SdpRecord[] newArray(int size) {
-            return new SdpRecord[size];
-        }
-    };
+                public SdpRecord[] newArray(int size) {
+                    return new SdpRecord[size];
+                }
+            };
 }

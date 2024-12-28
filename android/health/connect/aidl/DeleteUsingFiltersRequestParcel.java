@@ -67,6 +67,7 @@ public class DeleteUsingFiltersRequestParcel implements Parcelable {
                         RecordIdFiltersParcel.class.getClassLoader(), RecordIdFiltersParcel.class);
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public DeleteUsingFiltersRequestParcel(DeleteUsingFiltersRequest request) {
         mPackageNameFilters =
                 request.getDataOrigins().stream()

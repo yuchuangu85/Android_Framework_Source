@@ -27,13 +27,12 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 /**
- * @memberDoc For apps targeting {@link Build.VERSION_CODES#R} or lower, this
- *            requires the {@link Manifest.permission#BLUETOOTH_ADMIN}
- *            permission which can be gained with a simple
- *            {@code <uses-permission>} manifest tag.
+ * @memberDoc For apps targeting {@link Build.VERSION_CODES#R} or lower, this requires the {@link
+ *     Manifest.permission#BLUETOOTH_ADMIN} permission which can be gained with a simple {@code
+ *     <uses-permission>} manifest tag.
  * @hide
  */
 @Retention(SOURCE)
 @Target({METHOD, FIELD})
-public @interface RequiresLegacyBluetoothAdminPermission {
-}
+@SuppressWarnings("InvalidBlockTag")
+public @interface RequiresLegacyBluetoothAdminPermission {}

@@ -39,6 +39,7 @@ public final class ExerciseLap implements TimeInterval.TimeIntervalHolder {
     private final TimeInterval mInterval;
     private final Length mLength;
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private ExerciseLap(
             @NonNull TimeInterval interval, @Nullable Length length, boolean skipValidation) {
         Objects.requireNonNull(interval);
@@ -121,6 +122,7 @@ public final class ExerciseLap implements TimeInterval.TimeIntervalHolder {
         private final TimeInterval mInterval;
         private Length mLength;
 
+        @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
         public Builder(@NonNull Instant startTime, @NonNull Instant endTime) {
             mInterval = new TimeInterval(startTime, endTime);
         }

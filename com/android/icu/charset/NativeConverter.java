@@ -16,6 +16,9 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
 import java.nio.charset.CodingErrorAction;
 
+/**
+ * @hide
+ */
 public final class NativeConverter {
 
     private static final NativeAllocationRegistry registry = NativeAllocationRegistry

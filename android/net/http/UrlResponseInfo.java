@@ -79,18 +79,6 @@ public abstract class UrlResponseInfo {
     public abstract String getNegotiatedProtocol();
 
     /**
-     * Returns the proxy server that was used for the request.
-     *
-     * @return the proxy server that was used for the request.
-     *
-     * @hide
-     */
-    @Nullable
-    public String getProxyServer(){
-        return null;
-    };
-
-    /**
      * Returns a minimum count of bytes received from the network to process this request. This
      * count may ignore certain overheads (for example IP and TCP/UDP framing, SSL handshake and
      * framing, proxy handling). This count is taken prior to decompression (for example GZIP) and

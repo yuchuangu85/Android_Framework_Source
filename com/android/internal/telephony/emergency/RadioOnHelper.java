@@ -96,7 +96,7 @@ public class RadioOnHelper implements RadioOnStateListener.Callback {
                 continue;
             }
 
-            int timeoutCallbackInterval = (forEmergencyCall && phone == phoneForEmergencyCall)
+            int timeoutCallbackInterval = (phone == phoneForEmergencyCall)
                     ? emergencyTimeoutIntervalMillis : 0;
             mInProgressListeners.add(mListeners.get(i));
             mListeners.get(i).waitForRadioOn(phone, this, forEmergencyCall, forEmergencyCall
@@ -153,7 +153,7 @@ public class RadioOnHelper implements RadioOnStateListener.Callback {
     private void powerOffSatellite(Phone phoneForEmergencyCall) {
         SatelliteController satelliteController = SatelliteController.getInstance();
         satelliteController.requestSatelliteEnabled(phoneForEmergencyCall.getSubId(),
-                false /* enableSatellite */, false /* enableDemoMode */,
+                false /* enableSatellite */, false /* enableDemoMode */, false /* isEmergency */,
                 new IIntegerConsumer.Stub() {
                     @Override
                     public void accept(int result) {

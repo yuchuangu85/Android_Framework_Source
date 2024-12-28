@@ -426,4 +426,21 @@ public class NetworkUtils {
         return routedIPCount;
     }
 
+    /**
+     * Sets a socket option with byte array
+     *
+     * @param fd The socket file descriptor
+     * @param level The level at which the option is defined
+     * @param option The socket option for which the value is to be set
+     * @param value The option value to be set in byte array
+     * @throws ErrnoException if setsockopt fails
+     */
+    public static native void setsockoptBytes(FileDescriptor fd, int level, int option,
+            byte[] value) throws ErrnoException;
+
+    /** Returns whether the Linux Kernel is 64 bit */
+    public static native boolean isKernel64Bit();
+
+    /** Returns whether the Linux Kernel is x86 */
+    public static native boolean isKernelX86();
 }

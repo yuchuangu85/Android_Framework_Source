@@ -254,17 +254,12 @@ public class KeepaliveTracker extends Handler {
      * @return The socket alive error.
      */
     private int keepaliveStatusErrorToPacketKeepaliveError(int error) {
-        switch(error) {
-            case KeepaliveStatus.ERROR_NONE:
-                return SocketKeepalive.SUCCESS;
-            case KeepaliveStatus.ERROR_UNSUPPORTED:
-                return SocketKeepalive.ERROR_UNSUPPORTED;
-            case KeepaliveStatus.ERROR_NO_RESOURCES:
-                return SocketKeepalive.ERROR_INSUFFICIENT_RESOURCES;
-            case KeepaliveStatus.ERROR_UNKNOWN:
-            default:
-                return SocketKeepalive.ERROR_HARDWARE_ERROR;
-        }
+        return switch (error) {
+            case KeepaliveStatus.ERROR_NONE -> SocketKeepalive.SUCCESS;
+            case KeepaliveStatus.ERROR_UNSUPPORTED -> SocketKeepalive.ERROR_UNSUPPORTED;
+            case KeepaliveStatus.ERROR_NO_RESOURCES -> SocketKeepalive.ERROR_INSUFFICIENT_RESOURCES;
+            default -> SocketKeepalive.ERROR_HARDWARE_ERROR;
+        };
     }
 
     /**

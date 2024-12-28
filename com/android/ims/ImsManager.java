@@ -41,6 +41,7 @@ import android.telecom.TelecomManager;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.BinderCacheManager;
 import android.telephony.CarrierConfigManager;
+import android.telephony.ServiceState;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyFrameworkInitializer;
 import android.telephony.TelephonyManager;
@@ -68,13 +69,13 @@ import android.telephony.ims.feature.CapabilityChangeRequest;
 import android.telephony.ims.feature.ImsFeature;
 import android.telephony.ims.feature.MmTelFeature;
 import android.telephony.ims.stub.ImsCallSessionImplBase;
-import android.telephony.ims.stub.ImsConfigImplBase;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
 import android.util.SparseArray;
 
 import com.android.ims.internal.IImsCallSession;
 import com.android.ims.internal.IImsServiceFeatureCallback;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.ITelephony;
 import com.android.telephony.Rlog;
 
@@ -442,6 +443,7 @@ public class ImsManager implements FeatureUpdates {
     private Context mContext;
     private CarrierConfigManager mConfigManager;
     private int mPhoneId;
+    private TelephonyManager mTelephonyManager;
     private AtomicReference<MmTelFeatureConnection> mMmTelConnectionRef = new AtomicReference<>();
     // Used for debug purposes only currently
     private boolean mConfigUpdated = false;
@@ -1012,12 +1014,24 @@ public class ImsManager implements FeatureUpdates {
      * Returns whether the user sets call composer setting per sub.
      */
     public boolean isCallComposerEnabledByUser() {
-        TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
-        if (tm == null) {
+        if (mTelephonyManager == null) {
             loge("isCallComposerEnabledByUser: TelephonyManager is null, returning false");
             return false;
         }
-        return tm.getCallComposerStatus() == TelephonyManager.CALL_COMPOSER_STATUS_ON;
+        return mTelephonyManager.getCallComposerStatus()
+                == TelephonyManager.CALL_COMPOSER_STATUS_ON;
+    }
+
+    /**
+     * Returns whether the business only call composer is on.
+     */
+    public boolean isBusinessOnlyCallComposerEnabledByUser() {
+        TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
+        if (tm == null) {
+            loge("isBusinessOnlyCallComposerEnabledByUser: TelephonyManager is null");
+            return false;
+        }
+        return tm.getCallComposerStatus() == TelephonyManager.CALL_COMPOSER_STATUS_BUSINESS_ONLY;
     }
 
     /**
@@ -1352,6 +1366,10 @@ public class ImsManager implements FeatureUpdates {
             if (getBooleanCarrierConfig(
                     CarrierConfigManager.KEY_USE_WFC_HOME_NETWORK_MODE_IN_ROAMING_NETWORK_BOOL)) {
                 setting = getWfcMode(false);
+            } else if (overrideWfcRoamingModeWhileUsingNTN()) {
+                if (DBG) log("getWfcMode (roaming) "
+                        + "- override Wfc roaming mode to WIFI_PREFERRED");
+                setting = ImsConfig.WfcModeFeatureValueConstants.WIFI_PREFERRED;
             } else if (!getBooleanCarrierConfig(
                     CarrierConfigManager.KEY_EDITABLE_WFC_ROAMING_MODE_BOOL)) {
                 setting = getIntCarrierConfig(
@@ -1421,13 +1439,11 @@ public class ImsManager implements FeatureUpdates {
                     + subId);
         }
 
-        TelephonyManager tm = (TelephonyManager)
-                mContext.getSystemService(Context.TELEPHONY_SERVICE);
-        if (tm == null) {
+        if (mTelephonyManager == null) {
             loge("setWfcMode: TelephonyManager is null, can not set WFC.");
             return;
         }
-        tm = tm.createForSubscriptionId(getSubId());
+        TelephonyManager tm = mTelephonyManager.createForSubscriptionId(getSubId());
         // Unfortunately, the WFC mode is the same for home/roaming (we do not have separate
         // config keys), so we have to change the WFC mode when moving home<->roaming. So, only
         // call setWfcModeInternal when roaming == telephony roaming status. Otherwise, ignore.
@@ -1575,9 +1591,7 @@ public class ImsManager implements FeatureUpdates {
     }
 
     public boolean isSuppServicesOverUtEnabledByPlatform() {
-        TelephonyManager manager = (TelephonyManager) mContext.getSystemService(
-                Context.TELEPHONY_SERVICE);
-        int cardState = manager.getSimState(mPhoneId);
+        int cardState = mTelephonyManager.getSimState(mPhoneId);
         if (cardState != TelephonyManager.SIM_STATE_READY) {
             // Do not report enabled until we actually have an active subscription.
             return false;
@@ -1595,12 +1609,11 @@ public class ImsManager implements FeatureUpdates {
     private boolean isGbaValid() {
         if (getBooleanCarrierConfig(
                 CarrierConfigManager.KEY_CARRIER_IMS_GBA_REQUIRED_BOOL)) {
-            TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
-            if (tm == null) {
+            if (mTelephonyManager == null) {
                 loge("isGbaValid: TelephonyManager is null, returning false.");
                 return false;
             }
-            tm = tm.createForSubscriptionId(getSubId());
+            TelephonyManager tm = mTelephonyManager.createForSubscriptionId(getSubId());
             String efIst = tm.getIsimIst();
             if (efIst == null) {
                 loge("isGbaValid - ISF is NULL");
@@ -1700,7 +1713,11 @@ public class ImsManager implements FeatureUpdates {
         updateVoiceWifiFeatureAndProvisionedValues(request, isNonTtyWifi);
         updateCrossSimFeatureAndProvisionedValues(request);
         updateVideoCallFeatureValue(request, isNonTty);
-        updateCallComposerFeatureValue(request);
+        if (com.android.server.telecom.flags.Flags.businessCallComposer()) {
+            updateCallComposerFeatureValue(request);
+        } else {
+            updateCallComposerFeatureValueLegacy(request);
+        }
         // Only turn on IMS for RTT if there's an active subscription present. If not, the
         // modem will be in emergency-call-only mode and will use separate signaling to
         // establish an RTT emergency call.
@@ -1739,11 +1756,23 @@ public class ImsManager implements FeatureUpdates {
      * @return {@code true} if IMS needs to be turned on for the capability.
      */
     private boolean isImsNeededForCapability(int capability) {
-        // UT does not require IMS to be enabled.
-        return capability != MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT &&
-                // call composer is used as part of calling, so it should not trigger the enablement
-                // of IMS.
-                capability != MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER;
+        if (com.android.server.telecom.flags.Flags.businessCallComposer()) {
+            // UT does not require IMS to be enabled.
+            return capability != MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT &&
+                    // call composer is used as part of calling, so it should not trigger the
+                    // enablement
+                    // of IMS.
+                    capability != MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER &&
+                    capability != MmTelFeature.MmTelCapabilities
+                            .CAPABILITY_TYPE_CALL_COMPOSER_BUSINESS_ONLY;
+        } else {
+            // UT does not require IMS to be enabled.
+            return capability != MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_UT &&
+                    // call composer is used as part of calling, so it should not trigger the
+                    // enablement
+                    // of IMS.
+                    capability != MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER;
+        }
     }
 
     /**
@@ -1837,13 +1866,12 @@ public class ImsManager implements FeatureUpdates {
      */
     private void updateVoiceWifiFeatureAndProvisionedValues(CapabilityChangeRequest request,
      boolean isNonTty) {
-        TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
         boolean isNetworkRoaming =  false;
-        if (tm == null) {
+        if (mTelephonyManager == null) {
             loge("updateVoiceWifiFeatureAndProvisionedValues: TelephonyManager is null, assuming"
                     + " not roaming.");
         } else {
-            tm = tm.createForSubscriptionId(getSubId());
+            TelephonyManager tm = mTelephonyManager.createForSubscriptionId(getSubId());
             isNetworkRoaming = tm.isNetworkRoaming();
         }
 
@@ -1941,7 +1969,7 @@ public class ImsManager implements FeatureUpdates {
     /**
      * Update call composer capability
      */
-    private void updateCallComposerFeatureValue(CapabilityChangeRequest request) {
+    private void updateCallComposerFeatureValueLegacy(CapabilityChangeRequest request) {
         boolean isUserSetEnabled = isCallComposerEnabledByUser();
         boolean isCarrierConfigEnabled = getBooleanCarrierConfig(
                 CarrierConfigManager.KEY_SUPPORTS_CALL_COMPOSER_BOOL);
@@ -1957,11 +1985,11 @@ public class ImsManager implements FeatureUpdates {
         if (isFeatureOn) {
             request.addCapabilitiesToEnableForTech(
                     MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
-                            ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
         } else {
             request.addCapabilitiesToDisableForTech(
                     MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
-                            ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
         }
         if (isFeatureOn && nrAvailable) {
             request.addCapabilitiesToEnableForTech(
@@ -1975,11 +2003,90 @@ public class ImsManager implements FeatureUpdates {
     }
 
     /**
+     * Update call composer capability
+     */
+    private void updateCallComposerFeatureValue(CapabilityChangeRequest request) {
+        // query user set values
+        boolean isCallComposerEnabledByUser = isCallComposerEnabledByUser();
+        boolean isBusinessComposerEnabledByUser = isBusinessOnlyCallComposerEnabledByUser();
+        // query carrier set values
+        boolean isCallComposerEnabledByConfig = getBooleanCarrierConfig(
+                CarrierConfigManager.KEY_SUPPORTS_CALL_COMPOSER_BOOL);
+        boolean isBusinessComposerEnabledByConfig = getBooleanCarrierConfig(
+                CarrierConfigManager.KEY_SUPPORTS_BUSINESS_CALL_COMPOSER_BOOL);
+        // determine feature settings
+        boolean isCallComposerFeatureOn = isCallComposerEnabledByUser
+                && isCallComposerEnabledByConfig;
+        boolean isBusinessOnlyComposerFeatureOn = isBusinessComposerEnabledByUser
+                && isBusinessComposerEnabledByConfig;
+
+        boolean nrAvailable = isImsOverNrEnabledByPlatform();
+
+        logi("updateCallComposerFeatureValue:"
+                + "  isCallComposerEnabledByUser = " + isCallComposerEnabledByUser
+                + ", isCallComposerEnabledByConfig = " + isCallComposerEnabledByConfig
+                + ", isCallComposerFeatureOn = " + isCallComposerFeatureOn
+                + ", isBusinessOnlyComposerFeatureOn = " + isBusinessOnlyComposerFeatureOn
+                + ", isBusinessComposerEnabledByUser = " + isBusinessComposerEnabledByUser
+                + ", isBusinessComposerEnabledByConfig = " + isBusinessComposerEnabledByConfig
+                + ", nrAvailable = " + nrAvailable);
+
+        // enable/disable composers for LTE
+        if (isCallComposerFeatureOn) {
+            request.addCapabilitiesToEnableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+            request.addCapabilitiesToEnableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER_BUSINESS_ONLY,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+        } else if (isBusinessOnlyComposerFeatureOn) {
+            request.addCapabilitiesToEnableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER_BUSINESS_ONLY,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+            request.addCapabilitiesToDisableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+        } else {
+            request.addCapabilitiesToDisableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+            request.addCapabilitiesToDisableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER_BUSINESS_ONLY,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_LTE);
+        }
+
+        // enable/disable composers for NR
+        if (isCallComposerFeatureOn && nrAvailable) {
+            request.addCapabilitiesToEnableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_NR);
+            request.addCapabilitiesToEnableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER_BUSINESS_ONLY,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_NR);
+        } else if (isBusinessOnlyComposerFeatureOn && nrAvailable) {
+            request.addCapabilitiesToEnableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER_BUSINESS_ONLY,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_NR);
+            request.addCapabilitiesToDisableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_NR);
+        } else {
+            request.addCapabilitiesToDisableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_NR);
+            request.addCapabilitiesToDisableForTech(
+                    MmTelFeature.MmTelCapabilities.CAPABILITY_TYPE_CALL_COMPOSER_BUSINESS_ONLY,
+                    ImsRegistrationImplBase.REGISTRATION_TECH_NR);
+        }
+    }
+
+    /**
      * Do NOT use this directly, instead use {@link #getInstance(Context, int)}.
      */
     private ImsManager(Context context, int phoneId) {
         mContext = context;
         mPhoneId = phoneId;
+        mTelephonyManager = context.getSystemService(TelephonyManager.class);
         mSubscriptionManagerProxy = new DefaultSubscriptionManagerProxy(context);
         mSettingsProxy = new DefaultSettingsProxy();
         mConfigManager = (CarrierConfigManager) context.getSystemService(
@@ -2001,6 +2108,7 @@ public class ImsManager implements FeatureUpdates {
         mContext = context;
         mPhoneId = phoneId;
         mMmTelFeatureConnectionFactory = factory;
+        mTelephonyManager = context.getSystemService(TelephonyManager.class);
         mSubscriptionManagerProxy = subManagerProxy;
         mSettingsProxy = settingsProxy;
         mConfigManager = (CarrierConfigManager) context.getSystemService(
@@ -2166,6 +2274,38 @@ public class ImsManager implements FeatureUpdates {
             throw new IllegalArgumentException("registration callback can't be null");
         }
         mMmTelConnectionRef.get().removeRegistrationCallbackForSubscription(callback, subId);
+    }
+
+    /**
+     * Adds a callback that gets called when IMS emergency registration has changed for a specific
+     * subscription.
+     *
+     * @param callback A {@link RegistrationManager.RegistrationCallback} that will notify the
+     *                 caller when IMS registration status has changed.
+     * @param subId The subscription ID to register this registration callback for.
+     * @throws RemoteException when the ImsService connection is not available.
+     */
+    public void addEmergencyRegistrationCallbackForSubscription(
+            IImsRegistrationCallback callback, int subId) throws RemoteException {
+        if (callback == null) {
+            throw new IllegalArgumentException("emergency registration callback can't be null");
+        }
+        mMmTelConnectionRef.get().addEmergencyRegistrationCallbackForSubscription(callback, subId);
+        log("Emergency registration Callback registered.");
+        // Only record if there isn't a RemoteException.
+    }
+
+    /**
+     * Removes a previously registered {@link RegistrationManager.RegistrationCallback} callback
+     * that is associated with a specific subscription.
+     */
+    public void removeEmergencyRegistrationCallbackForSubscription(
+            IImsRegistrationCallback callback, int subId) {
+        if (callback == null) {
+            throw new IllegalArgumentException("emergency registration callback can't be null");
+        }
+        mMmTelConnectionRef.get().removeEmergencyRegistrationCallbackForSubscription(callback,
+                subId);
     }
 
     /**
@@ -2450,6 +2590,15 @@ public class ImsManager implements FeatureUpdates {
             call.attachSession(new ImsCallSession(session));
             call.setListener(listener);
 
+            if (Flags.ignoreAlreadyTerminatedIncomingCallBeforeRegisteringListener()){
+                // If the call session already terminated before registering callback then the
+                // framework should ignore incoming call.
+                if (!ImsCall.isSessionAlive(call.getSession())) {
+                    loge("takeCall : ImsCallSession is not alive");
+                    throw new ImsException("takeCall() : ImsCallSession is not alive",
+                            ImsReasonInfo.CODE_UNSPECIFIED);
+                }
+            }
             return call;
         } catch (Throwable t) {
             loge("takeCall caught: ", t);
@@ -3053,9 +3202,7 @@ public class ImsManager implements FeatureUpdates {
      * Used for turning on IMS.if its off already
      */
     private void turnOnIms() throws ImsException {
-        TelephonyManager tm = (TelephonyManager)
-                mContext.getSystemService(Context.TELEPHONY_SERVICE);
-        tm.enableIms(mPhoneId);
+        mTelephonyManager.enableIms(mPhoneId);
     }
 
     private boolean isImsTurnOffAllowed() {
@@ -3069,9 +3216,7 @@ public class ImsManager implements FeatureUpdates {
      * Once turned off, all calls will be over CS.
      */
     private void turnOffIms() throws ImsException {
-        TelephonyManager tm = (TelephonyManager)
-                mContext.getSystemService(Context.TELEPHONY_SERVICE);
-        tm.disableIms(mPhoneId);
+        mTelephonyManager.disableIms(mPhoneId);
     }
 
     /**
@@ -3260,12 +3405,11 @@ public class ImsManager implements FeatureUpdates {
     }
 
     private boolean isDataEnabled() {
-        TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
-        if (tm == null) {
+        if (mTelephonyManager == null) {
             loge("isDataEnabled: TelephonyManager not available, returning false...");
             return false;
         }
-        tm = tm.createForSubscriptionId(getSubId());
+        TelephonyManager tm = mTelephonyManager.createForSubscriptionId(getSubId());
         return tm.isDataConnectionAllowed();
     }
 
@@ -3561,5 +3705,36 @@ public class ImsManager implements FeatureUpdates {
             throw new ImsException("updateImsCarrierConfigs()", e,
                     ImsReasonInfo.CODE_LOCAL_IMS_SERVICE_DOWN);
         }
+    }
+
+    /**
+     * Determine whether to override roaming Wi-Fi calling preference when device is connected to
+     * non-terrestrial network.
+     *
+     * @return {@code true} if phone is connected to non-terrestrial network and if
+     * {@link CarrierConfigManager#KEY_OVERRIDE_WFC_ROAMING_MODE_WHILE_USING_NTN_BOOL} is true,
+     * {@code false} otherwise.
+     */
+    private boolean overrideWfcRoamingModeWhileUsingNTN() {
+        if (!Flags.carrierEnabledSatelliteFlag()) {
+            return false;
+        }
+
+        if (mTelephonyManager == null) {
+            return false;
+        }
+
+        TelephonyManager tm = mTelephonyManager.createForSubscriptionId(getSubId());
+        ServiceState serviceState = tm.getServiceState();
+        if (serviceState == null) {
+            return false;
+        }
+
+        if (!serviceState.isUsingNonTerrestrialNetwork()) {
+            return false;
+        }
+
+        return getBooleanCarrierConfig(
+                CarrierConfigManager.KEY_OVERRIDE_WFC_ROAMING_MODE_WHILE_USING_NTN_BOOL);
     }
 }

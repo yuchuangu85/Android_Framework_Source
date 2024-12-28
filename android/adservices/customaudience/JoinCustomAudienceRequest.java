@@ -86,7 +86,7 @@ public class JoinCustomAudienceRequest {
          */
         @NonNull
         public JoinCustomAudienceRequest build() {
-            Objects.requireNonNull(mCustomAudience);
+            Objects.requireNonNull(mCustomAudience, "The custom audience has not been provided");
 
             return new JoinCustomAudienceRequest(this);
         }

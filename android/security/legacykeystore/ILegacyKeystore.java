@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation -t --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.legacykeystore-java-source/gen/android/security/legacykeystore/ILegacyKeystore.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.legacykeystore-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/legacykeystore/ILegacyKeystore.aidl
  */
 package android.security.legacykeystore;
 /**
@@ -79,6 +80,7 @@ public interface ILegacyKeystore extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.security.legacykeystore.ILegacyKeystore
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -140,13 +142,9 @@ public interface ILegacyKeystore extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -335,7 +333,8 @@ public interface ILegacyKeystore extends android.os.IInterface
       return 3;
     }
   }
-  public static final java.lang.String DESCRIPTOR = "android$security$legacykeystore$ILegacyKeystore".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.security.legacykeystore.ILegacyKeystore";
   /** Special value indicating the callers uid. */
   public static final int UID_SELF = -1;
   /** Service specific error code indicating that an unexpected system error occurred. */

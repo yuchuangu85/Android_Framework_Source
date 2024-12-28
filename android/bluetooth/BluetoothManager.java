@@ -16,8 +16,6 @@
 
 package android.bluetooth;
 
-import static android.bluetooth.BluetoothUtils.getSyncTimeout;
-
 import android.annotation.RequiresFeature;
 import android.annotation.RequiresNoPermission;
 import android.annotation.RequiresPermission;
@@ -30,28 +28,21 @@ import android.content.pm.PackageManager;
 import android.os.RemoteException;
 import android.util.Log;
 
-import com.android.modules.utils.SynchronousResultReceiver;
-
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
 
 /**
- * High level manager used to obtain an instance of an {@link BluetoothAdapter}
- * and to conduct overall Bluetooth Management.
- * <p>
- * Use {@link android.content.Context#getSystemService(java.lang.String)}
- * with {@link Context#BLUETOOTH_SERVICE} to create an {@link BluetoothManager},
- * then call {@link #getAdapter} to obtain the {@link BluetoothAdapter}.
- * </p>
- * <div class="special reference">
+ * High level manager used to obtain an instance of an {@link BluetoothAdapter} and to conduct
+ * overall Bluetooth Management.
+ *
+ * <p>Use {@link android.content.Context#getSystemService(java.lang.String)} with {@link
+ * Context#BLUETOOTH_SERVICE} to create an {@link BluetoothManager}, then call {@link #getAdapter}
+ * to obtain the {@link BluetoothAdapter}. <div class="special reference">
+ *
  * <h3>Developer Guides</h3>
- * <p>
- * For more information about using BLUETOOTH, read the <a href=
- * "{@docRoot}guide/topics/connectivity/bluetooth.html">Bluetooth</a> developer
- * guide.
- * </p>
- * </div>
+ *
+ * <p>For more information about using BLUETOOTH, read the <a href=
+ * "{@docRoot}guide/topics/connectivity/bluetooth.html">Bluetooth</a> developer guide. </div>
  *
  * @see Context#getSystemService
  * @see BluetoothAdapter#getDefaultAdapter()
@@ -65,12 +56,9 @@ public final class BluetoothManager {
     private final AttributionSource mAttributionSource;
     private final BluetoothAdapter mAdapter;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public BluetoothManager(Context context) {
-        mAttributionSource = (context != null) ? context.getAttributionSource() :
-                AttributionSource.myAttributionSource();
+        mAttributionSource = context.getAttributionSource();
         mAdapter = BluetoothAdapter.createAdapter(mAttributionSource);
     }
 
@@ -87,16 +75,15 @@ public final class BluetoothManager {
     /**
      * Get the current connection state of the profile to the remote device.
      *
-     * <p>This is not specific to any application configuration but represents
-     * the connection state of the local Bluetooth adapter for certain profile.
-     * This can be used by applications like status bar which would just like
-     * to know the state of Bluetooth.
+     * <p>This is not specific to any application configuration but represents the connection state
+     * of the local Bluetooth adapter for certain profile. This can be used by applications like
+     * status bar which would just like to know the state of Bluetooth.
      *
      * @param device Remote bluetooth device.
      * @param profile GATT or GATT_SERVER
      * @return State of the profile connection. One of {@link BluetoothProfile#STATE_CONNECTED},
-     * {@link BluetoothProfile#STATE_CONNECTING}, {@link BluetoothProfile#STATE_DISCONNECTED},
-     * {@link BluetoothProfile#STATE_DISCONNECTING}
+     *     {@link BluetoothProfile#STATE_CONNECTING}, {@link BluetoothProfile#STATE_DISCONNECTED},
+     *     {@link BluetoothProfile#STATE_DISCONNECTING}
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
@@ -117,12 +104,11 @@ public final class BluetoothManager {
     /**
      * Get connected devices for the specified profile.
      *
-     * <p> Return the set of devices which are in state {@link BluetoothProfile#STATE_CONNECTED}
+     * <p>Return the set of devices which are in state {@link BluetoothProfile#STATE_CONNECTED}
      *
-     * <p>This is not specific to any application configuration but represents
-     * the connection state of Bluetooth for this profile.
-     * This can be used by applications like status bar which would just like
-     * to know the state of Bluetooth.
+     * <p>This is not specific to any application configuration but represents the connection state
+     * of Bluetooth for this profile. This can be used by applications like status bar which would
+     * just like to know the state of Bluetooth.
      *
      * @param profile GATT or GATT_SERVER
      * @return List of devices. The list will be empty on error.
@@ -132,27 +118,23 @@ public final class BluetoothManager {
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public List<BluetoothDevice> getConnectedDevices(int profile) {
         if (DBG) Log.d(TAG, "getConnectedDevices");
-        return getDevicesMatchingConnectionStates(profile, new int[] {
-                BluetoothProfile.STATE_CONNECTED
-        });
+        return getDevicesMatchingConnectionStates(
+                profile, new int[] {BluetoothProfile.STATE_CONNECTED});
     }
 
     /**
-     * Get a list of devices that match any of the given connection
-     * states.
+     * Get a list of devices that match any of the given connection states.
      *
-     * <p> If none of the devices match any of the given states,
-     * an empty list will be returned.
+     * <p>If none of the devices match any of the given states, an empty list will be returned.
      *
-     * <p>This is not specific to any application configuration but represents
-     * the connection state of the local Bluetooth adapter for this profile.
-     * This can be used by applications like status bar which would just like
-     * to know the state of the local adapter.
+     * <p>This is not specific to any application configuration but represents the connection state
+     * of the local Bluetooth adapter for this profile. This can be used by applications like status
+     * bar which would just like to know the state of the local adapter.
      *
      * @param profile GATT or GATT_SERVER
      * @param states Array of states. States can be one of {@link BluetoothProfile#STATE_CONNECTED},
-     * {@link BluetoothProfile#STATE_CONNECTING}, {@link BluetoothProfile#STATE_DISCONNECTED},
-     * {@link BluetoothProfile#STATE_DISCONNECTING},
+     *     {@link BluetoothProfile#STATE_CONNECTING}, {@link BluetoothProfile#STATE_DISCONNECTED},
+     *     {@link BluetoothProfile#STATE_DISCONNECTING},
      * @return List of devices. The list will be empty on error.
      */
     @RequiresLegacyBluetoothPermission
@@ -168,16 +150,13 @@ public final class BluetoothManager {
         List<BluetoothDevice> devices = new ArrayList<BluetoothDevice>();
 
         try {
-            IBluetoothManager managerService = mAdapter.getBluetoothManager();
-            IBluetoothGatt iGatt = managerService.getBluetoothGatt();
+            IBluetoothGatt iGatt = mAdapter.getBluetoothGatt();
             if (iGatt == null) return devices;
-            final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                    SynchronousResultReceiver.get();
-            iGatt.getDevicesMatchingConnectionStates(states, mAttributionSource, recv);
-            devices = Attributable.setAttributionSource(
-                    recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(devices),
-                    mAttributionSource);
-        } catch (RemoteException | TimeoutException e) {
+            devices =
+                    Attributable.setAttributionSource(
+                            iGatt.getDevicesMatchingConnectionStates(states, mAttributionSource),
+                            mAttributionSource);
+        } catch (RemoteException e) {
             Log.e(TAG, "", e);
         }
 
@@ -185,11 +164,10 @@ public final class BluetoothManager {
     }
 
     /**
-     * Open a GATT Server
-     * The callback is used to deliver results to Caller, such as connection status as well
-     * as the results of any other GATT server operations.
-     * The method returns a BluetoothGattServer instance. You can use BluetoothGattServer
-     * to conduct GATT server operations.
+     * Open a GATT Server The callback is used to deliver results to Caller, such as connection
+     * status as well as the results of any other GATT server operations. The method returns a
+     * BluetoothGattServer instance. You can use BluetoothGattServer to conduct GATT server
+     * operations.
      *
      * @param context App context
      * @param callback GATT server callback handler that will receive asynchronous callbacks.
@@ -197,74 +175,74 @@ public final class BluetoothManager {
      */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    public BluetoothGattServer openGattServer(Context context,
-            BluetoothGattServerCallback callback) {
+    public BluetoothGattServer openGattServer(
+            Context context, BluetoothGattServerCallback callback) {
 
         return (openGattServer(context, callback, BluetoothDevice.TRANSPORT_AUTO));
     }
 
     /**
-     * Open a GATT Server
-     * The callback is used to deliver results to Caller, such as connection status as well
-     * as the results of any other GATT server operations.
-     * The method returns a BluetoothGattServer instance. You can use BluetoothGattServer
-     * to conduct GATT server operations.
+     * Open a GATT Server The callback is used to deliver results to Caller, such as connection
+     * status as well as the results of any other GATT server operations. The method returns a
+     * BluetoothGattServer instance. You can use BluetoothGattServer to conduct GATT server
+     * operations.
      *
      * @param context App context
      * @param callback GATT server callback handler that will receive asynchronous callbacks.
-     * @param eattSupport idicates if server should use eatt channel for notifications.
+     * @param eattSupport indicates if server should use eatt channel for notifications.
      * @return BluetoothGattServer instance
      * @hide
      */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    public BluetoothGattServer openGattServer(Context context,
-            BluetoothGattServerCallback callback, boolean eattSupport) {
+    public BluetoothGattServer openGattServer(
+            Context context, BluetoothGattServerCallback callback, boolean eattSupport) {
         return (openGattServer(context, callback, BluetoothDevice.TRANSPORT_AUTO, eattSupport));
     }
 
     /**
-     * Open a GATT Server
-     * The callback is used to deliver results to Caller, such as connection status as well
-     * as the results of any other GATT server operations.
-     * The method returns a BluetoothGattServer instance. You can use BluetoothGattServer
-     * to conduct GATT server operations.
+     * Open a GATT Server The callback is used to deliver results to Caller, such as connection
+     * status as well as the results of any other GATT server operations. The method returns a
+     * BluetoothGattServer instance. You can use BluetoothGattServer to conduct GATT server
+     * operations.
      *
      * @param context App context
      * @param callback GATT server callback handler that will receive asynchronous callbacks.
      * @param transport preferred transport for GATT connections to remote dual-mode devices {@link
-     * BluetoothDevice#TRANSPORT_AUTO} or {@link BluetoothDevice#TRANSPORT_BREDR} or {@link
-     * BluetoothDevice#TRANSPORT_LE}
+     *     BluetoothDevice#TRANSPORT_AUTO} or {@link BluetoothDevice#TRANSPORT_BREDR} or {@link
+     *     BluetoothDevice#TRANSPORT_LE}
      * @return BluetoothGattServer instance
      * @hide
      */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    public BluetoothGattServer openGattServer(Context context,
-            BluetoothGattServerCallback callback, int transport) {
+    public BluetoothGattServer openGattServer(
+            Context context, BluetoothGattServerCallback callback, int transport) {
         return (openGattServer(context, callback, transport, false));
     }
 
     /**
-     * Open a GATT Server
-     * The callback is used to deliver results to Caller, such as connection status as well
-     * as the results of any other GATT server operations.
-     * The method returns a BluetoothGattServer instance. You can use BluetoothGattServer
-     * to conduct GATT server operations.
+     * Open a GATT Server The callback is used to deliver results to Caller, such as connection
+     * status as well as the results of any other GATT server operations. The method returns a
+     * BluetoothGattServer instance. You can use BluetoothGattServer to conduct GATT server
+     * operations.
      *
      * @param context App context
      * @param callback GATT server callback handler that will receive asynchronous callbacks.
      * @param transport preferred transport for GATT connections to remote dual-mode devices {@link
-     * BluetoothDevice#TRANSPORT_AUTO} or {@link BluetoothDevice#TRANSPORT_BREDR} or {@link
-     * BluetoothDevice#TRANSPORT_LE}
-     * @param eattSupport idicates if server should use eatt channel for notifications.
+     *     BluetoothDevice#TRANSPORT_AUTO} or {@link BluetoothDevice#TRANSPORT_BREDR} or {@link
+     *     BluetoothDevice#TRANSPORT_LE}
+     * @param eattSupport indicates if server should use eatt channel for notifications.
      * @return BluetoothGattServer instance
      * @hide
      */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    public BluetoothGattServer openGattServer(Context context,
-            BluetoothGattServerCallback callback, int transport, boolean eattSupport) {
+    public BluetoothGattServer openGattServer(
+            Context context,
+            BluetoothGattServerCallback callback,
+            int transport,
+            boolean eattSupport) {
         if (context == null || callback == null) {
             throw new IllegalArgumentException("null parameter: " + context + " " + callback);
         }
@@ -272,20 +250,13 @@ public final class BluetoothManager {
         // TODO(Bluetooth) check whether platform support BLE
         //     Do the check here or in GattServer?
 
-        try {
-            IBluetoothManager managerService = mAdapter.getBluetoothManager();
-            IBluetoothGatt iGatt = managerService.getBluetoothGatt();
-            if (iGatt == null) {
-                Log.e(TAG, "Fail to get GATT Server connection");
-                return null;
-            }
-            BluetoothGattServer mGattServer =
-                    new BluetoothGattServer(iGatt, transport, mAdapter);
-            Boolean regStatus = mGattServer.registerCallback(callback, eattSupport);
-            return regStatus ? mGattServer : null;
-        } catch (RemoteException e) {
-            Log.e(TAG, "", e);
+        IBluetoothGatt iGatt = mAdapter.getBluetoothGatt();
+        if (iGatt == null) {
+            Log.e(TAG, "Fail to get GATT Server connection");
             return null;
         }
+        BluetoothGattServer mGattServer = new BluetoothGattServer(iGatt, transport, mAdapter);
+        Boolean regStatus = mGattServer.registerCallback(callback, eattSupport);
+        return regStatus ? mGattServer : null;
     }
 }

@@ -15,10 +15,12 @@
  */
 package android.app.appsearch;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.appsearch.exceptions.AppSearchException;
+import android.app.appsearch.flags.Flags;
 import android.app.appsearch.util.LogUtil;
 import android.util.Log;
 
@@ -54,6 +56,8 @@ public final class AppSearchResult<ValueType> {
                 RESULT_INVALID_SCHEMA,
                 RESULT_SECURITY_ERROR,
                 RESULT_DENIED,
+                RESULT_RATE_LIMITED,
+                RESULT_TIMED_OUT
             })
     @Retention(RetentionPolicy.SOURCE)
     public @interface ResultCode {}
@@ -100,13 +104,22 @@ public final class AppSearchResult<ValueType> {
     /**
      * The requested operation is denied for the caller. This error is logged and returned for
      * denylist rejections.
-     *
-     * @hide
      */
-    // TODO(b/279047435): unhide this the next time we can make API changes
+    @FlaggedApi(Flags.FLAG_ENABLE_RESULT_DENIED_AND_RESULT_RATE_LIMITED)
     public static final int RESULT_DENIED = 9;
 
-    private final @ResultCode int mResultCode;
+    /**
+     * The caller has hit AppSearch's rate limit and the requested operation has been rejected. The
+     * caller is recommended to reschedule tasks with exponential backoff.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_RESULT_DENIED_AND_RESULT_RATE_LIMITED)
+    public static final int RESULT_RATE_LIMITED = 10;
+
+    /** The operation was timed out. */
+    @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+    public static final int RESULT_TIMED_OUT = 11;
+
+    @ResultCode private final int mResultCode;
     @Nullable private final ValueType mResultValue;
     @Nullable private final String mErrorMessage;
 
@@ -196,7 +209,7 @@ public final class AppSearchResult<ValueType> {
     @NonNull
     public static <ValueType> AppSearchResult<ValueType> newSuccessfulResult(
             @Nullable ValueType value) {
-        return new AppSearchResult<>(RESULT_OK, value, /*errorMessage=*/ null);
+        return new AppSearchResult<>(RESULT_OK, value, /* errorMessage= */ null);
     }
 
     /**
@@ -208,7 +221,7 @@ public final class AppSearchResult<ValueType> {
     @NonNull
     public static <ValueType> AppSearchResult<ValueType> newFailedResult(
             @ResultCode int resultCode, @Nullable String errorMessage) {
-        return new AppSearchResult<>(resultCode, /*resultValue=*/ null, errorMessage);
+        return new AppSearchResult<>(resultCode, /* resultValue= */ null, errorMessage);
     }
 
     /**

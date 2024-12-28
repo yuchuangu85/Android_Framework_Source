@@ -16,15 +16,15 @@
 
 package android.bluetooth;
 
-import static android.bluetooth.BluetoothUtils.getSyncTimeout;
-
 import android.Manifest;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
+import android.bluetooth.BluetoothDevice.Transport;
 import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
 import android.bluetooth.annotations.RequiresLegacyBluetoothAdminPermission;
 import android.bluetooth.annotations.RequiresLegacyBluetoothPermission;
@@ -34,19 +34,17 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 
-import com.android.modules.utils.SynchronousResultReceiver;
+import com.android.bluetooth.flags.Flags;
 
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
+import java.util.Objects;
 
 /**
- * This class provides the public APIs to control the Bluetooth Input
- * Device Profile.
+ * This class provides the public APIs to control the Bluetooth Input Device Profile.
  *
- * <p>BluetoothHidHost is a proxy object for controlling the Bluetooth
- * Service via IPC. Use {@link BluetoothAdapter#getProfileProxy} to get
- * the BluetoothHidHost proxy object.
+ * <p>BluetoothHidHost is a proxy object for controlling the Bluetooth Service via IPC. Use {@link
+ * BluetoothAdapter#getProfileProxy} to get the BluetoothHidHost proxy object.
  *
  * <p>Each method is protected with its appropriate permission.
  *
@@ -59,19 +57,23 @@ public final class BluetoothHidHost implements BluetoothProfile {
     private static final boolean VDBG = false;
 
     /**
-     * Intent used to broadcast the change in connection state of the Input
-     * Device profile.
+     * Intent used to broadcast the change in connection state of the Input Device profile.
      *
      * <p>This intent will have 3 extras:
+     *
      * <ul>
-     * <li> {@link #EXTRA_STATE} - The current state of the profile. </li>
-     * <li> {@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.</li>
-     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device. </li>
+     *   <li>{@link #EXTRA_STATE} - The current state of the profile.
+     *   <li>{@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.
+     *   <li>{@link BluetoothDevice#EXTRA_TRANSPORT} - Transport of the connection.
+     *   <li>{@link BluetoothDevice#EXTRA_DEVICE} - The remote device.
      * </ul>
      *
-     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of
-     * {@link #STATE_DISCONNECTED}, {@link #STATE_CONNECTING},
-     * {@link #STATE_CONNECTED}, {@link #STATE_DISCONNECTING}.
+     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of {@link
+     * #STATE_DISCONNECTED}, {@link #STATE_CONNECTING}, {@link #STATE_CONNECTED}, {@link
+     * #STATE_DISCONNECTING}.
+     *
+     * <p>{@link BluetoothDevice#EXTRA_TRANSPORT} can be any of {@link
+     * BluetoothDevice#TRANSPORT_BREDR}, {@link BluetoothDevice#TRANSPORT_LE}.
      */
     @SuppressLint("ActionValue")
     @RequiresLegacyBluetoothPermission
@@ -81,45 +83,34 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public static final String ACTION_CONNECTION_STATE_CHANGED =
             "android.bluetooth.input.profile.action.CONNECTION_STATE_CHANGED";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_PROTOCOL_MODE_CHANGED =
             "android.bluetooth.input.profile.action.PROTOCOL_MODE_CHANGED";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_HANDSHAKE =
             "android.bluetooth.input.profile.action.HANDSHAKE";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
-    public static final String ACTION_REPORT =
-            "android.bluetooth.input.profile.action.REPORT";
+    public static final String ACTION_REPORT = "android.bluetooth.input.profile.action.REPORT";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_VIRTUAL_UNPLUG_STATUS =
             "android.bluetooth.input.profile.action.VIRTUAL_UNPLUG_STATUS";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
@@ -133,230 +124,184 @@ public final class BluetoothHidHost implements BluetoothProfile {
      */
     public static final int INPUT_DISCONNECT_FAILED_NOT_CONNECTED = 5000;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int INPUT_CONNECT_FAILED_ALREADY_CONNECTED = 5001;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int INPUT_CONNECT_FAILED_ATTEMPT_FAILED = 5002;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int INPUT_OPERATION_GENERIC_FAILURE = 5003;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int INPUT_OPERATION_SUCCESS = 5004;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int PROTOCOL_REPORT_MODE = 0;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int PROTOCOL_BOOT_MODE = 1;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int PROTOCOL_UNSUPPORTED_MODE = 255;
 
     /*  int reportType, int reportType, int bufferSize */
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final byte REPORT_TYPE_INPUT = 1;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final byte REPORT_TYPE_OUTPUT = 2;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final byte REPORT_TYPE_FEATURE = 3;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int VIRTUAL_UNPLUG_STATUS_SUCCESS = 0;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final int VIRTUAL_UNPLUG_STATUS_FAIL = 1;
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_PROTOCOL_MODE =
             "android.bluetooth.BluetoothHidHost.extra.PROTOCOL_MODE";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_REPORT_TYPE =
             "android.bluetooth.BluetoothHidHost.extra.REPORT_TYPE";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_REPORT_ID =
             "android.bluetooth.BluetoothHidHost.extra.REPORT_ID";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_REPORT_BUFFER_SIZE =
             "android.bluetooth.BluetoothHidHost.extra.REPORT_BUFFER_SIZE";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_REPORT = "android.bluetooth.BluetoothHidHost.extra.REPORT";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_STATUS = "android.bluetooth.BluetoothHidHost.extra.STATUS";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_VIRTUAL_UNPLUG_STATUS =
             "android.bluetooth.BluetoothHidHost.extra.VIRTUAL_UNPLUG_STATUS";
 
-    /**
-     * @hide
-     */
+    /** @hide */
     public static final String EXTRA_IDLE_TIME =
             "android.bluetooth.BluetoothHidHost.extra.IDLE_TIME";
 
     private final BluetoothAdapter mAdapter;
     private final AttributionSource mAttributionSource;
-    private final BluetoothProfileConnector<IBluetoothHidHost> mProfileConnector =
-            new BluetoothProfileConnector(this, BluetoothProfile.HID_HOST,
-                    "BluetoothHidHost", IBluetoothHidHost.class.getName()) {
-                @Override
-                public IBluetoothHidHost getServiceInterface(IBinder service) {
-                    return IBluetoothHidHost.Stub.asInterface(service);
-                }
-    };
+
+    private IBluetoothHidHost mService;
 
     /**
-     * Create a BluetoothHidHost proxy object for interacting with the local
-     * Bluetooth Service which handles the InputDevice profile
+     * Create a BluetoothHidHost proxy object for interacting with the local Bluetooth Service which
+     * handles the InputDevice profile
      */
-    /* package */ BluetoothHidHost(Context context, ServiceListener listener,
-            BluetoothAdapter adapter) {
+    /* package */ BluetoothHidHost(Context context, BluetoothAdapter adapter) {
         mAdapter = adapter;
         mAttributionSource = adapter.getAttributionSource();
-        mProfileConnector.connect(context, listener);
+        mService = null;
     }
 
     /** @hide */
     @Override
-    public void close() {
-        if (VDBG) log("close()");
-        mProfileConnector.disconnect();
+    public void onServiceConnected(IBinder service) {
+        mService = IBluetoothHidHost.Stub.asInterface(service);
+    }
+
+    /** @hide */
+    @Override
+    public void onServiceDisconnected() {
+        mService = null;
     }
 
     private IBluetoothHidHost getService() {
-        return mProfileConnector.getService();
+        return mService;
+    }
+
+    /** @hide */
+    @Override
+    public BluetoothAdapter getAdapter() {
+        return mAdapter;
     }
 
     /**
      * Initiate connection to a profile of the remote bluetooth device.
      *
-     * <p> The system supports connection to multiple input devices.
+     * <p>The system supports connection to multiple input devices.
      *
-     * <p> This API returns false in scenarios like the profile on the
-     * device is already connected or Bluetooth is not turned on.
-     * When this API returns true, it is guaranteed that
-     * connection state intent for the profile will be broadcasted with
-     * the state. Users can get the connection state of the profile
-     * from this intent.
+     * <p>This API returns false in scenarios like the profile on the device is already connected or
+     * Bluetooth is not turned on. When this API returns true, it is guaranteed that connection
+     * state intent for the profile will be broadcasted with the state. Users can get the connection
+     * state of the profile from this intent.
      *
      * @param device Remote Bluetooth Device
      * @return false on immediate error, true otherwise
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean connect(BluetoothDevice device) {
         if (DBG) log("connect(" + device + ")");
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.connect(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.connect(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Initiate disconnection from a profile
      *
-     * <p> This API will return false in scenarios like the profile on the
-     * Bluetooth device is not in connected state etc. When this API returns,
-     * true, it is guaranteed that the connection state change
-     * intent will be broadcasted with the state. Users can get the
-     * disconnection state of the profile from this intent.
+     * <p>This API will return false in scenarios like the profile on the Bluetooth device is not in
+     * connected state etc. When this API returns, true, it is guaranteed that the connection state
+     * change intent will be broadcasted with the state. Users can get the disconnection state of
+     * the profile from this intent.
      *
-     * <p> If the disconnection is initiated by a remote device, the state
-     * will transition from {@link #STATE_CONNECTED} to
-     * {@link #STATE_DISCONNECTED}. If the disconnect is initiated by the
-     * host (local) device the state will transition from
-     * {@link #STATE_CONNECTED} to state {@link #STATE_DISCONNECTING} to
-     * state {@link #STATE_DISCONNECTED}. The transition to
-     * {@link #STATE_DISCONNECTING} can be used to distinguish between the
-     * two scenarios.
+     * <p>If the disconnection is initiated by a remote device, the state will transition from
+     * {@link #STATE_CONNECTED} to {@link #STATE_DISCONNECTED}. If the disconnect is initiated by
+     * the host (local) device the state will transition from {@link #STATE_CONNECTED} to state
+     * {@link #STATE_DISCONNECTING} to state {@link #STATE_DISCONNECTED}. The transition to {@link
+     * #STATE_DISCONNECTING} can be used to distinguish between the two scenarios.
      *
      * @param device Remote Bluetooth Device
      * @return false on immediate error, true otherwise
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean disconnect(BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.disconnect(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.disconnect(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -371,23 +316,18 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public @NonNull List<BluetoothDevice> getConnectedDevices() {
         if (VDBG) log("getConnectedDevices()");
         final IBluetoothHidHost service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getConnectedDevices(mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
-                        mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+                        service.getConnectedDevices(mAttributionSource), mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
     /**
@@ -401,23 +341,19 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         if (VDBG) log("getDevicesMatchingStates()");
         final IBluetoothHidHost service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getDevicesMatchingConnectionStates(states, mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
+                        service.getDevicesMatchingConnectionStates(states, mAttributionSource),
                         mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
     /**
@@ -435,38 +371,35 @@ public final class BluetoothHidHost implements BluetoothProfile {
             throw new IllegalArgumentException("device must not be null");
         }
         final IBluetoothHidHost service = getService();
-        final int defaultValue = BluetoothProfile.STATE_DISCONNECTED;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionState(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getConnectionState(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothProfile.STATE_DISCONNECTED;
     }
 
     /**
      * Set priority of the profile
      *
-     * <p> The device should already be paired.
-     * Priority can be one of {@link #PRIORITY_ON} or {@link #PRIORITY_OFF},
+     * <p>The device should already be paired. Priority can be one of {@link #PRIORITY_ON} or {@link
+     * #PRIORITY_OFF},
      *
      * @param device Paired bluetooth device
-     * @param priority
      * @return true if priority is set, false on error
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean setPriority(BluetoothDevice device, int priority) {
         if (DBG) log("setPriority(" + device + ", " + priority + ")");
         return setConnectionPolicy(device, BluetoothAdapter.priorityToConnectionPolicy(priority));
@@ -475,9 +408,9 @@ public final class BluetoothHidHost implements BluetoothProfile {
     /**
      * Set connection policy of the profile
      *
-     * <p> The device should already be paired.
-     * Connection policy can be one of {@link #CONNECTION_POLICY_ALLOWED},
-     * {@link #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The device should already be paired. Connection policy can be one of {@link
+     * #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN}, {@link
+     * #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Paired bluetooth device
      * @param connectionPolicy is the connection policy to set to for this profile
@@ -486,50 +419,101 @@ public final class BluetoothHidHost implements BluetoothProfile {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
-    public boolean setConnectionPolicy(@NonNull BluetoothDevice device,
-            @ConnectionPolicy int connectionPolicy) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
+    public boolean setConnectionPolicy(
+            @NonNull BluetoothDevice device, @ConnectionPolicy int connectionPolicy) {
         if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
         if (device == null) {
             throw new IllegalArgumentException("device must not be null");
         }
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
-        } else if (isEnabled() && isValidDevice(device)
+        } else if (isEnabled()
+                && isValidDevice(device)
                 && (connectionPolicy == BluetoothProfile.CONNECTION_POLICY_FORBIDDEN
-                    || connectionPolicy == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
+                        || connectionPolicy == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setConnectionPolicy(device, connectionPolicy, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setConnectionPolicy(device, connectionPolicy, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
+    }
+
+    /**
+     * Set preferred transport for the device
+     *
+     * <p>The device should already be paired, services must have been discovered. This API is
+     * effective only if both the HID and HOGP are supported on the remote device.
+     *
+     * @param device paired bluetooth device
+     * @param transport the preferred transport to set for this device
+     * @return true if preferred transport is set, false on error
+     * @throws IllegalArgumentException if the {@code device} invalid.
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_ALLOW_SWITCHING_HID_AND_HOGP)
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
+    public boolean setPreferredTransport(
+            @NonNull BluetoothDevice device, @Transport int transport) {
+        if (DBG) log("setPreferredTransport(" + device + ", " + transport + ")");
+
+        Objects.requireNonNull(device, "device must not be null");
+
+        if (transport != BluetoothDevice.TRANSPORT_AUTO
+                && transport != BluetoothDevice.TRANSPORT_BREDR
+                && transport != BluetoothDevice.TRANSPORT_LE) {
+            throw new IllegalArgumentException("Invalid transport value");
+        }
+
+        final IBluetoothHidHost service = getService();
+
+        if (service == null) {
+            Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (!isEnabled()) {
+            Log.w(TAG, "Not ready");
+        } else if (!isValidDevice(device)) {
+            throw new IllegalArgumentException("Invalid device");
+        } else {
+            try {
+                return service.setPreferredTransport(device, transport, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        return false;
     }
 
     /**
      * Get the priority of the profile.
      *
-     * <p> The priority can be any of:
-     * {@link #PRIORITY_OFF}, {@link #PRIORITY_ON}, {@link #PRIORITY_UNDEFINED}
+     * <p>The priority can be any of: {@link #PRIORITY_OFF}, {@link #PRIORITY_ON}, {@link
+     * #PRIORITY_UNDEFINED}
      *
      * @param device Bluetooth device
      * @return priority of the device
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public int getPriority(BluetoothDevice device) {
         if (VDBG) log("getPriority(" + device + ")");
         return BluetoothAdapter.connectionPolicyToPriority(getConnectionPolicy(device));
@@ -538,9 +522,8 @@ public final class BluetoothHidHost implements BluetoothProfile {
     /**
      * Get the connection policy of the profile.
      *
-     * <p> The connection policy can be any of:
-     * {@link #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN},
-     * {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The connection policy can be any of: {@link #CONNECTION_POLICY_ALLOWED}, {@link
+     * #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Bluetooth device
      * @return connection policy of the device
@@ -548,30 +531,67 @@ public final class BluetoothHidHost implements BluetoothProfile {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @ConnectionPolicy int getConnectionPolicy(@NonNull BluetoothDevice device) {
         if (VDBG) log("getConnectionPolicy(" + device + ")");
         if (device == null) {
             throw new IllegalArgumentException("device must not be null");
         }
         final IBluetoothHidHost service = getService();
-        final int defaultValue = BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionPolicy(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getConnectionPolicy(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
+    }
+
+    /**
+     * Get the preferred transport for the device.
+     *
+     * @param device Bluetooth device
+     * @return preferred transport for the device
+     * @throws IllegalArgumentException if the {@code device} invalid.
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_ALLOW_SWITCHING_HID_AND_HOGP)
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
+    public @Transport int getPreferredTransport(@NonNull BluetoothDevice device) {
+        if (VDBG) log("getPreferredTransport(" + device + ")");
+
+        Objects.requireNonNull(device, "device must not be null");
+
+        final IBluetoothHidHost service = getService();
+        if (service == null) {
+            Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (!isEnabled()) {
+            Log.w(TAG, "Not ready");
+        } else if (!isValidDevice(device)) {
+            throw new IllegalArgumentException("Invalid device");
+        } else {
+            try {
+                return service.getPreferredTransport(device, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+        return BluetoothDevice.TRANSPORT_AUTO;
     }
 
     private boolean isEnabled() {
@@ -595,20 +615,17 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public boolean virtualUnplug(BluetoothDevice device) {
         if (DBG) log("virtualUnplug(" + device + ")");
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.virtualUnplug(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.virtualUnplug(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -624,20 +641,17 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public boolean getProtocolMode(BluetoothDevice device) {
         if (VDBG) log("getProtocolMode(" + device + ")");
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.getProtocolMode(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getProtocolMode(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -653,20 +667,17 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public boolean setProtocolMode(BluetoothDevice device, int protocolMode) {
         if (DBG) log("setProtocolMode(" + device + ")");
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setProtocolMode(device, protocolMode, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setProtocolMode(device, protocolMode, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -682,28 +693,32 @@ public final class BluetoothHidHost implements BluetoothProfile {
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    public boolean getReport(BluetoothDevice device, byte reportType, byte reportId,
-            int bufferSize) {
+    public boolean getReport(
+            BluetoothDevice device, byte reportType, byte reportId, int bufferSize) {
         if (VDBG) {
-            log("getReport(" + device + "), reportType=" + reportType + " reportId=" + reportId
-                    + "bufferSize=" + bufferSize);
+            log(
+                    "getReport("
+                            + device
+                            + "), reportType="
+                            + reportType
+                            + " reportId="
+                            + reportId
+                            + "bufferSize="
+                            + bufferSize);
         }
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.getReport(device, reportType, reportId, bufferSize, mAttributionSource,
-                        recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getReport(
+                        device, reportType, reportId, bufferSize, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -721,20 +736,17 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public boolean setReport(BluetoothDevice device, byte reportType, String report) {
         if (VDBG) log("setReport(" + device + "), reportType=" + reportType + " report=" + report);
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setReport(device, reportType, report, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setReport(device, reportType, report, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -751,20 +763,17 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public boolean sendData(BluetoothDevice device, String report) {
         if (DBG) log("sendData(" + device + "), report=" + report);
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.sendData(device, report, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.sendData(device, report, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -780,20 +789,17 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public boolean getIdleTime(BluetoothDevice device) {
         if (DBG) log("getIdletime(" + device + ")");
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.getIdleTime(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getIdleTime(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -810,20 +816,17 @@ public final class BluetoothHidHost implements BluetoothProfile {
     public boolean setIdleTime(BluetoothDevice device, byte idleTime) {
         if (DBG) log("setIdletime(" + device + "), idleTime=" + idleTime);
         final IBluetoothHidHost service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setIdleTime(device, idleTime, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setIdleTime(device, idleTime, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     private static void log(String msg) {

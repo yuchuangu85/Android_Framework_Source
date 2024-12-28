@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2017, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2019, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -59,6 +59,8 @@ import java.util.stream.DoubleStream;
  * implementation of {@link java.util.stream.Stream#collect Stream.collect()}
  * provides the necessary partitioning, isolation, and merging of results for
  * safe and efficient parallel execution.
+ *
+ * <p>This implementation does not check for overflow of the count.
  * @since 1.8
  */
 public class DoubleSummaryStatistics implements DoubleConsumer {
@@ -154,7 +156,9 @@ public class DoubleSummaryStatistics implements DoubleConsumer {
         count += other.count;
         simpleSum += other.simpleSum;
         sumWithCompensation(other.sum);
-        sumWithCompensation(other.sumCompensation);
+
+        // Subtract compensation bits
+        sumWithCompensation(-other.sumCompensation);
         min = Math.min(min, other.min);
         max = Math.max(max, other.max);
     }
@@ -239,7 +243,7 @@ public class DoubleSummaryStatistics implements DoubleConsumer {
      */
     public final double getSum() {
         // Better error bounds to add both terms as the final sum
-        double tmp =  sum + sumCompensation;
+        double tmp =  sum - sumCompensation;
         if (Double.isNaN(tmp) && Double.isInfinite(simpleSum))
             // If the compensated sum is spuriously NaN from
             // accumulating one or more same-signed infinite values,

@@ -22,6 +22,9 @@ import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 /**
  * Provides identifying information of a QoS session.  Sent to an application through
  * {@link QosCallback}.
@@ -107,6 +110,7 @@ public final class QosSession implements Parcelable {
             TYPE_EPS_BEARER,
             TYPE_NR_BEARER,
     })
+    @Retention(RetentionPolicy.SOURCE)
     @interface QosSessionType {}
 
     private QosSession(final Parcel in) {

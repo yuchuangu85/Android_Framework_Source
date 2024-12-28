@@ -19,8 +19,8 @@ package android.bluetooth.le;
 import android.bluetooth.BluetoothDevice;
 
 /**
- * Bluetooth LE periodic advertising callbacks, used to deliver periodic
- * advertising operation status.
+ * Bluetooth LE periodic advertising callbacks, used to deliver periodic advertising operation
+ * status.
  *
  * @hide
  * @see PeriodicAdvertisingManager#createSync
@@ -34,16 +34,11 @@ public abstract class PeriodicAdvertisingCallback {
      */
     public static final int SYNC_SUCCESS = 0;
 
-    /**
-     * Sync failed to be established because remote device did not respond.
-     */
+    /** Sync failed to be established because remote device did not respond. */
     public static final int SYNC_NO_RESPONSE = 1;
 
-    /**
-     * Sync failed to be established because controller can't support more syncs.
-     */
+    /** Sync failed to be established because controller can't support more syncs. */
     public static final int SYNC_NO_RESOURCES = 2;
-
 
     /**
      * Callback when synchronization was established.
@@ -52,41 +47,37 @@ public abstract class PeriodicAdvertisingCallback {
      * @param device remote device.
      * @param advertisingSid synchronized advertising set id.
      * @param skip The number of periodic advertising packets that can be skipped after a successful
-     * receive in force. @see PeriodicAdvertisingManager#createSync
+     *     receive in force. @see PeriodicAdvertisingManager#createSync
      * @param timeout Synchronization timeout for the periodic advertising in force. One unit is
-     * 10ms. @see PeriodicAdvertisingManager#createSync
-     * @param timeout
+     *     10ms. @see PeriodicAdvertisingManager#createSync
      * @param status operation status.
      */
-    public void onSyncEstablished(int syncHandle, BluetoothDevice device,
-            int advertisingSid, int skip, int timeout,
-            int status) {
-    }
+    public void onSyncEstablished(
+            int syncHandle,
+            BluetoothDevice device,
+            int advertisingSid,
+            int skip,
+            int timeout,
+            int status) {}
 
     /**
      * Callback when periodic advertising report is received.
      *
      * @param report periodic advertising report.
      */
-    public void onPeriodicAdvertisingReport(PeriodicAdvertisingReport report) {
-    }
+    public void onPeriodicAdvertisingReport(PeriodicAdvertisingReport report) {}
 
     /**
      * Callback when periodic advertising synchronization was lost.
      *
      * @param syncHandle handle used to identify this synchronization.
      */
-    public void onSyncLost(int syncHandle) {
-    }
+    public void onSyncLost(int syncHandle) {}
 
     /**
      * Callback when periodic sync transferred.
-     *
-     * @param device
-     * @param status
      */
-    public void onSyncTransferred(BluetoothDevice device, int status) {
-    }
+    public void onSyncTransferred(BluetoothDevice device, int status) {}
 
     /**
      * Callback when BIGInfo advertising report is received.
@@ -94,6 +85,5 @@ public abstract class PeriodicAdvertisingCallback {
      * @param syncHandle handle used to identify this synchronization.
      * @param encrypted BIG carries encrypted data or not
      */
-    public void onBigInfoAdvertisingReport(int syncHandle, boolean encrypted) {
-    }
+    public void onBigInfoAdvertisingReport(int syncHandle, boolean encrypted) {}
 }

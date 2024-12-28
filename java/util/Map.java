@@ -412,6 +412,15 @@ public interface Map<K, V> {
      * a change to the value of a mapping in the backing map might or might not be
      * visible in the corresponding {@code Map.Entry} element of the entry-set view.
      *
+     * @apiNote
+     * It is possible to create a {@code Map.Entry} instance that is disconnected
+     * from a backing map by using the {@link Map.Entry#copyOf copyOf} method. For example,
+     * the following creates a snapshot of a map's entries that is guaranteed not to
+     * change even if the original map is modified:
+     * <pre> {@code
+     * var entries = map.entrySet().stream().map(Map.Entry::copyOf).toList()
+     * }</pre>
+     *
      * @see Map#entrySet()
      * @since 1.2
      */
@@ -590,7 +599,6 @@ public interface Map<K, V> {
          * @return a map entry equal to the given entry
          * @throws NullPointerException if e is null or if either of its key or value is null
          * @since 17
-         * @hide
          */
         @SuppressWarnings("unchecked")
         public static <K, V> Map.Entry<K, V> copyOf(Map.Entry<? extends K, ? extends V> e) {

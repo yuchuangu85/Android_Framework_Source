@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 0c86a38729dd5d560fe3a0eca6aa9d8cf83efb00 --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen/android/media/audio/common/AudioOffloadInfo.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3/android/media/audio/common/AudioOffloadInfo.aidl
  */
 package android.media.audio.common;
 /** @hide */
@@ -104,7 +105,7 @@ public class AudioOffloadInfo implements android.os.Parcelable
     _aidl_sj.add("encapsulationMode: " + (encapsulationMode));
     _aidl_sj.add("contentId: " + (contentId));
     _aidl_sj.add("syncId: " + (syncId));
-    return "android.media.audio.common.AudioOffloadInfo" + _aidl_sj.toString()  ;
+    return "AudioOffloadInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public boolean equals(Object other) {

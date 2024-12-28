@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -29,7 +29,6 @@ import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
 
-// Android-changed: removed ValueBased paragraph.
 /**
  * A container object which may or may not contain a {@code long} value.
  * If a value is present, {@code isPresent()} returns {@code true}. If no
@@ -42,6 +41,11 @@ import java.util.stream.LongStream;
  * {@link #ifPresent(LongConsumer) ifPresent()} (performs an
  * action if a value is present).
  *
+ * <p>This is a <a href="https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
+ * class; programmers should treat instances that are
+ * {@linkplain #equals(Object) equal} as interchangeable and should not
+ * use instances for synchronization, or unpredictable behavior may
+ * occur. For example, in a future release, synchronization may fail.
  *
  * @apiNote
  * {@code OptionalLong} is primarily intended for use as a method return type where
@@ -51,6 +55,7 @@ import java.util.stream.LongStream;
  *
  * @since 1.8
  */
+@jdk.internal.ValueBased
 public final class OptionalLong {
     /**
      * Common instance for {@code empty()}.
@@ -80,9 +85,9 @@ public final class OptionalLong {
      *
      * @apiNote
      * Though it may be tempting to do so, avoid testing if an object is empty
-     * by comparing with {@code ==} against instances returned by
+     * by comparing with {@code ==} or {@code !=} against instances returned by
      * {@code OptionalLong.empty()}.  There is no guarantee that it is a singleton.
-     * Instead, use {@link #isPresent()}.
+     * Instead, use {@link #isEmpty()} or {@link #isPresent()}.
      *
      * @return an empty {@code OptionalLong}.
      */
@@ -321,7 +326,7 @@ public final class OptionalLong {
     @Override
     public String toString() {
         return isPresent
-                ? String.format("OptionalLong[%s]", value)
+                ? ("OptionalLong[" + value + "]")
                 : "OptionalLong.empty";
     }
 }

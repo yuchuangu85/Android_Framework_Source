@@ -60,17 +60,6 @@ public class NumberFormatException extends IllegalArgumentException {
      *
      * @param   s   the input causing the error
      */
-    @Deprecated
-    static NumberFormatException forInputString(String s) {
-        return new NumberFormatException("For input string: \"" + s + "\"");
-    }
-
-    /**
-     * Factory method for making a {@code NumberFormatException}
-     * given the specified input which caused the error.
-     *
-     * @param   s   the input causing the error
-     */
     static NumberFormatException forInputString(String s, int radix) {
         return new NumberFormatException("For input string: \"" + s + "\"" +
                                          (radix == 10 ?

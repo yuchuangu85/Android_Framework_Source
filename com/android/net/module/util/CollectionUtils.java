@@ -101,7 +101,6 @@ public final class CollectionUtils {
     /**
      * @return The index of the first element that matches the predicate, or -1 if none.
      */
-    @Nullable
     public static <T> int indexOf(@NonNull final Collection<T> elem,
             @NonNull final Predicate<? super T> predicate) {
         int idx = 0;
@@ -389,5 +388,29 @@ public final class CollectionUtils {
             dest.put(key, values.get(i));
         }
         return dest;
+    }
+
+    /**
+     * Returns an index of the given SparseArray that contains the given value, or -1
+     * number if no keys map to the given value.
+     *
+     * <p>Note this is a linear search, and if multiple keys can map to the same value
+     * then the smallest index is returned.
+     *
+     * <p>This function compares values with {@code equals} while the
+     * {@link SparseArray#indexOfValue} compares values using {@code ==}.
+     */
+    public static <T> int getIndexForValue(SparseArray<T> sparseArray, T value) {
+        for(int i = 0, nsize = sparseArray.size(); i < nsize; i++) {
+            T valueAt = sparseArray.valueAt(i);
+            if (valueAt == null) {
+                if (value == null) {
+                    return i;
+                };
+            } else if (valueAt.equals(value)) {
+                return i;
+            }
+        }
+        return -1;
     }
 }

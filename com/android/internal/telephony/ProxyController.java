@@ -18,6 +18,7 @@ package com.android.internal.telephony;
 
 import static java.util.Arrays.copyOf;
 
+import android.annotation.NonNull;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
@@ -33,6 +34,7 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.data.PhoneSwitcher;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
@@ -111,11 +113,12 @@ public class ProxyController {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private int[] mOldRadioAccessFamily;
 
+    @NonNull
+    private final FeatureFlags mFlags;
 
-    //***** Class Methods
-    public static ProxyController getInstance(Context context) {
+    public static ProxyController getInstance(Context context, FeatureFlags flags) {
         if (sProxyController == null) {
-            sProxyController = new ProxyController(context);
+            sProxyController = new ProxyController(context, flags);
         }
         return sProxyController;
     }
@@ -125,16 +128,23 @@ public class ProxyController {
         return sProxyController;
     }
 
-    private ProxyController(Context context) {
+    /**
+     * Constructor
+     *
+     * @param context The context
+     * @param featureFlags Feature flags
+     */
+    public ProxyController(@NonNull Context context, @NonNull FeatureFlags featureFlags) {
         logd("Constructor - Enter");
 
         mContext = context;
+        mFlags = featureFlags;
         mPhones = PhoneFactory.getPhones();
         mPhoneSwitcher = PhoneSwitcher.getInstance();
 
         mUiccPhoneBookController = new UiccPhoneBookController();
         mPhoneSubInfoController = new PhoneSubInfoController(mContext);
-        mSmsController = new SmsController(mContext);
+        mSmsController = new SmsController(mContext, featureFlags);
         mSetRadioAccessFamilyStatus = new int[mPhones.length];
         mNewRadioAccessFamily = new int[mPhones.length];
         mOldRadioAccessFamily = new int[mPhones.length];

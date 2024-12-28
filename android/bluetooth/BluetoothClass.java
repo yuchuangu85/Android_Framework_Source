@@ -24,26 +24,21 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
- * Represents a Bluetooth class, which describes general characteristics
- * and capabilities of a device. For example, a Bluetooth class will
- * specify the general device type such as a phone, a computer, or
- * headset, and whether it's capable of services such as audio or telephony.
+ * Represents a Bluetooth class, which describes general characteristics and capabilities of a
+ * device. For example, a Bluetooth class will specify the general device type such as a phone, a
+ * computer, or headset, and whether it's capable of services such as audio or telephony.
  *
- * <p>Every Bluetooth class is composed of zero or more service classes, and
- * exactly one device class. The device class is further broken down into major
- * and minor device class components.
+ * <p>Every Bluetooth class is composed of zero or more service classes, and exactly one device
+ * class. The device class is further broken down into major and minor device class components.
  *
- * <p>{@link BluetoothClass} is useful as a hint to roughly describe a device
- * (for example to show an icon in the UI), but does not reliably describe which
- * Bluetooth profiles or services are actually supported by a device. Accurate
- * service discovery is done through SDP requests, which are automatically
- * performed when creating an RFCOMM socket with {@link
+ * <p>{@link BluetoothClass} is useful as a hint to roughly describe a device (for example to show
+ * an icon in the UI), but does not reliably describe which Bluetooth profiles or services are
+ * actually supported by a device. Accurate service discovery is done through SDP requests, which
+ * are automatically performed when creating an RFCOMM socket with {@link
  * BluetoothDevice#createRfcommSocketToServiceRecord} and {@link
- * BluetoothAdapter#listenUsingRfcommWithServiceRecord}</p>
+ * BluetoothAdapter#listenUsingRfcommWithServiceRecord}
  *
- * <p>Use {@link BluetoothDevice#getBluetoothClass} to retrieve the class for
- * a remote device.
- *
+ * <p>Use {@link BluetoothDevice#getBluetoothClass} to retrieve the class for a remote device.
  * <!--
  * The Bluetooth class is a 32 bit field. The format of these bits is defined at
  * http://www.bluetooth.org/Technical/AssignedNumbers/baseband.htm
@@ -109,14 +104,17 @@ public final class BluetoothClass implements Parcelable {
 
     /**
      * Defines all service class constants.
+     *
      * <p>Each {@link BluetoothClass} encodes zero or more service classes.
      */
     public static final class Service {
         private static final int BITMASK = 0xFFE000;
 
         public static final int LIMITED_DISCOVERABILITY = 0x002000;
+
         /** Represent devices LE audio service */
         public static final int LE_AUDIO = 0x004000;
+
         public static final int POSITIONING = 0x010000;
         public static final int NETWORKING = 0x020000;
         public static final int RENDER = 0x040000;
@@ -128,11 +126,10 @@ public final class BluetoothClass implements Parcelable {
     }
 
     /**
-     * Return true if the specified service class is supported by this
-     * {@link BluetoothClass}.
-     * <p>Valid service classes are the public constants in
-     * {@link BluetoothClass.Service}. For example, {@link
-     * BluetoothClass.Service#AUDIO}.
+     * Return true if the specified service class is supported by this {@link BluetoothClass}.
+     *
+     * <p>Valid service classes are the public constants in {@link BluetoothClass.Service}. For
+     * example, {@link BluetoothClass.Service#AUDIO}.
      *
      * @param service valid service class
      * @return true if the service class is supported
@@ -143,12 +140,14 @@ public final class BluetoothClass implements Parcelable {
 
     /**
      * Defines all device class constants.
-     * <p>Each {@link BluetoothClass} encodes exactly one device class, with
-     * major and minor components.
-     * <p>The constants in {@link
-     * BluetoothClass.Device} represent a combination of major and minor
+     *
+     * <p>Each {@link BluetoothClass} encodes exactly one device class, with major and minor
+     * components.
+     *
+     * <p>The constants in {@link BluetoothClass.Device} represent a combination of major and minor
      * device components (the complete device class). The constants in {@link
      * BluetoothClass.Device.Major} represent only major device classes.
+     *
      * <p>See {@link BluetoothClass.Service} for service class constants.
      */
     public static class Device {
@@ -156,6 +155,7 @@ public final class BluetoothClass implements Parcelable {
 
         /**
          * Defines all major device class constants.
+         *
          * <p>See {@link BluetoothClass.Device} for minor classes.
          */
         public static class Major {
@@ -195,7 +195,7 @@ public final class BluetoothClass implements Parcelable {
         public static final int AUDIO_VIDEO_UNCATEGORIZED = 0x0400;
         public static final int AUDIO_VIDEO_WEARABLE_HEADSET = 0x0404;
         public static final int AUDIO_VIDEO_HANDSFREE = 0x0408;
-        //public static final int AUDIO_VIDEO_RESERVED              = 0x040C;
+        // public static final int AUDIO_VIDEO_RESERVED              = 0x040C;
         public static final int AUDIO_VIDEO_MICROPHONE = 0x0410;
         public static final int AUDIO_VIDEO_LOUDSPEAKER = 0x0414;
         public static final int AUDIO_VIDEO_HEADPHONES = 0x0418;
@@ -209,7 +209,7 @@ public final class BluetoothClass implements Parcelable {
         public static final int AUDIO_VIDEO_VIDEO_MONITOR = 0x0438;
         public static final int AUDIO_VIDEO_VIDEO_DISPLAY_AND_LOUDSPEAKER = 0x043C;
         public static final int AUDIO_VIDEO_VIDEO_CONFERENCING = 0x0440;
-        //public static final int AUDIO_VIDEO_RESERVED              = 0x0444;
+        // public static final int AUDIO_VIDEO_RESERVED              = 0x0444;
         public static final int AUDIO_VIDEO_VIDEO_GAMING_TOY = 0x0448;
 
         // Devices in the WEARABLE major class
@@ -247,9 +247,10 @@ public final class BluetoothClass implements Parcelable {
 
     /**
      * Return the major device class component of this {@link BluetoothClass}.
-     * <p>Values returned from this function can be compared with the
-     * public constants in {@link BluetoothClass.Device.Major} to determine
-     * which major class is encoded in this Bluetooth class.
+     *
+     * <p>Values returned from this function can be compared with the public constants in {@link
+     * BluetoothClass.Device.Major} to determine which major class is encoded in this Bluetooth
+     * class.
      *
      * @return major device class component
      */
@@ -258,11 +259,10 @@ public final class BluetoothClass implements Parcelable {
     }
 
     /**
-     * Return the (major and minor) device class component of this
-     * {@link BluetoothClass}.
-     * <p>Values returned from this function can be compared with the
-     * public constants in {@link BluetoothClass.Device} to determine which
-     * device class is encoded in this Bluetooth class.
+     * Return the (major and minor) device class component of this {@link BluetoothClass}.
+     *
+     * <p>Values returned from this function can be compared with the public constants in {@link
+     * BluetoothClass.Device} to determine which device class is encoded in this Bluetooth class.
      *
      * @return device class component
      */
@@ -271,15 +271,13 @@ public final class BluetoothClass implements Parcelable {
     }
 
     /**
-     * Return the Bluetooth Class of Device (CoD) value including the
-     * {@link BluetoothClass.Service}, {@link BluetoothClass.Device.Major} and
-     * minor device fields.
+     * Return the Bluetooth Class of Device (CoD) value including the {@link
+     * BluetoothClass.Service}, {@link BluetoothClass.Device.Major} and minor device fields.
      *
-     * <p>This value is an integer representation of Bluetooth CoD as in
-     * Bluetooth specification.
+     * <p>This value is an integer representation of Bluetooth CoD as in Bluetooth specification.
      *
-     * @see <a href="Bluetooth CoD">https://www.bluetooth.com/specifications/assigned-numbers/baseband</a>
-     *
+     * @see <a href="Bluetooth
+     *     CoD">https://www.bluetooth.com/specifications/assigned-numbers/baseband</a>
      * @hide
      */
     public int getClassOfDevice() {
@@ -291,28 +289,23 @@ public final class BluetoothClass implements Parcelable {
     public static final int PROFILE_A2DP = 1;
 
     /** @hide */
-    @SystemApi
-    public static final int PROFILE_OPP = 2;
+    @SystemApi public static final int PROFILE_OPP = 2;
 
     public static final int PROFILE_HID = 3;
 
     /** @hide */
-    @SystemApi
-    public static final int PROFILE_PANU = 4;
+    @SystemApi public static final int PROFILE_PANU = 4;
 
     /** @hide */
-    @SystemApi
-    public static final int PROFILE_NAP = 5;
+    @SystemApi public static final int PROFILE_NAP = 5;
 
     /** @hide */
-    @SystemApi
-    public static final int PROFILE_A2DP_SINK = 6;
+    @SystemApi public static final int PROFILE_A2DP_SINK = 6;
 
     /**
-     * Check class bits for possible bluetooth profile support.
-     * This is a simple heuristic that tries to guess if a device with the
-     * given class bits might support specified profile. It is not accurate for all
-     * devices. It tries to err on the side of false positives.
+     * Check class bits for possible bluetooth profile support. This is a simple heuristic that
+     * tries to guess if a device with the given class bits might support specified profile. It is
+     * not accurate for all devices. It tries to err on the side of false positives.
      *
      * @param profile the profile to be checked
      * @return whether this device supports specified profile

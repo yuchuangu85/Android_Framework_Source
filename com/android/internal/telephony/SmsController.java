@@ -18,14 +18,18 @@
 
 package com.android.internal.telephony;
 
+import static android.content.pm.PackageManager.FEATURE_TELEPHONY_MESSAGING;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
+import static android.telephony.TelephonyManager.ENABLE_FEATURE_MAPPING;
 
 import static com.android.internal.telephony.util.TelephonyUtils.checkDumpPermission;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
+import android.app.compat.CompatChanges;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -34,7 +38,9 @@ import android.os.BaseBundle;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemProperties;
 import android.os.TelephonyServiceManager.ServiceRegisterer;
+import android.os.UserHandle;
 import android.provider.Telephony.Sms.Intents;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SmsManager;
@@ -44,6 +50,7 @@ import android.telephony.TelephonyFrameworkInitializer;
 import android.telephony.TelephonyManager;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.IndentingPrintWriter;
@@ -52,6 +59,7 @@ import com.android.telephony.Rlog;
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -62,16 +70,25 @@ public class SmsController extends ISmsImplBase {
     static final String LOG_TAG = "SmsController";
 
     private final Context mContext;
+    private final PackageManager mPackageManager;
+    private final int mVendorApiLevel;
+
+    @NonNull private final FeatureFlags mFlags;
 
     @VisibleForTesting
-    public SmsController(Context context) {
+    public SmsController(Context context, @NonNull FeatureFlags flags) {
         mContext = context;
+        mFlags = flags;
+        mPackageManager = context.getPackageManager();
         ServiceRegisterer smsServiceRegisterer = TelephonyFrameworkInitializer
                 .getTelephonyServiceManager()
                 .getSmsServiceRegisterer();
         if (smsServiceRegisterer.get() == null) {
             smsServiceRegisterer.register(this);
         }
+
+        mVendorApiLevel = SystemProperties.getInt(
+                "ro.vendor.api_level", Build.VERSION.DEVICE_INITIAL_SDK_INT);
     }
 
     private Phone getPhone(int subId) {
@@ -279,19 +296,22 @@ public class SmsController extends ISmsImplBase {
             return;
         }
 
+        enforceTelephonyFeatureWithException(callingPackage, "sendTextForSubscriber");
+
         long token = Binder.clearCallingIdentity();
         SubscriptionInfo info;
         try {
             info = getSubscriptionInfo(subId);
+
+            if (isBluetoothSubscription(info)) {
+                sendBluetoothText(info, destAddr, text, sentIntent, deliveryIntent);
+            } else {
+                sendIccText(subId, callingPackage, destAddr, scAddr, text, sentIntent,
+                        deliveryIntent, persistMessageForNonDefaultSmsApp, messageId,
+                        skipShortCodeCheck);
+            }
         } finally {
             Binder.restoreCallingIdentity(token);
-        }
-
-        if (isBluetoothSubscription(info)) {
-            sendBluetoothText(info, destAddr, text, sentIntent, deliveryIntent);
-        } else {
-            sendIccText(subId, callingPackage, destAddr, scAddr, text, sentIntent, deliveryIntent,
-                    persistMessageForNonDefaultSmsApp, messageId, skipShortCodeCheck);
         }
     }
 
@@ -396,6 +416,8 @@ public class SmsController extends ISmsImplBase {
             return;
         }
 
+        enforceTelephonyFeatureWithException(callingPackage, "sendMultipartTextForSubscriber");
+
         // Perform FDN check
         if (isNumberBlockedByFDN(subId, destAddr, callingPackage)) {
             sendErrorInPendingIntents(sentIntents, SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE);
@@ -462,6 +484,9 @@ public class SmsController extends ISmsImplBase {
     @Override
     public boolean enableCellBroadcastRangeForSubscriber(int subId, int startMessageId,
             int endMessageId, int ranType) {
+        enforceTelephonyFeatureWithException(getCallingPackage(),
+                "enableCellBroadcastRangeForSubscriber");
+
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             return iccSmsIntMgr.enableCellBroadcastRange(startMessageId, endMessageId, ranType);
@@ -484,6 +509,9 @@ public class SmsController extends ISmsImplBase {
     @Override
     public boolean disableCellBroadcastRangeForSubscriber(int subId, int startMessageId,
             int endMessageId, int ranType) {
+        enforceTelephonyFeatureWithException(getCallingPackage(),
+                "disableCellBroadcastRangeForSubscriber");
+
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             return iccSmsIntMgr.disableCellBroadcastRange(startMessageId, endMessageId, ranType);
@@ -496,6 +524,8 @@ public class SmsController extends ISmsImplBase {
 
     @Override
     public int getPremiumSmsPermission(String packageName) {
+        enforceTelephonyFeatureWithException(packageName, "getPremiumSmsPermission");
+
         return getPremiumSmsPermissionForSubscriber(getPreferredSmsSubscription(), packageName);
     }
 
@@ -513,6 +543,8 @@ public class SmsController extends ISmsImplBase {
 
     @Override
     public void setPremiumSmsPermission(String packageName, int permission) {
+        enforceTelephonyFeatureWithException(packageName, "setPremiumSmsPermission");
+
         setPremiumSmsPermissionForSubscriber(getPreferredSmsSubscription(), packageName,
                 permission);
     }
@@ -553,34 +585,60 @@ public class SmsController extends ISmsImplBase {
                     + "Suppressing activity.");
             return false;
         }
+
+        enforceTelephonyFeatureWithException(getCallingPackage(), "isSmsSimPickActivityNeeded");
+
         TelephonyManager telephonyManager =
                 (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
-        List<SubscriptionInfo> subInfoList;
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            subInfoList = SubscriptionManager.from(context).getActiveSubscriptionInfoList();
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
+        if (mFlags.enforceSubscriptionUserFilter()) {
+            int[] activeSubIds;
+            final UserHandle user = Binder.getCallingUserHandle();
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                activeSubIds = Arrays.stream(SubscriptionManagerService.getInstance()
+                        .getActiveSubIdList(true /*visibleOnly*/))
+                        .filter(sub -> SubscriptionManagerService.getInstance()
+                                .isSubscriptionAssociatedWithUser(sub, user))
+                        .toArray();
+                for (int activeSubId : activeSubIds) {
+                    // Check if the subId is associated with the caller user profile.
+                    if (activeSubId == subId) {
+                        return false;
+                    }
+                }
 
-        if (subInfoList != null) {
-            final int subInfoLength = subInfoList.size();
+                // If reached here and multiple SIMs and subs present, need sms sim pick activity.
+                return activeSubIds.length > 1 && telephonyManager.getSimCount() > 1;
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
+        } else {
+            List<SubscriptionInfo> subInfoList;
+            final long identity = Binder.clearCallingIdentity();
+            try {
+                subInfoList = SubscriptionManager.from(context).getActiveSubscriptionInfoList();
+            } finally {
+                Binder.restoreCallingIdentity(identity);
+            }
 
-            for (int i = 0; i < subInfoLength; ++i) {
-                final SubscriptionInfo sir = subInfoList.get(i);
-                if (sir != null && sir.getSubscriptionId() == subId) {
-                    // The subscription id is valid, sms sim pick activity not needed
-                    return false;
+            if (subInfoList != null) {
+                final int subInfoLength = subInfoList.size();
+
+                for (int i = 0; i < subInfoLength; ++i) {
+                    final SubscriptionInfo sir = subInfoList.get(i);
+                    if (sir != null && sir.getSubscriptionId() == subId) {
+                        // The subscription id is valid, sms sim pick activity not needed
+                        return false;
+                    }
+                }
+
+                // If reached here and multiple SIMs and subs present, need sms sim pick activity
+                if (subInfoLength > 1 && telephonyManager.getSimCount() > 1) {
+                    return true;
                 }
             }
-
-            // If reached here and multiple SIMs and subs present, sms sim pick activity is needed
-            if (subInfoLength > 1 && telephonyManager.getSimCount() > 1) {
-                return true;
-            }
+            return false;
         }
-
-        return false;
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
@@ -598,6 +656,8 @@ public class SmsController extends ISmsImplBase {
     @Override
     public void injectSmsPduForSubscriber(
             int subId, byte[] pdu, String format, PendingIntent receivedIntent) {
+        enforceTelephonyFeatureWithException(getCallingPackage(), "injectSmsPduForSubscriber");
+
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             iccSmsIntMgr.injectSmsPdu(pdu, format, receivedIntent);
@@ -624,6 +684,9 @@ public class SmsController extends ISmsImplBase {
         if (SubscriptionManager.isValidSubscriptionId(defaultSubId)) {
             return defaultSubId;
         }
+
+        enforceTelephonyFeatureWithException(getCallingPackage(), "getPreferredSmsSubscription");
+
         // No default, if there is only one sub active, choose that as the "preferred" sub id.
         long token = Binder.clearCallingIdentity();
         try {
@@ -692,6 +755,9 @@ public class SmsController extends ISmsImplBase {
 
     @Override
     public Bundle getCarrierConfigValuesForSubscriber(int subId) {
+        enforceTelephonyFeatureWithException(getCallingPackage(),
+                "getCarrierConfigValuesForSubscriber");
+
         final long identity = Binder.clearCallingIdentity();
         try {
             final CarrierConfigManager configManager =
@@ -820,6 +886,10 @@ public class SmsController extends ISmsImplBase {
         if (callingPkg == null) {
             callingPkg = getCallingPackage();
         }
+
+        enforceTelephonyFeatureWithException(callingPkg,
+                "createAppSpecificSmsTokenWithPackageInfo");
+
         return getPhone(subId).getAppSmsManager().createAppSpecificSmsTokenWithPackageInfo(
                 subId, callingPkg, prefixes, intent);
     }
@@ -829,6 +899,9 @@ public class SmsController extends ISmsImplBase {
         if (callingPkg == null) {
             callingPkg = getCallingPackage();
         }
+
+        enforceTelephonyFeatureWithException(callingPkg, "createAppSpecificSmsToken");
+
         return getPhone(subId).getAppSmsManager().createAppSpecificSmsToken(callingPkg, intent);
     }
 
@@ -944,6 +1017,10 @@ public class SmsController extends ISmsImplBase {
         if (callingPackage == null) {
             callingPackage = getCallingPackage();
         }
+
+        enforceTelephonyFeatureWithException(callingPackage,
+                "getSmscAddressFromIccEfForSubscriber");
+
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             return iccSmsIntMgr.getSmscAddressFromIccEf(callingPackage);
@@ -960,6 +1037,10 @@ public class SmsController extends ISmsImplBase {
         if (callingPackage == null) {
             callingPackage = getCallingPackage();
         }
+
+        enforceTelephonyFeatureWithException(callingPackage,
+                "setSmscAddressOnIccEfForSubscriber");
+
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             return iccSmsIntMgr.setSmscAddressOnIccEf(callingPackage, smsc);
@@ -1035,6 +1116,9 @@ public class SmsController extends ISmsImplBase {
      */
     @Override
     public int getSmsCapacityOnIccForSubscriber(int subId) {
+        enforceTelephonyFeatureWithException(getCallingPackage(),
+                "getSmsCapacityOnIccForSubscriber");
+
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
 
         if (iccSmsIntMgr != null ) {
@@ -1053,6 +1137,9 @@ public class SmsController extends ISmsImplBase {
      */
     @Override
     public boolean resetAllCellBroadcastRanges(int subId) {
+        enforceTelephonyFeatureWithException(getCallingPackage(),
+                "resetAllCellBroadcastRanges");
+
         IccSmsInterfaceManager iccSmsIntMgr = getIccSmsInterfaceManager(subId);
         if (iccSmsIntMgr != null) {
             iccSmsIntMgr.resetAllCellBroadcastRanges();
@@ -1113,5 +1200,48 @@ public class SmsController extends ISmsImplBase {
 
         // Check if smscAddr is present in FDN list
         return FdnUtils.isNumberBlockedByFDN(phoneId, smscAddr, defaultCountryIso);
+    }
+
+    /**
+     * Gets the message size of WAP from the cache.
+     *
+     * @param locationUrl the location to use as a key for looking up the size in the cache.
+     * The locationUrl may or may not have the transactionId appended to the url.
+     *
+     * @return long representing the message size
+     * @throws java.util.NoSuchElementException if the WAP push doesn't exist in the cache
+     * @throws IllegalArgumentException if the locationUrl is empty
+     */
+    @Override
+    public long getWapMessageSize(@NonNull String locationUrl) {
+        byte[] bytes = locationUrl.getBytes(StandardCharsets.ISO_8859_1);
+        return WapPushCache.getWapMessageSize(bytes);
+    }
+
+    /**
+     * Make sure the device has required telephony feature
+     *
+     * @throws UnsupportedOperationException if the device does not have required telephony feature
+     */
+    private void enforceTelephonyFeatureWithException(@Nullable String callingPackage,
+            @NonNull String methodName) {
+        if (callingPackage == null || mPackageManager == null) {
+            return;
+        }
+
+        if (!mFlags.enforceTelephonyFeatureMappingForPublicApis()
+                || !CompatChanges.isChangeEnabled(ENABLE_FEATURE_MAPPING, callingPackage,
+                Binder.getCallingUserHandle())
+                || mVendorApiLevel < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            // Skip to check associated telephony feature,
+            // if compatibility change is not enabled for the current process or
+            // the SDK version of vendor partition is less than Android V.
+            return;
+        }
+
+        if (!mPackageManager.hasSystemFeature(FEATURE_TELEPHONY_MESSAGING)) {
+            throw new UnsupportedOperationException(
+                    methodName + " is unsupported without " + FEATURE_TELEPHONY_MESSAGING);
+        }
     }
 }

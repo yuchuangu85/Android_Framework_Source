@@ -18,12 +18,12 @@ package android.bluetooth;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.RequiresNoPermission;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Build;
+import android.os.IBinder;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -32,17 +32,15 @@ import java.util.List;
 /**
  * Public APIs for the Bluetooth Profiles.
  *
- * <p> Clients should call {@link BluetoothAdapter#getProfileProxy},
- * to get the Profile Proxy. Each public profile implements this
- * interface.
+ * <p>Clients should call {@link BluetoothAdapter#getProfileProxy}, to get the Profile Proxy. Each
+ * public profile implements this interface.
  */
 public interface BluetoothProfile {
 
     /**
      * Extra for the connection state intents of the individual profiles.
      *
-     * This extra represents the current connection state of the profile of the
-     * Bluetooth device.
+     * <p>This extra represents the current connection state of the profile of the Bluetooth device.
      */
     @SuppressLint("ActionValue")
     String EXTRA_STATE = "android.bluetooth.profile.extra.STATE";
@@ -50,85 +48,75 @@ public interface BluetoothProfile {
     /**
      * Extra for the connection state intents of the individual profiles.
      *
-     * This extra represents the previous connection state of the profile of the
-     * Bluetooth device.
+     * <p>This extra represents the previous connection state of the profile of the Bluetooth
+     * device.
      */
     @SuppressLint("ActionValue")
-    String EXTRA_PREVIOUS_STATE =
-            "android.bluetooth.profile.extra.PREVIOUS_STATE";
+    String EXTRA_PREVIOUS_STATE = "android.bluetooth.profile.extra.PREVIOUS_STATE";
 
     /** The profile is in disconnected state */
     int STATE_DISCONNECTED = 0;
+
     /** The profile is in connecting state */
     int STATE_CONNECTING = 1;
+
     /** The profile is in connected state */
     int STATE_CONNECTED = 2;
+
     /** The profile is in disconnecting state */
     int STATE_DISCONNECTING = 3;
 
     /** @hide */
     @IntDef({
-            STATE_DISCONNECTED,
-            STATE_CONNECTING,
-            STATE_CONNECTED,
-            STATE_DISCONNECTING,
+        STATE_DISCONNECTED,
+        STATE_CONNECTING,
+        STATE_CONNECTED,
+        STATE_DISCONNECTING,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BtProfileState {}
 
-    /**
-     * Headset and Handsfree profile
-     */
+    /** Headset and Handsfree profile */
     int HEADSET = 1;
 
-    /**
-     * A2DP profile.
-     */
+    /** A2DP profile. */
     int A2DP = 2;
 
     /**
      * Health Profile
      *
-     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New
-     * apps should use Bluetooth Low Energy based solutions such as {@link BluetoothGatt},
-     * {@link BluetoothAdapter#listenUsingL2capChannel()}, or
-     * {@link BluetoothDevice#createL2capChannel(int)}
+     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New apps should
+     *     use Bluetooth Low Energy based solutions such as {@link BluetoothGatt}, {@link
+     *     BluetoothAdapter#listenUsingL2capChannel()}, or {@link
+     *     BluetoothDevice#createL2capChannel(int)}
      */
-    @Deprecated
-    int HEALTH = 3;
+    @Deprecated int HEALTH = 3;
 
     /**
      * HID Host
      *
      * @hide
      */
-    @SystemApi
-    int HID_HOST = 4;
+    @SystemApi int HID_HOST = 4;
 
     /**
      * PAN Profile
      *
      * @hide
      */
-    @SystemApi
-    int PAN = 5;
+    @SystemApi int PAN = 5;
 
     /**
      * PBAP
      *
      * @hide
      */
-    @SystemApi
-    int PBAP = 6;
+    @SystemApi int PBAP = 6;
 
-    /**
-     * GATT
-     */
+    /** GATT */
     int GATT = 7;
 
-    /**
-     * GATT_SERVER
-     */
+    /** GATT_SERVER */
     int GATT_SERVER = 8;
 
     /**
@@ -136,8 +124,7 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    @SystemApi
-    int MAP = 9;
+    @SystemApi int MAP = 9;
 
     /*
      * SAP Profile
@@ -150,16 +137,14 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    @SystemApi
-    int A2DP_SINK = 11;
+    @SystemApi int A2DP_SINK = 11;
 
     /**
      * AVRCP Controller Profile
      *
      * @hide
      */
-    @SystemApi
-    int AVRCP_CONTROLLER = 12;
+    @SystemApi int AVRCP_CONTROLLER = 12;
 
     /**
      * AVRCP Target Profile
@@ -173,28 +158,23 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    @SystemApi
-    int HEADSET_CLIENT = 16;
+    @SystemApi int HEADSET_CLIENT = 16;
 
     /**
      * PBAP Client
      *
      * @hide
      */
-    @SystemApi
-    int PBAP_CLIENT = 17;
+    @SystemApi int PBAP_CLIENT = 17;
 
     /**
      * MAP Messaging Client Equipment (MCE)
      *
      * @hide
      */
-    @SystemApi
-    int MAP_CLIENT = 18;
+    @SystemApi int MAP_CLIENT = 18;
 
-    /**
-     * HID Device
-     */
+    /** HID Device */
     int HID_DEVICE = 19;
 
     /**
@@ -202,19 +182,12 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    @SystemApi
-    int OPP = 20;
+    @SystemApi int OPP = 20;
 
-    /**
-     * Hearing Aid Device
-     *
-     */
+    /** Hearing Aid Device */
     int HEARING_AID = 21;
 
-    /**
-     * LE Audio Device
-     *
-     */
+    /** LE Audio Device */
     int LE_AUDIO = 22;
 
     /**
@@ -222,20 +195,14 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    @SystemApi
-    int VOLUME_CONTROL = 23;
+    @SystemApi int VOLUME_CONTROL = 23;
 
     /**
-     * @hide
-     * Media Control Profile server
-     *
+     * @hide Media Control Profile server
      */
     int MCP_SERVER = 24;
 
-    /**
-     * Coordinated Set Identification Profile set coordinator
-     *
-     */
+    /** Coordinated Set Identification Profile set coordinator */
     int CSIP_SET_COORDINATOR = 25;
 
     /**
@@ -243,13 +210,10 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    @SystemApi
-    int LE_AUDIO_BROADCAST = 26;
+    @SystemApi int LE_AUDIO_BROADCAST = 26;
 
     /**
-     * @hide
-     * Telephone Bearer Service from Call Control Profile
-     *
+     * @hide Telephone Bearer Service from Call Control Profile
      */
     int LE_CALL_CONTROL = 27;
 
@@ -264,8 +228,7 @@ public interface BluetoothProfile {
      *
      * @hide
      */
-    @SystemApi
-    int LE_AUDIO_BROADCAST_ASSISTANT = 29;
+    @SystemApi int LE_AUDIO_BROADCAST_ASSISTANT = 29;
 
     /**
      * Battery Service
@@ -275,102 +238,96 @@ public interface BluetoothProfile {
     int BATTERY = 30;
 
     /**
-     * Max profile ID. This value should be updated whenever a new profile is added to match
-     * the largest value assigned to a profile.
+     * Max profile ID. This value should be updated whenever a new profile is added to match the
+     * largest value assigned to a profile.
      *
      * @hide
      */
     int MAX_PROFILE_ID = 30;
 
     /**
-     * Default priority for devices that we try to auto-connect to and
-     * and allow incoming connections for the profile
+     * Default priority for devices that we try to auto-connect to and allow incoming connections
+     * for the profile
      *
      * @hide
-     **/
+     */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     int PRIORITY_AUTO_CONNECT = 1000;
 
     /**
-     * Default priority for devices that allow incoming
-     * and outgoing connections for the profile
+     * Default priority for devices that allow incoming and outgoing connections for the profile
      *
      * @hide
      * @deprecated Replaced with {@link #CONNECTION_POLICY_ALLOWED}
-     **/
-    @Deprecated
-    @SystemApi
-    int PRIORITY_ON = 100;
+     */
+    @Deprecated @SystemApi int PRIORITY_ON = 100;
 
     /**
-     * Default priority for devices that does not allow incoming
-     * connections and outgoing connections for the profile.
+     * Default priority for devices that does not allow incoming connections and outgoing
+     * connections for the profile.
      *
      * @hide
      * @deprecated Replaced with {@link #CONNECTION_POLICY_FORBIDDEN}
-     **/
-    @Deprecated
-    @SystemApi
-    int PRIORITY_OFF = 0;
+     */
+    @Deprecated @SystemApi int PRIORITY_OFF = 0;
 
     /**
      * Default priority when not set or when the device is unpaired
      *
      * @hide
      */
-    @UnsupportedAppUsage
-    int PRIORITY_UNDEFINED = -1;
+    @UnsupportedAppUsage int PRIORITY_UNDEFINED = -1;
 
     /** @hide */
-    @IntDef(prefix = "CONNECTION_POLICY_", value = {CONNECTION_POLICY_ALLOWED,
-            CONNECTION_POLICY_FORBIDDEN, CONNECTION_POLICY_UNKNOWN})
+    @IntDef(
+            prefix = "CONNECTION_POLICY_",
+            value = {
+                CONNECTION_POLICY_ALLOWED,
+                CONNECTION_POLICY_FORBIDDEN,
+                CONNECTION_POLICY_UNKNOWN
+            })
     @Retention(RetentionPolicy.SOURCE)
-    public @interface ConnectionPolicy{}
+    public @interface ConnectionPolicy {}
 
     /**
-     * Default connection policy for devices that allow incoming and outgoing connections
-     * for the profile
+     * Default connection policy for devices that allow incoming and outgoing connections for the
+     * profile
      *
      * @hide
-     **/
-    @SystemApi
-    int CONNECTION_POLICY_ALLOWED = 100;
+     */
+    @SystemApi int CONNECTION_POLICY_ALLOWED = 100;
 
     /**
-     * Default connection policy for devices that do not allow incoming or outgoing connections
-     * for the profile.
+     * Default connection policy for devices that do not allow incoming or outgoing connections for
+     * the profile.
      *
      * @hide
-     **/
-    @SystemApi
-    int CONNECTION_POLICY_FORBIDDEN = 0;
+     */
+    @SystemApi int CONNECTION_POLICY_FORBIDDEN = 0;
 
     /**
      * Default connection policy when not set or when the device is unpaired
      *
      * @hide
      */
-    @SystemApi
-    int CONNECTION_POLICY_UNKNOWN = -1;
+    @SystemApi int CONNECTION_POLICY_UNKNOWN = -1;
 
     /**
      * Get connected devices for this specific profile.
      *
-     * <p> Return the set of devices which are in state {@link #STATE_CONNECTED}
+     * <p>Return the set of devices which are in state {@link #STATE_CONNECTED}
      *
      * @return List of devices. The list will be empty on error.
      */
     List<BluetoothDevice> getConnectedDevices();
 
     /**
-     * Get a list of devices that match any of the given connection
-     * states.
+     * Get a list of devices that match any of the given connection states.
      *
-     * <p> If none of the devices match any of the given states,
-     * an empty list will be returned.
+     * <p>If none of the devices match any of the given states, an empty list will be returned.
      *
      * @param states Array of states. States can be one of {@link #STATE_CONNECTED}, {@link
-     * #STATE_CONNECTING}, {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING},
+     *     #STATE_CONNECTING}, {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING},
      * @return List of devices. The list will be empty on error.
      */
     List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states);
@@ -380,25 +337,40 @@ public interface BluetoothProfile {
      *
      * @param device Remote bluetooth device.
      * @return State of the profile connection. One of {@link #STATE_CONNECTED}, {@link
-     * #STATE_CONNECTING}, {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING}
+     *     #STATE_CONNECTING}, {@link #STATE_DISCONNECTED}, {@link #STATE_DISCONNECTING}
      */
-    @BtProfileState int getConnectionState(BluetoothDevice device);
+    @BtProfileState
+    int getConnectionState(BluetoothDevice device);
 
     /**
-     * Releases any held resources.
+     * Called by the BluetoothAdapter when the Bluetooth service is connected with a Binder instance
+     * corresponding to the service associated with the profile
      *
      * @hide
      */
-    void close();
+    void onServiceConnected(IBinder service);
 
     /**
-     * An interface for notifying BluetoothProfile IPC clients when they have
-     * been connected or disconnected to the service.
+     * Called by the BluetoothAdapter when the Bluetooth service connection has been lost
+     *
+     * @hide
+     */
+    void onServiceDisconnected();
+
+    /**
+     * Get the BluetoothAdapter that created this proxy
+     *
+     * @hide
+     */
+    BluetoothAdapter getAdapter();
+
+    /**
+     * An interface for notifying BluetoothProfile IPC clients when they have been connected or
+     * disconnected to the service.
      */
     public interface ServiceListener {
         /**
-         * Called to notify the client when the proxy object has been
-         * connected to the service.
+         * Called to notify the client when the proxy object has been connected to the service.
          *
          * @param profile - One of {@link #HEADSET} or {@link #A2DP}
          * @param proxy - One of {@link BluetoothHeadset} or {@link BluetoothA2dp}
@@ -407,8 +379,8 @@ public interface BluetoothProfile {
         void onServiceConnected(int profile, BluetoothProfile proxy);
 
         /**
-         * Called to notify the client that this proxy object has been
-         * disconnected from the service.
+         * Called to notify the client that this proxy object has been disconnected from the
+         * service.
          *
          * @param profile - One of {@link #HEADSET} or {@link #A2DP}
          */
@@ -417,39 +389,12 @@ public interface BluetoothProfile {
     }
 
     /**
-     * A service listener that forwards methods calls to the given listener.
-     * This can be used to override specific method.
-     * @hide
-     */
-    class ForwardingServiceListener implements ServiceListener {
-        private final ServiceListener mListener;
-
-        ForwardingServiceListener(@Nullable ServiceListener listener) {
-            mListener = listener;
-        }
-
-        @Override
-        public void onServiceConnected(int profile, BluetoothProfile proxy) {
-            if (mListener != null) {
-                mListener.onServiceConnected(profile, proxy);
-            }
-        }
-
-        @Override
-        public void onServiceDisconnected(int profile) {
-            if (mListener != null) {
-                mListener.onServiceDisconnected(profile);
-            }
-        }
-    }
-
-    /**
      * Convert an integer value of connection state into human readable string
      *
      * @param connectionState - One of {@link #STATE_DISCONNECTED}, {@link #STATE_CONNECTING},
-     * {@link #STATE_CONNECTED}, or {@link #STATE_DISCONNECTED}
-     * @return a string representation of the connection state, STATE_UNKNOWN if the state
-     * is not defined
+     *     {@link #STATE_CONNECTED}, or {@link #STATE_DISCONNECTED}
+     * @return a string representation of the connection state, STATE_UNKNOWN if the state is not
+     *     defined
      * @hide
      */
     @SystemApi
@@ -474,14 +419,14 @@ public interface BluetoothProfile {
      * Convert an integer value of profile ID into human readable string
      *
      * @param profile profile ID
-     * @return profile name as String, UNKOWN_PROFILE if the profile ID is not defined.
+     * @return profile name as String, UNKNOWN_PROFILE if the profile ID is not defined.
      * @hide
      */
     @SystemApi
     @NonNull
     @RequiresNoPermission
     static String getProfileName(int profile) {
-        switch(profile) {
+        switch (profile) {
             case HEADSET:
                 return "HEADSET";
             case A2DP:
@@ -537,7 +482,7 @@ public interface BluetoothProfile {
             case BATTERY:
                 return "BATTERY";
             default:
-                return "UNKNOWN_PROFILE";
+                return "UNKNOWN_PROFILE (" + profile + ")";
         }
     }
 }

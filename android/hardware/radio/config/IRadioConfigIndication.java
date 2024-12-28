@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 1e3dcfffc1e90fc886cf5a22ecaa94601b115710 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config-V3-java-source/gen/android/hardware/radio/config/IRadioConfigIndication.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.config/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.config/3/android/hardware/radio/config/IRadioConfigIndication.aidl
  */
 package android.hardware.radio.config;
+/** @hide */
 public interface IRadioConfigIndication extends android.os.IInterface
 {
   /**
@@ -10,12 +12,15 @@ public interface IRadioConfigIndication extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "0be135cf3de9586d6aabb58cb6af0ba425431743";
+  public static final int VERSION = 3;
+  public static final String HASH = "1e3dcfffc1e90fc886cf5a22ecaa94601b115710";
   /** Default implementation for IRadioConfigIndication. */
   public static class Default implements android.hardware.radio.config.IRadioConfigIndication
   {
     @Override public void simSlotsStatusChanged(int type, android.hardware.radio.config.SimSlotStatus[] slotStatus) throws android.os.RemoteException
+    {
+    }
+    @Override public void onSimultaneousCallingSupportChanged(int[] enabledLogicalSlots) throws android.os.RemoteException
     {
     }
     @Override
@@ -35,6 +40,7 @@ public interface IRadioConfigIndication extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.config.IRadioConfigIndication
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -65,25 +71,19 @@ public interface IRadioConfigIndication extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -95,6 +95,14 @@ public interface IRadioConfigIndication extends android.os.IInterface
           _arg1 = data.createTypedArray(android.hardware.radio.config.SimSlotStatus.CREATOR);
           data.enforceNoDataAvail();
           this.simSlotsStatusChanged(_arg0, _arg1);
+          break;
+        }
+        case TRANSACTION_onSimultaneousCallingSupportChanged:
+        {
+          int[] _arg0;
+          _arg0 = data.createIntArray();
+          data.enforceNoDataAvail();
+          this.onSimultaneousCallingSupportChanged(_arg0);
           break;
         }
         default:
@@ -137,6 +145,21 @@ public interface IRadioConfigIndication extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void onSimultaneousCallingSupportChanged(int[] enabledLogicalSlots) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeIntArray(enabledLogicalSlots);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_onSimultaneousCallingSupportChanged, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method onSimultaneousCallingSupportChanged is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -173,11 +196,14 @@ public interface IRadioConfigIndication extends android.os.IInterface
       }
     }
     static final int TRANSACTION_simSlotsStatusChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
+    static final int TRANSACTION_onSimultaneousCallingSupportChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$config$IRadioConfigIndication".replace('$', '.');
   public void simSlotsStatusChanged(int type, android.hardware.radio.config.SimSlotStatus[] slotStatus) throws android.os.RemoteException;
+  public void onSimultaneousCallingSupportChanged(int[] enabledLogicalSlots) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

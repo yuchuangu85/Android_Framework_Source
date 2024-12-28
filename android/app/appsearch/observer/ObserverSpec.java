@@ -16,10 +16,15 @@
 
 package android.app.appsearch.observer;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
-import android.os.Bundle;
+import android.app.appsearch.flags.Flags;
+import android.app.appsearch.safeparcel.AbstractSafeParcelable;
+import android.app.appsearch.safeparcel.SafeParcelable;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.util.ArraySet;
 
 import java.util.ArrayList;
@@ -34,28 +39,24 @@ import java.util.Set;
  * Configures the types, namespaces and other properties that {@link ObserverCallback} instances
  * match against.
  */
-public final class ObserverSpec {
-    private static final String FILTER_SCHEMA_FIELD = "filterSchema";
+@SafeParcelable.Class(creator = "ObserverSpecCreator")
+@SuppressWarnings("HiddenSuperclass")
+public final class ObserverSpec extends AbstractSafeParcelable {
 
-    private final Bundle mBundle;
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @NonNull
+    public static final Parcelable.Creator<ObserverSpec> CREATOR = new ObserverSpecCreator();
+
+    @Field(id = 1)
+    final List<String> mFilterSchemas;
 
     /** Populated on first use */
-    @Nullable private volatile Set<String> mFilterSchemas;
+    @Nullable private volatile Set<String> mFilterSchemasCached;
 
     /** @hide */
-    public ObserverSpec(@NonNull Bundle bundle) {
-        Objects.requireNonNull(bundle);
-        mBundle = bundle;
-    }
-
-    /**
-     * Returns the {@link Bundle} backing this spec.
-     *
-     * @hide
-     */
-    @NonNull
-    public Bundle getBundle() {
-        return mBundle;
+    @Constructor
+    public ObserverSpec(@Param(id = 1) @NonNull List<String> filterSchemas) {
+        mFilterSchemas = Objects.requireNonNull(filterSchemas);
     }
 
     /**
@@ -65,18 +66,17 @@ public final class ObserverSpec {
      */
     @NonNull
     public Set<String> getFilterSchemas() {
-        if (mFilterSchemas == null) {
-            List<String> schemas = mBundle.getStringArrayList(FILTER_SCHEMA_FIELD);
-            if (schemas == null) {
-                mFilterSchemas = Collections.emptySet();
+        if (mFilterSchemasCached == null) {
+            if (mFilterSchemas == null) {
+                mFilterSchemasCached = Collections.emptySet();
             } else {
-                mFilterSchemas = Collections.unmodifiableSet(new ArraySet<>(schemas));
+                mFilterSchemasCached = Collections.unmodifiableSet(new ArraySet<>(mFilterSchemas));
             }
         }
-        return mFilterSchemas;
+        return mFilterSchemasCached;
     }
 
-    /** Builder for ObserverSpec instances. */
+    /** Builder for {@link ObserverSpec} instances. */
     public static final class Builder {
         private ArrayList<String> mFilterSchemas = new ArrayList<>();
         private boolean mBuilt = false;
@@ -113,10 +113,8 @@ public final class ObserverSpec {
         /** Constructs a new {@link ObserverSpec} from the contents of this builder. */
         @NonNull
         public ObserverSpec build() {
-            Bundle bundle = new Bundle();
-            bundle.putStringArrayList(FILTER_SCHEMA_FIELD, mFilterSchemas);
             mBuilt = true;
-            return new ObserverSpec(bundle);
+            return new ObserverSpec(mFilterSchemas);
         }
 
         private void resetIfBuilt() {
@@ -125,5 +123,11 @@ public final class ObserverSpec {
                 mBuilt = false;
             }
         }
+    }
+
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        ObserverSpecCreator.writeToParcel(this, dest, flags);
     }
 }

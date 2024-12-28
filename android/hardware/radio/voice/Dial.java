@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 78fb79bcb32590a868b3eb7affb39ab90e4ca782 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen/android/hardware/radio/voice/Dial.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3/android/hardware/radio/voice/Dial.aidl
  */
 package android.hardware.radio.voice;
+/** @hide */
 public class Dial implements android.os.Parcelable
 {
   public java.lang.String address;
@@ -61,7 +63,7 @@ public class Dial implements android.os.Parcelable
     _aidl_sj.add("address: " + (java.util.Objects.toString(address)));
     _aidl_sj.add("clir: " + (clir));
     _aidl_sj.add("uusInfo: " + (java.util.Arrays.toString(uusInfo)));
-    return "android.hardware.radio.voice.Dial" + _aidl_sj.toString()  ;
+    return "Dial" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

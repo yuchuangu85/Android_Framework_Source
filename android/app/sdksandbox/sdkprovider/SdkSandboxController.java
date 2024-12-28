@@ -15,27 +15,42 @@
  */
 package android.app.sdksandbox.sdkprovider;
 
+import static android.app.sdksandbox.SdkSandboxManager.getResultCodeForLoadSdkException;
 import static android.app.sdksandbox.sdkprovider.SdkSandboxController.SDK_SANDBOX_CONTROLLER_SERVICE;
 
+import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.SystemService;
 import android.app.Activity;
+import android.app.sdksandbox.AppOwnedSdkSandboxInterface;
+import android.app.sdksandbox.ILoadSdkCallback;
+import android.app.sdksandbox.LoadSdkException;
+import android.app.sdksandbox.SandboxLatencyInfo;
 import android.app.sdksandbox.SandboxedSdk;
 import android.app.sdksandbox.SandboxedSdkContext;
 import android.app.sdksandbox.SandboxedSdkProvider;
 import android.app.sdksandbox.SdkSandboxLocalSingleton;
 import android.app.sdksandbox.SdkSandboxManager;
+import android.app.sdksandbox.StatsdUtil;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.IBinder;
+import android.os.OutcomeReceiver;
 import android.os.RemoteException;
+import android.os.SystemClock;
+import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 
 import com.android.modules.utils.build.SdkLevel;
+import com.android.sdksandbox.flags.Flags;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * Controller that is used by SDK loaded in the sandbox to access information provided by the sdk
@@ -90,6 +105,26 @@ public class SdkSandboxController {
     }
 
     /**
+     * Fetches all {@link AppOwnedSdkSandboxInterface} that are registered by the app.
+     *
+     * @return List of {@link AppOwnedSdkSandboxInterface} containing all currently registered
+     *     AppOwnedSdkSandboxInterface.
+     * @throws UnsupportedOperationException if the controller is obtained from an unexpected
+     *     context. Use {@link SandboxedSdkProvider#getContext()} for the right context
+     */
+    public @NonNull List<AppOwnedSdkSandboxInterface> getAppOwnedSdkSandboxInterfaces() {
+        enforceSandboxedSdkContextInitialization();
+        try {
+            return mSdkSandboxLocalSingleton
+                    .getSdkToServiceCallback()
+                    .getAppOwnedSdkSandboxInterfaces(
+                            ((SandboxedSdkContext) mContext).getClientPackageName());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Fetches information about Sdks that are loaded in the sandbox.
      *
      * @return List of {@link SandboxedSdk} containing all currently loaded sdks
@@ -98,10 +133,62 @@ public class SdkSandboxController {
      */
     public @NonNull List<SandboxedSdk> getSandboxedSdks() {
         enforceSandboxedSdkContextInitialization();
+        SandboxLatencyInfo sandboxLatencyInfo =
+                new SandboxLatencyInfo(SandboxLatencyInfo.METHOD_GET_SANDBOXED_SDKS_VIA_CONTROLLER);
+        // TODO(b/319659746) : Rename the method to something more generic than using App.
+        // TODO(b/321909787) : Use injector to set time in order to write unit tests.
+        sandboxLatencyInfo.setTimeAppCalledSystemServer(SystemClock.elapsedRealtime());
+
         try {
             return mSdkSandboxLocalSingleton
                     .getSdkToServiceCallback()
-                    .getSandboxedSdks(((SandboxedSdkContext) mContext).getClientPackageName());
+                    .getSandboxedSdks(
+                            ((SandboxedSdkContext) mContext).getClientPackageName(),
+                            sandboxLatencyInfo);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Loads SDK in an SDK sandbox java process.
+     *
+     * <p>Loads SDK library with {@code sdkName} to an SDK sandbox process asynchronously. The
+     * caller will be notified through the {@code receiver}.
+     *
+     * <p>The caller may only load {@code SDKs} the client app depends on into the SDK sandbox.
+     *
+     * @param sdkName name of the SDK to be loaded.
+     * @param params additional parameters to be passed to the SDK in the form of a {@link Bundle}
+     *     as agreed between the client and the SDK.
+     * @param executor the {@link Executor} on which to invoke the receiver.
+     * @param receiver This either receives a {@link SandboxedSdk} on a successful run, or {@link
+     *     LoadSdkException}.
+     * @throws UnsupportedOperationException if the controller is obtained from an unexpected
+     *     context. Use {@link SandboxedSdkProvider#getContext()} for the right context
+     */
+    public void loadSdk(
+            @NonNull String sdkName,
+            @NonNull Bundle params,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull OutcomeReceiver<SandboxedSdk, LoadSdkException> receiver) {
+        enforceSandboxedSdkContextInitialization();
+        final LoadSdkReceiverProxy callbackProxy = new LoadSdkReceiverProxy(executor, receiver);
+        SandboxLatencyInfo sandboxLatencyInfo =
+                new SandboxLatencyInfo(SandboxLatencyInfo.METHOD_LOAD_SDK_VIA_CONTROLLER);
+        // TODO(b/319659746) : Rename the method to something more generic than using App.
+        // TODO(b/321909787) : Use injector to set time in order to write unit tests.
+        sandboxLatencyInfo.setTimeAppCalledSystemServer(SystemClock.elapsedRealtime());
+
+        try {
+            mSdkSandboxLocalSingleton
+                    .getSdkToServiceCallback()
+                    .loadSdk(
+                            ((SandboxedSdkContext) mContext).getClientPackageName(),
+                            sdkName,
+                            sandboxLatencyInfo,
+                            params,
+                            callbackProxy);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -150,9 +237,19 @@ public class SdkSandboxController {
         if (!SdkLevel.isAtLeastU()) {
             throw new UnsupportedOperationException();
         }
+        // TODO(b/321909787) : Use injector to set time for unit tests.
+        long timeEventStarted = SystemClock.elapsedRealtime();
         enforceSandboxedSdkContextInitialization();
 
-        return mSdkSandboxActivityRegistry.register(getSdkName(), sdkSandboxActivityHandler);
+        IBinder token =
+                mSdkSandboxActivityRegistry.register(
+                        (SandboxedSdkContext) mContext, sdkSandboxActivityHandler);
+        logSandboxActivityApiLatency(
+                StatsdUtil
+                        .SANDBOX_ACTIVITY_EVENT_OCCURRED__METHOD__REGISTER_SDK_SANDBOX_ACTIVITY_HANDLER,
+                StatsdUtil.SANDBOX_ACTIVITY_EVENT_OCCURRED__CALL_RESULT__SUCCESS,
+                timeEventStarted);
+        return token;
     }
 
     /**
@@ -176,9 +273,83 @@ public class SdkSandboxController {
         if (!SdkLevel.isAtLeastU()) {
             throw new UnsupportedOperationException();
         }
+        long timeEventStarted = SystemClock.elapsedRealtime();
         enforceSandboxedSdkContextInitialization();
 
         mSdkSandboxActivityRegistry.unregister(sdkSandboxActivityHandler);
+        logSandboxActivityApiLatency(
+                StatsdUtil
+                        .SANDBOX_ACTIVITY_EVENT_OCCURRED__METHOD__UNREGISTER_SDK_SANDBOX_ACTIVITY_HANDLER,
+                StatsdUtil.SANDBOX_ACTIVITY_EVENT_OCCURRED__CALL_RESULT__SUCCESS,
+                timeEventStarted);
+    }
+
+    /**
+     * Returns the package name of the client app.
+     *
+     * @throws UnsupportedOperationException if the controller is obtained from an unexpected
+     *     context. Use {@link SandboxedSdkProvider#getContext()} for the right context.
+     */
+    @NonNull
+    public String getClientPackageName() {
+        enforceSandboxedSdkContextInitialization();
+        return ((SandboxedSdkContext) mContext).getClientPackageName();
+    }
+
+    /**
+     * Registers a listener to be notified of changes in the client's {@link
+     * android.app.ActivityManager.RunningAppProcessInfo#importance}.
+     *
+     * @param listener an implementation of {@link SdkSandboxClientImportanceListener} to register.
+     * @throws UnsupportedOperationException if the controller is obtained from an unexpected
+     *     context. Use {@link SandboxedSdkProvider#getContext()} for the right context.
+     */
+    @FlaggedApi(Flags.FLAG_SANDBOX_CLIENT_IMPORTANCE_LISTENER)
+    public void registerSdkSandboxClientImportanceListener(
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull SdkSandboxClientImportanceListener listener) {
+        Objects.requireNonNull(executor, "executor should not be null");
+        Objects.requireNonNull(listener, "listener should not be null");
+        enforceSandboxedSdkContextInitialization();
+        SdkSandboxLocalSingleton.getExistingInstance()
+                .registerSdkSandboxClientImportanceListener(
+                        new SdkSandboxClientImportanceListenerProxy(executor, listener));
+    }
+
+    /**
+     * Unregisters a listener previously registered using {@link
+     * SdkSandboxController#registerSdkSandboxClientImportanceListener(Executor,
+     * SdkSandboxClientImportanceListener)}
+     *
+     * @param listener an implementation of {@link SdkSandboxClientImportanceListener} to
+     *     unregister.
+     * @throws UnsupportedOperationException if the controller is obtained from an unexpected
+     *     context. Use {@link SandboxedSdkProvider#getContext()} for the right context.
+     */
+    @FlaggedApi(Flags.FLAG_SANDBOX_CLIENT_IMPORTANCE_LISTENER)
+    public void unregisterSdkSandboxClientImportanceListener(
+            @NonNull SdkSandboxClientImportanceListener listener) {
+        Objects.requireNonNull(listener, "listener should not be null");
+        enforceSandboxedSdkContextInitialization();
+        SdkSandboxLocalSingleton.getExistingInstance()
+                .unregisterSdkSandboxClientImportanceListener(listener);
+    }
+
+    /** @hide */
+    public static class SdkSandboxClientImportanceListenerProxy {
+        private final Executor mExecutor;
+        public final SdkSandboxClientImportanceListener listener;
+
+        SdkSandboxClientImportanceListenerProxy(
+                Executor executor, SdkSandboxClientImportanceListener listener) {
+            mExecutor = executor;
+            this.listener = listener;
+        }
+
+        /** @hide */
+        public void onForegroundImportanceChanged(boolean isForeground) {
+            mExecutor.execute(() -> listener.onForegroundImportanceChanged(isForeground));
+        }
     }
 
     private void enforceSandboxedSdkContextInitialization() {
@@ -189,8 +360,59 @@ public class SdkSandboxController {
         }
     }
 
-    @NonNull
-    private String getSdkName() {
-        return ((SandboxedSdkContext) mContext).getSdkName();
+    private void logLatenciesFromSandbox(SandboxLatencyInfo sandboxLatencyInfo) {
+        // TODO(b/319659746) : Rename the method to something more generic than using App.
+        sandboxLatencyInfo.setTimeAppReceivedCallFromSystemServer(SystemClock.elapsedRealtime());
+        try {
+            mSdkSandboxLocalSingleton
+                    .getSdkToServiceCallback()
+                    .logLatenciesFromSandbox(sandboxLatencyInfo);
+        } catch (RemoteException e) {
+            Log.e(
+                    TAG,
+                    "Logging metrics for method "
+                            + sandboxLatencyInfo.getMethod()
+                            + " failed with exception "
+                            + e.getMessage());
+        }
+    }
+
+    private void logSandboxActivityApiLatency(int method, int callResult, long timeEventStarted) {
+        try {
+            mSdkSandboxLocalSingleton
+                    .getSdkToServiceCallback()
+                    .logSandboxActivityApiLatencyFromSandbox(
+                            method,
+                            callResult,
+                            (int) (SystemClock.elapsedRealtime() - timeEventStarted));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    private class LoadSdkReceiverProxy extends ILoadSdkCallback.Stub {
+        private final Executor mExecutor;
+        private final OutcomeReceiver<SandboxedSdk, LoadSdkException> mCallback;
+
+        LoadSdkReceiverProxy(
+                Executor executor, OutcomeReceiver<SandboxedSdk, LoadSdkException> callback) {
+            mExecutor = executor;
+            mCallback = callback;
+        }
+
+        @Override
+        public void onLoadSdkSuccess(
+                SandboxedSdk sandboxedSdk, SandboxLatencyInfo sandboxLatencyInfo) {
+            SdkSandboxController.this.logLatenciesFromSandbox(sandboxLatencyInfo);
+            mExecutor.execute(() -> mCallback.onResult(sandboxedSdk));
+        }
+
+        @Override
+        public void onLoadSdkFailure(
+                LoadSdkException exception, SandboxLatencyInfo sandboxLatencyInfo) {
+            sandboxLatencyInfo.setResultCode(getResultCodeForLoadSdkException(exception));
+            SdkSandboxController.this.logLatenciesFromSandbox(sandboxLatencyInfo);
+            mExecutor.execute(() -> mCallback.onError(exception));
+        }
     }
 }

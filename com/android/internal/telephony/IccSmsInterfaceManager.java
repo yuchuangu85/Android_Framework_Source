@@ -21,6 +21,7 @@ import static android.telephony.SmsManager.STATUS_ON_ICC_READ;
 import static android.telephony.SmsManager.STATUS_ON_ICC_UNREAD;
 
 import android.Manifest;
+import android.annotation.NonNull;
 import android.annotation.RequiresPermission;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
@@ -47,6 +48,7 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.telephony.uicc.IccConstants;
 import com.android.internal.telephony.uicc.IccFileHandler;
@@ -155,11 +157,11 @@ public class IccSmsInterfaceManager {
         }
     };
 
-    protected IccSmsInterfaceManager(Phone phone) {
+    protected IccSmsInterfaceManager(Phone phone, @NonNull FeatureFlags featureFlags) {
         this(phone, phone.getContext(),
                 (AppOpsManager) phone.getContext().getSystemService(Context.APP_OPS_SERVICE),
                 new SmsDispatchersController(
-                        phone, phone.mSmsStorageMonitor, phone.mSmsUsageMonitor),
+                        phone, phone.mSmsStorageMonitor, phone.mSmsUsageMonitor, featureFlags),
                 new SmsPermissions(phone, phone.getContext(),
                         (AppOpsManager) phone.getContext().getSystemService(
                                 Context.APP_OPS_SERVICE)));

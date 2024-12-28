@@ -16,7 +16,9 @@
 
 package android.adservices.adselection;
 
+import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_AD_SELECTION;
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_CUSTOM_AUDIENCE;
+import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_PROTECTED_SIGNALS;
 
 import android.adservices.common.AdServicesStatusUtils;
 import android.adservices.common.FledgeErrorResponse;
@@ -40,7 +42,6 @@ import java.util.concurrent.Executor;
  * <p>These APIs are intended to be used for end-to-end testing. They are enabled only for
  * debuggable apps on phones running a debuggable OS build with developer options enabled.
  */
-// TODO(b/269798827): Enable for R.
 @RequiresApi(Build.VERSION_CODES.S)
 public class TestAdSelectionManager {
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getFledgeLogger();
@@ -52,6 +53,8 @@ public class TestAdSelectionManager {
 
         mAdSelectionManager = adSelectionManager;
     }
+
+    // TODO(b/289362476): Add override APIs for server auction key fetch
 
     /**
      * Overrides the AdSelection API for a given {@link AdSelectionConfig} to avoid fetching data
@@ -65,7 +68,12 @@ public class TestAdSelectionManager {
      *     <p>The receiver either returns a {@code void} for a successful run, or an {@link
      *     Exception} indicates the error.
      */
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void overrideAdSelectionConfigRemoteInfo(
             @NonNull AddAdSelectionOverrideRequest request,
             @NonNull @CallbackExecutor Executor executor,
@@ -75,12 +83,13 @@ public class TestAdSelectionManager {
         Objects.requireNonNull(receiver);
 
         try {
-            final AdSelectionService service = mAdSelectionManager.getService();
+            final AdSelectionService service =
+                    mAdSelectionManager.getServiceProvider().getService();
             service.overrideAdSelectionConfigRemoteInfo(
                     request.getAdSelectionConfig(),
                     request.getDecisionLogicJs(),
                     request.getTrustedScoringSignals(),
-                    request.getBuyersDecisionLogic(),
+                    request.getPerBuyerDecisionLogic(),
                     new AdSelectionOverrideCallback.Stub() {
                         @Override
                         public void onSuccess() {
@@ -118,7 +127,12 @@ public class TestAdSelectionManager {
      *     <p>The receiver either returns a {@code void} for a successful run, or an {@link
      *     Exception} indicates the error.
      */
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void removeAdSelectionConfigRemoteInfoOverride(
             @NonNull RemoveAdSelectionOverrideRequest request,
             @NonNull @CallbackExecutor Executor executor,
@@ -128,7 +142,8 @@ public class TestAdSelectionManager {
         Objects.requireNonNull(receiver);
 
         try {
-            final AdSelectionService service = mAdSelectionManager.getService();
+            final AdSelectionService service =
+                    mAdSelectionManager.getServiceProvider().getService();
             service.removeAdSelectionConfigRemoteInfoOverride(
                     request.getAdSelectionConfig(),
                     new AdSelectionOverrideCallback.Stub() {
@@ -166,7 +181,12 @@ public class TestAdSelectionManager {
      *     <p>The receiver either returns a {@code void} for a successful run, or an {@link
      *     Exception} indicates the error.
      */
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void resetAllAdSelectionConfigRemoteOverrides(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Object, Exception> receiver) {
@@ -174,7 +194,8 @@ public class TestAdSelectionManager {
         Objects.requireNonNull(receiver);
 
         try {
-            final AdSelectionService service = mAdSelectionManager.getService();
+            final AdSelectionService service =
+                    mAdSelectionManager.getServiceProvider().getService();
             service.resetAllAdSelectionConfigRemoteOverrides(
                     new AdSelectionOverrideCallback.Stub() {
                         @Override
@@ -213,9 +234,13 @@ public class TestAdSelectionManager {
      * @throws IllegalStateException if this API is not enabled for the caller
      *     <p>The receiver either returns a {@code void} for a successful run, or an {@link
      *     Exception} indicates the error.
-     * @hide
      */
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void overrideAdSelectionFromOutcomesConfigRemoteInfo(
             @NonNull AddAdSelectionFromOutcomesOverrideRequest request,
             @NonNull @CallbackExecutor Executor executor,
@@ -225,7 +250,8 @@ public class TestAdSelectionManager {
         Objects.requireNonNull(receiver);
 
         try {
-            final AdSelectionService service = mAdSelectionManager.getService();
+            final AdSelectionService service =
+                    mAdSelectionManager.getServiceProvider().getService();
             service.overrideAdSelectionFromOutcomesConfigRemoteInfo(
                     request.getAdSelectionFromOutcomesConfig(),
                     request.getOutcomeSelectionLogicJs(),
@@ -266,9 +292,13 @@ public class TestAdSelectionManager {
      * @throws IllegalStateException if this API is not enabled for the caller
      *     <p>The receiver either returns a {@code void} for a successful run, or an {@link
      *     Exception} indicates the error.
-     * @hide
      */
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void removeAdSelectionFromOutcomesConfigRemoteInfoOverride(
             @NonNull RemoveAdSelectionFromOutcomesOverrideRequest request,
             @NonNull @CallbackExecutor Executor executor,
@@ -278,7 +308,8 @@ public class TestAdSelectionManager {
         Objects.requireNonNull(receiver);
 
         try {
-            final AdSelectionService service = mAdSelectionManager.getService();
+            final AdSelectionService service =
+                    mAdSelectionManager.getServiceProvider().getService();
             service.removeAdSelectionFromOutcomesConfigRemoteInfoOverride(
                     request.getAdSelectionFromOutcomesConfig(),
                     new AdSelectionOverrideCallback.Stub() {
@@ -315,9 +346,13 @@ public class TestAdSelectionManager {
      * @throws IllegalStateException if this API is not enabled for the caller
      *     <p>The receiver either returns a {@code void} for a successful run, or an {@link
      *     Exception} indicates the error.
-     * @hide
      */
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void resetAllAdSelectionFromOutcomesConfigRemoteOverrides(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Object, Exception> receiver) {
@@ -325,7 +360,8 @@ public class TestAdSelectionManager {
         Objects.requireNonNull(receiver);
 
         try {
-            final AdSelectionService service = mAdSelectionManager.getService();
+            final AdSelectionService service =
+                    mAdSelectionManager.getServiceProvider().getService();
             service.resetAllAdSelectionFromOutcomesConfigRemoteOverrides(
                     new AdSelectionOverrideCallback.Stub() {
                         @Override
@@ -365,8 +401,13 @@ public class TestAdSelectionManager {
      * @throws IllegalStateException if this API is not enabled for the caller
      * @hide
      */
-    // TODO(b/221876775): Unhide for frequency cap API review
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    // TODO(b/265204820): Unhide for frequency cap dev override API review
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void setAdCounterHistogramOverride(
             @NonNull SetAdCounterHistogramOverrideRequest setRequest,
             @NonNull @CallbackExecutor Executor executor,
@@ -377,7 +418,7 @@ public class TestAdSelectionManager {
 
         try {
             final AdSelectionService service =
-                    Objects.requireNonNull(mAdSelectionManager.getService());
+                    Objects.requireNonNull(mAdSelectionManager.getServiceProvider().getService());
             service.setAdCounterHistogramOverride(
                     new SetAdCounterHistogramOverrideInput.Builder()
                             .setAdEventType(setRequest.getAdEventType())
@@ -425,8 +466,13 @@ public class TestAdSelectionManager {
      * @throws IllegalStateException if this API is not enabled for the caller
      * @hide
      */
-    // TODO(b/221876775): Unhide for frequency cap API review
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    // TODO(b/265204820): Unhide for frequency cap dev override API review
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void removeAdCounterHistogramOverride(
             @NonNull RemoveAdCounterHistogramOverrideRequest removeRequest,
             @NonNull @CallbackExecutor Executor executor,
@@ -437,7 +483,7 @@ public class TestAdSelectionManager {
 
         try {
             final AdSelectionService service =
-                    Objects.requireNonNull(mAdSelectionManager.getService());
+                    Objects.requireNonNull(mAdSelectionManager.getServiceProvider().getService());
             service.removeAdCounterHistogramOverride(
                     new RemoveAdCounterHistogramOverrideInput.Builder()
                             .setAdEventType(removeRequest.getAdEventType())
@@ -482,8 +528,13 @@ public class TestAdSelectionManager {
      * @throws IllegalStateException if this API is not enabled for the caller
      * @hide
      */
-    // TODO(b/221876775): Unhide for frequency cap API review
-    @RequiresPermission(ACCESS_ADSERVICES_CUSTOM_AUDIENCE)
+    // TODO(b/265204820): Unhide for frequency cap dev override API review
+    @RequiresPermission(
+            anyOf = {
+                ACCESS_ADSERVICES_CUSTOM_AUDIENCE,
+                ACCESS_ADSERVICES_PROTECTED_SIGNALS,
+                ACCESS_ADSERVICES_AD_SELECTION
+            })
     public void resetAllAdCounterHistogramOverrides(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Object, Exception> outcomeReceiver) {
@@ -492,7 +543,7 @@ public class TestAdSelectionManager {
 
         try {
             final AdSelectionService service =
-                    Objects.requireNonNull(mAdSelectionManager.getService());
+                    Objects.requireNonNull(mAdSelectionManager.getServiceProvider().getService());
             service.resetAllAdCounterHistogramOverrides(
                     new AdSelectionOverrideCallback.Stub() {
                         @Override

@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/IVirtualMachine.java.d -o out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/virtualizationservice/aidl packages/modules/Virtualization/virtualizationservice/aidl/android/system/virtualizationservice/IVirtualMachine.aidl
  */
 package android.system.virtualizationservice;
 public interface IVirtualMachine extends android.os.IInterface
@@ -54,6 +55,7 @@ public interface IVirtualMachine extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.system.virtualizationservice.IVirtualMachine
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -83,13 +85,9 @@ public interface IVirtualMachine extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -302,7 +300,8 @@ public interface IVirtualMachine extends android.os.IInterface
     static final int TRANSACTION_onTrimMemory = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
     static final int TRANSACTION_connectVsock = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
   }
-  public static final java.lang.String DESCRIPTOR = "android$system$virtualizationservice$IVirtualMachine".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.system.virtualizationservice.IVirtualMachine";
   /** Get the CID allocated to the VM. */
   public int getCid() throws android.os.RemoteException;
   /** Returns the current lifecycle state of the VM. */

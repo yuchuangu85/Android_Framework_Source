@@ -156,14 +156,12 @@ public class LocaleDistance {
             String[] partitions = getValue(matchTable, "partitions", value).getStringArray();
 
             Set<LSR> paradigmLSRs;
-            if (matchTable.findValue("paradigms", value)) {
-                String[] paradigms = value.getStringArray();
+            if (matchTable.findValue("paradigmnum", value)) {
+                String[] m49 = getValue(langInfo.getValueWithFallback("likely").getTable(),
+                    "m49", value).getStringArray();
+                LSR[] paradigms = LSR.decodeInts(getValue(matchTable, "paradigmnum", value).getIntVector(), m49);
                 // LinkedHashSet for stable order; otherwise a unit test is flaky.
-                paradigmLSRs = new LinkedHashSet<>(paradigms.length / 3);
-                for (int i = 0; i < paradigms.length; i += 3) {
-                    paradigmLSRs.add(new LSR(paradigms[i], paradigms[i + 1], paradigms[i + 2],
-                            LSR.DONT_CARE_FLAGS));
-                }
+                paradigmLSRs = new LinkedHashSet<LSR>(Arrays.asList(paradigms));
             } else {
                 paradigmLSRs = Collections.emptySet();
             }
@@ -232,8 +230,8 @@ public class LocaleDistance {
     // VisibleForTesting
     public int testOnlyDistance(ULocale desired, ULocale supported,
             int threshold, FavorSubtag favorSubtag) {
-        LSR supportedLSR = XLikelySubtags.INSTANCE.makeMaximizedLsrFrom(supported);
-        LSR desiredLSR = XLikelySubtags.INSTANCE.makeMaximizedLsrFrom(desired);
+        LSR supportedLSR = LikelySubtags.INSTANCE.makeMaximizedLsrFrom(supported, false);
+        LSR desiredLSR = LikelySubtags.INSTANCE.makeMaximizedLsrFrom(desired, false);
         int indexAndDistance = getBestIndexAndDistance(desiredLSR, new LSR[] { supportedLSR }, 1,
                 shiftDistance(threshold), favorSubtag, LocaleMatcher.Direction.WITH_ONE_WAY);
         return getDistanceFloor(indexAndDistance);
@@ -257,7 +255,7 @@ public class LocaleDistance {
         long desLangState = desLangDistance >= 0 && supportedLSRsLength > 1 ? iter.getState64() : 0;
         // Index of the supported LSR with the lowest distance.
         int bestIndex = -1;
-        // Cached lookup info from XLikelySubtags.compareLikely().
+        // Cached lookup info from LikelySubtags.compareLikely().
         int bestLikelyInfo = -1;
         for (int slIndex = 0; slIndex < supportedLSRsLength; ++slIndex) {
             LSR supported = supportedLSRs[slIndex];
@@ -376,7 +374,7 @@ public class LocaleDistance {
                     if (direction != LocaleMatcher.Direction.ONLY_TWO_WAY ||
                             // Is there also a match when we swap desired/supported?
                             isMatch(supported, desired, shiftedThreshold, favorSubtag)) {
-                        bestLikelyInfo = XLikelySubtags.INSTANCE.compareLikely(
+                        bestLikelyInfo = LikelySubtags.INSTANCE.compareLikely(
                                 supported, supportedLSRs[bestIndex], bestLikelyInfo);
                         if ((bestLikelyInfo & 1) != 0) {
                             // This supported locale matches as well as the previous best match,

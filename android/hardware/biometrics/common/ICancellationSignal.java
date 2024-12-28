@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 8a6cd86630181a4df6f20056259ec200ffe39209 -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common-V4-java-source/gen/android/hardware/biometrics/common/ICancellationSignal.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common-V4-java-source/gen -Nhardware/interfaces/biometrics/common/aidl/aidl_api/android.hardware.biometrics.common/4 hardware/interfaces/biometrics/common/aidl/aidl_api/android.hardware.biometrics.common/4/android/hardware/biometrics/common/ICancellationSignal.aidl
  */
 package android.hardware.biometrics.common;
 /** @hide */
@@ -11,8 +12,8 @@ public interface ICancellationSignal extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "a9ebb97f5abea1dc6800b69d821ef61944e80e65";
+  public static final int VERSION = 4;
+  public static final String HASH = "8a6cd86630181a4df6f20056259ec200ffe39209";
   /** Default implementation for ICancellationSignal. */
   public static class Default implements android.hardware.biometrics.common.ICancellationSignal
   {
@@ -36,6 +37,7 @@ public interface ICancellationSignal extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.biometrics.common.ICancellationSignal
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -94,25 +96,19 @@ public interface ICancellationSignal extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -203,6 +199,7 @@ public interface ICancellationSignal extends android.os.IInterface
       return 16777214;
     }
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$biometrics$common$ICancellationSignal".replace('$', '.');
   public void cancel() throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;

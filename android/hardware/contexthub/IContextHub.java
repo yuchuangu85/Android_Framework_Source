@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 03f1982c8e20e58494a4ff8c9736b1c257dfeb6c --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen/android/hardware/contexthub/IContextHub.java.d -o out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen -Nhardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3 hardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3/android/hardware/contexthub/IContextHub.aidl
  */
 package android.hardware.contexthub;
 public interface IContextHub extends android.os.IInterface
@@ -10,8 +11,8 @@ public interface IContextHub extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "b0fd976b134e549e03726d3ebeeae848e520d3d3";
+  public static final int VERSION = 3;
+  public static final String HASH = "03f1982c8e20e58494a4ff8c9736b1c257dfeb6c";
   /** Default implementation for IContextHub. */
   public static class Default implements android.hardware.contexthub.IContextHub
   {
@@ -59,6 +60,9 @@ public interface IContextHub extends android.os.IInterface
     @Override public void setTestMode(boolean enable) throws android.os.RemoteException
     {
     }
+    @Override public void sendMessageDeliveryStatusToHub(int contextHubId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -76,6 +80,7 @@ public interface IContextHub extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.contexthub.IContextHub
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -106,25 +111,19 @@ public interface IContextHub extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -272,6 +271,17 @@ public interface IContextHub extends android.os.IInterface
           _arg0 = data.readBoolean();
           data.enforceNoDataAvail();
           this.setTestMode(_arg0);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_sendMessageDeliveryStatusToHub:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          android.hardware.contexthub.MessageDeliveryStatus _arg1;
+          _arg1 = data.readTypedObject(android.hardware.contexthub.MessageDeliveryStatus.CREATOR);
+          data.enforceNoDataAvail();
+          this.sendMessageDeliveryStatusToHub(_arg0, _arg1);
           reply.writeNoException();
           break;
         }
@@ -567,6 +577,25 @@ public interface IContextHub extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void sendMessageDeliveryStatusToHub(int contextHubId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(contextHubId);
+          _data.writeTypedObject(messageDeliveryStatus, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_sendMessageDeliveryStatusToHub, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method sendMessageDeliveryStatusToHub is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -616,9 +645,11 @@ public interface IContextHub extends android.os.IInterface
     static final int TRANSACTION_getPreloadedNanoappIds = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
     static final int TRANSACTION_onNanSessionStateChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
     static final int TRANSACTION_setTestMode = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
+    static final int TRANSACTION_sendMessageDeliveryStatusToHub = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$contexthub$IContextHub".replace('$', '.');
   public static final int EX_CONTEXT_HUB_UNSPECIFIED = -1;
   public java.util.List<android.hardware.contexthub.ContextHubInfo> getContextHubs() throws android.os.RemoteException;
@@ -635,6 +666,7 @@ public interface IContextHub extends android.os.IInterface
   public long[] getPreloadedNanoappIds(int contextHubId) throws android.os.RemoteException;
   public void onNanSessionStateChanged(android.hardware.contexthub.NanSessionStateUpdate update) throws android.os.RemoteException;
   public void setTestMode(boolean enable) throws android.os.RemoteException;
+  public void sendMessageDeliveryStatusToHub(int contextHubId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

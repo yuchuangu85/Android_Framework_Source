@@ -28,8 +28,8 @@ import java.util.Objects;
  * @hide
  */
 public final class Quota {
-    private final Instant mLastUpdatedTime;
-    private final float mRemainingQuota;
+    private Instant mLastUpdatedTime;
+    private float mRemainingQuota;
 
     public Quota(@NonNull Instant lastUpdatedTime, float remainingQuota) {
         Objects.requireNonNull(lastUpdatedTime);
@@ -45,5 +45,13 @@ public final class Quota {
 
     public float getRemainingQuota() {
         return mRemainingQuota;
+    }
+
+    public void setLastUpdatedTime(Instant lastUpdatedTime) {
+        mLastUpdatedTime = lastUpdatedTime;
+    }
+
+    public void setRemainingQuota(Float remainingQuota) {
+        mRemainingQuota = remainingQuota;
     }
 }

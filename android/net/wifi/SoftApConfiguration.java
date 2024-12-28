@@ -16,6 +16,7 @@
 
 package android.net.wifi;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -38,6 +39,7 @@ import androidx.annotation.VisibleForTesting;
 
 import com.android.internal.util.Preconditions;
 import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -53,19 +55,12 @@ import java.util.stream.IntStream;
 /**
  * Configuration for a soft access point (a.k.a. Soft AP, SAP, Hotspot).
  *
- * This is input for the framework provided by a client app, i.e. it exposes knobs to instruct the
- * framework how it should configure a hotspot.
+ * <p>This is input for the framework provided by a client app, i.e. it exposes knobs to instruct
+ * the framework how it should configure a hotspot.
  *
- * System apps can use this to configure a tethered hotspot using
- * {@code WifiManager#startTetheredHotspot(SoftApConfiguration)} and
- * {@code WifiManager#setSoftApConfiguration(SoftApConfiguration)}
- * or local-only hotspot using
- * {@code WifiManager#startLocalOnlyHotspot(SoftApConfiguration, Executor,
- * WifiManager.LocalOnlyHotspotCallback)}.
+ * <p>System apps can use this to configure a tethered hotspot or local-only hotspot.
  *
- * Instances of this class are immutable; use {@link SoftApConfiguration.Builder} and its methods to
- * create a new instance.
- *
+ * <p>Instances of this class are immutable.
  */
 public final class SoftApConfiguration implements Parcelable {
 
@@ -407,6 +402,9 @@ public final class SoftApConfiguration implements Parcelable {
      */
     private final long mBridgedModeOpportunisticShutdownTimeoutMillis;
 
+    /** List of {@link OuiKeyedData} providing vendor-specific configuration data. */
+    private @NonNull List<OuiKeyedData> mVendorData;
+
     /**
      * THe definition of security type OPEN.
      */
@@ -450,19 +448,32 @@ public final class SoftApConfiguration implements Parcelable {
     public @interface SecurityType {}
 
     /** Private constructor for Builder and Parcelable implementation. */
-    private SoftApConfiguration(@Nullable WifiSsid ssid, @Nullable MacAddress bssid,
-            @Nullable String passphrase, boolean hiddenSsid, @NonNull SparseIntArray channels,
-            @SecurityType int securityType, int maxNumberOfClients, boolean shutdownTimeoutEnabled,
-            long shutdownTimeoutMillis, boolean clientControlByUser,
-            @NonNull List<MacAddress> blockedList, @NonNull List<MacAddress> allowedList,
-            int macRandomizationSetting, boolean bridgedModeOpportunisticShutdownEnabled,
-            boolean ieee80211axEnabled, boolean ieee80211beEnabled, boolean isUserConfiguration,
+    private SoftApConfiguration(
+            @Nullable WifiSsid ssid,
+            @Nullable MacAddress bssid,
+            @Nullable String passphrase,
+            boolean hiddenSsid,
+            @NonNull SparseIntArray channels,
+            @SecurityType int securityType,
+            int maxNumberOfClients,
+            boolean shutdownTimeoutEnabled,
+            long shutdownTimeoutMillis,
+            boolean clientControlByUser,
+            @NonNull List<MacAddress> blockedList,
+            @NonNull List<MacAddress> allowedList,
+            int macRandomizationSetting,
+            boolean bridgedModeOpportunisticShutdownEnabled,
+            boolean ieee80211axEnabled,
+            boolean ieee80211beEnabled,
+            boolean isUserConfiguration,
             long bridgedModeOpportunisticShutdownTimeoutMillis,
             @NonNull List<ScanResult.InformationElement> vendorElements,
             @Nullable MacAddress persistentRandomizedMacAddress,
-            @NonNull Set<Integer> allowedAcsChannels24g, @NonNull Set<Integer> allowedAcsChannels5g,
+            @NonNull Set<Integer> allowedAcsChannels24g,
+            @NonNull Set<Integer> allowedAcsChannels5g,
             @NonNull Set<Integer> allowedAcsChannels6g,
-            @WifiAnnotations.Bandwidth int maxChannelBandwidth) {
+            @WifiAnnotations.Bandwidth int maxChannelBandwidth,
+            @Nullable List<OuiKeyedData> vendorData) {
         mWifiSsid = ssid;
         mBssid = bssid;
         mPassphrase = passphrase;
@@ -493,6 +504,7 @@ public final class SoftApConfiguration implements Parcelable {
         mAllowedAcsChannels5g = new HashSet<>(allowedAcsChannels5g);
         mAllowedAcsChannels6g = new HashSet<>(allowedAcsChannels6g);
         mMaxChannelBandwidth = maxChannelBandwidth;
+        mVendorData = new ArrayList<>(vendorData);
     }
 
     @Override
@@ -525,24 +537,43 @@ public final class SoftApConfiguration implements Parcelable {
                 && mBridgedModeOpportunisticShutdownTimeoutMillis
                         == other.mBridgedModeOpportunisticShutdownTimeoutMillis
                 && Objects.equals(mVendorElements, other.mVendorElements)
-                && Objects.equals(mPersistentRandomizedMacAddress,
-                        other.mPersistentRandomizedMacAddress)
+                && Objects.equals(
+                        mPersistentRandomizedMacAddress, other.mPersistentRandomizedMacAddress)
                 && Objects.equals(mAllowedAcsChannels2g, other.mAllowedAcsChannels2g)
                 && Objects.equals(mAllowedAcsChannels5g, other.mAllowedAcsChannels5g)
                 && Objects.equals(mAllowedAcsChannels6g, other.mAllowedAcsChannels6g)
-                && mMaxChannelBandwidth == other.mMaxChannelBandwidth;
+                && mMaxChannelBandwidth == other.mMaxChannelBandwidth
+                && Objects.equals(mVendorData, other.mVendorData);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mWifiSsid, mBssid, mPassphrase, mHiddenSsid,
-                mChannels.toString(), mSecurityType, mMaxNumberOfClients, mAutoShutdownEnabled,
-                mShutdownTimeoutMillis, mClientControlByUser, mBlockedClientList,
-                mAllowedClientList, mMacRandomizationSetting,
-                mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled, mIeee80211beEnabled,
-                mIsUserConfiguration, mBridgedModeOpportunisticShutdownTimeoutMillis,
-                mVendorElements, mPersistentRandomizedMacAddress, mAllowedAcsChannels2g,
-                mAllowedAcsChannels5g, mAllowedAcsChannels6g, mMaxChannelBandwidth);
+        return Objects.hash(
+                mWifiSsid,
+                mBssid,
+                mPassphrase,
+                mHiddenSsid,
+                mChannels.toString(),
+                mSecurityType,
+                mMaxNumberOfClients,
+                mAutoShutdownEnabled,
+                mShutdownTimeoutMillis,
+                mClientControlByUser,
+                mBlockedClientList,
+                mAllowedClientList,
+                mMacRandomizationSetting,
+                mBridgedModeOpportunisticShutdownEnabled,
+                mIeee80211axEnabled,
+                mIeee80211beEnabled,
+                mIsUserConfiguration,
+                mBridgedModeOpportunisticShutdownTimeoutMillis,
+                mVendorElements,
+                mPersistentRandomizedMacAddress,
+                mAllowedAcsChannels2g,
+                mAllowedAcsChannels5g,
+                mAllowedAcsChannels6g,
+                mMaxChannelBandwidth,
+                mVendorData);
     }
 
     @Override
@@ -576,6 +607,7 @@ public final class SoftApConfiguration implements Parcelable {
         sbuf.append(" \n mAllowedAcsChannels5g = ").append(mAllowedAcsChannels5g);
         sbuf.append(" \n mAllowedAcsChannels6g = ").append(mAllowedAcsChannels6g);
         sbuf.append(" \n mMaxChannelBandwidth = ").append(mMaxChannelBandwidth);
+        sbuf.append(" \n mVendorData = ").append(mVendorData);
         return sbuf.toString();
     }
 
@@ -605,6 +637,7 @@ public final class SoftApConfiguration implements Parcelable {
         writeHashSetInt(dest, mAllowedAcsChannels5g);
         writeHashSetInt(dest, mAllowedAcsChannels6g);
         dest.writeInt(mMaxChannelBandwidth);
+        dest.writeList(mVendorData);
     }
 
     /* Reference from frameworks/base/core/java/android/os/Parcel.java */
@@ -669,41 +702,65 @@ public final class SoftApConfiguration implements Parcelable {
         return set;
     }
 
+    /* Read List<OuiKeyedData> from Parcel */
+    @NonNull
+    private static List<OuiKeyedData> readOuiKeyedDataList(@NonNull Parcel in) {
+        List<OuiKeyedData> dataList = new ArrayList<>();
+        if (SdkLevel.isAtLeastT()) {
+            in.readList(dataList, OuiKeyedData.class.getClassLoader(), OuiKeyedData.class);
+        } else {
+            in.readList(dataList, OuiKeyedData.class.getClassLoader());
+        }
+        return dataList;
+    }
+
     @Override
     public int describeContents() {
         return 0;
     }
 
     @NonNull
-    public static final Creator<SoftApConfiguration> CREATOR = new Creator<SoftApConfiguration>() {
-        @Override
-        public SoftApConfiguration createFromParcel(Parcel in) {
-            return new SoftApConfiguration(
-                    in.readParcelable(WifiSsid.class.getClassLoader()),
-                    in.readParcelable(MacAddress.class.getClassLoader()),
-                    in.readString(), in.readBoolean(), readSparseIntArray(in), in.readInt(),
-                    in.readInt(), in.readBoolean(), in.readLong(), in.readBoolean(),
-                    in.createTypedArrayList(MacAddress.CREATOR),
-                    in.createTypedArrayList(MacAddress.CREATOR), in.readInt(), in.readBoolean(),
-                    in.readBoolean(), in.readBoolean(), in.readBoolean(), in.readLong(),
-                    in.createTypedArrayList(ScanResult.InformationElement.CREATOR),
-                    in.readParcelable(MacAddress.class.getClassLoader()),
-                    readHashSetInt(in),
-                    readHashSetInt(in),
-                    readHashSetInt(in),
-                    in.readInt());
-        }
+    public static final Creator<SoftApConfiguration> CREATOR =
+            new Creator<SoftApConfiguration>() {
+                @Override
+                public SoftApConfiguration createFromParcel(Parcel in) {
+                    return new SoftApConfiguration(
+                            in.readParcelable(WifiSsid.class.getClassLoader()),
+                            in.readParcelable(MacAddress.class.getClassLoader()),
+                            in.readString(),
+                            in.readBoolean(),
+                            readSparseIntArray(in),
+                            in.readInt(),
+                            in.readInt(),
+                            in.readBoolean(),
+                            in.readLong(),
+                            in.readBoolean(),
+                            in.createTypedArrayList(MacAddress.CREATOR),
+                            in.createTypedArrayList(MacAddress.CREATOR),
+                            in.readInt(),
+                            in.readBoolean(),
+                            in.readBoolean(),
+                            in.readBoolean(),
+                            in.readBoolean(),
+                            in.readLong(),
+                            in.createTypedArrayList(ScanResult.InformationElement.CREATOR),
+                            in.readParcelable(MacAddress.class.getClassLoader()),
+                            readHashSetInt(in),
+                            readHashSetInt(in),
+                            readHashSetInt(in),
+                            in.readInt(),
+                            readOuiKeyedDataList(in));
+                }
 
-        @Override
-        public SoftApConfiguration[] newArray(int size) {
-            return new SoftApConfiguration[size];
-        }
-    };
+                @Override
+                public SoftApConfiguration[] newArray(int size) {
+                    return new SoftApConfiguration[size];
+                }
+            };
 
     /**
      * Return the UTF-8 String set to be the SSID for the AP. If the SSID cannot be decoded as
-     * UTF-8, then this will return {@link WifiManager#UNKNOWN_SSID}
-     * See also {@link Builder#setSsid(String)}.
+     * UTF-8, then this will return {@link WifiManager#UNKNOWN_SSID}.
      *
      * @deprecated Use {@link #getWifiSsid()} instead.
      */
@@ -719,7 +776,6 @@ public final class SoftApConfiguration implements Parcelable {
 
     /**
      * Return WifiSsid set to be the SSID for the AP.
-     * See also {@link Builder#setWifiSsid(WifiSsid)}.
      */
     @Nullable
     public WifiSsid getWifiSsid() {
@@ -750,7 +806,6 @@ public final class SoftApConfiguration implements Parcelable {
 
     /**
      * Returns MAC address set to be BSSID for the AP.
-     * See also {@link Builder#setBssid(MacAddress)}.
      */
     @Nullable
     public MacAddress getBssid() {
@@ -759,7 +814,6 @@ public final class SoftApConfiguration implements Parcelable {
 
     /**
      * Returns String set to be passphrase for current AP.
-     * See also {@link Builder#setPassphrase(String, int)}.
      */
     @Nullable
     public String getPassphrase() {
@@ -769,7 +823,6 @@ public final class SoftApConfiguration implements Parcelable {
     /**
      * Returns Boolean set to be indicate hidden (true: doesn't broadcast its SSID) or
      * not (false: broadcasts its SSID) for the AP.
-     * See also {@link Builder#setHiddenSsid(boolean)}.
      */
     public boolean isHiddenSsid() {
         return mHiddenSsid;
@@ -1018,14 +1071,6 @@ public final class SoftApConfiguration implements Parcelable {
     }
 
     /**
-     * @see #isIeee80211beEnabled()
-     * @hide
-     */
-    public boolean isIeee80211beEnabledInternal() {
-        return mIeee80211beEnabled;
-    }
-
-    /**
      * Returns whether or not the Soft AP is configured to enable 802.11be.
      * This is an indication that if the device support 802.11be AP then to enable or disable
      * that feature. If the device does not support 802.11be AP then this flag is ignored.
@@ -1038,7 +1083,7 @@ public final class SoftApConfiguration implements Parcelable {
         if (!SdkLevel.isAtLeastT()) {
             throw new UnsupportedOperationException();
         }
-        return isIeee80211beEnabledInternal();
+        return mIeee80211beEnabled;
     }
 
     /**
@@ -1155,6 +1200,24 @@ public final class SoftApConfiguration implements Parcelable {
     }
 
     /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * Builder#setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @NonNull
+    @SystemApi
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData;
+    }
+
+    /**
      * Returns a {@link WifiConfiguration} representation of this {@link SoftApConfiguration}.
      * Note that SoftApConfiguration may contain configuration which is cannot be represented
      * by the legacy WifiConfiguration, in such cases a null will be returned.
@@ -1248,6 +1311,7 @@ public final class SoftApConfiguration implements Parcelable {
         private Set<Integer> mAllowedAcsChannels5g;
         private Set<Integer> mAllowedAcsChannels6g;
         private @WifiAnnotations.Bandwidth int mMaxChannelBandwidth;
+        private @Nullable List<OuiKeyedData> mVendorData;
 
         /**
          * Constructs a Builder with default values (see {@link Builder}).
@@ -1282,6 +1346,7 @@ public final class SoftApConfiguration implements Parcelable {
             mAllowedAcsChannels5g = new HashSet<>();
             mAllowedAcsChannels6g = new HashSet<>();
             mMaxChannelBandwidth = SoftApInfo.CHANNEL_WIDTH_AUTO;
+            mVendorData = new ArrayList<>();
         }
 
         /**
@@ -1325,6 +1390,7 @@ public final class SoftApConfiguration implements Parcelable {
                 // SoftApConfiguration.
                 mMacRandomizationSetting = RANDOMIZATION_NONE;
             }
+            mVendorData = new ArrayList<>(other.mVendorData);
         }
 
         /**
@@ -1352,15 +1418,32 @@ public final class SoftApConfiguration implements Parcelable {
                     REMOVE_ZERO_FOR_TIMEOUT_SETTING) && mShutdownTimeoutMillis == DEFAULT_TIMEOUT) {
                 mShutdownTimeoutMillis = 0; // Use 0 for legacy app.
             }
-            return new SoftApConfiguration(mWifiSsid, mBssid, mPassphrase,
-                    mHiddenSsid, mChannels, mSecurityType, mMaxNumberOfClients,
-                    mAutoShutdownEnabled, mShutdownTimeoutMillis, mClientControlByUser,
-                    mBlockedClientList, mAllowedClientList, mMacRandomizationSetting,
-                    mBridgedModeOpportunisticShutdownEnabled, mIeee80211axEnabled,
-                    mIeee80211beEnabled, mIsUserConfiguration,
-                    mBridgedModeOpportunisticShutdownTimeoutMillis, mVendorElements,
-                    mPersistentRandomizedMacAddress, mAllowedAcsChannels2g, mAllowedAcsChannels5g,
-                    mAllowedAcsChannels6g, mMaxChannelBandwidth);
+            return new SoftApConfiguration(
+                    mWifiSsid,
+                    mBssid,
+                    mPassphrase,
+                    mHiddenSsid,
+                    mChannels,
+                    mSecurityType,
+                    mMaxNumberOfClients,
+                    mAutoShutdownEnabled,
+                    mShutdownTimeoutMillis,
+                    mClientControlByUser,
+                    mBlockedClientList,
+                    mAllowedClientList,
+                    mMacRandomizationSetting,
+                    mBridgedModeOpportunisticShutdownEnabled,
+                    mIeee80211axEnabled,
+                    mIeee80211beEnabled,
+                    mIsUserConfiguration,
+                    mBridgedModeOpportunisticShutdownTimeoutMillis,
+                    mVendorElements,
+                    mPersistentRandomizedMacAddress,
+                    mAllowedAcsChannels2g,
+                    mAllowedAcsChannels5g,
+                    mAllowedAcsChannels6g,
+                    mMaxChannelBandwidth,
+                    mVendorData);
         }
 
         /**
@@ -2219,6 +2302,27 @@ public final class SoftApConfiguration implements Parcelable {
                         + " null MacAddress.");
             }
             mPersistentRandomizedMacAddress = mac;
+            return this;
+        }
+
+        /**
+         * Set additional vendor-provided configuration data.
+         *
+         * @param vendorData List of {@link OuiKeyedData} containing the vendor-provided
+         *     configuration data. Note that multiple elements with the same OUI are allowed.
+         * @return Builder for chaining.
+         */
+        @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+            if (!SdkLevel.isAtLeastV()) {
+                throw new UnsupportedOperationException();
+            }
+            if (vendorData == null) {
+                throw new IllegalArgumentException("setVendorData received a null value");
+            }
+            mVendorData = vendorData;
             return this;
         }
     }

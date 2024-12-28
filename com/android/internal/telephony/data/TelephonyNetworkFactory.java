@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.data;
 
+import android.annotation.NonNull;
 import android.net.NetworkCapabilities;
 import android.net.NetworkFactory;
 import android.net.NetworkRequest;
@@ -29,6 +30,7 @@ import android.util.LocalLog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.NetworkRequestsStats;
 import com.android.internal.util.IndentingPrintWriter;
 import com.android.telephony.Rlog;
@@ -70,18 +72,30 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     private final Phone mPhone;
 
-    private AccessNetworksManager mAccessNetworksManager;
+    private final AccessNetworksManager mAccessNetworksManager;
 
     private int mSubscriptionId;
 
     @VisibleForTesting
     public final Handler mInternalHandler;
 
+    @NonNull
+    private final FeatureFlags mFlags;
 
-    public TelephonyNetworkFactory(Looper looper, Phone phone) {
+
+    /**
+     * Constructor
+     *
+     * @param looper The looper for the handler
+     * @param phone The phone instance
+     * @param featureFlags The feature flags
+     */
+    public TelephonyNetworkFactory(@NonNull Looper looper, @NonNull Phone phone,
+            @NonNull FeatureFlags featureFlags) {
         super(looper, phone.getContext(), "TelephonyNetworkFactory[" + phone.getPhoneId()
                 + "]", null);
         mPhone = phone;
+        mFlags = featureFlags;
         mInternalHandler = new InternalHandler(looper);
 
         mAccessNetworksManager = mPhone.getAccessNetworksManager();
@@ -96,19 +110,18 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 null);
 
         mSubscriptionId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
-        SubscriptionManager.from(mPhone.getContext()).addOnSubscriptionsChangedListener(
-                mSubscriptionsChangedListener);
+        SubscriptionManager.OnSubscriptionsChangedListener subscriptionsChangedListener =
+                new SubscriptionManager.OnSubscriptionsChangedListener() {
+                    @Override
+                    public void onSubscriptionsChanged() {
+                        mInternalHandler.sendEmptyMessage(EVENT_SUBSCRIPTION_CHANGED);
+                    }};
+
+        mPhone.getContext().getSystemService(SubscriptionManager.class)
+                .addOnSubscriptionsChangedListener(subscriptionsChangedListener);
 
         register();
     }
-
-    private final SubscriptionManager.OnSubscriptionsChangedListener mSubscriptionsChangedListener =
-            new SubscriptionManager.OnSubscriptionsChangedListener() {
-                @Override
-                public void onSubscriptionsChanged() {
-                    mInternalHandler.sendEmptyMessage(EVENT_SUBSCRIPTION_CHANGED);
-                }
-            };
 
     private NetworkCapabilities makeNetworkFilterByPhoneId(int phoneId) {
         return makeNetworkFilter(SubscriptionManager.getSubscriptionId(phoneId));
@@ -150,6 +163,16 @@ public class TelephonyNetworkFactory extends NetworkFactory {
                 .addEnterpriseId(NetworkCapabilities.NET_ENTERPRISE_ID_5)
                 .setNetworkSpecifier(new TelephonyNetworkSpecifier.Builder()
                 .setSubscriptionId(subscriptionId).build());
+
+        if (mFlags.satelliteInternet()) {
+            // TODO: b/328622096 remove the try/catch
+            try {
+                builder.addTransportType(NetworkCapabilities.TRANSPORT_SATELLITE);
+            } catch (IllegalArgumentException exception) {
+                log("TRANSPORT_SATELLITE is not supported.");
+            }
+        }
+
         return builder.build();
     }
 
@@ -250,7 +273,7 @@ public class TelephonyNetworkFactory extends NetworkFactory {
 
     private void onNeedNetworkFor(Message msg) {
         TelephonyNetworkRequest networkRequest =
-                new TelephonyNetworkRequest((NetworkRequest) msg.obj, mPhone);
+                new TelephonyNetworkRequest((NetworkRequest) msg.obj, mPhone, mFlags);
         boolean shouldApply = mPhoneSwitcher.shouldApplyNetworkRequest(
                 networkRequest, mPhone.getPhoneId());
 
@@ -268,15 +291,15 @@ public class TelephonyNetworkFactory extends NetworkFactory {
     }
 
     @Override
-    public void releaseNetworkFor(NetworkRequest networkRequest) {
+    public void releaseNetworkFor(@NonNull NetworkRequest networkRequest) {
         Message msg = mInternalHandler.obtainMessage(EVENT_NETWORK_RELEASE);
         msg.obj = networkRequest;
         msg.sendToTarget();
     }
 
-    private void onReleaseNetworkFor(Message msg) {
+    private void onReleaseNetworkFor(@NonNull Message msg) {
         TelephonyNetworkRequest networkRequest =
-                new TelephonyNetworkRequest((NetworkRequest) msg.obj, mPhone);
+                new TelephonyNetworkRequest((NetworkRequest) msg.obj, mPhone, mFlags);
         boolean applied = mNetworkRequests.get(networkRequest)
                 != AccessNetworkConstants.TRANSPORT_TYPE_INVALID;
 

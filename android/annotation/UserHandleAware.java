@@ -38,9 +38,9 @@ import java.lang.annotation.Target;
  * public abstract PackageInfo getPackageInfo({@literal @}NonNull String packageName,
  *      {@literal @}PackageInfoFlags int flags) throws NameNotFoundException;
  * }</pre>
+ * This method uses {@linkplain android.content.Context#getUser()} or
+ * {@linkplain android.content.Context#getUserId()} to execute across users.
  *
- * @memberDoc This method uses {@linkplain android.content.Context#getUser}
- *            or {@linkplain android.content.Context#getUserId} to execute across users.
  * @hide
  */
 @Retention(SOURCE)

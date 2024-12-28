@@ -11,6 +11,7 @@
 package android.icu.lang;
 
 import java.lang.ref.SoftReference;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Locale;
@@ -1118,6 +1119,12 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
         /***/
         public static final int NAG_MUNDARI_ID = 327; /*[1E4D0]*/
 
+        // New block in Unicode 15.1
+
+        /***/
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+        public static final int CJK_UNIFIED_IDEOGRAPHS_EXTENSION_I_ID = 328; /*[2EBF0]*/
+
         /**
          * One more than the highest normal UnicodeBlock value.
          * The highest value is available via UCharacter.getIntPropertyMaxValue(UProperty.BLOCK).
@@ -1126,7 +1133,7 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
          * @hide unsupported on Android
          */
         @Deprecated
-        public static final int COUNT = 328;
+        public static final int COUNT = 329;
 
         // blocks objects ---------------------------------------------------
 
@@ -2383,6 +2390,14 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
         public static final UnicodeBlock NAG_MUNDARI =
                 new UnicodeBlock("NAG_MUNDARI", NAG_MUNDARI_ID); /*[1E4D0]*/
 
+        // New block in Unicode 15.1
+
+        /***/
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+        public static final UnicodeBlock CJK_UNIFIED_IDEOGRAPHS_EXTENSION_I =
+                new UnicodeBlock("CJK_UNIFIED_IDEOGRAPHS_EXTENSION_I",
+                        CJK_UNIFIED_IDEOGRAPHS_EXTENSION_I_ID); /*[2EBF0]*/
+
         /**
          */
         public static final UnicodeBlock INVALID_CODE
@@ -3275,6 +3290,21 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
         public static final int E_MODIFIER = 41;  /*[EM]*/
         /***/
         public static final int ZWJ = 42;  /*[ZWJ]*/
+        /***/
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+        public static final int AKSARA = 43;  /*[AK]*/ /* from here on: new in Unicode 15.1/ICU 74 */
+        /***/
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+        public static final int AKSARA_PREBASE = 44;  /*[AP]*/
+        /***/
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+        public static final int AKSARA_START = 45;  /*[AS]*/
+        /***/
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+        public static final int VIRAMA_FINAL = 46;  /*[VF]*/
+        /***/
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
+        public static final int VIRAMA = 47;  /*[VI]*/
         /**
          * One more than the highest normal LineBreak value.
          * The highest value is available via UCharacter.getIntPropertyMaxValue(UProperty.LINE_BREAK).
@@ -3283,7 +3313,7 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
          * @hide unsupported on Android
          */
         @Deprecated
-        public static final int COUNT = 43;
+        public static final int COUNT = 48;
     }
 
     /**
@@ -3514,6 +3544,56 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
         public static final int TRANSFORMED_UPRIGHT = 2;
         /***/
         public static final int UPRIGHT = 3;
+    }
+
+    /**
+     * Identifier Status constants.
+     * See https://www.unicode.org/reports/tr39/#Identifier_Status_and_Type.
+     *
+     * @see UProperty#IDENTIFIER_STATUS
+     * @hide Only a subset of ICU is exposed in Android
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public enum IdentifierStatus {
+        /** @hide draft / provisional / internal are hidden on Android*/
+        RESTRICTED,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        ALLOWED,
+    }
+
+    /**
+     * Identifier Type constants.
+     * See https://www.unicode.org/reports/tr39/#Identifier_Status_and_Type.
+     *
+     * @see UProperty#IDENTIFIER_TYPE
+     * @hide Only a subset of ICU is exposed in Android
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public enum IdentifierType {
+        /** @hide draft / provisional / internal are hidden on Android*/
+        NOT_CHARACTER,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        DEPRECATED,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        DEFAULT_IGNORABLE,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        NOT_NFKC,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        NOT_XID,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        EXCLUSION,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        OBSOLETE,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        TECHNICAL,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        UNCOMMON_USE,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        LIMITED_USE,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        INCLUSION,
+        /** @hide draft / provisional / internal are hidden on Android*/
+        RECOMMENDED,
     }
 
     // public data members -----------------------------------------------
@@ -3950,79 +4030,79 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
     }
 
     /**
-     * Determines if the specified code point may be any part of a Unicode
-     * identifier other than the starting character.
-     * A code point may be part of a Unicode identifier if and only if it is
-     * one of the following:
-     * <ul>
-     * <li> Lu Uppercase letter
-     * <li> Ll Lowercase letter
-     * <li> Lt Titlecase letter
-     * <li> Lm Modifier letter
-     * <li> Lo Other letter
-     * <li> Nl Letter number
-     * <li> Pc Connecting punctuation character
-     * <li> Nd decimal number
-     * <li> Mc Spacing combining mark
-     * <li> Mn Non-spacing mark
-     * <li> Cf formatting code
-     * </ul>
-     * Up-to-date Unicode implementation of
-     * java.lang.Character.isUnicodeIdentifierPart().<br>
-     * See <a href=https://www.unicode.org/reports/tr8/>UTR #8</a>.
-     * @param ch code point to determine if is can be part of a Unicode
-     *        identifier
-     * @return true if code point is any character belonging a unicode
-     *         identifier suffix after the first character
+     * Determines if the specified character is permissible as a
+     * non-initial character of an identifier
+     * according to UAX #31 Unicode Identifier and Pattern Syntax.
+     *
+     * <p>Same as Unicode ID_Continue ({@link UProperty#ID_CONTINUE}).
+     *
+     * <p>Note that this differs from {@link java.lang.Character#isUnicodeIdentifierPart(char)}
+     * which implements a different identifier profile.
+     *
+     * @param ch the code point to be tested
+     * @return true if the code point may occur as a non-initial character of an identifier
      */
     public static boolean isUnicodeIdentifierPart(int ch)
     {
-        // if props == 0, it will just fall through and return false
-        // cat == format
-        return ((1 << getType(ch))
-                & ((1 << UCharacterCategory.UPPERCASE_LETTER)
-                        | (1 << UCharacterCategory.LOWERCASE_LETTER)
-                        | (1 << UCharacterCategory.TITLECASE_LETTER)
-                        | (1 << UCharacterCategory.MODIFIER_LETTER)
-                        | (1 << UCharacterCategory.OTHER_LETTER)
-                        | (1 << UCharacterCategory.LETTER_NUMBER)
-                        | (1 << UCharacterCategory.CONNECTOR_PUNCTUATION)
-                        | (1 << UCharacterCategory.DECIMAL_DIGIT_NUMBER)
-                        | (1 << UCharacterCategory.COMBINING_SPACING_MARK)
-                        | (1 << UCharacterCategory.NON_SPACING_MARK))) != 0
-                        || isIdentifierIgnorable(ch);
+        return hasBinaryProperty(ch, UProperty.ID_CONTINUE);  // single code point
     }
 
     /**
-     * Determines if the specified code point is permissible as the first
-     * character in a Unicode identifier.
-     * A code point may start a Unicode identifier if it is of type either
-     * <ul>
-     * <li> Lu Uppercase letter
-     * <li> Ll Lowercase letter
-     * <li> Lt Titlecase letter
-     * <li> Lm Modifier letter
-     * <li> Lo Other letter
-     * <li> Nl Letter number
-     * </ul>
-     * Up-to-date Unicode implementation of
-     * java.lang.Character.isUnicodeIdentifierStart().<br>
-     * See <a href=https://www.unicode.org/reports/tr8/>UTR #8</a>.
-     * @param ch code point to determine if it can start a Unicode identifier
-     * @return true if code point is the first character belonging a unicode
-     *              identifier
+     * Determines if the specified character is permissible as the first character in an identifier
+     * according to UAX #31 Unicode Identifier and Pattern Syntax.
+     *
+     * <p>Same as Unicode ID_Start ({@link UProperty#ID_START}).
+     *
+     * <p>Note that this differs from {@link java.lang.Character#isUnicodeIdentifierStart(char)}
+     * which implements a different identifier profile.
+     *
+     * @param ch the code point to be tested
+     * @return true if the code point may start an identifier
      */
     public static boolean isUnicodeIdentifierStart(int ch)
     {
-        /*int cat = getType(ch);*/
-        // if props == 0, it will just fall through and return false
-        return ((1 << getType(ch))
-                & ((1 << UCharacterCategory.UPPERCASE_LETTER)
-                        | (1 << UCharacterCategory.LOWERCASE_LETTER)
-                        | (1 << UCharacterCategory.TITLECASE_LETTER)
-                        | (1 << UCharacterCategory.MODIFIER_LETTER)
-                        | (1 << UCharacterCategory.OTHER_LETTER)
-                        | (1 << UCharacterCategory.LETTER_NUMBER))) != 0;
+        return hasBinaryProperty(ch, UProperty.ID_START);  // single code point
+    }
+
+    /**
+     * Does the set of Identifier_Type values code point c contain the given type?
+     *
+     * <p>Used for UTS #39 General Security Profile for Identifiers
+     * (https://www.unicode.org/reports/tr39/#General_Security_Profile).
+     *
+     * <p>Each code point maps to a <i>set</i> of UIdentifierType values.
+     *
+     * @param c code point
+     * @param type Identifier_Type to check
+     * @return true if type is in Identifier_Type(c)
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final boolean hasIdentifierType(int c, IdentifierType type) {
+        return UCharacterProperty.INSTANCE.hasIDType(c, type);
+    }
+
+    /**
+     * Writes code point c's Identifier_Type as a set of IdentifierType values and
+     * returns the number of types.
+     * The set is cleared before c's types are added.
+     *
+     * <p>Used for UTS #39 General Security Profile for Identifiers
+     * (https://www.unicode.org/reports/tr39/#General_Security_Profile).
+     *
+     * <p>Each code point maps to a <i>set</i> of IdentifierType values.
+     * There is always at least one type.
+     * Only some of the types can be combined with others,
+     * and usually only a small number of types occur together.
+     * Future versions might add additional types.
+     * See UTS #39 and its data files for details.
+     *
+     * @param c code point
+     * @param types output set
+     * @return number of values in c's Identifier_Type
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final int getIdentifierTypes(int c, EnumSet<IdentifierType> types) {
+        return UCharacterProperty.INSTANCE.getIDTypes(c, types);
     }
 
     /**
@@ -4373,9 +4453,10 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
     /**
      * <strong>[icu]</strong> Returns the most current Unicode name of the argument code point, or
      * null if the character is unassigned or outside the range
-     * UCharacter.MIN_VALUE and UCharacter.MAX_VALUE or does not have a name.
+     * {@code UCharacter.MIN_VALUE} and {@code UCharacter.MAX_VALUE} or does not
+     * have a name.
      * <br>
-     * Note calling any methods related to code point names, e.g. get*Name*()
+     * Note calling any methods related to code point names, e.g. {@code getName()}
      * incurs a one-time initialization cost to construct the name tables.
      * @param ch the code point for which to get the name
      * @return most current Unicode name
@@ -4431,7 +4512,7 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
      * <li> Extended name in the form of
      *      "&lt;codepoint_type-codepoint_hex_digits&gt;". E.g., &lt;noncharacter-fffe&gt;
      * </ul>
-     * Note calling any methods related to code point names, e.g. get*Name*()
+     * Note calling any methods related to code point names, e.g. {@code getName()}
      * incurs a one-time initialization cost to construct the name tables.
      * @param ch the code point for which to get the name
      * @return a name for the argument codepoint
@@ -4445,7 +4526,7 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
      * Returns null if the character is unassigned or outside the range
      * UCharacter.MIN_VALUE and UCharacter.MAX_VALUE or does not have a name.
      * <br>
-     * Note calling any methods related to code point names, e.g. get*Name*()
+     * Note calling any methods related to code point names, e.g. {@code getName()}
      * incurs a one-time initialization cost to construct the name tables.
      * @param ch the code point for which to get the name alias
      * @return Unicode name alias, or null
@@ -4475,7 +4556,7 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
     /**
      * <strong>[icu]</strong> <p>Finds a Unicode code point by its most current Unicode name and
      * return its code point value. All Unicode names are in uppercase.
-     * Note calling any methods related to code point names, e.g. get*Name*()
+     * Note calling any methods related to code point names, e.g. {@code getName()}
      * incurs a one-time initialization cost to construct the name tables.
      * @param name most current Unicode character name whose code point is to
      *        be returned
@@ -4514,7 +4595,7 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
      * <li> Extended name in the form of
      *      "&lt;codepoint_type-codepoint_hex_digits&gt;". E.g. &lt;noncharacter-FFFE&gt;
      * </ul>
-     * Note calling any methods related to code point names, e.g. get*Name*()
+     * Note calling any methods related to code point names, e.g. {@code getName()}
      * incurs a one-time initialization cost to construct the name tables.
      * @param name codepoint name
      * @return code point associated with the name or -1 if the name is not
@@ -4528,7 +4609,7 @@ public final class UCharacter implements ECharacterCategory, ECharacterDirection
     /**
      * <strong>[icu]</strong> <p>Find a Unicode character by its corrected name alias and return
      * its code point value. All Unicode names are in uppercase.
-     * Note calling any methods related to code point names, e.g. get*Name*()
+     * Note calling any methods related to code point names, e.g. {@code getName()}
      * incurs a one-time initialization cost to construct the name tables.
      * @param name Unicode name alias whose code point is to be returned
      * @return code point or -1 if name is not found

@@ -26,6 +26,11 @@
 
 package java.io;
 
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
+import dalvik.annotation.compat.VersionCodes;
+
 import java.net.URI;
 import java.net.URL;
 import java.net.MalformedURLException;
@@ -610,6 +615,17 @@ public class File
         }
         return fs.canonicalize(fs.resolve(this));
     }
+
+    // Android-added: Remove parent directory /.. at the rootfs. http://b/312399441
+    /**
+     * Canonicalize the parent directory of the root directory when app targets SDK level 35
+     * (Android 15) or higher. "/.." can be canonicalized into "/" according to POSIX.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.VANILLA_ICE_CREAM)
+    public static final long CANONICALIZE_PARENT_OF_ROOT_DIR = 312399441L;
 
     /**
      * Returns the canonical form of this abstract pathname.  Equivalent to

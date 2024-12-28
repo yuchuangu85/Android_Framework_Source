@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen/android/content/pm/IPackageManagerNative.java.d -o out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen -Nframeworks/native/libs/binder/aidl frameworks/native/libs/binder/aidl/android/content/pm/IPackageManagerNative.aidl
  */
 package android.content.pm;
 /**
@@ -29,6 +30,20 @@ public interface IPackageManagerNative extends android.os.IInterface
     @Override public java.lang.String[] getNamesForUids(int[] uids) throws android.os.RemoteException
     {
       return null;
+    }
+    /**
+     * Return the UID associated with the given package name.
+     * Note that the same package will have different UIDs under different UserHandle on
+     * the same device.
+     * @param packageName The full name (i.e. com.google.apps.contacts) of the desired package.
+     * @param flags Additional option flags to modify the data returned.
+     * @param userId The user handle identifier to look up the package under.
+     * @return Returns an integer UID who owns the given package name, or -1 if no such package is
+     *            available to the caller.
+     */
+    @Override public int getPackageUid(java.lang.String packageName, long flags, int userId) throws android.os.RemoteException
+    {
+      return 0;
     }
     /**
      * Returns the name of the installer (a package) which installed the named
@@ -143,6 +158,7 @@ public interface IPackageManagerNative extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.content.pm.IPackageManagerNative
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -172,13 +188,9 @@ public interface IPackageManagerNative extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -190,6 +202,20 @@ public interface IPackageManagerNative extends android.os.IInterface
           java.lang.String[] _result = this.getNamesForUids(_arg0);
           reply.writeNoException();
           reply.writeStringArray(_result);
+          break;
+        }
+        case TRANSACTION_getPackageUid:
+        {
+          java.lang.String _arg0;
+          _arg0 = data.readString();
+          long _arg1;
+          _arg1 = data.readLong();
+          int _arg2;
+          _arg2 = data.readInt();
+          data.enforceNoDataAvail();
+          int _result = this.getPackageUid(_arg0, _arg1, _arg2);
+          reply.writeNoException();
+          reply.writeInt(_result);
           break;
         }
         case TRANSACTION_getInstallerForPackage:
@@ -357,6 +383,36 @@ public interface IPackageManagerNative extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_getNamesForUids, _data, _reply, 0);
           _reply.readException();
           _result = _reply.createStringArray();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      /**
+       * Return the UID associated with the given package name.
+       * Note that the same package will have different UIDs under different UserHandle on
+       * the same device.
+       * @param packageName The full name (i.e. com.google.apps.contacts) of the desired package.
+       * @param flags Additional option flags to modify the data returned.
+       * @param userId The user handle identifier to look up the package under.
+       * @return Returns an integer UID who owns the given package name, or -1 if no such package is
+       *            available to the caller.
+       */
+      @Override public int getPackageUid(java.lang.String packageName, long flags, int userId) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        int _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeString(packageName);
+          _data.writeLong(flags);
+          _data.writeInt(userId);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getPackageUid, _data, _reply, 0);
+          _reply.readException();
+          _result = _reply.readInt();
         }
         finally {
           _reply.recycle();
@@ -647,21 +703,23 @@ public interface IPackageManagerNative extends android.os.IInterface
         return _result;
       }
     }
-    public static final java.lang.String DESCRIPTOR = "android$content$pm$IPackageManagerNative".replace('$', '.');
+    /** @hide */
+    public static final java.lang.String DESCRIPTOR = "android.content.pm.IPackageManagerNative";
     static final int TRANSACTION_getNamesForUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
-    static final int TRANSACTION_getInstallerForPackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
-    static final int TRANSACTION_getVersionCodeForPackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 2);
-    static final int TRANSACTION_isAudioPlaybackCaptureAllowed = (android.os.IBinder.FIRST_CALL_TRANSACTION + 3);
-    static final int TRANSACTION_getLocationFlags = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
-    static final int TRANSACTION_getTargetSdkVersionForPackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
-    static final int TRANSACTION_getModuleMetadataPackageName = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
-    static final int TRANSACTION_hasSha256SigningCertificate = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
-    static final int TRANSACTION_isPackageDebuggable = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
-    static final int TRANSACTION_hasSystemFeature = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
-    static final int TRANSACTION_registerStagedApexObserver = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
-    static final int TRANSACTION_unregisterStagedApexObserver = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
-    static final int TRANSACTION_getStagedApexModuleNames = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
-    static final int TRANSACTION_getStagedApexInfo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
+    static final int TRANSACTION_getPackageUid = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
+    static final int TRANSACTION_getInstallerForPackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 2);
+    static final int TRANSACTION_getVersionCodeForPackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 3);
+    static final int TRANSACTION_isAudioPlaybackCaptureAllowed = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
+    static final int TRANSACTION_getLocationFlags = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
+    static final int TRANSACTION_getTargetSdkVersionForPackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
+    static final int TRANSACTION_getModuleMetadataPackageName = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
+    static final int TRANSACTION_hasSha256SigningCertificate = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
+    static final int TRANSACTION_isPackageDebuggable = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
+    static final int TRANSACTION_hasSystemFeature = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
+    static final int TRANSACTION_registerStagedApexObserver = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
+    static final int TRANSACTION_unregisterStagedApexObserver = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
+    static final int TRANSACTION_getStagedApexModuleNames = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
+    static final int TRANSACTION_getStagedApexInfo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
   }
   /** ApplicationInfo.isSystemApp() == true */
   public static final int LOCATION_SYSTEM = 1;
@@ -676,6 +734,17 @@ public interface IPackageManagerNative extends android.os.IInterface
    * strings.
    */
   public java.lang.String[] getNamesForUids(int[] uids) throws android.os.RemoteException;
+  /**
+   * Return the UID associated with the given package name.
+   * Note that the same package will have different UIDs under different UserHandle on
+   * the same device.
+   * @param packageName The full name (i.e. com.google.apps.contacts) of the desired package.
+   * @param flags Additional option flags to modify the data returned.
+   * @param userId The user handle identifier to look up the package under.
+   * @return Returns an integer UID who owns the given package name, or -1 if no such package is
+   *            available to the caller.
+   */
+  public int getPackageUid(java.lang.String packageName, long flags, int userId) throws android.os.RemoteException;
   /**
    * Returns the name of the installer (a package) which installed the named
    * package. Preloaded packages return the string "preload". Sideloaded packages

@@ -18,8 +18,6 @@ package com.android.modules.utils;
 
 import android.annotation.NonNull;
 
-import dalvik.system.VMRuntime;
-
 import java.io.BufferedOutputStream;
 import java.io.Closeable;
 import java.io.DataOutput;
@@ -42,8 +40,6 @@ public class FastDataOutput implements DataOutput, Flushable, Closeable {
 
     protected static final int DEFAULT_BUFFER_SIZE = 32_768;
 
-    protected final VMRuntime mRuntime;
-
     protected final byte[] mBuffer;
     protected final int mBufferCap;
 
@@ -56,12 +52,11 @@ public class FastDataOutput implements DataOutput, Flushable, Closeable {
     private final HashMap<String, Integer> mStringRefs = new HashMap<>();
 
     public FastDataOutput(@NonNull OutputStream out, int bufferSize) {
-        mRuntime = VMRuntime.getRuntime();
         if (bufferSize < 8) {
             throw new IllegalArgumentException();
         }
 
-        mBuffer = (byte[]) mRuntime.newNonMovableArray(byte.class, bufferSize);
+        mBuffer = newByteArray(bufferSize);
         mBufferCap = mBuffer.length;
 
         setOutput(out);
@@ -92,6 +87,10 @@ public class FastDataOutput implements DataOutput, Flushable, Closeable {
         mOut = null;
         mBufferPos = 0;
         mStringRefs.clear();
+    }
+
+    public byte[] newByteArray(int bufferSize) {
+        return new byte[bufferSize];
     }
 
     /**
@@ -163,7 +162,7 @@ public class FastDataOutput implements DataOutput, Flushable, Closeable {
             ModifiedUtf8.encode(mBuffer, mBufferPos, s);
             mBufferPos += len;
         } else {
-            final byte[] tmp = (byte[]) mRuntime.newNonMovableArray(byte.class, len + 1);
+            final byte[] tmp = newByteArray(len + 1);
             ModifiedUtf8.encode(tmp, 0, s);
             writeShort(len);
             write(tmp, 0, len);

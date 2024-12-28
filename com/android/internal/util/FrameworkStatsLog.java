@@ -6,6 +6,7 @@ package com.android.internal.util;
 import android.os.Build;
 import android.util.StatsEvent;
 import android.util.StatsLog;
+import androidx.annotation.RequiresApi;
 
 
 /**
@@ -43,8 +44,8 @@ public final class FrameworkStatsLog {
 
     /**
      * ScheduledJobStateChanged scheduled_job_state_changed<br>
-     * Usage: StatsLog.write(StatsLog.SCHEDULED_JOB_STATE_CHANGED, android.os.WorkSource workSource, java.lang.String job_name, int state, int internal_stop_reason, int standby_bucket, int job_id, boolean has_charging_constraint, boolean has_battery_not_low_constraint, boolean has_storage_not_low_constraint, boolean has_timing_delay_constraint, boolean has_deadline_constraint, boolean has_idle_constraint, boolean has_connectivity_constraint, boolean has_content_trigger_constraint, boolean is_requested_expedited_job, boolean is_running_as_expedited_job, int public_stop_reason, boolean is_prefetch, int requested_priority, int effective_priority, int num_previous_attempts, long deadline_ms, boolean is_deadline_constraint_satisfied, boolean is_charging_constraint_satisfied, boolean is_battery_not_low_constraint_satisfied, boolean is_storage_not_low_constraint_satisfied, boolean is_timing_delay_constraint_satisfied, boolean is_idle_constraint_satisfied, boolean is_connectivity_constraint_satisfied, boolean is_content_trigger_constraint_satisfied, long job_start_latency_ms, boolean is_requested_as_user_initiated_job, boolean is_running_as_user_initiated_job, boolean is_periodic, long delay_ms, long estimated_download_bytes, long estimated_upload_bytes, int num_uncompleted_work_items, int proc_state);<br>
-     * Usage: StatsLog.write_non_chained(StatsLog.SCHEDULED_JOB_STATE_CHANGED, int uid, java.lang.String tag, java.lang.String job_name, int state, int internal_stop_reason, int standby_bucket, int job_id, boolean has_charging_constraint, boolean has_battery_not_low_constraint, boolean has_storage_not_low_constraint, boolean has_timing_delay_constraint, boolean has_deadline_constraint, boolean has_idle_constraint, boolean has_connectivity_constraint, boolean has_content_trigger_constraint, boolean is_requested_expedited_job, boolean is_running_as_expedited_job, int public_stop_reason, boolean is_prefetch, int requested_priority, int effective_priority, int num_previous_attempts, long deadline_ms, boolean is_deadline_constraint_satisfied, boolean is_charging_constraint_satisfied, boolean is_battery_not_low_constraint_satisfied, boolean is_storage_not_low_constraint_satisfied, boolean is_timing_delay_constraint_satisfied, boolean is_idle_constraint_satisfied, boolean is_connectivity_constraint_satisfied, boolean is_content_trigger_constraint_satisfied, long job_start_latency_ms, boolean is_requested_as_user_initiated_job, boolean is_running_as_user_initiated_job, boolean is_periodic, long delay_ms, long estimated_download_bytes, long estimated_upload_bytes, int num_uncompleted_work_items, int proc_state);<br>
+     * Usage: StatsLog.write(StatsLog.SCHEDULED_JOB_STATE_CHANGED, android.os.WorkSource workSource, java.lang.String job_name, int state, int internal_stop_reason, int standby_bucket, long job_id, boolean has_charging_constraint, boolean has_battery_not_low_constraint, boolean has_storage_not_low_constraint, boolean has_timing_delay_constraint, boolean has_deadline_constraint, boolean has_idle_constraint, boolean has_connectivity_constraint, boolean has_content_trigger_constraint, boolean is_requested_expedited_job, boolean is_running_as_expedited_job, int public_stop_reason, boolean is_prefetch, int requested_priority, int effective_priority, int num_previous_attempts, long deadline_ms, boolean is_deadline_constraint_satisfied, boolean is_charging_constraint_satisfied, boolean is_battery_not_low_constraint_satisfied, boolean is_storage_not_low_constraint_satisfied, boolean is_timing_delay_constraint_satisfied, boolean is_idle_constraint_satisfied, boolean is_connectivity_constraint_satisfied, boolean is_content_trigger_constraint_satisfied, long job_start_latency_ms, boolean is_requested_as_user_initiated_job, boolean is_running_as_user_initiated_job, boolean is_periodic, long delay_ms, long estimated_download_bytes, long estimated_upload_bytes, int num_uncompleted_work_items, int proc_state, java.lang.String namespace_hash, long system_measured_source_download_bytes, long system_measured_source_upload_bytes, long system_measured_calling_download_bytes, long system_measured_calling_upload_bytes, long periodic_job_interval_ms, long periodic_job_flex_interval_ms, boolean has_flex_constraint, boolean is_flex_constraint_satisfied, boolean can_apply_transport_affinities, int num_applied_flex_constraints, int num_dropped_flex_constraints, java.lang.String filtered_trace_tag, java.lang.String[] filtered_debug_tags);<br>
+     * Usage: StatsLog.write_non_chained(StatsLog.SCHEDULED_JOB_STATE_CHANGED, int uid, java.lang.String tag, java.lang.String job_name, int state, int internal_stop_reason, int standby_bucket, long job_id, boolean has_charging_constraint, boolean has_battery_not_low_constraint, boolean has_storage_not_low_constraint, boolean has_timing_delay_constraint, boolean has_deadline_constraint, boolean has_idle_constraint, boolean has_connectivity_constraint, boolean has_content_trigger_constraint, boolean is_requested_expedited_job, boolean is_running_as_expedited_job, int public_stop_reason, boolean is_prefetch, int requested_priority, int effective_priority, int num_previous_attempts, long deadline_ms, boolean is_deadline_constraint_satisfied, boolean is_charging_constraint_satisfied, boolean is_battery_not_low_constraint_satisfied, boolean is_storage_not_low_constraint_satisfied, boolean is_timing_delay_constraint_satisfied, boolean is_idle_constraint_satisfied, boolean is_connectivity_constraint_satisfied, boolean is_content_trigger_constraint_satisfied, long job_start_latency_ms, boolean is_requested_as_user_initiated_job, boolean is_running_as_user_initiated_job, boolean is_periodic, long delay_ms, long estimated_download_bytes, long estimated_upload_bytes, int num_uncompleted_work_items, int proc_state, java.lang.String namespace_hash, long system_measured_source_download_bytes, long system_measured_source_upload_bytes, long system_measured_calling_download_bytes, long system_measured_calling_upload_bytes, long periodic_job_interval_ms, long periodic_job_flex_interval_ms, boolean has_flex_constraint, boolean is_flex_constraint_satisfied, boolean can_apply_transport_affinities, int num_applied_flex_constraints, int num_dropped_flex_constraints, java.lang.String filtered_trace_tag, java.lang.String[] filtered_debug_tags);<br>
      */
     public static final int SCHEDULED_JOB_STATE_CHANGED = 8;
 
@@ -251,7 +252,7 @@ public final class FrameworkStatsLog {
 
     /**
      * AppStartOccurred app_start_occurred<br>
-     * Usage: StatsLog.write(StatsLog.APP_START_OCCURRED, int uid, java.lang.String pkg_name, int type, java.lang.String activity_name, java.lang.String calling_pkg_name, boolean is_instant_app, long activity_start_millis, int reason, int transition_delay_millis, int starting_window_delay_millis, int bind_application_delay_millis, int windows_drawn_delay_millis, java.lang.String launch_token, int package_optimization_compilation_reason, int package_optimization_compilation_filter, int source_type, int source_event_delay_millis, boolean is_hibernating, boolean is_incremental, boolean is_loading, int activity_name_hash, long activity_start_timestamp_millis, int process_state, int process_oom_adj, int package_stopped_state);<br>
+     * Usage: StatsLog.write(StatsLog.APP_START_OCCURRED, int uid, java.lang.String pkg_name, int type, java.lang.String activity_name, java.lang.String calling_pkg_name, boolean is_instant_app, long activity_start_millis, int reason, int transition_delay_millis, int starting_window_delay_millis, int bind_application_delay_millis, int windows_drawn_delay_millis, java.lang.String launch_token, int package_optimization_compilation_reason, int package_optimization_compilation_filter, int source_type, int source_event_delay_millis, boolean is_hibernating, boolean is_incremental, boolean is_loading, int activity_name_hash, long activity_start_timestamp_millis, int process_state, int process_oom_adj, int package_stopped_state, boolean is_xr_activity, boolean first_launch, long millis_since_stopped, int multi_window_launch_type);<br>
      */
     public static final int APP_START_OCCURRED = 48;
 
@@ -280,12 +281,6 @@ public final class FrameworkStatsLog {
     public static final int PICTURE_IN_PICTURE_STATE_CHANGED = 52;
 
     /**
-     * LmkStateChanged lmk_state_changed<br>
-     * Usage: StatsLog.write(StatsLog.LMK_STATE_CHANGED, int state);<br>
-     */
-    public static final int LMK_STATE_CHANGED = 54;
-
-    /**
      * AppStartMemoryStateCaptured app_start_memory_state_captured<br>
      * Usage: StatsLog.write(StatsLog.APP_START_MEMORY_STATE_CAPTURED, int uid, java.lang.String process_name, java.lang.String activity_name, long page_fault, long page_major_fault, long rss_in_bytes, long cache_in_bytes, long swap_in_bytes);<br>
      */
@@ -305,7 +300,7 @@ public final class FrameworkStatsLog {
 
     /**
      * ForegroundServiceStateChanged foreground_service_state_changed<br>
-     * Usage: StatsLog.write(StatsLog.FOREGROUND_SERVICE_STATE_CHANGED, int uid, java.lang.String short_name, int state, boolean allow_while_in_use_permission, int fgs_start_reason_code, int target_sdk_version, int calling_uid, int caller_target_sdk_version, int temp_allow_list_calling_uid, boolean fgs_notification_deferred, boolean fgs_notification_shown, int fgs_duration_ms, int fgs_start_count, int short_name_hash, boolean fgs_has_notification_permission, int fgs_types, int fgs_type_check_code, boolean is_delegate, int delegate_client_uid, int delegation_service, int api_state, int api_type, long api_timestamp, int service_uid_state, int service_uid_capabilities, int calling_uid_state, int calling_uid_capabilities, long api_before_fgs_start_duration, long api_after_fgs_end_duration);<br>
+     * Usage: StatsLog.write(StatsLog.FOREGROUND_SERVICE_STATE_CHANGED, int uid, java.lang.String short_name, int state, boolean allow_while_in_use_permission, int fgs_start_reason_code, int target_sdk_version, int calling_uid, int caller_target_sdk_version, int temp_allow_list_calling_uid, boolean fgs_notification_deferred, boolean fgs_notification_shown, int fgs_duration_ms, int fgs_start_count, int short_name_hash, boolean fgs_has_notification_permission, int fgs_types, int fgs_type_check_code, boolean is_delegate, int delegate_client_uid, int delegation_service, int api_state, int[] api_type, long[] api_timestamp, int service_uid_state, int service_uid_capabilities, int calling_uid_state, int calling_uid_capabilities, long api_before_fgs_start_duration_millis, long api_after_fgs_end_duration_millis, int while_in_use_reason_code_no_binding, int while_in_use_reason_code_in_bind_service, int while_in_use_reason_code_by_bindings, int fgs_start_reason_code_no_binding, int fgs_start_reason_code_in_bind_service, int fgs_start_reason_code_by_bindings, int fgs_start_api, boolean fgs_restriction_recalculated);<br>
      */
     public static final int FOREGROUND_SERVICE_STATE_CHANGED = 60;
 
@@ -320,13 +315,6 @@ public final class FrameworkStatsLog {
      * Usage: StatsLog.write(StatsLog.RESOURCE_CONFIGURATION_CHANGED, int color_mode, int density_dpi, float font_scale, int hard_keyboard_hidden, int keyboard, int keyboard_hidden, int mcc, int mnc, int navigation, int navigation_hidden, int orientation, int screen_height_dp, int screen_layout, int screen_width_dp, int smallest_screen_width_dp, int touchscreen, int ui_mode);<br>
      */
     public static final int RESOURCE_CONFIGURATION_CHANGED = 66;
-
-    /**
-     * BluetoothEnabledStateChanged bluetooth_enabled_state_changed<br>
-     * Usage: StatsLog.write(StatsLog.BLUETOOTH_ENABLED_STATE_CHANGED, android.os.WorkSource workSource, int state, int reason, java.lang.String pkg_name);<br>
-     * Usage: StatsLog.write_non_chained(StatsLog.BLUETOOTH_ENABLED_STATE_CHANGED, int uid, java.lang.String tag, int state, int reason, java.lang.String pkg_name);<br>
-     */
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED = 67;
 
     /**
      * GpsSignalQualityChanged gps_signal_quality_changed<br>
@@ -471,7 +459,7 @@ public final class FrameworkStatsLog {
 
     /**
      * RescuePartyResetReported rescue_party_reset_reported<br>
-     * Usage: StatsLog.write(StatsLog.RESCUE_PARTY_RESET_REPORTED, int rescue_level);<br>
+     * Usage: StatsLog.write(StatsLog.RESCUE_PARTY_RESET_REPORTED, int rescue_level, java.lang.String rescue_level_string);<br>
      */
     public static final int RESCUE_PARTY_RESET_REPORTED = 122;
 
@@ -604,7 +592,7 @@ public final class FrameworkStatsLog {
 
     /**
      * BiometricEnrolled biometric_enrolled<br>
-     * Usage: StatsLog.write(StatsLog.BIOMETRIC_ENROLLED, int modality, int user, long latency_millis, boolean success, int sensor_id, float ambient_light_lux);<br>
+     * Usage: StatsLog.write(StatsLog.BIOMETRIC_ENROLLED, int modality, int user, long latency_millis, boolean success, int sensor_id, float ambient_light_lux, int enroll_source);<br>
      */
     public static final int BIOMETRIC_ENROLLED = 184;
 
@@ -664,7 +652,7 @@ public final class FrameworkStatsLog {
 
     /**
      * CameraActionEvent camera_action_event<br>
-     * Usage: StatsLog.write(StatsLog.CAMERA_ACTION_EVENT, long duration_millis, int api_level, java.lang.String package_name, int facing, java.lang.String camera_id, int action, boolean is_ndk, int latency_millis, int operating_mode, int internal_reconfig, long request_count, long result_error_count, boolean device_error, int stream_count, byte[] stream_1, byte[] stream_2, byte[] stream_3, byte[] stream_4, byte[] stream_5, java.lang.String user_tag, int video_stabilization_mode, long log_id, int session_idx, int ext_type, boolean ext_is_advanced);<br>
+     * Usage: StatsLog.write(StatsLog.CAMERA_ACTION_EVENT, long duration_millis, int api_level, java.lang.String package_name, int facing, java.lang.String camera_id, int action, boolean is_ndk, int latency_millis, int operating_mode, int internal_reconfig, long request_count, long result_error_count, boolean device_error, int stream_count, byte[] stream_1, byte[] stream_2, byte[] stream_3, byte[] stream_4, byte[] stream_5, java.lang.String user_tag, int video_stabilization_mode, long log_id, int session_idx, int ext_type, boolean ext_is_advanced, boolean used_ultrawide, boolean used_zoom_override, int most_requested_fps_range_min, int most_requested_fps_range_max, int ext_capture_format);<br>
      */
     public static final int CAMERA_ACTION_EVENT = 227;
 
@@ -706,7 +694,7 @@ public final class FrameworkStatsLog {
 
     /**
      * NotificationReported notification_reported<br>
-     * Usage: StatsLog.write(StatsLog.NOTIFICATION_REPORTED, int event_id, int uid, java.lang.String package_name, int instance_id, int notification_id_hash, int channel_id_hash, int group_id_hash, int group_instance_id, boolean is_group_summary, java.lang.String category, int style, int num_people, int position, int importance, int alerting, int importance_source, int importance_initial, int importance_initial_source, int importance_asst, int assistant_hash, float assistant_ranking_score, boolean is_ongoing, boolean is_foreground_service, long timeout_millis, boolean is_non_dismissible, long post_duration_millis);<br>
+     * Usage: StatsLog.write(StatsLog.NOTIFICATION_REPORTED, int event_id, int uid, java.lang.String package_name, int instance_id, int notification_id_hash, int channel_id_hash, int group_id_hash, int group_instance_id, boolean is_group_summary, java.lang.String category, int style, int num_people, int position, int importance, int alerting, int importance_source, int importance_initial, int importance_initial_source, int importance_asst, int assistant_hash, float assistant_ranking_score, boolean is_ongoing, boolean is_foreground_service, long timeout_millis, boolean is_non_dismissible, long post_duration_millis, int fsi_state, boolean is_locked, int age_in_minutes);<br>
      */
     public static final int NOTIFICATION_REPORTED = 244;
 
@@ -838,7 +826,7 @@ public final class FrameworkStatsLog {
 
     /**
      * UIInteractionFrameInfoReported ui_interaction_frame_info_reported<br>
-     * Usage: StatsLog.write(StatsLog.UI_INTERACTION_FRAME_INFO_REPORTED, int interaction_type, long total_frames, long missed_frames, long max_frame_time_nanos, long sf_missed_frames, long app_missed_frames, long max_successive_missed_frames, int display_resolution);<br>
+     * Usage: StatsLog.write(StatsLog.UI_INTERACTION_FRAME_INFO_REPORTED, int interaction_type, long total_frames, long missed_frames, long max_frame_time_nanos, long sf_missed_frames, long app_missed_frames, long max_successive_missed_frames, int display_resolution, int display_refresh_rate);<br>
      */
     public static final int UI_INTERACTION_FRAME_INFO_REPORTED = 305;
 
@@ -1007,7 +995,7 @@ public final class FrameworkStatsLog {
 
     /**
      * MediaCodecReported media_codec_reported<br>
-     * Usage: StatsLog.write(StatsLog.MEDIA_CODEC_REPORTED, long timestamp_nanos, java.lang.String package_name, long package_version_code, long media_apex_version, java.lang.String codec, java.lang.String mime, java.lang.String mode, int encoder, int secure, int width, int height, int rotation, int crypto, int profile, int level, int max_width, int max_height, int error_code, java.lang.String error_state, long latency_max, long latency_min, long latency_avg, long latency_count, long latency_unknown, int queue_input_buffer_error, int queue_secure_input_buffer_error, java.lang.String bitrate_mode, int bitrate, long lifetime_millis, long playback_duration_seconds, java.lang.String log_session_id, int channel_count, int sample_rate, long video_encode_bytes, long video_encode_frames, long video_input_bytes, long video_input_frames, long video_encode_duration_us, int color_format, float frame_rate, float capture_rate, float operating_rate, int priority, int video_qp_i_min, int video_qp_i_max, int video_qp_p_min, int video_qp_p_max, int video_qp_b_min, int video_qp_b_max, int original_bitrate, int shaping_enhanced, int original_video_qp_i_min, int original_video_qp_i_max, int original_video_qp_p_min, int original_video_qp_p_max, int original_video_qp_b_min, int original_video_qp_b_max, int config_color_standard, int config_color_range, int config_color_transfer, int parsed_color_standard, int parsed_color_range, int parsed_color_transfer, int hdr_static_info, int hdr10_plus_info, int hdr_format, long codec_id, int array_mode, int operation_mode, int output_surface, int app_max_input_size, int used_max_input_size, int codec_max_input_size, int flush_count, int set_surface_count, int resolution_change_count, int component_color_format);<br>
+     * Usage: StatsLog.write(StatsLog.MEDIA_CODEC_REPORTED, long timestamp_nanos, java.lang.String package_name, long package_version_code, long media_apex_version, java.lang.String codec, java.lang.String mime, java.lang.String mode, int encoder, int secure, int width, int height, int rotation, int crypto, int profile, int level, int max_width, int max_height, int error_code, java.lang.String error_state, long latency_max, long latency_min, long latency_avg, long latency_count, long latency_unknown, int queue_input_buffer_error, int queue_secure_input_buffer_error, java.lang.String bitrate_mode, int bitrate, long lifetime_millis, long playback_duration_seconds, java.lang.String log_session_id, int channel_count, int sample_rate, long video_encode_bytes, long video_encode_frames, long video_input_bytes, long video_input_frames, long video_encode_duration_us, int color_format, float frame_rate, float capture_rate, float operating_rate, int priority, int video_qp_i_min, int video_qp_i_max, int video_qp_p_min, int video_qp_p_max, int video_qp_b_min, int video_qp_b_max, int original_bitrate, int shaping_enhanced, int original_video_qp_i_min, int original_video_qp_i_max, int original_video_qp_p_min, int original_video_qp_p_max, int original_video_qp_b_min, int original_video_qp_b_max, int config_color_standard, int config_color_range, int config_color_transfer, int parsed_color_standard, int parsed_color_range, int parsed_color_transfer, int hdr_static_info, int hdr10_plus_info, int hdr_format, long codec_id, int array_mode, int operation_mode, int output_surface, int app_max_input_size, int used_max_input_size, int codec_max_input_size, int flush_count, int set_surface_count, int resolution_change_count, int component_color_format, int caller_uid, long pixel_format);<br>
      */
     public static final int MEDIA_CODEC_REPORTED = 378;
 
@@ -1223,7 +1211,7 @@ public final class FrameworkStatsLog {
 
     /**
      * AutofillPresentationEventReported autofill_presentation_event_reported<br>
-     * Usage: StatsLog.write(StatsLog.AUTOFILL_PRESENTATION_EVENT_REPORTED, int request_id, int session_id, int presentation_event_result, int available_count, int count_shown, int count_filtered_user_typing, int count_not_shown_unused_by_ime, int count_not_shown_never_visible, int display_presentation_type, int autofill_service_uid, int inline_suggestion_host_uid, boolean is_request_triggered, int fill_request_sent_timestamp_ms, int fill_response_received_timestamp_ms, int suggestion_sent_timestamp_ms, int suggestion_presented_timestamp_ms, int selected_dataset_id, boolean dialog_dismissed, boolean negative_cta_button_clicked, boolean positive_cta_button_clicked, int authentication_type, int authentication_result, long latency_authentication_ui_display_millis, long latency_dataset_display_millis, int available_pcc_count, int available_pcc_only_count, int selected_dataset_picked_reason, int detection_preference);<br>
+     * Usage: StatsLog.write(StatsLog.AUTOFILL_PRESENTATION_EVENT_REPORTED, int request_id, int session_id, int presentation_event_result, int available_count, int count_shown, int count_filtered_user_typing, int count_not_shown_unused_by_ime, int count_not_shown_never_visible, int display_presentation_type, int autofill_service_uid, int inline_suggestion_host_uid, boolean is_request_triggered, int fill_request_sent_timestamp_ms, int fill_response_received_timestamp_ms, int suggestion_sent_timestamp_ms, int suggestion_presented_timestamp_ms, int selected_dataset_id, boolean dialog_dismissed, boolean negative_cta_button_clicked, boolean positive_cta_button_clicked, int authentication_type, int authentication_result, long latency_authentication_ui_display_millis, long latency_dataset_display_millis, int available_pcc_count, int available_pcc_only_count, int selected_dataset_picked_reason, int detection_preference, int field_classification_request_id, int app_package_uid, boolean is_credential_request, boolean webview_requested_credential, long views_fillable_total_count, long views_filled_failure_count, int focused_autofill_id, long views_filled_success_count, long views_filled_but_unexpected_count);<br>
      */
     public static final int AUTOFILL_PRESENTATION_EVENT_REPORTED = 469;
 
@@ -1241,19 +1229,19 @@ public final class FrameworkStatsLog {
 
     /**
      * BroadcastDeliveryEventReported broadcast_delivery_event_reported<br>
-     * Usage: StatsLog.write(StatsLog.BROADCAST_DELIVERY_EVENT_REPORTED, int uid, int sender_uid, java.lang.String action_name, int receiver_type, int proc_start_type, long dispatch_delay, long receive_delay, long finish_delay, int package_stopped_state, java.lang.String package_name, java.lang.String sender_package_name);<br>
+     * Usage: StatsLog.write(StatsLog.BROADCAST_DELIVERY_EVENT_REPORTED, int uid, int sender_uid, java.lang.String action_name, int receiver_type, int proc_start_type, long dispatch_delay, long receive_delay, long finish_delay, int package_stopped_state, java.lang.String package_name, java.lang.String sender_package_name, int broadcast_type, int delivery_group_policy, int intent_flags, int filter_priority, int sender_proc_state, int receiver_process_state, boolean first_launch, long millis_since_stopped);<br>
      */
     public static final int BROADCAST_DELIVERY_EVENT_REPORTED = 475;
 
     /**
      * ServiceRequestEventReported service_request_event_reported<br>
-     * Usage: StatsLog.write(StatsLog.SERVICE_REQUEST_EVENT_REPORTED, int uid, int requester_uid, java.lang.String action_name, int request_type, boolean fg_required, int proc_start_type, java.lang.String request_process_name, java.lang.String service_component_name, int package_stopped_state, java.lang.String package_name, java.lang.String requester_package_name);<br>
+     * Usage: StatsLog.write(StatsLog.SERVICE_REQUEST_EVENT_REPORTED, int uid, int requester_uid, java.lang.String action_name, int request_type, boolean fg_required, int proc_start_type, java.lang.String request_process_name, java.lang.String service_component_name, int package_stopped_state, java.lang.String package_name, java.lang.String requester_package_name, int requester_process_state, int service_process_state, boolean first_launch, long millis_since_stopped);<br>
      */
     public static final int SERVICE_REQUEST_EVENT_REPORTED = 476;
 
     /**
      * ProviderAcquisitionEventReported provider_acquisition_event_reported<br>
-     * Usage: StatsLog.write(StatsLog.PROVIDER_ACQUISITION_EVENT_REPORTED, int uid, int client_uid, int proc_start_type, int package_stopped_state, java.lang.String package_name, java.lang.String client_package_name);<br>
+     * Usage: StatsLog.write(StatsLog.PROVIDER_ACQUISITION_EVENT_REPORTED, int uid, int client_uid, int proc_start_type, int package_stopped_state, java.lang.String package_name, java.lang.String client_package_name, int client_process_state, int provider_process_state, boolean first_launch, long millis_since_stopped);<br>
      */
     public static final int PROVIDER_ACQUISITION_EVENT_REPORTED = 477;
 
@@ -1278,7 +1266,7 @@ public final class FrameworkStatsLog {
 
     /**
      * ActivityActionBlocked activity_action_blocked<br>
-     * Usage: StatsLog.write(StatsLog.ACTIVITY_ACTION_BLOCKED, int caller_uid, java.lang.String caller_activity_class_name, int target_task_top_activity_uid, java.lang.String target_task_top_activity_class_name, boolean target_task_is_different, int target_activity_uid, java.lang.String target_activity_class_name, java.lang.String target_intent_action, int target_intent_flags, int action, int version, boolean multi_window, int bal_code);<br>
+     * Usage: StatsLog.write(StatsLog.ACTIVITY_ACTION_BLOCKED, int caller_uid, java.lang.String caller_activity_class_name, int target_task_top_activity_uid, java.lang.String target_task_top_activity_class_name, boolean target_task_is_different, int target_activity_uid, java.lang.String target_activity_class_name, java.lang.String target_intent_action, int target_intent_flags, int action, int version, boolean multi_window, int bal_code, java.lang.String task_debug_info);<br>
      */
     public static final int ACTIVITY_ACTION_BLOCKED = 495;
 
@@ -1416,7 +1404,7 @@ public final class FrameworkStatsLog {
 
     /**
      * ImeRequestFinished ime_request_finished<br>
-     * Usage: StatsLog.write(StatsLog.IME_REQUEST_FINISHED, int requester_uid, long duration_millis, int type, int status, int reason, int origin, int phase);<br>
+     * Usage: StatsLog.write(StatsLog.IME_REQUEST_FINISHED, int requester_uid, long duration_millis, int type, int status, int reason, int origin, int phase, boolean from_user);<br>
      */
     public static final int IME_REQUEST_FINISHED = 581;
 
@@ -1433,10 +1421,10 @@ public final class FrameworkStatsLog {
     public static final int APP_SUPPORTED_LOCALES_CHANGED = 583;
 
     /**
-     * ApplicationGrammaticalInflectionChanged grammatical_inflection_changed<br>
-     * Usage: StatsLog.write(StatsLog.GRAMMATICAL_INFLECTION_CHANGED, int source_id, int target_uid, boolean is_grammatical_gender_specified, boolean was_grammatical_gender_specified);<br>
+     * ApplicationGrammaticalInflectionChanged application_grammatical_inflection_changed<br>
+     * Usage: StatsLog.write(StatsLog.APPLICATION_GRAMMATICAL_INFLECTION_CHANGED, int source_id, int target_uid, boolean is_grammatical_gender_specified, boolean was_grammatical_gender_specified);<br>
      */
-    public static final int GRAMMATICAL_INFLECTION_CHANGED = 584;
+    public static final int APPLICATION_GRAMMATICAL_INFLECTION_CHANGED = 584;
 
     /**
      * CredentialManagerApiCalled credential_manager_api_called<br>
@@ -1458,7 +1446,7 @@ public final class FrameworkStatsLog {
 
     /**
      * ScreenStateChangedV2 screen_state_changed_v2<br>
-     * Usage: StatsLog.write(StatsLog.SCREEN_STATE_CHANGED_V2, int state, int display_id);<br>
+     * Usage: StatsLog.write(StatsLog.SCREEN_STATE_CHANGED_V2, int state, int display_id, int reason);<br>
      */
     public static final int SCREEN_STATE_CHANGED_V2 = 589;
 
@@ -1500,13 +1488,13 @@ public final class FrameworkStatsLog {
 
     /**
      * AutofillSaveEventReported autofill_save_event_reported<br>
-     * Usage: StatsLog.write(StatsLog.AUTOFILL_SAVE_EVENT_REPORTED, int request_id, int session_id, int app_package_uid, long save_ui_trigger_ids, long flag, boolean is_new_field, int save_ui_shown_reason, int save_ui_not_shown_reason, boolean save_button_clicked, boolean cancel_button_clicked, boolean dialog_dismissed, boolean is_saved, long latency_save_ui_display_millis, long latency_save_request_millis, long latency_save_finish_millis, boolean is_framework_created_save_info);<br>
+     * Usage: StatsLog.write(StatsLog.AUTOFILL_SAVE_EVENT_REPORTED, int request_id, int session_id, int app_package_uid, long save_ui_trigger_ids, long flag, boolean is_new_field, int save_ui_shown_reason, int save_ui_not_shown_reason, boolean save_button_clicked, boolean cancel_button_clicked, boolean dialog_dismissed, boolean is_saved, long latency_save_ui_display_millis, long latency_save_request_millis, long latency_save_finish_millis, boolean is_framework_created_save_info, int autofill_service_uid);<br>
      */
     public static final int AUTOFILL_SAVE_EVENT_REPORTED = 606;
 
     /**
      * AutofillSessionCommitted autofill_session_committed<br>
-     * Usage: StatsLog.write(StatsLog.AUTOFILL_SESSION_COMMITTED, int session_id, int component_package_uid, long request_count, int commit_reason, long session_duration_millis);<br>
+     * Usage: StatsLog.write(StatsLog.AUTOFILL_SESSION_COMMITTED, int session_id, int component_package_uid, long request_count, int commit_reason, long session_duration_millis, int autofill_service_uid);<br>
      */
     public static final int AUTOFILL_SESSION_COMMITTED = 607;
 
@@ -1518,7 +1506,7 @@ public final class FrameworkStatsLog {
 
     /**
      * BalAllowed bal_allowed<br>
-     * Usage: StatsLog.write(StatsLog.BAL_ALLOWED, java.lang.String target_activity, int allowed_reason, int calling_uid, int real_calling_uid);<br>
+     * Usage: StatsLog.write(StatsLog.BAL_ALLOWED, java.lang.String target_activity, int allowed_reason, int calling_uid, int real_calling_uid, int caller_allowed_reason, boolean caller_opt_in, boolean caller_opt_in_explicit, int real_caller_allowed_reason, boolean real_caller_opt_in, boolean real_caller_opt_in_explicit);<br>
      */
     public static final int BAL_ALLOWED = 632;
 
@@ -1548,7 +1536,7 @@ public final class FrameworkStatsLog {
 
     /**
      * CredentialManagerInitialPhaseReported credential_manager_init_phase_reported<br>
-     * Usage: StatsLog.write(StatsLog.CREDENTIAL_MANAGER_INIT_PHASE_REPORTED, int api_name, int caller_uid, int session_id, int sequence_num, long initial_timestamp_reference_nanoseconds, int count_credential_request_classtypes, java.lang.String[] request_unique_classtypes, int[] per_classtype_counts, boolean origin_specified);<br>
+     * Usage: StatsLog.write(StatsLog.CREDENTIAL_MANAGER_INIT_PHASE_REPORTED, int api_name, int caller_uid, int session_id, int sequence_num, long initial_timestamp_reference_nanoseconds, int count_credential_request_classtypes, java.lang.String[] request_unique_classtypes, int[] per_classtype_counts, boolean origin_specified, int autofill_session_id, int autofill_request_id);<br>
      */
     public static final int CREDENTIAL_MANAGER_INIT_PHASE_REPORTED = 651;
 
@@ -1566,7 +1554,7 @@ public final class FrameworkStatsLog {
 
     /**
      * DNDStateChanged dnd_state_changed<br>
-     * Usage: StatsLog.write(StatsLog.DND_STATE_CHANGED, int event_id, int new_mode, int previous_mode, int rule_type, int num_rules_active, boolean user_action, int package_uid, byte[] current_policy, boolean are_channels_bypassing);<br>
+     * Usage: StatsLog.write(StatsLog.DND_STATE_CHANGED, int event_id, int new_mode, int previous_mode, int rule_type, int num_rules_active, boolean user_action, int package_uid, byte[] current_policy, boolean are_channels_bypassing, int[] active_rule_types);<br>
      */
     public static final int DND_STATE_CHANGED = 657;
 
@@ -1578,7 +1566,7 @@ public final class FrameworkStatsLog {
 
     /**
      * AutofillFieldClassificationEventReported autofill_field_classification_event_reported<br>
-     * Usage: StatsLog.write(StatsLog.AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED, long latency_millis, int count_classifications);<br>
+     * Usage: StatsLog.write(StatsLog.AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED, long latency_millis, int count_classifications, int session_id, int request_id, int next_fill_request_id, int app_package_uid, int status, boolean is_session_gc);<br>
      */
     public static final int AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED = 659;
 
@@ -1590,7 +1578,7 @@ public final class FrameworkStatsLog {
 
     /**
      * CredentialManagerFinalNoUidReported credential_manager_finalnouid_reported<br>
-     * Usage: StatsLog.write(StatsLog.CREDENTIAL_MANAGER_FINALNOUID_REPORTED, int session_id, int sequence_num, boolean final_ui_returned, int final_query_start_timestamp_microseconds, int final_query_end_timestamp_microseconds, int final_ui_invoked_timestamp_microseconds, int final_ui_finished_timestamp_microseconds, int final_finished_timestamp_microseconds, int final_status, boolean provider_exception_occurred, int[] unique_entries, int[] per_entry_counts, java.lang.String[] response_unique_classtypes, int[] per_classtype_counts, java.lang.String framework_exception_unique_classtype, int[] clicked_entries, int[] per_entry_provider_uids, int api_status, boolean primary_indicated);<br>
+     * Usage: StatsLog.write(StatsLog.CREDENTIAL_MANAGER_FINALNOUID_REPORTED, int session_id, int sequence_num, boolean final_ui_returned, int final_query_start_timestamp_microseconds, int final_query_end_timestamp_microseconds, int final_ui_invoked_timestamp_microseconds, int final_ui_finished_timestamp_microseconds, int final_finished_timestamp_microseconds, int final_status, boolean provider_exception_occurred, int[] unique_entries, int[] per_entry_counts, java.lang.String[] response_unique_classtypes, int[] per_classtype_counts, java.lang.String framework_exception_unique_classtype, int[] clicked_entries, int[] per_entry_provider_uids, int api_status, boolean primary_indicated, int oem_credential_manager_ui_uid, int fallback_credential_manager_ui_uid, int oem_ui_usage_status);<br>
      */
     public static final int CREDENTIAL_MANAGER_FINALNOUID_REPORTED = 668;
 
@@ -1613,6 +1601,18 @@ public final class FrameworkStatsLog {
     public static final int CREDENTIAL_MANAGER_APIV2_CALLED = 671;
 
     /**
+     * KeyboardConfigured keyboard_configured<br>
+     * Usage: StatsLog.write(StatsLog.KEYBOARD_CONFIGURED, boolean is_first_time_configuration, int vendor_id, int product_id, byte[] repeated_keyboard_layout_config, int device_bus);<br>
+     */
+    public static final int KEYBOARD_CONFIGURED = 682;
+
+    /**
+     * KeyboardSystemsEventReported keyboard_systems_event_reported<br>
+     * Usage: StatsLog.write(StatsLog.KEYBOARD_SYSTEMS_EVENT_REPORTED, int vendor_id, int product_id, int keyboard_system_event, int[] key_code, int modifier_state, int device_bus);<br>
+     */
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED = 683;
+
+    /**
      * MediaCodecRendered media_codec_rendered<br>
      * Usage: StatsLog.write(StatsLog.MEDIA_CODEC_RENDERED, int uid, long codec_id, java.lang.String log_session_id, int is_hardware, int is_secure, int is_tunneled, int codec, int resolution, int bitrate, int content_framerate, int actual_framerate, int hdr_format, long first_render_timestamp_ns, long playback_duration_seconds, long frames_total, long frames_released, long frames_rendered, long frames_dropped, long frames_skipped, float frame_drop_rate, float frame_skip_rate, float frame_skip_drop_rate, long freeze_score, float freeze_rate, int[] freeze_duration_ms_histogram, int[] freeze_duration_ms_histogram_buckets, int[] freeze_distance_ms_histogram, int[] freeze_distance_ms_histogram_buckets, long judder_score, float judder_rate, int[] judder_score_histogram, int[] judder_score_histogram_buckets);<br>
      */
@@ -1623,6 +1623,246 @@ public final class FrameworkStatsLog {
      * Usage: StatsLog.write(StatsLog.IN_TASK_ACTIVITY_STARTED, int uid, int type, boolean is_opaque, int transition_delay_millis, int windows_drawn_delay_millis, long activity_start_timestamp_millis);<br>
      */
     public static final int IN_TASK_ACTIVITY_STARTED = 685;
+
+    /**
+     * InputDeviceUsageReported inputdevice_usage_reported<br>
+     * Usage: StatsLog.write(StatsLog.INPUTDEVICE_USAGE_REPORTED, int vendor_id, int product_id, int version_id, int device_bus, int usage_duration_millis, int[] usage_sources, int[] usage_durations_per_source, int[] uids, int[] usage_durations_per_uid);<br>
+     */
+    public static final int INPUTDEVICE_USAGE_REPORTED = 686;
+
+    /**
+     * HdmiEarcStatusReported hdmi_earc_status_reported<br>
+     * Usage: StatsLog.write(StatsLog.HDMI_EARC_STATUS_REPORTED, boolean is_supported, boolean is_enabled, int old_connected_state, int new_connected_state, int log_reason);<br>
+     */
+    public static final int HDMI_EARC_STATUS_REPORTED = 701;
+
+    /**
+     * DreamSettingChanged dream_setting_changed<br>
+     * Usage: StatsLog.write(StatsLog.DREAM_SETTING_CHANGED, int uid, boolean enabled, java.lang.String dream_component, int when_to_dream, boolean show_additional_info, boolean show_home_controls, int dream_setting_type);<br>
+     */
+    public static final int DREAM_SETTING_CHANGED = 705;
+
+    /**
+     * WearModeStateChanged wear_mode_state_changed<br>
+     * Usage: StatsLog.write(StatsLog.WEAR_MODE_STATE_CHANGED, int mode_id, int mode_state, int current_wifi_state, int current_cellular_state, int current_bluetooth_state, int battery_level);<br>
+     */
+    public static final int WEAR_MODE_STATE_CHANGED = 715;
+
+    /**
+     * ExternalTvInputEvent external_tv_input_event<br>
+     * Usage: StatsLog.write(StatsLog.EXTERNAL_TV_INPUT_EVENT, int event_type, int input_state, int input_type, int device_vendor_id, int hdmi_port, java.lang.String tif_session_id, java.lang.String display_name);<br>
+     */
+    public static final int EXTERNAL_TV_INPUT_EVENT = 717;
+
+    /**
+     * HdmiSoundbarModeStatusReported hdmi_soundbar_mode_status_reported<br>
+     * Usage: StatsLog.write(StatsLog.HDMI_SOUNDBAR_MODE_STATUS_REPORTED, boolean is_supported, boolean is_enabled, int log_reason);<br>
+     */
+    public static final int HDMI_SOUNDBAR_MODE_STATUS_REPORTED = 724;
+
+    /**
+     * UserRiskEventReported user_risk_event_reported<br>
+     * Usage: StatsLog.write(StatsLog.USER_RISK_EVENT_REPORTED, int event_type, long call_connected_timestamp_millis, int call_direction, int call_number_verification_status, long call_contact_last_updated_timestamp_millis, int call_log_previous_incoming_count, int call_log_previous_outgoing_count, long mp_start_timestamp_millis, int mp_app_uid, int mp_installing_app_uid, long mp_app_first_install_timestamp_millis, long a11y_capability_granted_timestamp_millis, int a11y_app_uid, int a11y_installing_app_uid, long a11y_app_first_install_timestamp_mills);<br>
+     */
+    public static final int USER_RISK_EVENT_REPORTED = 725;
+
+    /**
+     * MediaProjectionStateChanged media_projection_state_changed<br>
+     * Usage: StatsLog.write(StatsLog.MEDIA_PROJECTION_STATE_CHANGED, int session_id, int state, int previous_state, int host_uid, int target_uid, int time_since_last_active_session_seconds, int creation_source);<br>
+     */
+    public static final int MEDIA_PROJECTION_STATE_CHANGED = 729;
+
+    /**
+     * MediaProjectionTargetChanged media_projection_target_changed<br>
+     * Usage: StatsLog.write(StatsLog.MEDIA_PROJECTION_TARGET_CHANGED, int session_id, int target_type, int host_uid, int target_uid, int target_windowing_mode);<br>
+     */
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED = 730;
+
+    /**
+     * WearPowerMenuOpened wear_power_menu_opened<br>
+     * Usage: StatsLog.write(StatsLog.WEAR_POWER_MENU_OPENED, boolean device_provisioned, boolean setup_wizard_completed);<br>
+     */
+    public static final int WEAR_POWER_MENU_OPENED = 731;
+
+    /**
+     * KernelOomKillOccurred kernel_oom_kill_occurred<br>
+     * Usage: StatsLog.write(StatsLog.KERNEL_OOM_KILL_OCCURRED, int uid, int pid, int oom_score_adj, long timestamp_millis, java.lang.String process_name, long total_vm_kb, long anon_rss_kb, long file_rss_kb, long shmem_rss_kb, long pgtables_kb);<br>
+     */
+    public static final int KERNEL_OOM_KILL_OCCURRED = 754;
+
+    /**
+     * WearAssistantOpened wear_assistant_opened<br>
+     * Usage: StatsLog.write(StatsLog.WEAR_ASSISTANT_OPENED, boolean in_retail_mode);<br>
+     */
+    public static final int WEAR_ASSISTANT_OPENED = 755;
+
+    /**
+     * HotwordEventEgressSize hotword_egress_size_atom_reported<br>
+     * Usage: StatsLog.write(StatsLog.HOTWORD_EGRESS_SIZE_ATOM_REPORTED, int event_type, long event_size_bytes, int detector_type, int uid);<br>
+     */
+    public static final int HOTWORD_EGRESS_SIZE_ATOM_REPORTED = 761;
+
+    /**
+     * ThermalStatusCalled thermal_status_called<br>
+     * Usage: StatsLog.write(StatsLog.THERMAL_STATUS_CALLED, int uid, int api_status, int status);<br>
+     */
+    public static final int THERMAL_STATUS_CALLED = 772;
+
+    /**
+     * ThermalHeadroomCalled thermal_headroom_called<br>
+     * Usage: StatsLog.write(StatsLog.THERMAL_HEADROOM_CALLED, int uid, int api_status, float headroom);<br>
+     */
+    public static final int THERMAL_HEADROOM_CALLED = 773;
+
+    /**
+     * ThermalHeadroomThresholdsCalled thermal_headroom_thresholds_called<br>
+     * Usage: StatsLog.write(StatsLog.THERMAL_HEADROOM_THRESHOLDS_CALLED, int uid, int api_status);<br>
+     */
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED = 774;
+
+    /**
+     * BootIntegrityInfoReported boot_integrity_info_reported<br>
+     * Usage: StatsLog.write(StatsLog.BOOT_INTEGRITY_INFO_REPORTED, java.lang.String sepolicy_hash, java.lang.String vbmeta_digest);<br>
+     */
+    public static final int BOOT_INTEGRITY_INFO_REPORTED = 775;
+
+    /**
+     * ScreenOffReported screen_off_reported<br>
+     * Usage: StatsLog.write(StatsLog.SCREEN_OFF_REPORTED, int screen_off_reason, int timeout_reason, long millis_until_normal_timeout);<br>
+     */
+    public static final int SCREEN_OFF_REPORTED = 776;
+
+    /**
+     * DisplayModeDirectorVoteChanged display_mode_director_vote_changed<br>
+     * Usage: StatsLog.write(StatsLog.DISPLAY_MODE_DIRECTOR_VOTE_CHANGED, int display_id, int vote_priority, int vote_status, int value, int summary_value);<br>
+     */
+    public static final int DISPLAY_MODE_DIRECTOR_VOTE_CHANGED = 792;
+
+    /**
+     * SelinuxAuditLog selinux_audit_log<br>
+     * Usage: StatsLog.write(StatsLog.SELINUX_AUDIT_LOG, boolean granted, java.lang.String[] permissions, java.lang.String stype, int[] scategories, java.lang.String ttype, int[] tcategories, java.lang.String tclass, java.lang.String path_prefix, boolean permissive);<br>
+     */
+    public static final int SELINUX_AUDIT_LOG = 799;
+
+    /**
+     * ExternalDisplayStateChanged external_display_state_changed<br>
+     * Usage: StatsLog.write(StatsLog.EXTERNAL_DISPLAY_STATE_CHANGED, int state, int displays_count, boolean is_audio_on_external_display);<br>
+     */
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED = 806;
+
+    /**
+     * SystemGrammaticalInflectionChanged system_grammatical_inflection_changed<br>
+     * Usage: StatsLog.write(StatsLog.SYSTEM_GRAMMATICAL_INFLECTION_CHANGED, int source_id, int user_id, boolean is_grammatical_gender_specified, boolean was_grammatical_gender_specified);<br>
+     */
+    public static final int SYSTEM_GRAMMATICAL_INFLECTION_CHANGED = 816;
+
+    /**
+     * BiometricFRRNotification biometric_frr_notification<br>
+     * Usage: StatsLog.write(StatsLog.BIOMETRIC_FRR_NOTIFICATION, int action, int modality);<br>
+     */
+    public static final int BIOMETRIC_FRR_NOTIFICATION = 817;
+
+    /**
+     * DesktopModeUIChanged desktop_mode_ui_changed<br>
+     * Usage: StatsLog.write(StatsLog.DESKTOP_MODE_UI_CHANGED, int event, int enter_reason, int exit_reason, int session_id);<br>
+     */
+    public static final int DESKTOP_MODE_UI_CHANGED = 818;
+
+    /**
+     * DesktopModeSessionTaskUpdate desktop_mode_session_task_update<br>
+     * Usage: StatsLog.write(StatsLog.DESKTOP_MODE_SESSION_TASK_UPDATE, int task_event, int instance_id, int uid, int task_height, int task_width, int task_x, int task_y, int session_id);<br>
+     */
+    public static final int DESKTOP_MODE_SESSION_TASK_UPDATE = 819;
+
+    /**
+     * AdaptiveAuthUnlockAfterLockReported adaptive_auth_unlock_after_lock_reported<br>
+     * Usage: StatsLog.write(StatsLog.ADAPTIVE_AUTH_UNLOCK_AFTER_LOCK_REPORTED, long last_lock_timestamp_since_boot, long unlock_timestamp_since_boot, int unlock_type);<br>
+     */
+    public static final int ADAPTIVE_AUTH_UNLOCK_AFTER_LOCK_REPORTED = 820;
+
+    /**
+     * SensitiveContentMediaProjectionSession sensitive_content_media_projection_session<br>
+     * Usage: StatsLog.write(StatsLog.SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION, long session_id, int projection_app_uid, boolean exempted, int state, int source);<br>
+     */
+    public static final int SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION = 830;
+
+    /**
+     * SensitiveNotificationAppProtectionSession sensitive_notification_app_protection_session<br>
+     * Usage: StatsLog.write(StatsLog.SENSITIVE_NOTIFICATION_APP_PROTECTION_SESSION, long session_id, int num_notifications, int num_otp_notifications);<br>
+     */
+    public static final int SENSITIVE_NOTIFICATION_APP_PROTECTION_SESSION = 831;
+
+    /**
+     * SensitiveNotificationAppProtectionApplied sensitive_notification_app_protection_applied<br>
+     * Usage: StatsLog.write(StatsLog.SENSITIVE_NOTIFICATION_APP_PROTECTION_APPLIED, long session_id, int uid);<br>
+     */
+    public static final int SENSITIVE_NOTIFICATION_APP_PROTECTION_APPLIED = 832;
+
+    /**
+     * SensitiveNotificationRedaction sensitive_notification_redaction<br>
+     * Usage: StatsLog.write(StatsLog.SENSITIVE_NOTIFICATION_REDACTION, boolean receive_adjustment_before_post, boolean redact, int latency_ms);<br>
+     */
+    public static final int SENSITIVE_NOTIFICATION_REDACTION = 833;
+
+    /**
+     * SensitiveContentAppProtection sensitive_content_app_protection<br>
+     * Usage: StatsLog.write(StatsLog.SENSITIVE_CONTENT_APP_PROTECTION, long session_id, int protected_uid, int projection_uid, int state);<br>
+     */
+    public static final int SENSITIVE_CONTENT_APP_PROTECTION = 835;
+
+    /**
+     * ScreenTimeoutOverrideReported screen_timeout_override_reported<br>
+     * Usage: StatsLog.write(StatsLog.SCREEN_TIMEOUT_OVERRIDE_REPORTED, int power_group_id, int override_outcome, long override_timeout_millis, long default_timeout_millis);<br>
+     */
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED = 836;
+
+    /**
+     * ScreenInteractiveSessionReported screen_interactive_session_reported<br>
+     * Usage: StatsLog.write(StatsLog.SCREEN_INTERACTIVE_SESSION_REPORTED, int power_group_id, int interactive_state_off_reason, long interactive_state_on_duration_millis, int last_user_activity_event, long last_user_activity_event_duration_millis, long reduced_interactive_state_on_duration_millis);<br>
+     */
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED = 837;
+
+    /**
+     * AdpfHintSessionTidCleanup adpf_hint_session_tid_cleanup<br>
+     * Usage: StatsLog.write(StatsLog.ADPF_HINT_SESSION_TID_CLEANUP, int uid, int total_duration_us, int max_duration_us, int total_tid_count, int total_invalid_tid_count, int max_invalid_tid_count, int session_count, boolean is_uid_foreground);<br>
+     */
+    public static final int ADPF_HINT_SESSION_TID_CLEANUP = 839;
+
+    /**
+     * VpnConnectionStateChanged vpn_connection_state_changed<br>
+     * Usage: StatsLog.write(StatsLog.VPN_CONNECTION_STATE_CHANGED, int connection_state);<br>
+     */
+    public static final int VPN_CONNECTION_STATE_CHANGED = 850;
+
+    /**
+     * VpnConnectionReported vpn_connection_reported<br>
+     * Usage: StatsLog.write(StatsLog.VPN_CONNECTION_REPORTED, int vpn_type, int conn_ip_protocol, int server_ip_protocol, int encap_type, boolean bypassability, boolean validation_required, int vpn_profile_type, int allowed_alogithms, int mtu, boolean local_route_excluded, boolean metered, boolean proxy_setup, boolean always_on_vpn, boolean lockdown_vpn, boolean preconfigured_dns, boolean preconfigured_routes, int is_auto_keepalive, int connected_period_seconds, int[] underlying_network_type, int vpn_validated_period_seconds, int validation_attempts, int validation_attempts_success, int[] error_code, byte[] recovery_info_per_attempt, int recovery_latency, byte[] ike_attempts, byte[] switch_attempts);<br>
+     */
+    public static final int VPN_CONNECTION_REPORTED = 851;
+
+    /**
+     * ExcessiveBinderProxyCountReported excessive_binder_proxy_count_reported<br>
+     * Usage: StatsLog.write(StatsLog.EXCESSIVE_BINDER_PROXY_COUNT_REPORTED, int offending_uid);<br>
+     */
+    public static final int EXCESSIVE_BINDER_PROXY_COUNT_REPORTED = 853;
+
+    /**
+     * ComponentStateChangedReported component_state_changed_reported<br>
+     * Usage: StatsLog.write(StatsLog.COMPONENT_STATE_CHANGED_REPORTED, int uid, int component_old_state, int component_new_state, boolean is_launcher, boolean is_for_whole_app);<br>
+     */
+    public static final int COMPONENT_STATE_CHANGED_REPORTED = 863;
+
+    /**
+     * AppRestrictionStateChanged app_restriction_state_changed<br>
+     * Usage: StatsLog.write(StatsLog.APP_RESTRICTION_STATE_CHANGED, int uid, int restriction_type, boolean enabled, int main_reason, java.lang.String sub_reason, long threshold_exceeded);<br>
+     */
+    public static final int APP_RESTRICTION_STATE_CHANGED = 866;
+
+    /**
+     * ScreenDimReported screen_dim_reported<br>
+     * Usage: StatsLog.write(StatsLog.SCREEN_DIM_REPORTED, int power_group_id, int policy_reason, int last_user_activity_event, int last_user_activity_event_duration_millis, int dim_duration_millis, int default_timeout_millis);<br>
+     */
+    public static final int SCREEN_DIM_REPORTED = 867;
 
     /**
      * WifiBytesTransfer wifi_bytes_transfer<br>
@@ -1980,7 +2220,7 @@ public final class FrameworkStatsLog {
 
     /**
      * PackageNotificationPreferences package_notification_preferences<br>
-     * Usage: StatsLog.write(StatsLog.PACKAGE_NOTIFICATION_PREFERENCES, int uid, int importance, int visibility, int user_locked_fields, boolean user_set_importance);<br>
+     * Usage: StatsLog.write(StatsLog.PACKAGE_NOTIFICATION_PREFERENCES, int uid, int importance, int visibility, int user_locked_fields, boolean user_set_importance, int fsi_state, boolean is_fsi_permission_user_set);<br>
      */
     public static final int PACKAGE_NOTIFICATION_PREFERENCES = 10071;
 
@@ -2028,13 +2268,13 @@ public final class FrameworkStatsLog {
 
     /**
      * BytesTransferByTagAndMetered bytes_transfer_by_tag_and_metered<br>
-     * Usage: StatsLog.write(StatsLog.BYTES_TRANSFER_BY_TAG_AND_METERED, int uid, boolean is_metered, int tag, long rx_bytes, long rx_packets, long tx_bytes, long tx_packets);<br>
+     * Usage: StatsLog.write(StatsLog.BYTES_TRANSFER_BY_TAG_AND_METERED, int uid, boolean is_metered, int tag, long rx_bytes, long rx_packets, long tx_bytes, long tx_packets, int rat_type);<br>
      */
     public static final int BYTES_TRANSFER_BY_TAG_AND_METERED = 10083;
 
     /**
      * DNDModeProto dnd_mode_rule<br>
-     * Usage: StatsLog.write(StatsLog.DND_MODE_RULE, int user, boolean enabled, boolean channels_bypassing, int zen_mode, java.lang.String id, int uid, byte[] policy);<br>
+     * Usage: StatsLog.write(StatsLog.DND_MODE_RULE, int user, boolean enabled, boolean channels_bypassing, int zen_mode, java.lang.String id, int uid, byte[] policy, int rule_modified_fields, int policy_modified_fields, int device_effects_modified_fields, int rule_type);<br>
      */
     public static final int DND_MODE_RULE = 10084;
 
@@ -2202,7 +2442,7 @@ public final class FrameworkStatsLog {
 
     /**
      * AccessibilityShortcutStats accessibility_shortcut_stats<br>
-     * Usage: StatsLog.write(StatsLog.ACCESSIBILITY_SHORTCUT_STATS, int software_shortcut_type, int software_shortcut_service_num, int hardware_shortcut_type, int hardware_shortcut_service_num, int gesture_shortcut_type, int gesture_shortcut_service_num);<br>
+     * Usage: StatsLog.write(StatsLog.ACCESSIBILITY_SHORTCUT_STATS, int software_shortcut_type, int software_shortcut_service_num, int hardware_shortcut_type, int hardware_shortcut_service_num, int gesture_shortcut_type, int gesture_shortcut_service_num, int qs_shortcut_type, boolean use_qs_shortcut);<br>
      */
     public static final int ACCESSIBILITY_SHORTCUT_STATS = 10127;
 
@@ -2280,7 +2520,7 @@ public final class FrameworkStatsLog {
 
     /**
      * ProcessState process_state<br>
-     * Usage: StatsLog.write(StatsLog.PROCESS_STATE, int uid, java.lang.String process_name, int measurement_start_uptime_seconds, int measurement_end_uptime_seconds, int measurement_duration_uptime_seconds, int top_seconds, int fgs_seconds, int bound_top_seconds, int bound_fgs_seconds, int important_foreground_seconds, int cached_seconds, int frozen_seconds, int other_seconds);<br>
+     * Usage: StatsLog.write(StatsLog.PROCESS_STATE, int uid, java.lang.String process_name, int measurement_start_uptime_seconds, int measurement_end_uptime_seconds, int measurement_duration_uptime_seconds, int top_seconds, int fgs_seconds, int bound_top_seconds, int bound_fgs_seconds, int important_fg_bg_seconds, int cached_seconds, int frozen_seconds, int other_seconds);<br>
      */
     public static final int PROCESS_STATE = 10171;
 
@@ -2319,6 +2559,42 @@ public final class FrameworkStatsLog {
      * Usage: StatsLog.write(StatsLog.CACHED_APPS_HIGH_WATERMARK, int cached_app_high_watermark, int uptime_in_seconds, int binder_proxy_snapshot, int free_in_kb, int cached_in_kb, int zram_in_kb, int kernel_in_kb, int num_frozen_apps, int longest_frozen_time_in_seconds, int shortest_frozen_time_in_seconds, int mean_frozen_time_in_seconds, int average_frozen_time_in_seconds);<br>
      */
     public static final int CACHED_APPS_HIGH_WATERMARK = 10189;
+
+    /**
+     * TouchpadUsage touchpad_usage<br>
+     * Usage: StatsLog.write(StatsLog.TOUCHPAD_USAGE, int vendor_id, int product_id, int version_id, int device_bus, int finger_count, int palm_count, int two_finger_swipe_gesture_count, int three_finger_swipe_gesture_count, int four_finger_swipe_gesture_count, int pinch_gesture_count);<br>
+     */
+    public static final int TOUCHPAD_USAGE = 10191;
+
+    /**
+     * DreamSettingSnapshot dream_setting_snapshot<br>
+     * Usage: StatsLog.write(StatsLog.DREAM_SETTING_SNAPSHOT, boolean enabled, java.lang.String dream_component, int when_to_dream, boolean show_additional_info, boolean show_home_controls);<br>
+     */
+    public static final int DREAM_SETTING_SNAPSHOT = 10192;
+
+    /**
+     * CpuPolicy cpu_policy<br>
+     * Usage: StatsLog.write(StatsLog.CPU_POLICY, int policy, int scaling_max_freq_khz, int cpuinfo_max_freq_khz);<br>
+     */
+    public static final int CPU_POLICY = 10199;
+
+    /**
+     * ProxyBytesTransferByFgBg proxy_bytes_transfer_by_fg_bg<br>
+     * Usage: StatsLog.write(StatsLog.PROXY_BYTES_TRANSFER_BY_FG_BG, int uid, boolean is_foreground, long rx_bytes, long rx_packets, long tx_bytes, long tx_packets);<br>
+     */
+    public static final int PROXY_BYTES_TRANSFER_BY_FG_BG = 10200;
+
+    /**
+     * ThermalHeadroomThresholds thermal_headroom_thresholds<br>
+     * Usage: StatsLog.write(StatsLog.THERMAL_HEADROOM_THRESHOLDS, float[] headroom);<br>
+     */
+    public static final int THERMAL_HEADROOM_THRESHOLDS = 10201;
+
+    /**
+     * MobileBytesTransferByProcState mobile_bytes_transfer_by_proc_state<br>
+     * Usage: StatsLog.write(StatsLog.MOBILE_BYTES_TRANSFER_BY_PROC_STATE, int uid, int proc_state, long rx_bytes, long rx_packets, long tx_bytes, long tx_packets);<br>
+     */
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE = 10204;
 
     // Constants for enum values.
 
@@ -2389,6 +2665,7 @@ public final class FrameworkStatsLog {
     public static final int SCHEDULED_JOB_STATE_CHANGED__STANDBY_BUCKET__RARE = 3;
     public static final int SCHEDULED_JOB_STATE_CHANGED__STANDBY_BUCKET__NEVER = 4;
     public static final int SCHEDULED_JOB_STATE_CHANGED__STANDBY_BUCKET__RESTRICTED = 5;
+    public static final int SCHEDULED_JOB_STATE_CHANGED__STANDBY_BUCKET__EXEMPTED = 6;
 
     // Values for ScheduledJobStateChanged.public_stop_reason
     public static final int SCHEDULED_JOB_STATE_CHANGED__PUBLIC_STOP_REASON__STOP_REASON_UNDEFINED = 0;
@@ -2441,6 +2718,7 @@ public final class FrameworkStatsLog {
     public static final int WAKELOCK_STATE_CHANGED__TYPE__PROXIMITY_SCREEN_OFF_WAKE_LOCK = 32;
     public static final int WAKELOCK_STATE_CHANGED__TYPE__DOZE_WAKE_LOCK = 64;
     public static final int WAKELOCK_STATE_CHANGED__TYPE__DRAW_WAKE_LOCK = 128;
+    public static final int WAKELOCK_STATE_CHANGED__TYPE__SCREEN_TIMEOUT_OVERRIDE_WAKE_LOCK = 256;
 
     // Values for WakelockStateChanged.state
     public static final int WAKELOCK_STATE_CHANGED__STATE__RELEASE = 0;
@@ -2680,6 +2958,10 @@ public final class FrameworkStatsLog {
     public static final int APP_START_OCCURRED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_NORMAL = 1;
     public static final int APP_START_OCCURRED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_STOPPED = 2;
 
+    // Values for AppStartOccurred.multi_window_launch_type
+    public static final int APP_START_OCCURRED__MULTI_WINDOW_LAUNCH_TYPE__LAUNCH_TYPE_UNSPECIFIED = 0;
+    public static final int APP_START_OCCURRED__MULTI_WINDOW_LAUNCH_TYPE__LAUNCH_TYPE_APP_PAIR = 1;
+
     // Values for AppStartCanceled.type
     public static final int APP_START_CANCELED__TYPE__UNKNOWN = 0;
     public static final int APP_START_CANCELED__TYPE__WARM = 1;
@@ -2708,17 +2990,14 @@ public final class FrameworkStatsLog {
     public static final int LMK_KILL_OCCURRED__REASON__DIRECT_RECL_AND_THRASHING = 6;
     public static final int LMK_KILL_OCCURRED__REASON__LOW_MEM_AND_SWAP_UTIL = 7;
     public static final int LMK_KILL_OCCURRED__REASON__LOW_FILECACHE_AFTER_THRASHING = 8;
+    public static final int LMK_KILL_OCCURRED__REASON__LOW_MEM = 9;
+    public static final int LMK_KILL_OCCURRED__REASON__DIRECT_RECL_STUCK = 10;
 
     // Values for PictureInPictureStateChanged.state
     public static final int PICTURE_IN_PICTURE_STATE_CHANGED__STATE__ENTERED = 1;
     public static final int PICTURE_IN_PICTURE_STATE_CHANGED__STATE__EXPANDED_TO_FULL_SCREEN = 2;
     public static final int PICTURE_IN_PICTURE_STATE_CHANGED__STATE__MINIMIZED = 3;
     public static final int PICTURE_IN_PICTURE_STATE_CHANGED__STATE__DISMISSED = 4;
-
-    // Values for LmkStateChanged.state
-    public static final int LMK_STATE_CHANGED__STATE__UNKNOWN = 0;
-    public static final int LMK_STATE_CHANGED__STATE__START = 1;
-    public static final int LMK_STATE_CHANGED__STATE__STOP = 2;
 
     // Values for OverlayStateChanged.state
     public static final int OVERLAY_STATE_CHANGED__STATE__ENTERED = 1;
@@ -2828,25 +3107,12 @@ public final class FrameworkStatsLog {
     public static final int FOREGROUND_SERVICE_STATE_CHANGED__CALLING_UID_CAPABILITIES__PROCESS_CAPABILITY_BFSL = 16;
     public static final int FOREGROUND_SERVICE_STATE_CHANGED__CALLING_UID_CAPABILITIES__PROCESS_CAPABILITY_USER_RESTRICTED_NETWORK = 32;
 
-    // Values for BluetoothEnabledStateChanged.state
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__STATE__UNKNOWN = 0;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__STATE__ENABLED = 1;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__STATE__DISABLED = 2;
-
-    // Values for BluetoothEnabledStateChanged.reason
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_UNSPECIFIED = 0;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_APPLICATION_REQUEST = 1;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_AIRPLANE_MODE = 2;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_DISALLOWED = 3;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_RESTARTED = 4;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_START_ERROR = 5;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_SYSTEM_BOOT = 6;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_CRASH = 7;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_USER_SWITCH = 8;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_RESTORE_USER_SETTING = 9;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_FACTORY_RESET = 10;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_INIT_FLAGS_CHANGED = 11;
-    public static final int BLUETOOTH_ENABLED_STATE_CHANGED__REASON__ENABLE_DISABLE_REASON_SATELLITE_MODE = 12;
+    // Values for ForegroundServiceStateChanged.fgs_start_api
+    public static final int FOREGROUND_SERVICE_STATE_CHANGED__FGS_START_API__FGSSTARTAPI_NA = 0;
+    public static final int FOREGROUND_SERVICE_STATE_CHANGED__FGS_START_API__FGSSTARTAPI_NONE = 1;
+    public static final int FOREGROUND_SERVICE_STATE_CHANGED__FGS_START_API__FGSSTARTAPI_START_SERVICE = 2;
+    public static final int FOREGROUND_SERVICE_STATE_CHANGED__FGS_START_API__FGSSTARTAPI_START_FOREGROUND_SERVICE = 3;
+    public static final int FOREGROUND_SERVICE_STATE_CHANGED__FGS_START_API__FGSSTARTAPI_DELEGATE = 4;
 
     // Values for GpsSignalQualityChanged.level
     public static final int GPS_SIGNAL_QUALITY_CHANGED__LEVEL__GPS_SIGNAL_QUALITY_UNKNOWN = -1;
@@ -3353,6 +3619,7 @@ public final class FrameworkStatsLog {
     public static final int DEVICE_POLICY_EVENT__EVENT_ID__PLATFORM_ROLE_HOLDER_UPDATE_FAILED = 215;
     public static final int DEVICE_POLICY_EVENT__EVENT_ID__SET_MTE_POLICY = 216;
     public static final int DEVICE_POLICY_EVENT__EVENT_ID__SET_APPLICATION_EXEMPTIONS = 217;
+    public static final int DEVICE_POLICY_EVENT__EVENT_ID__SET_CONTENT_PROTECTION_POLICY = 218;
 
     // Values for WifiEnabledStateChanged.state
     public static final int WIFI_ENABLED_STATE_CHANGED__STATE__OFF = 0;
@@ -3541,6 +3808,8 @@ public final class FrameworkStatsLog {
     public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_APP_CRASH = 3;
     public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_APP_NOT_RESPONDING = 4;
     public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_NATIVE_CRASH_DURING_BOOT = 5;
+    public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_NETWORK_RELATED_CRASH = 6;
+    public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_BOOT_LOOPING = 7;
 
     // Values for BiometricSystemHealthIssueDetected.modality
     public static final int BIOMETRIC_SYSTEM_HEALTH_ISSUE_DETECTED__MODALITY__MODALITY_UNKNOWN = 0;
@@ -3670,6 +3939,12 @@ public final class FrameworkStatsLog {
     public static final int BIOMETRIC_ENROLLED__MODALITY__MODALITY_IRIS = 2;
     public static final int BIOMETRIC_ENROLLED__MODALITY__MODALITY_FACE = 4;
 
+    // Values for BiometricEnrolled.enroll_source
+    public static final int BIOMETRIC_ENROLLED__ENROLL_SOURCE__ENROLLMENT_SOURCE_UNKNOWN = 0;
+    public static final int BIOMETRIC_ENROLLED__ENROLL_SOURCE__ENROLLMENT_SOURCE_SUW = 1;
+    public static final int BIOMETRIC_ENROLLED__ENROLL_SOURCE__ENROLLMENT_SOURCE_SETTINGS = 2;
+    public static final int BIOMETRIC_ENROLLED__ENROLL_SOURCE__ENROLLMENT_SOURCE_FRR_NOTIFICATION = 3;
+
     // Values for ThermalThrottlingSeverityStateChanged.sensor_type
     public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_UNKNOWN = -1;
     public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_CPU = 0;
@@ -3682,6 +3957,16 @@ public final class FrameworkStatsLog {
     public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_BCL_CURRENT = 7;
     public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_BCL_PERCENTAGE = 8;
     public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_NPU = 9;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_TPU = 10;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_DISPLAY = 11;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_MODEM = 12;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_SOC = 13;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_WIFI = 14;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_CAMERA = 15;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_FLASHLIGHT = 16;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_SPEAKER = 17;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_AMBIENT = 18;
+    public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SENSOR_TYPE__TEMPERATURE_TYPE_POGO = 19;
 
     // Values for ThermalThrottlingSeverityStateChanged.severity
     public static final int THERMAL_THROTTLING_SEVERITY_STATE_CHANGED__SEVERITY__NONE = 0;
@@ -3945,6 +4230,11 @@ public final class FrameworkStatsLog {
     public static final int NOTIFICATION_REPORTED__IMPORTANCE_ASST__IMPORTANCE_HIGH = 4;
     public static final int NOTIFICATION_REPORTED__IMPORTANCE_ASST__IMPORTANCE_IMPORTANT_CONVERSATION = 5;
 
+    // Values for NotificationReported.fsi_state
+    public static final int NOTIFICATION_REPORTED__FSI_STATE__NO_FSI = 0;
+    public static final int NOTIFICATION_REPORTED__FSI_STATE__FSI_ALLOWED = 1;
+    public static final int NOTIFICATION_REPORTED__FSI_STATE__FSI_DENIED = 2;
+
     // Values for NotificationChannelModified.old_importance
     public static final int NOTIFICATION_CHANNEL_MODIFIED__OLD_IMPORTANCE__IMPORTANCE_UNSPECIFIED = -1000;
     public static final int NOTIFICATION_CHANNEL_MODIFIED__OLD_IMPORTANCE__IMPORTANCE_NONE = 0;
@@ -4158,6 +4448,18 @@ public final class FrameworkStatsLog {
     public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_USE_FULL_SCREEN_INTENT = 133;
     public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_CAMERA_SANDBOXED = 134;
     public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_RECORD_AUDIO_SANDBOXED = 135;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_RECEIVE_SANDBOX_TRIGGER_AUDIO = 136;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_RECEIVE_SANDBOXED_DETECTION_TRAINING_DATA = 137;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_CREATE_ACCESSIBILITY_OVERLAY = 138;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_MEDIA_ROUTING_CONTROL = 139;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_ENABLE_MOBILE_DATA_BY_USER = 140;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_RESERVED_FOR_TESTING = 141;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_RAPID_CLEAR_NOTIFICATIONS_BY_LISTENER = 142;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_READ_SYSTEM_GRAMMATICAL_GENDER = 143;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_RUN_BACKUP_JOBS = 144;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_ARCHIVE_ICON_OVERLAY = 145;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_UNARCHIVAL_CONFIRMATION = 146;
+    public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_NAME__APP_OP_EMERGENCY_LOCATION = 147;
 
     // Values for ForegroundServiceAppOpSessionEnded.app_op_mode
     public static final int FOREGROUND_SERVICE_APP_OP_SESSION_ENDED__APP_OP_MODE__MODE_UNKNOWN = 0;
@@ -4189,6 +4491,7 @@ public final class FrameworkStatsLog {
     public static final int SHARESHEET_STARTED__PREVIEW_TYPE__CONTENT_PREVIEW_IMAGE = 1;
     public static final int SHARESHEET_STARTED__PREVIEW_TYPE__CONTENT_PREVIEW_FILE = 2;
     public static final int SHARESHEET_STARTED__PREVIEW_TYPE__CONTENT_PREVIEW_TEXT = 3;
+    public static final int SHARESHEET_STARTED__PREVIEW_TYPE__CONTENT_PREVIEW_TOGGLEABLE_MEDIA = 4;
 
     // Values for SharesheetStarted.intent_type
     public static final int SHARESHEET_STARTED__INTENT_TYPE__INTENT_DEFAULT = 0;
@@ -4222,6 +4525,7 @@ public final class FrameworkStatsLog {
     public static final int USER_LIFECYCLE_JOURNEY_REPORTED__USER_TYPE__PROFILE_MANAGED = 6;
     public static final int USER_LIFECYCLE_JOURNEY_REPORTED__USER_TYPE__SYSTEM_HEADLESS = 7;
     public static final int USER_LIFECYCLE_JOURNEY_REPORTED__USER_TYPE__PROFILE_CLONE = 8;
+    public static final int USER_LIFECYCLE_JOURNEY_REPORTED__USER_TYPE__PROFILE_PRIVATE = 9;
 
     // Values for UserLifecycleEventOccurred.event
     public static final int USER_LIFECYCLE_EVENT_OCCURRED__EVENT__UNKNOWN = 0;
@@ -4252,6 +4556,8 @@ public final class FrameworkStatsLog {
     public static final int ACCESSIBILITY_SHORTCUT_REPORTED__SHORTCUT_TYPE__A11Y_FLOATING_MENU = 5;
     public static final int ACCESSIBILITY_SHORTCUT_REPORTED__SHORTCUT_TYPE__A11Y_GESTURE = 6;
     public static final int ACCESSIBILITY_SHORTCUT_REPORTED__SHORTCUT_TYPE__A11Y_WEAR_TRIPLE_PRESS_GESTURE = 7;
+    public static final int ACCESSIBILITY_SHORTCUT_REPORTED__SHORTCUT_TYPE__TWO_FINGER_TRIPLE_TAP = 8;
+    public static final int ACCESSIBILITY_SHORTCUT_REPORTED__SHORTCUT_TYPE__QUICK_SETTINGS = 9;
 
     // Values for AccessibilityShortcutReported.service_status
     public static final int ACCESSIBILITY_SHORTCUT_REPORTED__SERVICE_STATUS__UNKNOWN = 0;
@@ -4262,6 +4568,12 @@ public final class FrameworkStatsLog {
     public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__NONE = 0;
     public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__MOVE_TO_FOREGROUND = 1;
     public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__MOVE_TO_BACKGROUND = 2;
+    public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__USER_INTERACTION = 7;
+    public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__SHORTCUT_INVOCATION = 8;
+    public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__CHOOSER_ACTION = 9;
+    public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__STANDBY_BUCKET_CHANGED = 11;
+    public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__FOREGROUND_SERVICE_START = 19;
+    public static final int APP_USAGE_EVENT_OCCURRED__EVENT_TYPE__FOREGROUND_SERVICE_STOP = 20;
 
     // Values for TvTunerStateChanged.state
     public static final int TV_TUNER_STATE_CHANGED__STATE__UNKNOWN = 0;
@@ -4395,6 +4707,29 @@ public final class FrameworkStatsLog {
     public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__IME_INSETS_ANIMATION = 70;
     public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LOCKSCREEN_CLOCK_MOVE_ANIMATION = 71;
     public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_OPEN_SEARCH_RESULT = 72;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_APP_CLOSE_TO_HOME_FALLBACK = 79;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__IME_INSETS_SHOW_ANIMATION = 81;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__IME_INSETS_HIDE_ANIMATION = 82;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__SPLIT_SCREEN_DOUBLE_TAP_DIVIDER = 83;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_UNFOLD_ANIM = 84;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__PREDICTIVE_BACK_CROSS_ACTIVITY = 85;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__PREDICTIVE_BACK_CROSS_TASK = 86;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__PREDICTIVE_BACK_HOME = 87;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__BACK_PANEL_ARROW = 89;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_CLOSE_ALL_APPS_BACK = 90;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_SEARCH_QSB_WEB_SEARCH = 91;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_LAUNCH_APP_PAIR_FROM_WORKSPACE = 92;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_LAUNCH_APP_PAIR_FROM_TASKBAR = 93;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_SAVE_APP_PAIR = 94;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_ALL_APPS_SEARCH_BACK = 95;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_TASKBAR_ALL_APPS_CLOSE_BACK = 96;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_TASKBAR_ALL_APPS_SEARCH_BACK = 97;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_WIDGET_PICKER_CLOSE_BACK = 98;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_WIDGET_PICKER_SEARCH_BACK = 99;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_WIDGET_BOTTOM_SHEET_CLOSE_BACK = 100;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_WIDGET_EDU_SHEET_CLOSE_BACK = 101;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_PRIVATE_SPACE_LOCK = 102;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__INTERACTION_TYPE__LAUNCHER_PRIVATE_SPACE_UNLOCK = 103;
 
     // Values for UIInteractionFrameInfoReported.display_resolution
     public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_RESOLUTION__UNKNOWN_RESOLUTION = 0;
@@ -4402,6 +4737,15 @@ public final class FrameworkStatsLog {
     public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_RESOLUTION__HD = 2;
     public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_RESOLUTION__FHD = 3;
     public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_RESOLUTION__QHD = 4;
+
+    // Values for UIInteractionFrameInfoReported.display_refresh_rate
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_REFRESH_RATE__UNKNOWN_REFRESH_RATE = 0;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_REFRESH_RATE__VARIABLE_REFRESH_RATE = 1;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_REFRESH_RATE__RR_30_HZ = 2;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_REFRESH_RATE__RR_60_HZ = 3;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_REFRESH_RATE__RR_90_HZ = 4;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_REFRESH_RATE__RR_120_HZ = 5;
+    public static final int UIINTERACTION_FRAME_INFO_REPORTED__DISPLAY_REFRESH_RATE__RR_240_HZ = 6;
 
     // Values for UIActionLatencyReported.action
     public static final int UIACTION_LATENCY_REPORTED__ACTION__UNKNOWN_ACTION = 0;
@@ -4428,6 +4772,11 @@ public final class FrameworkStatsLog {
     public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_REQUEST_IME_SHOWN = 21;
     public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_REQUEST_IME_HIDDEN = 22;
     public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_SMARTSPACE_DOORBELL = 23;
+    public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATION_BIG_PICTURE_LOADED = 27;
+    public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_KEYGUARD_FPS_UNLOCK_TO_HOME = 28;
+    public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_BACK_SYSTEM_ANIMATION = 29;
+    public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE = 30;
+    public static final int UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN = 31;
 
     // Values for HdmiCecActiveSourceChanged.active_source_logical_address
     public static final int HDMI_CEC_ACTIVE_SOURCE_CHANGED__ACTIVE_SOURCE_LOGICAL_ADDRESS__LOGICAL_ADDRESS_UNKNOWN = -1;
@@ -4759,6 +5108,10 @@ public final class FrameworkStatsLog {
     public static final int APP_PROCESS_DIED__SUB_REASON__SUBREASON_UNDELIVERED_BROADCAST = 26;
     public static final int APP_PROCESS_DIED__SUB_REASON__SUBREASON_SDK_SANDBOX_DIED = 27;
     public static final int APP_PROCESS_DIED__SUB_REASON__SUBREASON_SDK_SANDBOX_NOT_NEEDED = 28;
+    public static final int APP_PROCESS_DIED__SUB_REASON__SUBREASON_EXCESSIVE_BINDER_OBJECTS = 29;
+    public static final int APP_PROCESS_DIED__SUB_REASON__SUBREASON_OOM_KILL = 30;
+    public static final int APP_PROCESS_DIED__SUB_REASON__SUBREASON_FREEZER_BINDER_ASYNC_FULL = 31;
+    public static final int APP_PROCESS_DIED__SUB_REASON__SUBREASON_EXCESSIVE_OUTGOING_BROADCASTS_WHILE_CACHED = 32;
 
     // Values for AppProcessDied.importance
     public static final int APP_PROCESS_DIED__IMPORTANCE__IMPORTANCE_FOREGROUND = 100;
@@ -4784,6 +5137,7 @@ public final class FrameworkStatsLog {
     public static final int PRIVACY_SENSOR_TOGGLE_INTERACTION__ACTION__ACTION_UNKNOWN = 0;
     public static final int PRIVACY_SENSOR_TOGGLE_INTERACTION__ACTION__TOGGLE_ON = 1;
     public static final int PRIVACY_SENSOR_TOGGLE_INTERACTION__ACTION__TOGGLE_OFF = 2;
+    public static final int PRIVACY_SENSOR_TOGGLE_INTERACTION__ACTION__TOGGLE_ON_EXCEPT_ALLOWLISTED_APPS = 3;
 
     // Values for PrivacySensorToggleInteraction.source
     public static final int PRIVACY_SENSOR_TOGGLE_INTERACTION__SOURCE__SOURCE_UNKNOWN = 0;
@@ -4856,6 +5210,8 @@ public final class FrameworkStatsLog {
     public static final int SPLITSCREEN_UICHANGED__EXIT_REASON__CHILD_TASK_ENTER_PIP = 9;
     public static final int SPLITSCREEN_UICHANGED__EXIT_REASON__RECREATE_SPLIT = 10;
     public static final int SPLITSCREEN_UICHANGED__EXIT_REASON__FULLSCREEN_SHORTCUT = 11;
+    public static final int SPLITSCREEN_UICHANGED__EXIT_REASON__DESKTOP_MODE = 12;
+    public static final int SPLITSCREEN_UICHANGED__EXIT_REASON__FULLSCREEN_REQUEST = 13;
 
     // Values for SplitscreenUIChanged.main_stage_position
     public static final int SPLITSCREEN_UICHANGED__MAIN_STAGE_POSITION__UNKNOWN_POSITION = 0;
@@ -4939,11 +5295,11 @@ public final class FrameworkStatsLog {
     public static final int DISPLAY_HBM_STATE_CHANGED__REASON__HBM_SV_OFF_LOW_REQUESTED_BRIGHTNESS = 9;
 
     // Values for ApexInfoGathered.algo_type
-    public static final int APEX_INFO_GATHERED__ALGO_TYPE__UNKNOWN = 0;
-    public static final int APEX_INFO_GATHERED__ALGO_TYPE__CHUNKED_SHA256 = 1;
-    public static final int APEX_INFO_GATHERED__ALGO_TYPE__CHUNKED_SHA512 = 2;
-    public static final int APEX_INFO_GATHERED__ALGO_TYPE__VERITY_CHUNKED_SHA256 = 3;
-    public static final int APEX_INFO_GATHERED__ALGO_TYPE__SHA256 = 4;
+    public static final int APEX_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_UNKNOWN = 0;
+    public static final int APEX_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_CHUNKED_SHA256 = 1;
+    public static final int APEX_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_CHUNKED_SHA512 = 2;
+    public static final int APEX_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_VERITY_CHUNKED_SHA256 = 3;
+    public static final int APEX_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_SHA256 = 4;
 
     // Values for TracingServiceReportEvent.event
     public static final int TRACING_SERVICE_REPORT_EVENT__EVENT__TRACING_SERVICE_REPORT_UNDEFINED = 0;
@@ -5012,6 +5368,10 @@ public final class FrameworkStatsLog {
     public static final int HOTWORD_DETECTOR_KEYPHRASE_TRIGGERED__RESULT__DETECT_SECURITY_EXCEPTION = 8;
     public static final int HOTWORD_DETECTOR_KEYPHRASE_TRIGGERED__RESULT__REJECT_UNEXPECTED_CALLBACK = 9;
     public static final int HOTWORD_DETECTOR_KEYPHRASE_TRIGGERED__RESULT__REJECTED_FROM_RESTART = 10;
+    public static final int HOTWORD_DETECTOR_KEYPHRASE_TRIGGERED__RESULT__TRAINING_DATA = 11;
+    public static final int HOTWORD_DETECTOR_KEYPHRASE_TRIGGERED__RESULT__TRAINING_DATA_EGRESS_LIMIT_REACHED = 12;
+    public static final int HOTWORD_DETECTOR_KEYPHRASE_TRIGGERED__RESULT__TRAINING_DATA_SECURITY_EXCEPTION = 13;
+    public static final int HOTWORD_DETECTOR_KEYPHRASE_TRIGGERED__RESULT__TRAINING_DATA_REMOTE_EXCEPTION = 14;
 
     // Values for HotwordDetectorEvents.detector_type
     public static final int HOTWORD_DETECTOR_EVENTS__DETECTOR_TYPE__NORMAL_DETECTOR = 0;
@@ -5067,6 +5427,7 @@ public final class FrameworkStatsLog {
     public static final int BOOT_COMPLETED_BROADCAST_COMPLETION_LATENCY_REPORTED__USER_TYPE__PROFILE_MANAGED = 6;
     public static final int BOOT_COMPLETED_BROADCAST_COMPLETION_LATENCY_REPORTED__USER_TYPE__SYSTEM_HEADLESS = 7;
     public static final int BOOT_COMPLETED_BROADCAST_COMPLETION_LATENCY_REPORTED__USER_TYPE__PROFILE_CLONE = 8;
+    public static final int BOOT_COMPLETED_BROADCAST_COMPLETION_LATENCY_REPORTED__USER_TYPE__PROFILE_PRIVATE = 9;
 
     // Values for AppBackgroundRestrictionsInfo.restriction_level
     public static final int APP_BACKGROUND_RESTRICTIONS_INFO__RESTRICTION_LEVEL__LEVEL_UNKNOWN = 0;
@@ -5162,6 +5523,11 @@ public final class FrameworkStatsLog {
     public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_DPO_PROTECTED_APP = 322;
     public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_DISALLOW_APPS_CONTROL = 323;
     public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_ACTIVE_DEVICE_ADMIN = 324;
+    public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_MEDIA_NOTIFICATION_TRANSFER = 325;
+    public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_PACKAGE_INSTALLER = 326;
+    public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_SYSTEM_EXEMPT_APP_OP = 327;
+    public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_PACKAGE_UNARCHIVE = 328;
+    public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_TILE_ONCLICK = 329;
     public static final int APP_BACKGROUND_RESTRICTIONS_INFO__EXEMPTION_REASON__REASON_OPT_OUT_REQUESTED = 1000;
 
     // Values for AppBackgroundRestrictionsInfo.opt_level
@@ -5306,6 +5672,61 @@ public final class FrameworkStatsLog {
     public static final int BROADCAST_DELIVERY_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_NORMAL = 1;
     public static final int BROADCAST_DELIVERY_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_STOPPED = 2;
 
+    // Values for BroadcastDeliveryEventReported.delivery_group_policy
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__DELIVERY_GROUP_POLICY__BROADCAST_DELIVERY_GROUP_POLICY_ALL = 0;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__DELIVERY_GROUP_POLICY__BROADCAST_DELIVERY_GROUP_POLICY_MOST_RECENT = 1;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__DELIVERY_GROUP_POLICY__BROADCAST_DELIVERY_GROUP_POLICY_MERGED = 2;
+
+    // Values for BroadcastDeliveryEventReported.sender_proc_state
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_UNKNOWN_TO_PROTO = 998;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_UNKNOWN = 999;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_PERSISTENT = 1000;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_PERSISTENT_UI = 1001;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_TOP = 1002;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_FOREGROUND_SERVICE = 1003;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 1004;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_IMPORTANT_FOREGROUND = 1005;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_IMPORTANT_BACKGROUND = 1006;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_TRANSIENT_BACKGROUND = 1007;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_BACKUP = 1008;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_SERVICE = 1009;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_RECEIVER = 1010;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_TOP_SLEEPING = 1011;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_HEAVY_WEIGHT = 1012;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_HOME = 1013;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_LAST_ACTIVITY = 1014;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_CACHED_ACTIVITY = 1015;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 1016;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_CACHED_RECENT = 1017;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_CACHED_EMPTY = 1018;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_NONEXISTENT = 1019;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__SENDER_PROC_STATE__PROCESS_STATE_BOUND_TOP = 1020;
+
+    // Values for BroadcastDeliveryEventReported.receiver_process_state
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_UNKNOWN_TO_PROTO = 998;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_UNKNOWN = 999;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_PERSISTENT = 1000;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_PERSISTENT_UI = 1001;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_TOP = 1002;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_FOREGROUND_SERVICE = 1003;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 1004;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_IMPORTANT_FOREGROUND = 1005;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_IMPORTANT_BACKGROUND = 1006;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_TRANSIENT_BACKGROUND = 1007;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_BACKUP = 1008;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_SERVICE = 1009;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_RECEIVER = 1010;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_TOP_SLEEPING = 1011;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_HEAVY_WEIGHT = 1012;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_HOME = 1013;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_LAST_ACTIVITY = 1014;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY = 1015;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 1016;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_CACHED_RECENT = 1017;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_CACHED_EMPTY = 1018;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_NONEXISTENT = 1019;
+    public static final int BROADCAST_DELIVERY_EVENT_REPORTED__RECEIVER_PROCESS_STATE__PROCESS_STATE_BOUND_TOP = 1020;
+
     // Values for ServiceRequestEventReported.request_type
     public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUEST_TYPE__UNKNOWN = 0;
     public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUEST_TYPE__START = 1;
@@ -5322,6 +5743,56 @@ public final class FrameworkStatsLog {
     public static final int SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_NORMAL = 1;
     public static final int SERVICE_REQUEST_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_STOPPED = 2;
 
+    // Values for ServiceRequestEventReported.requester_process_state
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_UNKNOWN_TO_PROTO = 998;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_UNKNOWN = 999;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_PERSISTENT = 1000;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_PERSISTENT_UI = 1001;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_TOP = 1002;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_FOREGROUND_SERVICE = 1003;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 1004;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_IMPORTANT_FOREGROUND = 1005;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_IMPORTANT_BACKGROUND = 1006;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_TRANSIENT_BACKGROUND = 1007;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_BACKUP = 1008;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_SERVICE = 1009;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_RECEIVER = 1010;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_TOP_SLEEPING = 1011;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_HEAVY_WEIGHT = 1012;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_HOME = 1013;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_LAST_ACTIVITY = 1014;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY = 1015;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 1016;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_CACHED_RECENT = 1017;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_CACHED_EMPTY = 1018;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_NONEXISTENT = 1019;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__REQUESTER_PROCESS_STATE__PROCESS_STATE_BOUND_TOP = 1020;
+
+    // Values for ServiceRequestEventReported.service_process_state
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_UNKNOWN_TO_PROTO = 998;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_UNKNOWN = 999;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_PERSISTENT = 1000;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_PERSISTENT_UI = 1001;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_TOP = 1002;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_FOREGROUND_SERVICE = 1003;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 1004;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_IMPORTANT_FOREGROUND = 1005;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_IMPORTANT_BACKGROUND = 1006;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_TRANSIENT_BACKGROUND = 1007;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_BACKUP = 1008;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_SERVICE = 1009;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_RECEIVER = 1010;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_TOP_SLEEPING = 1011;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_HEAVY_WEIGHT = 1012;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_HOME = 1013;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_LAST_ACTIVITY = 1014;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY = 1015;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 1016;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_CACHED_RECENT = 1017;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_CACHED_EMPTY = 1018;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_NONEXISTENT = 1019;
+    public static final int SERVICE_REQUEST_EVENT_REPORTED__SERVICE_PROCESS_STATE__PROCESS_STATE_BOUND_TOP = 1020;
+
     // Values for ProviderAcquisitionEventReported.proc_start_type
     public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_UNKNOWN = 0;
     public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROC_START_TYPE__PROCESS_START_TYPE_WARM = 1;
@@ -5332,6 +5803,56 @@ public final class FrameworkStatsLog {
     public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_UNKNOWN = 0;
     public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_NORMAL = 1;
     public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PACKAGE_STOPPED_STATE__PACKAGE_STATE_STOPPED = 2;
+
+    // Values for ProviderAcquisitionEventReported.client_process_state
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_UNKNOWN_TO_PROTO = 998;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_UNKNOWN = 999;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_PERSISTENT = 1000;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_PERSISTENT_UI = 1001;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_TOP = 1002;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_FOREGROUND_SERVICE = 1003;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 1004;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_IMPORTANT_FOREGROUND = 1005;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_IMPORTANT_BACKGROUND = 1006;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_TRANSIENT_BACKGROUND = 1007;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_BACKUP = 1008;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_SERVICE = 1009;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_RECEIVER = 1010;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_TOP_SLEEPING = 1011;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_HEAVY_WEIGHT = 1012;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_HOME = 1013;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_LAST_ACTIVITY = 1014;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY = 1015;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 1016;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_CACHED_RECENT = 1017;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_CACHED_EMPTY = 1018;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_NONEXISTENT = 1019;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__CLIENT_PROCESS_STATE__PROCESS_STATE_BOUND_TOP = 1020;
+
+    // Values for ProviderAcquisitionEventReported.provider_process_state
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_UNKNOWN_TO_PROTO = 998;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_UNKNOWN = 999;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_PERSISTENT = 1000;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_PERSISTENT_UI = 1001;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_TOP = 1002;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_FOREGROUND_SERVICE = 1003;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 1004;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_IMPORTANT_FOREGROUND = 1005;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_IMPORTANT_BACKGROUND = 1006;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_TRANSIENT_BACKGROUND = 1007;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_BACKUP = 1008;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_SERVICE = 1009;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_RECEIVER = 1010;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_TOP_SLEEPING = 1011;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_HEAVY_WEIGHT = 1012;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_HOME = 1013;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_LAST_ACTIVITY = 1014;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY = 1015;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 1016;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_CACHED_RECENT = 1017;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_CACHED_EMPTY = 1018;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_NONEXISTENT = 1019;
+    public static final int PROVIDER_ACQUISITION_EVENT_REPORTED__PROVIDER_PROCESS_STATE__PROCESS_STATE_BOUND_TOP = 1020;
 
     // Values for VibrationReported.vibration_type
     public static final int VIBRATION_REPORTED__VIBRATION_TYPE__UNKNOWN = 0;
@@ -5381,6 +5902,8 @@ public final class FrameworkStatsLog {
     public static final int DISPLAY_BRIGHTNESS_CHANGED__ENTIRE_REASON__REASON_BOOST = 8;
     public static final int DISPLAY_BRIGHTNESS_CHANGED__ENTIRE_REASON__REASON_SCREEN_OFF_BRIGHTNESS_SENSOR = 9;
     public static final int DISPLAY_BRIGHTNESS_CHANGED__ENTIRE_REASON__REASON_FOLLOWER = 10;
+    public static final int DISPLAY_BRIGHTNESS_CHANGED__ENTIRE_REASON__REASON_OFFLOAD = 11;
+    public static final int DISPLAY_BRIGHTNESS_CHANGED__ENTIRE_REASON__REASON_DOZE_INITIAL = 12;
 
     // Values for DisplayBrightnessChanged.bucket_index
     public static final int DISPLAY_BRIGHTNESS_CHANGED__BUCKET_INDEX__RANGE_UNKNOWN = 0;
@@ -5448,6 +5971,7 @@ public final class FrameworkStatsLog {
     public static final int HEARING_AID_INFO_REPORTED__BOND_ENTRY__ACCESSIBILITY_HEARING_AIDS = 1;
     public static final int HEARING_AID_INFO_REPORTED__BOND_ENTRY__ACCESSIBILITY_HEARING_AID_PAIR_ANOTHER = 2;
     public static final int HEARING_AID_INFO_REPORTED__BOND_ENTRY__BLUETOOTH = 3;
+    public static final int HEARING_AID_INFO_REPORTED__BOND_ENTRY__ACCESSIBILITY_HEARING_AID_SETTINGS = 4;
 
     // Values for DeviceWideJobConstraintChanged.constraint
     public static final int DEVICE_WIDE_JOB_CONSTRAINT_CHANGED__CONSTRAINT__CONSTRAINT_UNKNOWN = 0;
@@ -5489,6 +6013,8 @@ public final class FrameworkStatsLog {
     public static final int ANRLATENCY_REPORTED__ANR_TYPE__INPUT_DISPATCHING_TIMEOUT = 5;
     public static final int ANRLATENCY_REPORTED__ANR_TYPE__CONTENT_PROVIDER_NOT_RESPONDING = 6;
     public static final int ANRLATENCY_REPORTED__ANR_TYPE__SHORT_FGS_TIMEOUT = 7;
+    public static final int ANRLATENCY_REPORTED__ANR_TYPE__JOB_SERVICE = 8;
+    public static final int ANRLATENCY_REPORTED__ANR_TYPE__FGS_TIMEOUT = 9;
 
     // Values for ResourceValueApiStatisticsReported.api
     public static final int RESOURCE_VALUE_API_STATISTICS_REPORTED__API__RESOURCE_API_NONE = 0;
@@ -5558,11 +6084,11 @@ public final class FrameworkStatsLog {
     public static final int GET_TYPE_ACCESSED_WITHOUT_PERMISSION__LOCATION__PROVIDER_ERROR = 6;
 
     // Values for MobileBundledAppInfoGathered.algo_type
-    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__UNKNOWN = 0;
-    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__CHUNKED_SHA256 = 1;
-    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__CHUNKED_SHA512 = 2;
-    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__VERITY_CHUNKED_SHA256 = 3;
-    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__SHA256 = 4;
+    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_UNKNOWN = 0;
+    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_CHUNKED_SHA256 = 1;
+    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_CHUNKED_SHA512 = 2;
+    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_VERITY_CHUNKED_SHA256 = 3;
+    public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__ALGO_TYPE__DIGEST_ALGORITHM_SHA256 = 4;
 
     // Values for MobileBundledAppInfoGathered.mba_status
     public static final int MOBILE_BUNDLED_APP_INFO_GATHERED__MBA_STATUS__ERROR = 0;
@@ -5650,6 +6176,23 @@ public final class FrameworkStatsLog {
     public static final int IME_REQUEST_FINISHED__REASON__REASON_REMOVE_IME_SCREENSHOT_FROM_IMMS = 35;
     public static final int IME_REQUEST_FINISHED__REASON__REASON_UPDATE_IME_PARENT_FROM_IMMS = 36;
     public static final int IME_REQUEST_FINISHED__REASON__REASON_HIDE_WHEN_INPUT_TARGET_INVISIBLE = 37;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_HIDE_CLOSE_CURRENT_SESSION = 38;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_HIDE_SOFT_INPUT_FROM_VIEW = 39;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_SHOW_SOFT_INPUT_LEGACY_DIRECT = 40;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_HIDE_SOFT_INPUT_LEGACY_DIRECT = 41;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_SHOW_WINDOW_LEGACY_DIRECT = 42;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_HIDE_WINDOW_LEGACY_DIRECT = 43;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_RESET_NEW_CONFIGURATION = 44;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_UPDATE_CANDIDATES_VIEW_VISIBILITY = 45;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_CONTROLS_CHANGED = 46;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_DISPLAY_CONFIGURATION_CHANGED = 47;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_DISPLAY_INSETS_CHANGED = 48;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_DISPLAY_CONTROLS_CHANGED = 49;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_UNBIND_CURRENT_METHOD = 50;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_HIDE_SOFT_INPUT_ON_ANIMATION_STATE_CHANGED = 51;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_HIDE_SOFT_INPUT_REQUEST_HIDE_WITH_CONTROL = 52;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_SHOW_SOFT_INPUT_IME_TOGGLE_SOFT_INPUT = 53;
+    public static final int IME_REQUEST_FINISHED__REASON__REASON_SHOW_SOFT_INPUT_IMM_DEPRECATION = 54;
 
     // Values for ImeRequestFinished.origin
     public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_NOT_SET = 0;
@@ -5657,6 +6200,10 @@ public final class FrameworkStatsLog {
     public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_CLIENT_HIDE_SOFT_INPUT = 2;
     public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_SERVER_START_INPUT = 3;
     public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_SERVER_HIDE_INPUT = 4;
+    public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_CLIENT = 5;
+    public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_SERVER = 6;
+    public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_IME = 7;
+    public static final int IME_REQUEST_FINISHED__ORIGIN__ORIGIN_WM_SHELL = 8;
 
     // Values for ImeRequestFinished.phase
     public static final int IME_REQUEST_FINISHED__PHASE__PHASE_NOT_SET = 0;
@@ -5702,6 +6249,11 @@ public final class FrameworkStatsLog {
     public static final int IME_REQUEST_FINISHED__PHASE__PHASE_CLIENT_ANIMATION_CANCEL = 40;
     public static final int IME_REQUEST_FINISHED__PHASE__PHASE_CLIENT_ANIMATION_FINISHED_SHOW = 41;
     public static final int IME_REQUEST_FINISHED__PHASE__PHASE_CLIENT_ANIMATION_FINISHED_HIDE = 42;
+    public static final int IME_REQUEST_FINISHED__PHASE__PHASE_WM_ABORT_SHOW_IME_POST_LAYOUT = 43;
+    public static final int IME_REQUEST_FINISHED__PHASE__PHASE_IME_SHOW_WINDOW = 44;
+    public static final int IME_REQUEST_FINISHED__PHASE__PHASE_IME_HIDE_WINDOW = 45;
+    public static final int IME_REQUEST_FINISHED__PHASE__PHASE_IME_PRIVILEGED_OPERATIONS = 46;
+    public static final int IME_REQUEST_FINISHED__PHASE__PHASE_SERVER_CURRENT_ACTIVE_IME = 47;
 
     // Values for UsbComplianceWarningsReported.compliance_warnings
     public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_UNSPECIFIED = 0;
@@ -5709,6 +6261,11 @@ public final class FrameworkStatsLog {
     public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_BC_1_2 = 2;
     public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_MISSING_RP = 3;
     public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_OTHER = 4;
+    public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_INPUT_POWER_LIMITED = 5;
+    public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_MISSING_DATA_LINES = 6;
+    public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_ENUMERATION_FAIL = 7;
+    public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_FLAKY_CONNECTION = 8;
+    public static final int USB_COMPLIANCE_WARNINGS_REPORTED__COMPLIANCE_WARNINGS__COMPLIANCE_WARNING_UNRELIABLE_IO = 9;
 
     // Values for AppSupportedLocalesChanged.status
     public static final int APP_SUPPORTED_LOCALES_CHANGED__STATUS__STATUS_UNSPECIFIED = 0;
@@ -5824,6 +6381,16 @@ public final class FrameworkStatsLog {
     public static final int SCREEN_STATE_CHANGED_V2__STATE__DISPLAY_STATE_VR = 5;
     public static final int SCREEN_STATE_CHANGED_V2__STATE__DISPLAY_STATE_ON_SUSPEND = 6;
 
+    // Values for ScreenStateChangedV2.reason
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_UNKNOWN = 0;
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_DEFAULT_POLICY = 1;
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_DRAW_WAKE_LOCK = 2;
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_OFFLOAD = 3;
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_TILT = 4;
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_DREAM_MANAGER = 5;
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_KEY = 6;
+    public static final int SCREEN_STATE_CHANGED_V2__REASON__DISPLAY_STATE_REASON_MOTION = 7;
+
     // Values for WearOobeStateChanged.oobe_state
     public static final int WEAR_OOBE_STATE_CHANGED__OOBE_STATE__OOBE_STARTED = 0;
     public static final int WEAR_OOBE_STATE_CHANGED__OOBE_STATE__OOBE_COMPLETED = 1;
@@ -5919,6 +6486,35 @@ public final class FrameworkStatsLog {
     public static final int BAL_ALLOWED__ALLOWED_REASON__BAL_ALLOW_GRACE_PERIOD = 8;
     public static final int BAL_ALLOWED__ALLOWED_REASON__BAL_ALLOW_FOREGROUND = 9;
     public static final int BAL_ALLOWED__ALLOWED_REASON__BAL_ALLOW_SDK_SANDBOX = 10;
+    public static final int BAL_ALLOWED__ALLOWED_REASON__BAL_ALLOW_NON_APP_VISIBLE_WINDOW = 11;
+
+    // Values for BalAllowed.caller_allowed_reason
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_STATUS_UNKNOWN = 0;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_DEFAULT = 1;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_ALLOWLISTED_UID = 2;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_ALLOWLISTED_COMPONENT = 3;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_VISIBLE_WINDOW = 4;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_PENDING_INTENT = 5;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_BAL_PERMISSION = 6;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_SAW_PERMISSION = 7;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_GRACE_PERIOD = 8;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_FOREGROUND = 9;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_SDK_SANDBOX = 10;
+    public static final int BAL_ALLOWED__CALLER_ALLOWED_REASON__BAL_ALLOW_NON_APP_VISIBLE_WINDOW = 11;
+
+    // Values for BalAllowed.real_caller_allowed_reason
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_STATUS_UNKNOWN = 0;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_DEFAULT = 1;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_ALLOWLISTED_UID = 2;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_ALLOWLISTED_COMPONENT = 3;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_VISIBLE_WINDOW = 4;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_PENDING_INTENT = 5;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_BAL_PERMISSION = 6;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_SAW_PERMISSION = 7;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_GRACE_PERIOD = 8;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_FOREGROUND = 9;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_SDK_SANDBOX = 10;
+    public static final int BAL_ALLOWED__REAL_CALLER_ALLOWED_REASON__BAL_ALLOW_NON_APP_VISIBLE_WINDOW = 11;
 
     // Values for MediaCodecStarted.codec_type
     public static final int MEDIA_CODEC_STARTED__CODEC_TYPE__CODEC_TYPE_UNSPECIFIED = 0;
@@ -6017,6 +6613,24 @@ public final class FrameworkStatsLog {
     public static final int DNDSTATE_CHANGED__RULE_TYPE__MANUAL_RULE = 1;
     public static final int DNDSTATE_CHANGED__RULE_TYPE__AUTOMATIC_RULE = 2;
 
+    // Values for DNDStateChanged.active_rule_types
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_UNKNOWN = -1;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_OTHER = 0;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_SCHEDULE_TIME = 1;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_SCHEDULE_CALENDAR = 2;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_BEDTIME = 3;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_DRIVING = 4;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_IMMERSIVE = 5;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_THEATER = 6;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_MANAGED = 7;
+    public static final int DNDSTATE_CHANGED__ACTIVE_RULE_TYPES__TYPE_MANUAL = 999;
+
+    // Values for AutofillFieldClassificationEventReported.status
+    public static final int AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED__STATUS__STATUS_UNKNOWN = 0;
+    public static final int AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED__STATUS__STATUS_SUCCESS = 1;
+    public static final int AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED__STATUS__STATUS_FAIL = 2;
+    public static final int AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED__STATUS__STATUS_CANCELLED = 3;
+
     // Values for CredentialManagerTotalCandidateReported.query_unique_entries
     public static final int CREDENTIAL_MANAGER_TOTAL_CANDIDATE_REPORTED__QUERY_UNIQUE_ENTRIES__UNKNOWN = 0;
     public static final int CREDENTIAL_MANAGER_TOTAL_CANDIDATE_REPORTED__QUERY_UNIQUE_ENTRIES__ACTION_ENTRY = 1;
@@ -6059,6 +6673,13 @@ public final class FrameworkStatsLog {
     public static final int CREDENTIAL_MANAGER_FINAL_NO_UID_REPORTED__API_STATUS__API_STATUS_USER_CANCELED = 3;
     public static final int CREDENTIAL_MANAGER_FINAL_NO_UID_REPORTED__API_STATUS__API_STATUS_CLIENT_CANCELED = 4;
 
+    // Values for CredentialManagerFinalNoUidReported.oem_ui_usage_status
+    public static final int CREDENTIAL_MANAGER_FINAL_NO_UID_REPORTED__OEM_UI_USAGE_STATUS__OEM_UI_USAGE_STATUS_UNKNOWN = 0;
+    public static final int CREDENTIAL_MANAGER_FINAL_NO_UID_REPORTED__OEM_UI_USAGE_STATUS__OEM_UI_USAGE_STATUS_SUCCESS = 1;
+    public static final int CREDENTIAL_MANAGER_FINAL_NO_UID_REPORTED__OEM_UI_USAGE_STATUS__OEM_UI_USAGE_STATUS_NOT_SPECIFIED = 2;
+    public static final int CREDENTIAL_MANAGER_FINAL_NO_UID_REPORTED__OEM_UI_USAGE_STATUS__OEM_UI_USAGE_STATUS_SPECIFIED_BUT_NOT_FOUND = 3;
+    public static final int CREDENTIAL_MANAGER_FINAL_NO_UID_REPORTED__OEM_UI_USAGE_STATUS__OEM_UI_USAGE_STATUS_SPECIFIED_BUT_NOT_ENABLED = 4;
+
     // Values for CredentialManagerBrowsedAuthenticationClicked.unique_entries
     public static final int CREDENTIAL_MANAGER_BROWSED_AUTHENTICATION_CLICKED__UNIQUE_ENTRIES__UNKNOWN = 0;
     public static final int CREDENTIAL_MANAGER_BROWSED_AUTHENTICATION_CLICKED__UNIQUE_ENTRIES__ACTION_ENTRY = 1;
@@ -6091,6 +6712,71 @@ public final class FrameworkStatsLog {
     public static final int CREDENTIAL_MANAGER_API_V2CALLED__API_STATUS__API_STATUS_FAILURE = 2;
     public static final int CREDENTIAL_MANAGER_API_V2CALLED__API_STATUS__API_STATUS_USER_CANCELED = 3;
     public static final int CREDENTIAL_MANAGER_API_V2CALLED__API_STATUS__API_STATUS_CLIENT_CANCELED = 4;
+
+    // Values for KeyboardConfigured.device_bus
+    public static final int KEYBOARD_CONFIGURED__DEVICE_BUS__OTHER = 0;
+    public static final int KEYBOARD_CONFIGURED__DEVICE_BUS__USB = 1;
+    public static final int KEYBOARD_CONFIGURED__DEVICE_BUS__BLUETOOTH = 2;
+    public static final int KEYBOARD_CONFIGURED__DEVICE_BUS__USI = 3;
+
+    // Values for KeyboardSystemsEventReported.keyboard_system_event
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__UNSPECIFIED = 0;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__HOME = 1;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__RECENT_APPS = 2;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__BACK = 3;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__APP_SWITCH = 4;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_ASSISTANT = 5;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_VOICE_ASSISTANT = 6;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_SYSTEM_SETTINGS = 7;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__TOGGLE_NOTIFICATION_PANEL = 8;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__TOGGLE_TASKBAR = 9;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__TAKE_SCREENSHOT = 10;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__OPEN_SHORTCUT_HELPER = 11;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__BRIGHTNESS_UP = 12;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__BRIGHTNESS_DOWN = 13;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__KEYBOARD_BACKLIGHT_UP = 14;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__KEYBOARD_BACKLIGHT_DOWN = 15;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__KEYBOARD_BACKLIGHT_TOGGLE = 16;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__VOLUME_UP = 17;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__VOLUME_DOWN = 18;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__VOLUME_MUTE = 19;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__ALL_APPS = 20;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_SEARCH = 21;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LANGUAGE_SWITCH = 22;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__ACCESSIBILITY_ALL_APPS = 23;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__TOGGLE_CAPS_LOCK = 24;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__SYSTEM_MUTE = 25;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__SPLIT_SCREEN_NAVIGATION = 26;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__TRIGGER_BUG_REPORT = 27;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LOCK_SCREEN = 28;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__OPEN_NOTES = 29;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__TOGGLE_POWER = 30;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__SYSTEM_NAVIGATION = 31;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__SLEEP = 32;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__WAKEUP = 33;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__MEDIA_KEY = 34;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_BROWSER = 35;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_EMAIL = 36;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_CONTACTS = 37;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_CALENDAR = 38;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_CALCULATOR = 39;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_MUSIC = 40;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_MAPS = 41;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_MESSAGING = 42;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_GALLERY = 43;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_FILES = 44;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_WEATHER = 45;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_DEFAULT_FITNESS = 46;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__LAUNCH_APPLICATION_BY_PACKAGE_NAME = 47;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__DESKTOP_MODE = 48;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__MULTI_WINDOW_NAVIGATION = 49;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__KEYBOARD_SYSTEM_EVENT__CHANGE_SPLITSCREEN_FOCUS = 50;
+
+    // Values for KeyboardSystemsEventReported.device_bus
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__DEVICE_BUS__OTHER = 0;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__DEVICE_BUS__USB = 1;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__DEVICE_BUS__BLUETOOTH = 2;
+    public static final int KEYBOARD_SYSTEMS_EVENT_REPORTED__DEVICE_BUS__USI = 3;
 
     // Values for MediaCodecRendered.codec
     public static final int MEDIA_CODEC_RENDERED__CODEC__CODEC_UNKNOWN = 0;
@@ -6143,6 +6829,9 @@ public final class FrameworkStatsLog {
     public static final int MEDIA_CODEC_RENDERED__CONTENT_FRAMERATE__FRAMERATE_50 = 5000;
     public static final int MEDIA_CODEC_RENDERED__CONTENT_FRAMERATE__FRAMERATE_60 = 6000;
     public static final int MEDIA_CODEC_RENDERED__CONTENT_FRAMERATE__FRAMERATE_120 = 12000;
+    public static final int MEDIA_CODEC_RENDERED__CONTENT_FRAMERATE__FRAMERATE_240 = 24000;
+    public static final int MEDIA_CODEC_RENDERED__CONTENT_FRAMERATE__FRAMERATE_480 = 48000;
+    public static final int MEDIA_CODEC_RENDERED__CONTENT_FRAMERATE__FRAMERATE_960 = 96000;
 
     // Values for MediaCodecRendered.actual_framerate
     public static final int MEDIA_CODEC_RENDERED__ACTUAL_FRAMERATE__FRAMERATE_UNKNOWN = 0;
@@ -6154,6 +6843,9 @@ public final class FrameworkStatsLog {
     public static final int MEDIA_CODEC_RENDERED__ACTUAL_FRAMERATE__FRAMERATE_50 = 5000;
     public static final int MEDIA_CODEC_RENDERED__ACTUAL_FRAMERATE__FRAMERATE_60 = 6000;
     public static final int MEDIA_CODEC_RENDERED__ACTUAL_FRAMERATE__FRAMERATE_120 = 12000;
+    public static final int MEDIA_CODEC_RENDERED__ACTUAL_FRAMERATE__FRAMERATE_240 = 24000;
+    public static final int MEDIA_CODEC_RENDERED__ACTUAL_FRAMERATE__FRAMERATE_480 = 48000;
+    public static final int MEDIA_CODEC_RENDERED__ACTUAL_FRAMERATE__FRAMERATE_960 = 96000;
 
     // Values for MediaCodecRendered.hdr_format
     public static final int MEDIA_CODEC_RENDERED__HDR_FORMAT__HDR_FORMAT_UNKNOWN = 0;
@@ -6170,6 +6862,480 @@ public final class FrameworkStatsLog {
     public static final int IN_TASK_ACTIVITY_STARTED__TYPE__COLD = 3;
     public static final int IN_TASK_ACTIVITY_STARTED__TYPE__RELAUNCH = 4;
 
+    // Values for InputDeviceUsageReported.device_bus
+    public static final int INPUT_DEVICE_USAGE_REPORTED__DEVICE_BUS__OTHER = 0;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__DEVICE_BUS__USB = 1;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__DEVICE_BUS__BLUETOOTH = 2;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__DEVICE_BUS__USI = 3;
+
+    // Values for InputDeviceUsageReported.usage_sources
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__UNKNOWN = 0;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__BUTTONS = 1;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__KEYBOARD = 2;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__DPAD = 3;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__GAMEPAD = 4;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__JOYSTICK = 5;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__MOUSE = 6;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__MOUSE_CAPTURED = 7;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__TOUCHPAD = 8;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__TOUCHPAD_CAPTURED = 9;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__ROTARY_ENCODER = 10;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__STYLUS_DIRECT = 11;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__STYLUS_INDIRECT = 12;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__STYLUS_FUSED = 13;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__TOUCH_NAVIGATION = 14;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__TOUCHSCREEN = 15;
+    public static final int INPUT_DEVICE_USAGE_REPORTED__USAGE_SOURCES__TRACKBALL = 16;
+
+    // Values for HdmiEarcStatusReported.old_connected_state
+    public static final int HDMI_EARC_STATUS_REPORTED__OLD_CONNECTED_STATE__HDMI_EARC_STATUS_UNKNOWN = 0;
+    public static final int HDMI_EARC_STATUS_REPORTED__OLD_CONNECTED_STATE__HDMI_EARC_STATUS_IDLE = 1;
+    public static final int HDMI_EARC_STATUS_REPORTED__OLD_CONNECTED_STATE__HDMI_EARC_STATUS_EARC_PENDING = 2;
+    public static final int HDMI_EARC_STATUS_REPORTED__OLD_CONNECTED_STATE__HDMI_EARC_STATUS_ARC_PENDING = 3;
+    public static final int HDMI_EARC_STATUS_REPORTED__OLD_CONNECTED_STATE__HDMI_EARC_STATUS_EARC_CONNECTED = 4;
+
+    // Values for HdmiEarcStatusReported.new_connected_state
+    public static final int HDMI_EARC_STATUS_REPORTED__NEW_CONNECTED_STATE__HDMI_EARC_STATUS_UNKNOWN = 0;
+    public static final int HDMI_EARC_STATUS_REPORTED__NEW_CONNECTED_STATE__HDMI_EARC_STATUS_IDLE = 1;
+    public static final int HDMI_EARC_STATUS_REPORTED__NEW_CONNECTED_STATE__HDMI_EARC_STATUS_EARC_PENDING = 2;
+    public static final int HDMI_EARC_STATUS_REPORTED__NEW_CONNECTED_STATE__HDMI_EARC_STATUS_ARC_PENDING = 3;
+    public static final int HDMI_EARC_STATUS_REPORTED__NEW_CONNECTED_STATE__HDMI_EARC_STATUS_EARC_CONNECTED = 4;
+
+    // Values for HdmiEarcStatusReported.log_reason
+    public static final int HDMI_EARC_STATUS_REPORTED__LOG_REASON__LOG_REASON_UNKNOWN = 0;
+    public static final int HDMI_EARC_STATUS_REPORTED__LOG_REASON__LOG_REASON_WAKE = 1;
+    public static final int HDMI_EARC_STATUS_REPORTED__LOG_REASON__LOG_REASON_EARC_STATUS_CHANGED = 2;
+    public static final int HDMI_EARC_STATUS_REPORTED__LOG_REASON__LOG_REASON_EARC_STATUS_CHANGED_UNSUPPORTED_PORT = 3;
+    public static final int HDMI_EARC_STATUS_REPORTED__LOG_REASON__LOG_REASON_EARC_STATUS_CHANGED_WRONG_STATE = 4;
+
+    // Values for DreamSettingChanged.when_to_dream
+    public static final int DREAM_SETTING_CHANGED__WHEN_TO_DREAM__WHEN_TO_DREAM_UNSPECIFIED = 0;
+    public static final int DREAM_SETTING_CHANGED__WHEN_TO_DREAM__WHEN_TO_DREAM_WHILE_CHARGING_ONLY = 1;
+    public static final int DREAM_SETTING_CHANGED__WHEN_TO_DREAM__WHEN_TO_DREAM_WHILE_DOCKED_ONLY = 2;
+    public static final int DREAM_SETTING_CHANGED__WHEN_TO_DREAM__WHEN_TO_DREAM_EITHER_CHARGING_OR_DOCKED = 3;
+
+    // Values for DreamSettingChanged.dream_setting_type
+    public static final int DREAM_SETTING_CHANGED__DREAM_SETTING_TYPE__DREAM_SETTING_TYPE_UNSPECIFIED = 0;
+    public static final int DREAM_SETTING_CHANGED__DREAM_SETTING_TYPE__DREAM_SETTING_TYPE_ENABLED = 1;
+    public static final int DREAM_SETTING_CHANGED__DREAM_SETTING_TYPE__DREAM_SETTING_TYPE_DREAM_COMPONENT = 2;
+    public static final int DREAM_SETTING_CHANGED__DREAM_SETTING_TYPE__DREAM_SETTING_TYPE_WHEN_TO_DREAM = 3;
+    public static final int DREAM_SETTING_CHANGED__DREAM_SETTING_TYPE__DREAM_SETTING_TYPE_SHOW_ADDITIONAL_INFO = 4;
+    public static final int DREAM_SETTING_CHANGED__DREAM_SETTING_TYPE__DREAM_SETTING_TYPE_SHOW_HOME_CONTROLS = 5;
+
+    // Values for WearModeStateChanged.mode_id
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__UNKNOWN_MODE = 0;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__AIRPLANE_MODE = 1;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__BEDTIME_MODE = 2;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__BATTERY_SAVER_MODE = 3;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__DO_NOT_DISTURB_MODE = 4;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__THEATER_MODE = 5;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__TOUCH_LOCK_MODE = 6;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__SCHOOL_MODE = 7;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_ID__OFF_BODY = 8;
+
+    // Values for WearModeStateChanged.mode_state
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_STATE__MODE_STATE_UNKNOWN = 0;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_STATE__MODE_STATE_OFF = 1;
+    public static final int WEAR_MODE_STATE_CHANGED__MODE_STATE__MODE_STATE_ON = 2;
+
+    // Values for WearModeStateChanged.current_wifi_state
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_WIFI_STATE__UNKNOWN = 0;
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_WIFI_STATE__OFF = 1;
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_WIFI_STATE__ON = 2;
+
+    // Values for WearModeStateChanged.current_cellular_state
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_CELLULAR_STATE__UNKNOWN = 0;
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_CELLULAR_STATE__OFF = 1;
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_CELLULAR_STATE__ON = 2;
+
+    // Values for WearModeStateChanged.current_bluetooth_state
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_BLUETOOTH_STATE__UNKNOWN = 0;
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_BLUETOOTH_STATE__OFF = 1;
+    public static final int WEAR_MODE_STATE_CHANGED__CURRENT_BLUETOOTH_STATE__ON = 2;
+
+    // Values for ExternalTvInputEvent.event_type
+    public static final int EXTERNAL_TV_INPUT_EVENT__EVENT_TYPE__UNKNOWN = 0;
+    public static final int EXTERNAL_TV_INPUT_EVENT__EVENT_TYPE__TUNED = 1;
+    public static final int EXTERNAL_TV_INPUT_EVENT__EVENT_TYPE__RELEASED = 2;
+    public static final int EXTERNAL_TV_INPUT_EVENT__EVENT_TYPE__CONNECTION_STATE_CHANGED = 3;
+    public static final int EXTERNAL_TV_INPUT_EVENT__EVENT_TYPE__DEVICE_INFO_UPDATED = 4;
+
+    // Values for ExternalTvInputEvent.input_state
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_STATE__CONNECTED = 0;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_STATE__CONNECTED_STANDBY = 1;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_STATE__DISCONNECTED = 2;
+
+    // Values for ExternalTvInputEvent.input_type
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__TUNER = 0;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__OTHER = 1000;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__COMPOSITE = 1001;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__SVIDEO = 1002;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__SCART = 1003;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__COMPONENT = 1004;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__VGA = 1005;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__DVI = 1006;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__HDMI = 1007;
+    public static final int EXTERNAL_TV_INPUT_EVENT__INPUT_TYPE__DISPLAY_PORT = 1008;
+
+    // Values for HdmiSoundbarModeStatusReported.log_reason
+    public static final int HDMI_SOUNDBAR_MODE_STATUS_REPORTED__LOG_REASON__LOG_REASON_DSM_UNKNOWN = 0;
+    public static final int HDMI_SOUNDBAR_MODE_STATUS_REPORTED__LOG_REASON__LOG_REASON_DSM_WAKE = 1;
+    public static final int HDMI_SOUNDBAR_MODE_STATUS_REPORTED__LOG_REASON__LOG_REASON_DSM_SETTING_TOGGLED = 2;
+
+    // Values for UserRiskEventReported.event_type
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__UNKNOWN = 0;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__A11Y_CONSENT_DIALOG_SHOWN = 1;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__A11Y_GRANTED = 2;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__A11Y_DENIED = 3;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__A11Y_APP_UNINSTALLED = 4;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__MEDIA_PROJECTION_CONSENT_DIALOG_SHOWN = 5;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__MEDIA_PROJECTION_GRANTED = 6;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__MEDIA_PROJECTION_DENIED = 7;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__MEDIA_PROJECTION_STARTED = 8;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__ACTIVE_CALL_STARTED = 9;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__ACTIVE_CALL_CHANGED = 10;
+    public static final int USER_RISK_EVENT_REPORTED__EVENT_TYPE__ACTIVE_CALL_ENDED = 11;
+
+    // Values for UserRiskEventReported.call_direction
+    public static final int USER_RISK_EVENT_REPORTED__CALL_DIRECTION__UNKNOWN_DIRECTION = 0;
+    public static final int USER_RISK_EVENT_REPORTED__CALL_DIRECTION__INCOMING = 1;
+    public static final int USER_RISK_EVENT_REPORTED__CALL_DIRECTION__OUTGOING = 2;
+
+    // Values for UserRiskEventReported.call_number_verification_status
+    public static final int USER_RISK_EVENT_REPORTED__CALL_NUMBER_VERIFICATION_STATUS__UNKNOWN_STATUS = 0;
+    public static final int USER_RISK_EVENT_REPORTED__CALL_NUMBER_VERIFICATION_STATUS__NOT_VERIFIED = 1;
+    public static final int USER_RISK_EVENT_REPORTED__CALL_NUMBER_VERIFICATION_STATUS__PASSED = 2;
+    public static final int USER_RISK_EVENT_REPORTED__CALL_NUMBER_VERIFICATION_STATUS__FAILED = 3;
+
+    // Values for MediaProjectionStateChanged.state
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_UNKNOWN = 0;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_INITIATED = 1;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_PERMISSION_REQUEST_DISPLAYED = 2;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_APP_SELECTOR_DISPLAYED = 3;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_CAPTURING_IN_PROGRESS = 4;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_CAPTURING_PAUSED = 5;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_CAPTURING_IN_PROGRESS_RESUMED = 6;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_STOPPED = 7;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__STATE__MEDIA_PROJECTION_STATE_CANCELLED = 8;
+
+    // Values for MediaProjectionStateChanged.previous_state
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_UNKNOWN = 0;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_INITIATED = 1;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_PERMISSION_REQUEST_DISPLAYED = 2;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_APP_SELECTOR_DISPLAYED = 3;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_CAPTURING_IN_PROGRESS = 4;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_CAPTURING_PAUSED = 5;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_CAPTURING_IN_PROGRESS_RESUMED = 6;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_STOPPED = 7;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__PREVIOUS_STATE__MEDIA_PROJECTION_STATE_CANCELLED = 8;
+
+    // Values for MediaProjectionStateChanged.creation_source
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__CREATION_SOURCE__CREATION_SOURCE_UNKNOWN = 0;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__CREATION_SOURCE__CREATION_SOURCE_APP = 1;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__CREATION_SOURCE__CREATION_SOURCE_SYSTEM_UI_SCREEN_RECORDER = 2;
+    public static final int MEDIA_PROJECTION_STATE_CHANGED__CREATION_SOURCE__CREATION_SOURCE_CAST = 3;
+
+    // Values for MediaProjectionTargetChanged.target_type
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_TYPE__TARGET_TYPE_UNKNOWN = 0;
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_TYPE__TARGET_TYPE_DISPLAY = 1;
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_TYPE__TARGET_TYPE_APP_TASK = 2;
+
+    // Values for MediaProjectionTargetChanged.target_windowing_mode
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_WINDOWING_MODE__WINDOWING_MODE_UNKNOWN = 0;
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_WINDOWING_MODE__WINDOWING_MODE_HIDDEN = 1;
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_WINDOWING_MODE__WINDOWING_MODE_FULLSCREEN = 2;
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_WINDOWING_MODE__WINDOWING_MODE_SPLIT_SCREEN = 3;
+    public static final int MEDIA_PROJECTION_TARGET_CHANGED__TARGET_WINDOWING_MODE__WINDOWING_MODE_FREEFORM = 4;
+
+    // Values for HotwordEventEgressSize.event_type
+    public static final int HOTWORD_EVENT_EGRESS_SIZE__EVENT_TYPE__HOTWORD_EVENT_UNSPECIFIED = 0;
+    public static final int HOTWORD_EVENT_EGRESS_SIZE__EVENT_TYPE__HOTWORD_DETECTION = 1;
+    public static final int HOTWORD_EVENT_EGRESS_SIZE__EVENT_TYPE__HOTWORD_REJECTION = 2;
+    public static final int HOTWORD_EVENT_EGRESS_SIZE__EVENT_TYPE__HOTWORD_TRAINING_DATA = 3;
+
+    // Values for HotwordEventEgressSize.detector_type
+    public static final int HOTWORD_EVENT_EGRESS_SIZE__DETECTOR_TYPE__NORMAL_DETECTOR = 0;
+    public static final int HOTWORD_EVENT_EGRESS_SIZE__DETECTOR_TYPE__TRUSTED_DETECTOR_DSP = 1;
+    public static final int HOTWORD_EVENT_EGRESS_SIZE__DETECTOR_TYPE__TRUSTED_DETECTOR_SOFTWARE = 2;
+
+    // Values for ThermalStatusCalled.api_status
+    public static final int THERMAL_STATUS_CALLED__API_STATUS__UNSPECIFIED_THERMAL_API_FAILURE = 0;
+    public static final int THERMAL_STATUS_CALLED__API_STATUS__SUCCESS = 1;
+    public static final int THERMAL_STATUS_CALLED__API_STATUS__HAL_NOT_READY = 2;
+    public static final int THERMAL_STATUS_CALLED__API_STATUS__FEATURE_NOT_SUPPORTED = 3;
+    public static final int THERMAL_STATUS_CALLED__API_STATUS__INVALID_ARGUMENT = 4;
+    public static final int THERMAL_STATUS_CALLED__API_STATUS__NO_TEMPERATURE = 5;
+    public static final int THERMAL_STATUS_CALLED__API_STATUS__NO_TEMPERATURE_THRESHOLD = 6;
+
+    // Values for ThermalStatusCalled.status
+    public static final int THERMAL_STATUS_CALLED__STATUS__NONE = 0;
+    public static final int THERMAL_STATUS_CALLED__STATUS__LIGHT = 1;
+    public static final int THERMAL_STATUS_CALLED__STATUS__MODERATE = 2;
+    public static final int THERMAL_STATUS_CALLED__STATUS__SEVERE = 3;
+    public static final int THERMAL_STATUS_CALLED__STATUS__CRITICAL = 4;
+    public static final int THERMAL_STATUS_CALLED__STATUS__EMERGENCY = 5;
+    public static final int THERMAL_STATUS_CALLED__STATUS__SHUTDOWN = 6;
+
+    // Values for ThermalHeadroomCalled.api_status
+    public static final int THERMAL_HEADROOM_CALLED__API_STATUS__UNSPECIFIED_THERMAL_API_FAILURE = 0;
+    public static final int THERMAL_HEADROOM_CALLED__API_STATUS__SUCCESS = 1;
+    public static final int THERMAL_HEADROOM_CALLED__API_STATUS__HAL_NOT_READY = 2;
+    public static final int THERMAL_HEADROOM_CALLED__API_STATUS__FEATURE_NOT_SUPPORTED = 3;
+    public static final int THERMAL_HEADROOM_CALLED__API_STATUS__INVALID_ARGUMENT = 4;
+    public static final int THERMAL_HEADROOM_CALLED__API_STATUS__NO_TEMPERATURE = 5;
+    public static final int THERMAL_HEADROOM_CALLED__API_STATUS__NO_TEMPERATURE_THRESHOLD = 6;
+
+    // Values for ThermalHeadroomThresholdsCalled.api_status
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED__API_STATUS__UNSPECIFIED_THERMAL_API_FAILURE = 0;
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED__API_STATUS__SUCCESS = 1;
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED__API_STATUS__HAL_NOT_READY = 2;
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED__API_STATUS__FEATURE_NOT_SUPPORTED = 3;
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED__API_STATUS__INVALID_ARGUMENT = 4;
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED__API_STATUS__NO_TEMPERATURE = 5;
+    public static final int THERMAL_HEADROOM_THRESHOLDS_CALLED__API_STATUS__NO_TEMPERATURE_THRESHOLD = 6;
+
+    // Values for ScreenOffReported.screen_off_reason
+    public static final int SCREEN_OFF_REPORTED__SCREEN_OFF_REASON__UNKNOWN = 0;
+    public static final int SCREEN_OFF_REPORTED__SCREEN_OFF_REASON__POWER_BUTTON = 1;
+    public static final int SCREEN_OFF_REPORTED__SCREEN_OFF_REASON__TIMEOUT = 2;
+
+    // Values for ScreenOffReported.timeout_reason
+    public static final int SCREEN_OFF_REPORTED__TIMEOUT_REASON__UNKNOWN_REASON = 0;
+    public static final int SCREEN_OFF_REPORTED__TIMEOUT_REASON__DEFAULT = 1;
+    public static final int SCREEN_OFF_REPORTED__TIMEOUT_REASON__FACE_DOWN = 2;
+    public static final int SCREEN_OFF_REPORTED__TIMEOUT_REASON__ENCLOSED = 3;
+
+    // Values for DisplayModeDirectorVoteChanged.vote_status
+    public static final int DISPLAY_MODE_DIRECTOR_VOTE_CHANGED__VOTE_STATUS__STATUS_UNKNOWN = 0;
+    public static final int DISPLAY_MODE_DIRECTOR_VOTE_CHANGED__VOTE_STATUS__STATUS_ADDED = 1;
+    public static final int DISPLAY_MODE_DIRECTOR_VOTE_CHANGED__VOTE_STATUS__STATUS_ACTIVE = 2;
+    public static final int DISPLAY_MODE_DIRECTOR_VOTE_CHANGED__VOTE_STATUS__STATUS_REMOVED = 3;
+
+    // Values for ExternalDisplayStateChanged.state
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__UNKNOWN = 0;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__DISCONNECTED = 1;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__CONNECTED = 2;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__DISABLED = 3;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__KEYGUARD = 4;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__MIRRORING = 5;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__EXTENDED = 6;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__PRESENTATION_WHILE_MIRRORING = 7;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__PRESENTATION_WHILE_EXTENDED = 8;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__PRESENTATION_ENDED = 9;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__AUDIO_SINK_CHANGED = 10;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__ERROR_HOTPLUG_CONNECTION = 11;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__ERROR_DISPLAYPORT_LINK_FAILED = 12;
+    public static final int EXTERNAL_DISPLAY_STATE_CHANGED__STATE__ERROR_CABLE_NOT_CAPABLE_DISPLAYPORT = 13;
+
+    // Values for SystemGrammaticalInflectionChanged.source_id
+    public static final int SYSTEM_GRAMMATICAL_INFLECTION_CHANGED__SOURCE_ID__UNKNOWN = 0;
+    public static final int SYSTEM_GRAMMATICAL_INFLECTION_CHANGED__SOURCE_ID__SYSTEM = 1;
+
+    // Values for BiometricFRRNotification.action
+    public static final int BIOMETRIC_FRRNOTIFICATION__ACTION__FRR_NOTIFICATION_ACTION_UNKNOWN = 0;
+    public static final int BIOMETRIC_FRRNOTIFICATION__ACTION__FRR_NOTIFICATION_ACTION_SHOWN = 1;
+    public static final int BIOMETRIC_FRRNOTIFICATION__ACTION__FRR_NOTIFICATION_ACTION_CLICKED = 2;
+    public static final int BIOMETRIC_FRRNOTIFICATION__ACTION__FRR_NOTIFICATION_ACTION_DISMISSED = 3;
+
+    // Values for BiometricFRRNotification.modality
+    public static final int BIOMETRIC_FRRNOTIFICATION__MODALITY__MODALITY_UNKNOWN = 0;
+    public static final int BIOMETRIC_FRRNOTIFICATION__MODALITY__MODALITY_FINGERPRINT = 1;
+    public static final int BIOMETRIC_FRRNOTIFICATION__MODALITY__MODALITY_IRIS = 2;
+    public static final int BIOMETRIC_FRRNOTIFICATION__MODALITY__MODALITY_FACE = 4;
+
+    // Values for DesktopModeUIChanged.event
+    public static final int DESKTOP_MODE_UICHANGED__EVENT__UNKNOWN_EVENT = 0;
+    public static final int DESKTOP_MODE_UICHANGED__EVENT__ENTER = 1;
+    public static final int DESKTOP_MODE_UICHANGED__EVENT__EXIT = 2;
+
+    // Values for DesktopModeUIChanged.enter_reason
+    public static final int DESKTOP_MODE_UICHANGED__ENTER_REASON__UNKNOWN_ENTER = 0;
+    public static final int DESKTOP_MODE_UICHANGED__ENTER_REASON__OVERVIEW = 1;
+    public static final int DESKTOP_MODE_UICHANGED__ENTER_REASON__APP_HANDLE_DRAG = 2;
+    public static final int DESKTOP_MODE_UICHANGED__ENTER_REASON__APP_HANDLE_MENU_BUTTON = 3;
+    public static final int DESKTOP_MODE_UICHANGED__ENTER_REASON__APP_FREEFORM_INTENT = 4;
+    public static final int DESKTOP_MODE_UICHANGED__ENTER_REASON__KEYBOARD_SHORTCUT_ENTER = 5;
+    public static final int DESKTOP_MODE_UICHANGED__ENTER_REASON__SCREEN_ON = 6;
+
+    // Values for DesktopModeUIChanged.exit_reason
+    public static final int DESKTOP_MODE_UICHANGED__EXIT_REASON__UNKNOWN_EXIT = 0;
+    public static final int DESKTOP_MODE_UICHANGED__EXIT_REASON__DRAG_TO_EXIT = 1;
+    public static final int DESKTOP_MODE_UICHANGED__EXIT_REASON__APP_HANDLE_MENU_BUTTON_EXIT = 2;
+    public static final int DESKTOP_MODE_UICHANGED__EXIT_REASON__KEYBOARD_SHORTCUT_EXIT = 3;
+    public static final int DESKTOP_MODE_UICHANGED__EXIT_REASON__RETURN_HOME_OR_OVERVIEW = 4;
+    public static final int DESKTOP_MODE_UICHANGED__EXIT_REASON__TASK_FINISHED = 5;
+    public static final int DESKTOP_MODE_UICHANGED__EXIT_REASON__SCREEN_OFF = 6;
+
+    // Values for DesktopModeSessionTaskUpdate.task_event
+    public static final int DESKTOP_MODE_SESSION_TASK_UPDATE__TASK_EVENT__UNKNOWN_TASK_EVENT = 0;
+    public static final int DESKTOP_MODE_SESSION_TASK_UPDATE__TASK_EVENT__TASK_ADDED = 1;
+    public static final int DESKTOP_MODE_SESSION_TASK_UPDATE__TASK_EVENT__TASK_REMOVED = 2;
+    public static final int DESKTOP_MODE_SESSION_TASK_UPDATE__TASK_EVENT__TASK_INFO_CHANGED = 3;
+
+    // Values for AdaptiveAuthUnlockAfterLockReported.unlock_type
+    public static final int ADAPTIVE_AUTH_UNLOCK_AFTER_LOCK_REPORTED__UNLOCK_TYPE__UNKNOWN = 0;
+    public static final int ADAPTIVE_AUTH_UNLOCK_AFTER_LOCK_REPORTED__UNLOCK_TYPE__PRIMARY_AUTH = 1;
+    public static final int ADAPTIVE_AUTH_UNLOCK_AFTER_LOCK_REPORTED__UNLOCK_TYPE__BIOMETRIC_AUTH = 2;
+
+    // Values for SensitiveContentMediaProjectionSession.state
+    public static final int SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION__STATE__UNDEFINED_STATE = 0;
+    public static final int SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION__STATE__START = 1;
+    public static final int SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION__STATE__STOP = 2;
+
+    // Values for SensitiveContentMediaProjectionSession.source
+    public static final int SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION__SOURCE__UNDEFINED_SOURCE = 0;
+    public static final int SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION__SOURCE__SYS_UI = 1;
+    public static final int SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION__SOURCE__FRAMEWORKS = 2;
+
+    // Values for SensitiveContentAppProtection.state
+    public static final int SENSITIVE_CONTENT_APP_PROTECTION__STATE__UNKNOWN = 0;
+    public static final int SENSITIVE_CONTENT_APP_PROTECTION__STATE__BLOCKED = 1;
+    public static final int SENSITIVE_CONTENT_APP_PROTECTION__STATE__UNBLOCKED = 2;
+
+    // Values for ScreenTimeoutOverrideReported.override_outcome
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__UNKNOWN = 0;
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__TIMEOUT_SUCCESS = 1;
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__TIMEOUT_USER_INITIATED_REVERT = 2;
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__CANCEL_CLIENT_API_CALL = 3;
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__CANCEL_USER_INTERACTION = 4;
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__CANCEL_POWER_BUTTON = 5;
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__CANCEL_CLIENT_DISCONNECTED = 6;
+    public static final int SCREEN_TIMEOUT_OVERRIDE_REPORTED__OVERRIDE_OUTCOME__CANCEL_OTHER = 7;
+
+    // Values for ScreenInteractiveSessionReported.interactive_state_off_reason
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__INTERACTIVE_STATE_OFF_REASON__UNKNOWN = 0;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__INTERACTIVE_STATE_OFF_REASON__TIMEOUT = 1;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__INTERACTIVE_STATE_OFF_REASON__POWER_BUTTON = 2;
+
+    // Values for ScreenInteractiveSessionReported.last_user_activity_event
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__OTHER = 0;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__BUTTON = 1;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__TOUCH = 2;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__ACCESSIBILITY = 3;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__ATTENTION = 4;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__FACE_DOWN = 5;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__DEVICE_STATE = 6;
+    public static final int SCREEN_INTERACTIVE_SESSION_REPORTED__LAST_USER_ACTIVITY_EVENT__SCREEN_TIMEOUT_OVERRIDE = 7;
+
+    // Values for VpnConnectionStateChanged.connection_state
+    public static final int VPN_CONNECTION_STATE_CHANGED__CONNECTION_STATE__CS_UNKNOWN = 0;
+    public static final int VPN_CONNECTION_STATE_CHANGED__CONNECTION_STATE__CS_CONNECTED = 1;
+    public static final int VPN_CONNECTION_STATE_CHANGED__CONNECTION_STATE__CS_DISCONNECTED = 2;
+
+    // Values for VpnConnectionReported.vpn_type
+    public static final int VPN_CONNECTION_REPORTED__VPN_TYPE__TYPE_VPN_NONE = 0;
+    public static final int VPN_CONNECTION_REPORTED__VPN_TYPE__TYPE_VPN_SERVICE = 1;
+    public static final int VPN_CONNECTION_REPORTED__VPN_TYPE__TYPE_VPN_PLATFORM = 2;
+    public static final int VPN_CONNECTION_REPORTED__VPN_TYPE__TYPE_VPN_LEGACY = 3;
+    public static final int VPN_CONNECTION_REPORTED__VPN_TYPE__TYPE_VPN_OEM = 4;
+
+    // Values for VpnConnectionReported.conn_ip_protocol
+    public static final int VPN_CONNECTION_REPORTED__CONN_IP_PROTOCOL__IT_UNKNOWN = 0;
+    public static final int VPN_CONNECTION_REPORTED__CONN_IP_PROTOCOL__IT_IPV4 = 1;
+    public static final int VPN_CONNECTION_REPORTED__CONN_IP_PROTOCOL__IT_IPV6 = 2;
+    public static final int VPN_CONNECTION_REPORTED__CONN_IP_PROTOCOL__IT_IPV4V6 = 3;
+
+    // Values for VpnConnectionReported.server_ip_protocol
+    public static final int VPN_CONNECTION_REPORTED__SERVER_IP_PROTOCOL__IT_UNKNOWN = 0;
+    public static final int VPN_CONNECTION_REPORTED__SERVER_IP_PROTOCOL__IT_IPV4 = 1;
+    public static final int VPN_CONNECTION_REPORTED__SERVER_IP_PROTOCOL__IT_IPV6 = 2;
+    public static final int VPN_CONNECTION_REPORTED__SERVER_IP_PROTOCOL__IT_IPV4V6 = 3;
+
+    // Values for VpnConnectionReported.encap_type
+    public static final int VPN_CONNECTION_REPORTED__ENCAP_TYPE__ET_UNKNOWN = 0;
+    public static final int VPN_CONNECTION_REPORTED__ENCAP_TYPE__ET_UDP = 1;
+    public static final int VPN_CONNECTION_REPORTED__ENCAP_TYPE__ET_ESP = 2;
+
+    // Values for VpnConnectionReported.vpn_profile_type
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_UNKNOWN = 0;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_PPTP = 1;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_L2TP_IPSEC_PSK = 2;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_L2TP_IPSEC_RSA = 3;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_TYPE_IPSEC_XAUTH_PSK = 4;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_IPSEC_XAUTH_RSA = 5;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_IPSEC_HYBRID_RSA = 6;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_IKEV2_IPSEC_USER_PASS = 7;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_IKEV2_IPSEC_PSK = 8;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_IKEV2_IPSEC_RSA = 9;
+    public static final int VPN_CONNECTION_REPORTED__VPN_PROFILE_TYPE__TYPE_IKEV2_FROM_IKE_TUN_CONN_PARAMS = 10;
+
+    // Values for VpnConnectionReported.error_code
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_UNKNOWN = 0;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_NO_ERROR = 1;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_UNSUPPORTED_CRITICAL_PAYLOAD = 2;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_INVALID_IKE_SPI = 3;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_INVALID_MAJOR_VERSION = 4;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_INVALID_SYNTAX = 5;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_INVALID_MESSAGE_ID = 6;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_NO_PROPOSAL_CHOSEN = 7;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_INVALID_KE_PAYLOAD = 8;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_AUTHENTICATION_FAILED = 9;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_SINGLE_PAIR_REQUIRED = 10;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_NO_ADDITIONAL_SAS = 11;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_INTERNAL_ADDRESS_FAILURE = 12;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_FAILED_CP_REQUIRED = 13;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_TS_UNACCEPTABLE = 14;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_INVALID_SELECTORS = 15;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_TEMPORARY_FAILURE = 16;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_CHILD_SA_NOT_FOUND = 17;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_NETWORK_UNKNOWN_HOST = 18;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_NETWORK_PROTOCOL_TIMEOUT = 19;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_NETWORK_LOST = 20;
+    public static final int VPN_CONNECTION_REPORTED__ERROR_CODE__EC_NETWORK_IO = 21;
+
+    // Values for ComponentStateChangedReported.component_old_state
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_OLD_STATE__COMPONENT_STATE_DEFAULT = 0;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_OLD_STATE__COMPONENT_STATE_ENABLED = 1;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_OLD_STATE__COMPONENT_STATE_DISABLED = 2;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_OLD_STATE__COMPONENT_STATE_DISABLED_USER = 3;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_OLD_STATE__COMPONENT_STATE_DISABLED_UNTIL_USED = 4;
+
+    // Values for ComponentStateChangedReported.component_new_state
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_NEW_STATE__COMPONENT_STATE_DEFAULT = 0;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_NEW_STATE__COMPONENT_STATE_ENABLED = 1;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_NEW_STATE__COMPONENT_STATE_DISABLED = 2;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_NEW_STATE__COMPONENT_STATE_DISABLED_USER = 3;
+    public static final int COMPONENT_STATE_CHANGED_REPORTED__COMPONENT_NEW_STATE__COMPONENT_STATE_DISABLED_UNTIL_USED = 4;
+
+    // Values for AppRestrictionStateChanged.restriction_type
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_UNKNOWN = 0;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_UNRESTRICTED = 1;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_EXEMPTED = 2;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_ADAPTIVE = 3;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_RESTRICTED_BUCKET = 4;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_BACKGROUND_RESTRICTED = 5;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_FORCE_STOPPED = 6;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_USER_LAUNCH_ONLY = 7;
+    public static final int APP_RESTRICTION_STATE_CHANGED__RESTRICTION_TYPE__TYPE_CUSTOM = 8;
+
+    // Values for AppRestrictionStateChanged.main_reason
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_UNKNOWN = 0;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_DEFAULT = 1;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_DORMANT = 2;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_USAGE = 3;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_USER = 4;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_USER_NUDGED = 5;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_SYSTEM_HEALTH = 6;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_REMOTE_TRIGGER = 7;
+    public static final int APP_RESTRICTION_STATE_CHANGED__MAIN_REASON__REASON_OTHER = 8;
+
+    // Values for ScreenDimReported.policy_reason
+    public static final int SCREEN_DIM_REPORTED__POLICY_REASON__UNKNOWN = 0;
+    public static final int SCREEN_DIM_REPORTED__POLICY_REASON__OFF_TIMEOUT = 1;
+    public static final int SCREEN_DIM_REPORTED__POLICY_REASON__OFF_POWER_BUTTON = 2;
+    public static final int SCREEN_DIM_REPORTED__POLICY_REASON__BRIGHT_UNDIM = 3;
+    public static final int SCREEN_DIM_REPORTED__POLICY_REASON__BRIGHT_INITIATED_REVERT = 4;
+
+    // Values for ScreenDimReported.last_user_activity_event
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__OTHER = 0;
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__BUTTON = 1;
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__TOUCH = 2;
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__ACCESSIBILITY = 3;
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__ATTENTION = 4;
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__FACE_DOWN = 5;
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__DEVICE_STATE = 6;
+    public static final int SCREEN_DIM_REPORTED__LAST_USER_ACTIVITY_EVENT__SCREEN_TIMEOUT_OVERRIDE = 7;
+
     // Values for Temperature.sensor_location
     public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_UNKNOWN = -1;
     public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_CPU = 0;
@@ -6182,6 +7348,16 @@ public final class FrameworkStatsLog {
     public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_BCL_CURRENT = 7;
     public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_BCL_PERCENTAGE = 8;
     public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_NPU = 9;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_TPU = 10;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_DISPLAY = 11;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_MODEM = 12;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_SOC = 13;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_WIFI = 14;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_CAMERA = 15;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_FLASHLIGHT = 16;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_SPEAKER = 17;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_AMBIENT = 18;
+    public static final int TEMPERATURE__SENSOR_LOCATION__TEMPERATURE_TYPE_POGO = 19;
 
     // Values for Temperature.severity
     public static final int TEMPERATURE__SEVERITY__NONE = 0;
@@ -6242,6 +7418,14 @@ public final class FrameworkStatsLog {
     public static final int COOLING_DEVICE__DEVICE_LOCATION__MODEM = 4;
     public static final int COOLING_DEVICE__DEVICE_LOCATION__NPU = 5;
     public static final int COOLING_DEVICE__DEVICE_LOCATION__COMPONENT = 6;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__TPU = 7;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__POWER_AMPLIFIER = 8;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__DISPLAY = 9;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__SPEAKER = 10;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__WIFI = 11;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__CAMERA = 12;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__FLASHLIGHT = 13;
+    public static final int COOLING_DEVICE__DEVICE_LOCATION__USB_PORT = 14;
 
     // Values for AppOps.op_id
     public static final int APP_OPS__OP_ID__APP_OP_NONE = -1;
@@ -6381,6 +7565,18 @@ public final class FrameworkStatsLog {
     public static final int APP_OPS__OP_ID__APP_OP_USE_FULL_SCREEN_INTENT = 133;
     public static final int APP_OPS__OP_ID__APP_OP_CAMERA_SANDBOXED = 134;
     public static final int APP_OPS__OP_ID__APP_OP_RECORD_AUDIO_SANDBOXED = 135;
+    public static final int APP_OPS__OP_ID__APP_OP_RECEIVE_SANDBOX_TRIGGER_AUDIO = 136;
+    public static final int APP_OPS__OP_ID__APP_OP_RECEIVE_SANDBOXED_DETECTION_TRAINING_DATA = 137;
+    public static final int APP_OPS__OP_ID__APP_OP_CREATE_ACCESSIBILITY_OVERLAY = 138;
+    public static final int APP_OPS__OP_ID__APP_OP_MEDIA_ROUTING_CONTROL = 139;
+    public static final int APP_OPS__OP_ID__APP_OP_ENABLE_MOBILE_DATA_BY_USER = 140;
+    public static final int APP_OPS__OP_ID__APP_OP_RESERVED_FOR_TESTING = 141;
+    public static final int APP_OPS__OP_ID__APP_OP_RAPID_CLEAR_NOTIFICATIONS_BY_LISTENER = 142;
+    public static final int APP_OPS__OP_ID__APP_OP_READ_SYSTEM_GRAMMATICAL_GENDER = 143;
+    public static final int APP_OPS__OP_ID__APP_OP_RUN_BACKUP_JOBS = 144;
+    public static final int APP_OPS__OP_ID__APP_OP_ARCHIVE_ICON_OVERLAY = 145;
+    public static final int APP_OPS__OP_ID__APP_OP_UNARCHIVAL_CONFIRMATION = 146;
+    public static final int APP_OPS__OP_ID__APP_OP_EMERGENCY_LOCATION = 147;
 
     // Values for RuntimeAppOpAccess.sampling_strategy
     public static final int RUNTIME_APP_OP_ACCESS__SAMPLING_STRATEGY__DEFAULT = 0;
@@ -6527,6 +7723,23 @@ public final class FrameworkStatsLog {
     public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_USE_FULL_SCREEN_INTENT = 133;
     public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_CAMERA_SANDBOXED = 134;
     public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_RECORD_AUDIO_SANDBOXED = 135;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_RECEIVE_SANDBOX_TRIGGER_AUDIO = 136;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_RECEIVE_SANDBOXED_DETECTION_TRAINING_DATA = 137;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_CREATE_ACCESSIBILITY_OVERLAY = 138;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_MEDIA_ROUTING_CONTROL = 139;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_ENABLE_MOBILE_DATA_BY_USER = 140;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_RESERVED_FOR_TESTING = 141;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_RAPID_CLEAR_NOTIFICATIONS_BY_LISTENER = 142;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_READ_SYSTEM_GRAMMATICAL_GENDER = 143;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_RUN_BACKUP_JOBS = 144;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_ARCHIVE_ICON_OVERLAY = 145;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_UNARCHIVAL_CONFIRMATION = 146;
+    public static final int RUNTIME_APP_OP_ACCESS__OP__APP_OP_EMERGENCY_LOCATION = 147;
+
+    // Values for PackageNotificationPreferences.fsi_state
+    public static final int PACKAGE_NOTIFICATION_PREFERENCES__FSI_STATE__NOT_REQUESTED = 0;
+    public static final int PACKAGE_NOTIFICATION_PREFERENCES__FSI_STATE__GRANTED = 1;
+    public static final int PACKAGE_NOTIFICATION_PREFERENCES__FSI_STATE__DENIED = 2;
 
     // Values for AttributedAppOps.op
     public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_NONE = -1;
@@ -6666,6 +7879,18 @@ public final class FrameworkStatsLog {
     public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_USE_FULL_SCREEN_INTENT = 133;
     public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_CAMERA_SANDBOXED = 134;
     public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_RECORD_AUDIO_SANDBOXED = 135;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_RECEIVE_SANDBOX_TRIGGER_AUDIO = 136;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_RECEIVE_SANDBOXED_DETECTION_TRAINING_DATA = 137;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_CREATE_ACCESSIBILITY_OVERLAY = 138;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_MEDIA_ROUTING_CONTROL = 139;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_ENABLE_MOBILE_DATA_BY_USER = 140;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_RESERVED_FOR_TESTING = 141;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_RAPID_CLEAR_NOTIFICATIONS_BY_LISTENER = 142;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_READ_SYSTEM_GRAMMATICAL_GENDER = 143;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_RUN_BACKUP_JOBS = 144;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_ARCHIVE_ICON_OVERLAY = 145;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_UNARCHIVAL_CONFIRMATION = 146;
+    public static final int ATTRIBUTED_APP_OPS__OP__APP_OP_EMERGENCY_LOCATION = 147;
 
     // Values for SettingSnapshot.type
     public static final int SETTING_SNAPSHOT__TYPE__NOTASSIGNED = 0;
@@ -6686,6 +7911,18 @@ public final class FrameworkStatsLog {
     public static final int DNDMODE_PROTO__ZEN_MODE__ZEN_MODE_IMPORTANT_INTERRUPTIONS = 1;
     public static final int DNDMODE_PROTO__ZEN_MODE__ZEN_MODE_NO_INTERRUPTIONS = 2;
     public static final int DNDMODE_PROTO__ZEN_MODE__ZEN_MODE_ALARMS = 3;
+
+    // Values for DNDModeProto.rule_type
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_UNKNOWN = -1;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_OTHER = 0;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_SCHEDULE_TIME = 1;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_SCHEDULE_CALENDAR = 2;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_BEDTIME = 3;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_DRIVING = 4;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_IMMERSIVE = 5;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_THEATER = 6;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_MANAGED = 7;
+    public static final int DNDMODE_PROTO__RULE_TYPE__TYPE_MANUAL = 999;
 
     // Values for DeviceRotatedData.proposed_orientation
     public static final int DEVICE_ROTATED_DATA__PROPOSED_ORIENTATION__UNKNOWN = 0;
@@ -6817,6 +8054,8 @@ public final class FrameworkStatsLog {
     public static final int ACCESSIBILITY_SHORTCUT_STATS__SOFTWARE_SHORTCUT_TYPE__A11Y_FLOATING_MENU = 5;
     public static final int ACCESSIBILITY_SHORTCUT_STATS__SOFTWARE_SHORTCUT_TYPE__A11Y_GESTURE = 6;
     public static final int ACCESSIBILITY_SHORTCUT_STATS__SOFTWARE_SHORTCUT_TYPE__A11Y_WEAR_TRIPLE_PRESS_GESTURE = 7;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__SOFTWARE_SHORTCUT_TYPE__TWO_FINGER_TRIPLE_TAP = 8;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__SOFTWARE_SHORTCUT_TYPE__QUICK_SETTINGS = 9;
 
     // Values for AccessibilityShortcutStats.hardware_shortcut_type
     public static final int ACCESSIBILITY_SHORTCUT_STATS__HARDWARE_SHORTCUT_TYPE__UNKNOWN_TYPE = 0;
@@ -6827,6 +8066,8 @@ public final class FrameworkStatsLog {
     public static final int ACCESSIBILITY_SHORTCUT_STATS__HARDWARE_SHORTCUT_TYPE__A11Y_FLOATING_MENU = 5;
     public static final int ACCESSIBILITY_SHORTCUT_STATS__HARDWARE_SHORTCUT_TYPE__A11Y_GESTURE = 6;
     public static final int ACCESSIBILITY_SHORTCUT_STATS__HARDWARE_SHORTCUT_TYPE__A11Y_WEAR_TRIPLE_PRESS_GESTURE = 7;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__HARDWARE_SHORTCUT_TYPE__TWO_FINGER_TRIPLE_TAP = 8;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__HARDWARE_SHORTCUT_TYPE__QUICK_SETTINGS = 9;
 
     // Values for AccessibilityShortcutStats.gesture_shortcut_type
     public static final int ACCESSIBILITY_SHORTCUT_STATS__GESTURE_SHORTCUT_TYPE__UNKNOWN_TYPE = 0;
@@ -6837,6 +8078,20 @@ public final class FrameworkStatsLog {
     public static final int ACCESSIBILITY_SHORTCUT_STATS__GESTURE_SHORTCUT_TYPE__A11Y_FLOATING_MENU = 5;
     public static final int ACCESSIBILITY_SHORTCUT_STATS__GESTURE_SHORTCUT_TYPE__A11Y_GESTURE = 6;
     public static final int ACCESSIBILITY_SHORTCUT_STATS__GESTURE_SHORTCUT_TYPE__A11Y_WEAR_TRIPLE_PRESS_GESTURE = 7;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__GESTURE_SHORTCUT_TYPE__TWO_FINGER_TRIPLE_TAP = 8;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__GESTURE_SHORTCUT_TYPE__QUICK_SETTINGS = 9;
+
+    // Values for AccessibilityShortcutStats.qs_shortcut_type
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__UNKNOWN_TYPE = 0;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__A11Y_BUTTON = 1;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__VOLUME_KEY = 2;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__TRIPLE_TAP = 3;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__A11Y_BUTTON_LONG_PRESS = 4;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__A11Y_FLOATING_MENU = 5;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__A11Y_GESTURE = 6;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__A11Y_WEAR_TRIPLE_PRESS_GESTURE = 7;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__TWO_FINGER_TRIPLE_TAP = 8;
+    public static final int ACCESSIBILITY_SHORTCUT_STATS__QS_SHORTCUT_TYPE__QUICK_SETTINGS = 9;
 
     // Values for DataUsageBytesTransferV2.opportunistic_data_sub
     public static final int DATA_USAGE_BYTES_TRANSFER_V2__OPPORTUNISTIC_DATA_SUB__DSS_UNKNOWN = 0;
@@ -6873,6 +8128,7 @@ public final class FrameworkStatsLog {
     public static final int USER_INFO__USER_TYPE__PROFILE_MANAGED = 6;
     public static final int USER_INFO__USER_TYPE__SYSTEM_HEADLESS = 7;
     public static final int USER_INFO__USER_TYPE__PROFILE_CLONE = 8;
+    public static final int USER_INFO__USER_TYPE__PROFILE_PRIVATE = 9;
 
     // Values for GameModeInfo.overridden_game_modes
     public static final int GAME_MODE_INFO__OVERRIDDEN_GAME_MODES__GAME_MODE_UNSPECIFIED = 0;
@@ -6910,15 +8166,68 @@ public final class FrameworkStatsLog {
     public static final int MTE_STATE__STATE__OFF = 1;
     public static final int MTE_STATE__STATE__ON = 2;
 
+    // Values for TouchpadUsage.device_bus
+    public static final int TOUCHPAD_USAGE__DEVICE_BUS__OTHER = 0;
+    public static final int TOUCHPAD_USAGE__DEVICE_BUS__USB = 1;
+    public static final int TOUCHPAD_USAGE__DEVICE_BUS__BLUETOOTH = 2;
+    public static final int TOUCHPAD_USAGE__DEVICE_BUS__USI = 3;
+
+    // Values for DreamSettingSnapshot.when_to_dream
+    public static final int DREAM_SETTING_SNAPSHOT__WHEN_TO_DREAM__WHEN_TO_DREAM_UNSPECIFIED = 0;
+    public static final int DREAM_SETTING_SNAPSHOT__WHEN_TO_DREAM__WHEN_TO_DREAM_WHILE_CHARGING_ONLY = 1;
+    public static final int DREAM_SETTING_SNAPSHOT__WHEN_TO_DREAM__WHEN_TO_DREAM_WHILE_DOCKED_ONLY = 2;
+    public static final int DREAM_SETTING_SNAPSHOT__WHEN_TO_DREAM__WHEN_TO_DREAM_EITHER_CHARGING_OR_DOCKED = 3;
+
+    // Values for MobileBytesTransferByProcState.proc_state
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_UNKNOWN_TO_PROTO = 998;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_UNKNOWN = 999;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_PERSISTENT = 1000;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_PERSISTENT_UI = 1001;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_TOP = 1002;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_FOREGROUND_SERVICE = 1003;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_BOUND_FOREGROUND_SERVICE = 1004;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_IMPORTANT_FOREGROUND = 1005;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_IMPORTANT_BACKGROUND = 1006;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_TRANSIENT_BACKGROUND = 1007;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_BACKUP = 1008;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_SERVICE = 1009;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_RECEIVER = 1010;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_TOP_SLEEPING = 1011;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_HEAVY_WEIGHT = 1012;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_HOME = 1013;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_LAST_ACTIVITY = 1014;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_CACHED_ACTIVITY = 1015;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_CACHED_ACTIVITY_CLIENT = 1016;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_CACHED_RECENT = 1017;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_CACHED_EMPTY = 1018;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_NONEXISTENT = 1019;
+    public static final int MOBILE_BYTES_TRANSFER_BY_PROC_STATE__PROC_STATE__PROCESS_STATE_BOUND_TOP = 1020;
+
     // Annotation constants.
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_IS_UID = StatsLog.ANNOTATION_ID_IS_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRUNCATE_TIMESTAMP = StatsLog.ANNOTATION_ID_TRUNCATE_TIMESTAMP;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD = StatsLog.ANNOTATION_ID_PRIMARY_FIELD;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_EXCLUSIVE_STATE = StatsLog.ANNOTATION_ID_EXCLUSIVE_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID = StatsLog.ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_DEFAULT_STATE = StatsLog.ANNOTATION_ID_DEFAULT_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRIGGER_STATE_RESET = StatsLog.ANNOTATION_ID_TRIGGER_STATE_RESET;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_STATE_NESTED = StatsLog.ANNOTATION_ID_STATE_NESTED;
+
 
     // Write methods
     public static void write(int code) {
@@ -6974,6 +8283,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int[] uid, java.lang.String[] tag, int arg2, int arg3, int arg4, boolean arg5, int arg6, int arg7, int arg8, long arg9, long arg10, long arg11, long arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int[] arg20, int[] arg21, int[] arg22, int[] arg23, int arg24, int arg25) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7004,20 +8315,6 @@ public final class FrameworkStatsLog {
         builder.writeIntArray(null == arg23 ? new int[0] : arg23);
         builder.writeInt(arg24);
         builder.writeInt(arg25);
-
-        builder.usePooledBuffer();
-        StatsLog.write(builder.build());
-    }
-
-    public static void write(int code, int[] uid, java.lang.String[] tag, int arg2, int arg3, java.lang.String arg4) {
-        final StatsEvent.Builder builder = StatsEvent.newBuilder();
-        builder.setAtomId(code);
-        builder.writeAttributionChain(
-                null == uid ? new int[0] : uid,
-                null == tag ? new String[0] : tag);
-        builder.writeInt(arg2);
-        builder.writeInt(arg3);
-        builder.writeString(arg4);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7123,7 +8420,9 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int[] uid, java.lang.String[] tag, java.lang.String arg2, int arg3, int arg4, int arg5, int arg6, boolean arg7, boolean arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16, int arg17, boolean arg18, int arg19, int arg20, int arg21, long arg22, boolean arg23, boolean arg24, boolean arg25, boolean arg26, boolean arg27, boolean arg28, boolean arg29, boolean arg30, long arg31, boolean arg32, boolean arg33, boolean arg34, long arg35, long arg36, long arg37, int arg38, int arg39) {
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int[] uid, java.lang.String[] tag, java.lang.String arg2, int arg3, int arg4, int arg5, long arg6, boolean arg7, boolean arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16, int arg17, boolean arg18, int arg19, int arg20, int arg21, long arg22, boolean arg23, boolean arg24, boolean arg25, boolean arg26, boolean arg27, boolean arg28, boolean arg29, boolean arg30, long arg31, boolean arg32, boolean arg33, boolean arg34, long arg35, long arg36, long arg37, int arg38, int arg39, java.lang.String arg40, long arg41, long arg42, long arg43, long arg44, long arg45, long arg46, boolean arg47, boolean arg48, boolean arg49, int arg50, int arg51, java.lang.String arg52, java.lang.String[] arg53) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeAttributionChain(
@@ -7133,7 +8432,7 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg3);
         builder.writeInt(arg4);
         builder.writeInt(arg5);
-        builder.writeInt(arg6);
+        builder.writeLong(arg6);
         builder.writeBoolean(arg7);
         builder.writeBoolean(arg8);
         builder.writeBoolean(arg9);
@@ -7167,6 +8466,20 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg37);
         builder.writeInt(arg38);
         builder.writeInt(arg39);
+        builder.writeString(arg40);
+        builder.writeLong(arg41);
+        builder.writeLong(arg42);
+        builder.writeLong(arg43);
+        builder.writeLong(arg44);
+        builder.writeLong(arg45);
+        builder.writeLong(arg46);
+        builder.writeBoolean(arg47);
+        builder.writeBoolean(arg48);
+        builder.writeBoolean(arg49);
+        builder.writeInt(arg50);
+        builder.writeInt(arg51);
+        builder.writeString(arg52);
+        builder.writeStringArray(null == arg53 ? new String[0] : arg53);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7192,10 +8505,22 @@ public final class FrameworkStatsLog {
         builder.writeBoolean(arg1);
         if (LOCATION_ENABLED_STATE_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
         }
         if (EMERGENCY_STATE_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
         }
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, boolean arg1, boolean arg2) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeBoolean(arg1);
+        builder.writeBoolean(arg2);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7214,12 +8539,49 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    public static void write(int code, boolean arg1, boolean arg2, int arg3) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeBoolean(arg1);
+        builder.writeBoolean(arg2);
+        builder.writeInt(arg3);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, boolean arg1, boolean arg2, int arg3, int arg4, int arg5) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeBoolean(arg1);
+        builder.writeBoolean(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
     public static void write(int code, boolean arg1, int arg2, int arg3) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeBoolean(arg1);
         builder.writeInt(arg2);
         builder.writeInt(arg3);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, boolean arg1, int arg2, int arg3, byte[] arg4, int arg5) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeBoolean(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeByteArray(null == arg4 ? new byte[0] : arg4);
+        builder.writeInt(arg5);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7280,6 +8642,25 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, boolean arg1, java.lang.String[] arg2, java.lang.String arg3, int[] arg4, java.lang.String arg5, int[] arg6, java.lang.String arg7, java.lang.String arg8, boolean arg9) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeBoolean(arg1);
+        builder.writeStringArray(null == arg2 ? new String[0] : arg2);
+        builder.writeString(arg3);
+        builder.writeIntArray(null == arg4 ? new int[0] : arg4);
+        builder.writeString(arg5);
+        builder.writeIntArray(null == arg6 ? new int[0] : arg6);
+        builder.writeString(arg7);
+        builder.writeString(arg8);
+        builder.writeBoolean(arg9);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
     public static void write(int code, int arg1) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7293,6 +8674,7 @@ public final class FrameworkStatsLog {
         }
         if (MEMORY_FACTOR_STATE_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
         }
         if (BATTERY_SAVER_MODE_STATE_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
@@ -7321,6 +8703,13 @@ public final class FrameworkStatsLog {
         if (DOCK_STATE_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
             builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
+        if (VPN_CONNECTION_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
+        if (EXCESSIVE_BINDER_PROXY_COUNT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
 
         builder.usePooledBuffer();
@@ -7375,6 +8764,24 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    public static void write(int code, int arg1, boolean arg2, java.lang.String arg3, int arg4, boolean arg5, boolean arg6, int arg7) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (DREAM_SETTING_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeBoolean(arg2);
+        builder.writeString(arg3);
+        builder.writeInt(arg4);
+        builder.writeBoolean(arg5);
+        builder.writeBoolean(arg6);
+        builder.writeInt(arg7);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
     public static void write(int code, int arg1, int arg2) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7401,9 +8808,8 @@ public final class FrameworkStatsLog {
         if (DEVICE_WIDE_JOB_CONSTRAINT_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
         }
-        if (SCREEN_STATE_CHANGED_V2 == code) {
-            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
-            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        if (THERMAL_HEADROOM_THRESHOLDS_CALLED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
         builder.writeInt(arg2);
         if (UID_PROCESS_STATE_CHANGED == code) {
@@ -7415,14 +8821,23 @@ public final class FrameworkStatsLog {
         }
         if (LOCATION_TIME_ZONE_PROVIDER_STATE_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
         }
         if (DEVICE_WIDE_JOB_CONSTRAINT_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
             builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
         }
-        if (SCREEN_STATE_CHANGED_V2 == code) {
-            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
-        }
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, boolean arg3) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeBoolean(arg3);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7433,7 +8848,7 @@ public final class FrameworkStatsLog {
         builder.setAtomId(code);
         builder.writeInt(arg1);
         builder.writeInt(arg2);
-        if (GRAMMATICAL_INFLECTION_CHANGED == code) {
+        if (APPLICATION_GRAMMATICAL_INFLECTION_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
         builder.writeBoolean(arg3);
@@ -7473,6 +8888,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, boolean arg3, int arg4, boolean arg5, int arg6, long arg7, boolean arg8, int arg9, float arg10, int arg11, int arg12, boolean arg13, boolean arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int[] arg20) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7527,6 +8944,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, boolean arg3, int arg4, int arg5, int arg6, int arg7, boolean arg8, long arg9, int arg10, int arg11, int arg12, boolean arg13, boolean arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int[] arg20) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7555,7 +8974,9 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, boolean arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, boolean arg10, int[] arg11, int[] arg12, java.lang.String[] arg13, int[] arg14, java.lang.String arg15, int[] arg16, int[] arg17, int arg18, boolean arg19) {
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, int arg2, boolean arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, boolean arg10, int[] arg11, int[] arg12, java.lang.String[] arg13, int[] arg14, java.lang.String arg15, int[] arg16, int[] arg17, int arg18, boolean arg19, int arg20, int arg21, int arg22) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -7577,11 +8998,22 @@ public final class FrameworkStatsLog {
         builder.writeIntArray(null == arg17 ? new int[0] : arg17);
         builder.writeInt(arg18);
         builder.writeBoolean(arg19);
+        builder.writeInt(arg20);
+        if (CREDENTIAL_MANAGER_FINALNOUID_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg21);
+        if (CREDENTIAL_MANAGER_FINALNOUID_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg22);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, boolean arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, boolean arg11, int[] arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int[] arg18, int[] arg19, int arg20, int[] arg21, int[] arg22, java.lang.String[] arg23, int[] arg24, java.lang.String arg25, boolean arg26) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7619,6 +9051,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, boolean arg3, int arg4, int arg5, int arg6, java.lang.String[] arg7, int[] arg8, int[] arg9, int[] arg10, int arg11, java.lang.String[] arg12, int[] arg13, java.lang.String[] arg14, int[] arg15, int[] arg16, int[] arg17, int arg18, java.lang.String[] arg19, int[] arg20, int arg21, boolean arg22) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7666,6 +9100,25 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    public static void write(int code, int arg1, int arg2, boolean arg3, int arg4, java.lang.String arg5, long arg6) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (APP_RESTRICTION_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg2);
+        builder.writeBoolean(arg3);
+        builder.writeInt(arg4);
+        builder.writeString(arg5);
+        builder.writeLong(arg6);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, boolean arg3, int[] arg4, int[] arg5, int[] arg6, int[] arg7, boolean[] arg8, int[] arg9, int[] arg10, int[] arg11, int[] arg12, int[] arg13, int[] arg14, java.lang.String[] arg15, boolean arg16, java.lang.String[] arg17, int[] arg18, int arg19, boolean[] arg20) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7714,10 +9167,20 @@ public final class FrameworkStatsLog {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
             builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
         }
+        if (SCREEN_STATE_CHANGED_V2 == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
+        if (THERMAL_STATUS_CALLED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
         builder.writeInt(arg2);
         if (APP_COMPAT_STATE_CHANGED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
             builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
+        if (SCREEN_STATE_CHANGED_V2 == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
         }
         if (AUTOFILL_UI_EVENT_REPORTED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
@@ -7738,9 +9201,28 @@ public final class FrameworkStatsLog {
         if (HOTWORD_DETECTOR_EVENTS == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
+        if (SCREEN_STATE_CHANGED_V2 == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
+        }
         if (AUTOFILL_UI_EVENT_REPORTED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, int arg3, boolean arg4, boolean arg5) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (COMPONENT_STATE_CHANGED_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeBoolean(arg4);
+        builder.writeBoolean(arg5);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7879,6 +9361,43 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, boolean arg6, int arg7, int arg8, int arg9, boolean arg10, boolean arg11, boolean arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16, int arg17, int arg18, int[] arg19, int arg20, int arg21, int arg22, int[] arg23, byte[] arg24, int arg25, byte[] arg26, byte[] arg27) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeBoolean(arg5);
+        builder.writeBoolean(arg6);
+        builder.writeInt(arg7);
+        builder.writeInt(arg8);
+        builder.writeInt(arg9);
+        builder.writeBoolean(arg10);
+        builder.writeBoolean(arg11);
+        builder.writeBoolean(arg12);
+        builder.writeBoolean(arg13);
+        builder.writeBoolean(arg14);
+        builder.writeBoolean(arg15);
+        builder.writeBoolean(arg16);
+        builder.writeInt(arg17);
+        builder.writeInt(arg18);
+        builder.writeIntArray(null == arg19 ? new int[0] : arg19);
+        builder.writeInt(arg20);
+        builder.writeInt(arg21);
+        builder.writeInt(arg22);
+        builder.writeIntArray(null == arg23 ? new int[0] : arg23);
+        builder.writeByteArray(null == arg24 ? new byte[0] : arg24);
+        builder.writeInt(arg25);
+        builder.writeByteArray(null == arg26 ? new byte[0] : arg26);
+        builder.writeByteArray(null == arg27 ? new byte[0] : arg27);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
     public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -7889,16 +9408,31 @@ public final class FrameworkStatsLog {
         if (TV_TUNER_DVR_STATUS == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
+        if (MEDIA_PROJECTION_TARGET_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
+        }
         builder.writeInt(arg2);
         builder.writeInt(arg3);
+        if (MEDIA_PROJECTION_TARGET_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
         builder.writeInt(arg4);
+        if (MEDIA_PROJECTION_TARGET_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
         builder.writeInt(arg5);
+        if (MEDIA_PROJECTION_TARGET_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, int arg7, byte[] arg8, boolean arg9) {
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, int arg7, byte[] arg8, boolean arg9, int[] arg10) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -7913,6 +9447,7 @@ public final class FrameworkStatsLog {
         }
         builder.writeByteArray(null == arg8 ? new byte[0] : arg8);
         builder.writeBoolean(arg9);
+        builder.writeIntArray(null == arg10 ? new int[0] : arg10);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7939,12 +9474,60 @@ public final class FrameworkStatsLog {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
+        if (MEDIA_PROJECTION_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
+        }
+        builder.writeInt(arg2);
+        if (MEDIA_PROJECTION_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        if (MEDIA_PROJECTION_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg5);
+        if (MEDIA_PROJECTION_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg6);
+        builder.writeInt(arg7);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, boolean arg8) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (ADPF_HINT_SESSION_TID_CLEANUP == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
         builder.writeInt(arg2);
         builder.writeInt(arg3);
         builder.writeInt(arg4);
         builder.writeInt(arg5);
         builder.writeInt(arg6);
         builder.writeInt(arg7);
+        builder.writeBoolean(arg8);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+        builder.writeInt(arg7);
+        builder.writeInt(arg8);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -7970,7 +9553,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, boolean arg12, int arg13, int arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, boolean arg20, int arg21, int arg22, long arg23, long arg24, int arg25, int arg26, int arg27, int arg28) {
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, boolean arg12, int arg13, int arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, boolean arg20, int arg21, int arg22, long arg23, long arg24, int arg25, int arg26, int arg27, int arg28, int arg29, int arg30, boolean arg31, boolean arg32, long arg33, long arg34, int arg35, long arg36, long arg37) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8007,6 +9590,18 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg26);
         builder.writeInt(arg27);
         builder.writeInt(arg28);
+        builder.writeInt(arg29);
+        builder.writeInt(arg30);
+        if (AUTOFILL_PRESENTATION_EVENT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeBoolean(arg31);
+        builder.writeBoolean(arg32);
+        builder.writeLong(arg33);
+        builder.writeLong(arg34);
+        builder.writeInt(arg35);
+        builder.writeLong(arg36);
+        builder.writeLong(arg37);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8041,7 +9636,46 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, int arg3, int arg4, long arg5, int arg6, java.lang.String[] arg7, int[] arg8, boolean arg9) {
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, java.lang.String arg6, java.lang.String arg7) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeString(arg6);
+        builder.writeString(arg7);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int[] arg6, int[] arg7, int[] arg8, int[] arg9) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeIntArray(null == arg6 ? new int[0] : arg6);
+        builder.writeIntArray(null == arg7 ? new int[0] : arg7);
+        builder.writeIntArray(null == arg8 ? new int[0] : arg8);
+        if (INPUTDEVICE_USAGE_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeIntArray(null == arg9 ? new int[0] : arg9);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, long arg5, int arg6, java.lang.String[] arg7, int[] arg8, boolean arg9, int arg10, int arg11) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8056,12 +9690,14 @@ public final class FrameworkStatsLog {
         builder.writeStringArray(null == arg7 ? new String[0] : arg7);
         builder.writeIntArray(null == arg8 ? new int[0] : arg8);
         builder.writeBoolean(arg9);
+        builder.writeInt(arg10);
+        builder.writeInt(arg11);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, int arg3, int arg4, java.lang.String arg5, java.lang.String arg6) {
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, java.lang.String arg5, java.lang.String arg6, int arg7, int arg8, boolean arg9, long arg10) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8076,6 +9712,10 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg4);
         builder.writeString(arg5);
         builder.writeString(arg6);
+        builder.writeInt(arg7);
+        builder.writeInt(arg8);
+        builder.writeBoolean(arg9);
+        builder.writeLong(arg10);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8110,7 +9750,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, int arg3, long arg4, long arg5, boolean arg6, int arg7, int arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, long arg13, long arg14, long arg15, boolean arg16) {
+    public static void write(int code, int arg1, int arg2, int arg3, long arg4, long arg5, boolean arg6, int arg7, int arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, long arg13, long arg14, long arg15, boolean arg16, int arg17) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8132,6 +9772,10 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg14);
         builder.writeLong(arg15);
         builder.writeBoolean(arg16);
+        builder.writeInt(arg17);
+        if (AUTOFILL_SAVE_EVENT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8151,6 +9795,27 @@ public final class FrameworkStatsLog {
         builder.writeFloat(arg6);
         builder.writeLong(arg7);
         builder.writeInt(arg8);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, int arg3, long arg4, java.lang.String arg5, long arg6, long arg7, long arg8, long arg9, long arg10) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (KERNEL_OOM_KILL_OCCURRED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeLong(arg4);
+        builder.writeString(arg5);
+        builder.writeLong(arg6);
+        builder.writeLong(arg7);
+        builder.writeLong(arg8);
+        builder.writeLong(arg9);
+        builder.writeLong(arg10);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8243,6 +9908,24 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, int arg2, int arg3, int[] arg4, int arg5, int arg6) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeIntArray(null == arg4 ? new int[0] : arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, int arg3, int[] arg4, int[] arg5, int[] arg6, int arg7, int arg8, int arg9, int arg10) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -8270,6 +9953,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, int arg3, java.lang.String[] arg4, int[] arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -8286,6 +9971,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, int arg3, java.lang.String[] arg4, int[] arg5, int[] arg6, int[] arg7, java.lang.String arg8, boolean arg9, int arg10, boolean arg11) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -8319,7 +10006,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, long arg3, boolean arg4, int arg5, float arg6) {
+    public static void write(int code, int arg1, int arg2, long arg3, boolean arg4, int arg5, float arg6, int arg7) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8328,6 +10015,7 @@ public final class FrameworkStatsLog {
         builder.writeBoolean(arg4);
         builder.writeInt(arg5);
         builder.writeFloat(arg6);
+        builder.writeInt(arg7);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8370,7 +10058,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, long arg3, int arg4, long arg5) {
+    public static void write(int code, int arg1, int arg2, long arg3, int arg4, long arg5, int arg6) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8378,6 +10066,50 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg3);
         builder.writeInt(arg4);
         builder.writeLong(arg5);
+        builder.writeInt(arg6);
+        if (AUTOFILL_SESSION_COMMITTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, long arg3, int arg4, long arg5, long arg6) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeLong(arg3);
+        builder.writeInt(arg4);
+        builder.writeLong(arg5);
+        builder.writeLong(arg6);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, long arg3, long arg4) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeLong(arg3);
+        builder.writeLong(arg4);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, float arg3) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (THERMAL_HEADROOM_CALLED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg2);
+        builder.writeFloat(arg3);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8434,7 +10166,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, java.lang.String arg3, int arg4, boolean arg5, int arg6, java.lang.String arg7, java.lang.String arg8, int arg9, java.lang.String arg10, java.lang.String arg11) {
+    public static void write(int code, int arg1, int arg2, java.lang.String arg3, int arg4, boolean arg5, int arg6, java.lang.String arg7, java.lang.String arg8, int arg9, java.lang.String arg10, java.lang.String arg11, int arg12, int arg13, boolean arg14, long arg15) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8454,6 +10186,10 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg9);
         builder.writeString(arg10);
         builder.writeString(arg11);
+        builder.writeInt(arg12);
+        builder.writeInt(arg13);
+        builder.writeBoolean(arg14);
+        builder.writeLong(arg15);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8497,7 +10233,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, java.lang.String arg3, int arg4, int arg5, int arg6, int arg7, int arg8, boolean arg9, java.lang.String arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int arg20, float arg21, boolean arg22, boolean arg23, long arg24, boolean arg25, long arg26) {
+    public static void write(int code, int arg1, int arg2, java.lang.String arg3, int arg4, int arg5, int arg6, int arg7, int arg8, boolean arg9, java.lang.String arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int arg20, float arg21, boolean arg22, boolean arg23, long arg24, boolean arg25, long arg26, int arg27, boolean arg28, int arg29) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8529,6 +10265,9 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg24);
         builder.writeBoolean(arg25);
         builder.writeLong(arg26);
+        builder.writeInt(arg27);
+        builder.writeBoolean(arg28);
+        builder.writeInt(arg29);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8578,7 +10317,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, java.lang.String arg3, int arg4, int arg5, long arg6, long arg7, long arg8, int arg9, java.lang.String arg10, java.lang.String arg11) {
+    public static void write(int code, int arg1, int arg2, java.lang.String arg3, int arg4, int arg5, long arg6, long arg7, long arg8, int arg9, java.lang.String arg10, java.lang.String arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, boolean arg18, long arg19) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8598,6 +10337,14 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg9);
         builder.writeString(arg10);
         builder.writeString(arg11);
+        builder.writeInt(arg12);
+        builder.writeInt(arg13);
+        builder.writeInt(arg14);
+        builder.writeInt(arg15);
+        builder.writeInt(arg16);
+        builder.writeInt(arg17);
+        builder.writeBoolean(arg18);
+        builder.writeLong(arg19);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8675,6 +10422,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, java.lang.String arg3, java.lang.String arg4, java.lang.String arg5, java.lang.String[] arg6, java.lang.String arg7, java.lang.String arg8, boolean arg9) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -8692,6 +10441,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, int[] arg3, long arg4, int[] arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -8708,6 +10459,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int arg2, int[] arg3, int[] arg4, int[] arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -8755,6 +10508,9 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg2);
         builder.writeInt(arg3);
         builder.writeInt(arg4);
+        if (HOTWORD_EGRESS_SIZE_ATOM_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8773,7 +10529,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, long arg2, int arg3, int arg4, int arg5, int arg6, int arg7) {
+    public static void write(int code, int arg1, long arg2, int arg3, int arg4, int arg5, int arg6, int arg7, boolean arg8) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8786,6 +10542,42 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg5);
         builder.writeInt(arg6);
         builder.writeInt(arg7);
+        builder.writeBoolean(arg8);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, long arg2, int arg3, int arg4, long arg5, int arg6, int arg7, long arg8, int arg9, int arg10, long arg11, long arg12, int arg13, int arg14, long arg15) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeLong(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeLong(arg5);
+        builder.writeInt(arg6);
+        builder.writeInt(arg7);
+        builder.writeLong(arg8);
+        builder.writeInt(arg9);
+        if (USER_RISK_EVENT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg10);
+        if (USER_RISK_EVENT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeLong(arg11);
+        builder.writeLong(arg12);
+        builder.writeInt(arg13);
+        if (USER_RISK_EVENT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg14);
+        if (USER_RISK_EVENT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeLong(arg15);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8838,7 +10630,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, long arg2, long arg3, long arg4, long arg5, long arg6, long arg7, int arg8) {
+    public static void write(int code, int arg1, long arg2, long arg3, long arg4, long arg5, long arg6, long arg7, int arg8, int arg9) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -8849,6 +10641,7 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg6);
         builder.writeLong(arg7);
         builder.writeInt(arg8);
+        builder.writeInt(arg9);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -8904,6 +10697,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, long arg2, java.lang.String arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, long arg13, long arg14, long arg15, long arg16, long arg17, long arg18, long arg19, float arg20, float arg21, float arg22, long arg23, float arg24, int[] arg25, int[] arg26, int[] arg27, int[] arg28, long arg29, float arg30, int[] arg31, int[] arg32) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -9025,7 +10820,9 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, java.lang.String arg2, int arg3, boolean arg4, int arg5, int arg6, int arg7, int arg8, int arg9, boolean arg10, boolean arg11, int arg12, int arg13, int arg14, boolean arg15, int arg16, int arg17, boolean arg18, int arg19, int arg20, int arg21, int arg22, long arg23, int arg24, int arg25, int arg26, int arg27, long arg28, long arg29) {
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, java.lang.String arg2, int arg3, boolean arg4, int arg5, int arg6, int arg7, int arg8, int arg9, boolean arg10, boolean arg11, int arg12, int arg13, int arg14, boolean arg15, int arg16, int arg17, boolean arg18, int arg19, int arg20, int arg21, int[] arg22, long[] arg23, int arg24, int arg25, int arg26, int arg27, long arg28, long arg29, int arg30, int arg31, int arg32, int arg33, int arg34, int arg35, int arg36, boolean arg37) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -9055,14 +10852,22 @@ public final class FrameworkStatsLog {
         }
         builder.writeInt(arg20);
         builder.writeInt(arg21);
-        builder.writeInt(arg22);
-        builder.writeLong(arg23);
+        builder.writeIntArray(null == arg22 ? new int[0] : arg22);
+        builder.writeLongArray(null == arg23 ? new long[0] : arg23);
         builder.writeInt(arg24);
         builder.writeInt(arg25);
         builder.writeInt(arg26);
         builder.writeInt(arg27);
         builder.writeLong(arg28);
         builder.writeLong(arg29);
+        builder.writeInt(arg30);
+        builder.writeInt(arg31);
+        builder.writeInt(arg32);
+        builder.writeInt(arg33);
+        builder.writeInt(arg34);
+        builder.writeInt(arg35);
+        builder.writeInt(arg36);
+        builder.writeBoolean(arg37);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9086,9 +10891,19 @@ public final class FrameworkStatsLog {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
+        if (THERMAL_THROTTLING_SEVERITY_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
+        }
         builder.writeString(arg2);
+        if (THERMAL_THROTTLING_SEVERITY_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
+        }
         builder.writeInt(arg3);
         builder.writeInt(arg4);
+        if (THERMAL_THROTTLING_SEVERITY_STATE_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9209,7 +11024,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, java.lang.String arg2, int arg3, java.lang.String arg4, boolean arg5, int arg6, java.lang.String arg7, java.lang.String arg8, int arg9, int arg10, int arg11, boolean arg12, int arg13) {
+    public static void write(int code, int arg1, java.lang.String arg2, int arg3, java.lang.String arg4, boolean arg5, int arg6, java.lang.String arg7, java.lang.String arg8, int arg9, int arg10, int arg11, boolean arg12, int arg13, java.lang.String arg14) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -9234,6 +11049,7 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg11);
         builder.writeBoolean(arg12);
         builder.writeInt(arg13);
+        builder.writeString(arg14);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9283,7 +11099,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, java.lang.String arg2, int arg3, java.lang.String arg4, java.lang.String arg5, boolean arg6, long arg7, int arg8, int arg9, int arg10, int arg11, int arg12, java.lang.String arg13, int arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, boolean arg20, int arg21, long arg22, int arg23, int arg24, int arg25) {
+    public static void write(int code, int arg1, java.lang.String arg2, int arg3, java.lang.String arg4, java.lang.String arg5, boolean arg6, long arg7, int arg8, int arg9, int arg10, int arg11, int arg12, java.lang.String arg13, int arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, boolean arg20, int arg21, long arg22, int arg23, int arg24, int arg25, boolean arg26, boolean arg27, long arg28, int arg29) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -9314,6 +11130,10 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg23);
         builder.writeInt(arg24);
         builder.writeInt(arg25);
+        builder.writeBoolean(arg26);
+        builder.writeBoolean(arg27);
+        builder.writeLong(arg28);
+        builder.writeInt(arg29);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9339,6 +11159,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, java.lang.String arg2, int arg3, int[] arg4, int[] arg5, int[] arg6, int[] arg7, int arg8, int arg9, long arg10, long arg11, int[] arg12, long[] arg13, long arg14, int arg15, int arg16, int arg17, int arg18, int arg19, boolean arg20, boolean arg21, boolean arg22, boolean arg23, boolean arg24, boolean arg25, boolean arg26) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -9613,6 +11435,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int arg1, int[] arg2, int[] arg3, int[] arg4, int[] arg5, int arg6, int arg7, boolean arg8, boolean arg9) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -9637,9 +11461,6 @@ public final class FrameworkStatsLog {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeLong(arg1);
-        if (APP_DIED == code) {
-            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
-        }
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9650,6 +11471,25 @@ public final class FrameworkStatsLog {
         builder.setAtomId(code);
         builder.writeLong(arg1);
         builder.writeInt(arg2);
+        if (SENSITIVE_NOTIFICATION_APP_PROTECTION_APPLIED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, long arg1, int arg2, boolean arg3, int arg4, int arg5) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeLong(arg1);
+        builder.writeInt(arg2);
+        if (SENSITIVE_CONTENT_MEDIA_PROJECTION_SESSION == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeBoolean(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9666,6 +11506,24 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    public static void write(int code, long arg1, int arg2, int arg3, int arg4) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeLong(arg1);
+        builder.writeInt(arg2);
+        if (SENSITIVE_CONTENT_APP_PROTECTION == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg3);
+        if (SENSITIVE_CONTENT_APP_PROTECTION == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg4);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
     public static void write(int code, long arg1, int arg2, int arg3, int arg4, int arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -9674,6 +11532,25 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg3);
         builder.writeInt(arg4);
         builder.writeInt(arg5);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, long arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, boolean arg8) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeLong(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+        if (AUTOFILL_FIELD_CLASSIFICATION_EVENT_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg7);
+        builder.writeBoolean(arg8);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9695,7 +11572,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, long arg1, int arg2, java.lang.String arg3, int arg4, java.lang.String arg5, int arg6, boolean arg7, int arg8, int arg9, int arg10, long arg11, long arg12, boolean arg13, int arg14, byte[] arg15, byte[] arg16, byte[] arg17, byte[] arg18, byte[] arg19, java.lang.String arg20, int arg21, long arg22, int arg23, int arg24, boolean arg25) {
+    public static void write(int code, long arg1, int arg2, java.lang.String arg3, int arg4, java.lang.String arg5, int arg6, boolean arg7, int arg8, int arg9, int arg10, long arg11, long arg12, boolean arg13, int arg14, byte[] arg15, byte[] arg16, byte[] arg17, byte[] arg18, byte[] arg19, java.lang.String arg20, int arg21, long arg22, int arg23, int arg24, boolean arg25, boolean arg26, boolean arg27, int arg28, int arg29, int arg30) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeLong(arg1);
@@ -9723,6 +11600,11 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg23);
         builder.writeInt(arg24);
         builder.writeBoolean(arg25);
+        builder.writeBoolean(arg26);
+        builder.writeBoolean(arg27);
+        builder.writeInt(arg28);
+        builder.writeInt(arg29);
+        builder.writeInt(arg30);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9806,7 +11688,7 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, long arg1, java.lang.String arg2, long arg3, long arg4, java.lang.String arg5, java.lang.String arg6, java.lang.String arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, java.lang.String arg19, long arg20, long arg21, long arg22, long arg23, long arg24, int arg25, int arg26, java.lang.String arg27, int arg28, long arg29, long arg30, java.lang.String arg31, int arg32, int arg33, long arg34, long arg35, long arg36, long arg37, long arg38, int arg39, float arg40, float arg41, float arg42, int arg43, int arg44, int arg45, int arg46, int arg47, int arg48, int arg49, int arg50, int arg51, int arg52, int arg53, int arg54, int arg55, int arg56, int arg57, int arg58, int arg59, int arg60, int arg61, int arg62, int arg63, int arg64, int arg65, int arg66, long arg67, int arg68, int arg69, int arg70, int arg71, int arg72, int arg73, int arg74, int arg75, int arg76, int arg77) {
+    public static void write(int code, long arg1, java.lang.String arg2, long arg3, long arg4, java.lang.String arg5, java.lang.String arg6, java.lang.String arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, java.lang.String arg19, long arg20, long arg21, long arg22, long arg23, long arg24, int arg25, int arg26, java.lang.String arg27, int arg28, long arg29, long arg30, java.lang.String arg31, int arg32, int arg33, long arg34, long arg35, long arg36, long arg37, long arg38, int arg39, float arg40, float arg41, float arg42, int arg43, int arg44, int arg45, int arg46, int arg47, int arg48, int arg49, int arg50, int arg51, int arg52, int arg53, int arg54, int arg55, int arg56, int arg57, int arg58, int arg59, int arg60, int arg61, int arg62, int arg63, int arg64, int arg65, int arg66, long arg67, int arg68, int arg69, int arg70, int arg71, int arg72, int arg73, int arg74, int arg75, int arg76, int arg77, int arg78, long arg79) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeLong(arg1);
@@ -9886,6 +11768,11 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg75);
         builder.writeInt(arg76);
         builder.writeInt(arg77);
+        builder.writeInt(arg78);
+        if (MEDIA_CODEC_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeLong(arg79);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -9898,6 +11785,9 @@ public final class FrameworkStatsLog {
         builder.writeFloat(arg2);
         builder.writeFloat(arg3);
         builder.writeString(arg4);
+        if (DISPLAY_BRIGHTNESS_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_PRIMARY_FIELD, true);
+        }
         builder.writeBoolean(arg5);
         builder.writeFloat(arg6);
         builder.writeInt(arg7);
@@ -9907,6 +11797,10 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg11);
         builder.writeInt(arg12);
         builder.writeInt(arg13);
+        if (DISPLAY_BRIGHTNESS_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_EXCLUSIVE_STATE, true);
+            builder.addBooleanAnnotation(ANNOTATION_ID_STATE_NESTED, false);
+        }
         builder.writeBoolean(arg14);
         builder.writeBoolean(arg15);
         builder.writeBoolean(arg16);
@@ -9983,24 +11877,6 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, java.lang.String arg1, int arg2, int arg3, int arg4) {
-        final StatsEvent.Builder builder = StatsEvent.newBuilder();
-        builder.setAtomId(code);
-        builder.writeString(arg1);
-        builder.writeInt(arg2);
-        builder.writeInt(arg3);
-        if (BAL_ALLOWED == code) {
-            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
-        }
-        builder.writeInt(arg4);
-        if (BAL_ALLOWED == code) {
-            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
-        }
-
-        builder.usePooledBuffer();
-        StatsLog.write(builder.build());
-    }
-
     public static void write(int code, java.lang.String arg1, int arg2, int arg3, int arg4, boolean arg5, boolean arg6, int arg7) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10024,6 +11900,30 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg3);
         builder.writeInt(arg4);
         builder.writeInt(arg5);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, java.lang.String arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, boolean arg7, int arg8, boolean arg9, boolean arg10) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeString(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        if (BAL_ALLOWED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg4);
+        if (BAL_ALLOWED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg5);
+        builder.writeBoolean(arg6);
+        builder.writeBoolean(arg7);
+        builder.writeInt(arg8);
+        builder.writeBoolean(arg9);
+        builder.writeBoolean(arg10);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
@@ -10149,6 +12049,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, java.lang.String arg1, long arg2, java.lang.String arg3, int arg4, java.lang.String[] arg5) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10162,6 +12064,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, java.lang.String arg1, long arg2, java.lang.String arg3, int arg4, java.lang.String[] arg5, int arg6, java.lang.String arg7, java.lang.String[] arg8, java.lang.String arg9, java.lang.String arg10, java.lang.String arg11) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10241,6 +12145,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, java.lang.String arg1, int[] arg2) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10251,6 +12157,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, int[] arg1, int[] arg2, long arg3, int arg4, long arg5, int arg6, int arg7) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10266,6 +12174,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, float[] arg1, float[] arg2) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10276,6 +12186,8 @@ public final class FrameworkStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static void write(int code, float[] arg1, float[] arg2, java.lang.String arg3) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10299,10 +12211,6 @@ public final class FrameworkStatsLog {
         write(code, new int[] {arg1}, new java.lang.String[] {arg2}, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26);
     }
 
-    public static void write_non_chained(int code, int arg1, java.lang.String arg2, int arg3, int arg4, java.lang.String arg5) {
-        write(code, new int[] {arg1}, new java.lang.String[] {arg2}, arg3, arg4, arg5);
-    }
-
     public static void write_non_chained(int code, int arg1, java.lang.String arg2, int arg3, long arg4) {
         write(code, new int[] {arg1}, new java.lang.String[] {arg2}, arg3, arg4);
     }
@@ -10323,8 +12231,8 @@ public final class FrameworkStatsLog {
         write(code, new int[] {arg1}, new java.lang.String[] {arg2}, arg3, arg4, arg5);
     }
 
-    public static void write_non_chained(int code, int arg1, java.lang.String arg2, java.lang.String arg3, int arg4, int arg5, int arg6, int arg7, boolean arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16, boolean arg17, int arg18, boolean arg19, int arg20, int arg21, int arg22, long arg23, boolean arg24, boolean arg25, boolean arg26, boolean arg27, boolean arg28, boolean arg29, boolean arg30, boolean arg31, long arg32, boolean arg33, boolean arg34, boolean arg35, long arg36, long arg37, long arg38, int arg39, int arg40) {
-        write(code, new int[] {arg1}, new java.lang.String[] {arg2}, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31, arg32, arg33, arg34, arg35, arg36, arg37, arg38, arg39, arg40);
+    public static void write_non_chained(int code, int arg1, java.lang.String arg2, java.lang.String arg3, int arg4, int arg5, int arg6, long arg7, boolean arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16, boolean arg17, int arg18, boolean arg19, int arg20, int arg21, int arg22, long arg23, boolean arg24, boolean arg25, boolean arg26, boolean arg27, boolean arg28, boolean arg29, boolean arg30, boolean arg31, long arg32, boolean arg33, boolean arg34, boolean arg35, long arg36, long arg37, long arg38, int arg39, int arg40, java.lang.String arg41, long arg42, long arg43, long arg44, long arg45, long arg46, long arg47, boolean arg48, boolean arg49, boolean arg50, int arg51, int arg52, java.lang.String arg53, java.lang.String[] arg54) {
+        write(code, new int[] {arg1}, new java.lang.String[] {arg2}, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31, arg32, arg33, arg34, arg35, arg36, arg37, arg38, arg39, arg40, arg41, arg42, arg43, arg44, arg45, arg46, arg47, arg48, arg49, arg50, arg51, arg52, arg53, arg54);
     }
 
     public static void write_non_chained(int code, int arg1, java.lang.String arg2, java.lang.String arg3, java.lang.String arg4, int arg5) {
@@ -10424,6 +12332,18 @@ public final class FrameworkStatsLog {
         return builder.build();
     }
 
+    public static StatsEvent buildStatsEvent(int code, boolean arg1, java.lang.String arg2, int arg3, boolean arg4, boolean arg5) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeBoolean(arg1);
+        builder.writeString(arg2);
+        builder.writeInt(arg3);
+        builder.writeBoolean(arg4);
+        builder.writeBoolean(arg5);
+
+        return builder.build();
+    }
+
     public static StatsEvent buildStatsEvent(int code, int arg1) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -10442,7 +12362,7 @@ public final class FrameworkStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, boolean arg3, int arg4, java.lang.String arg5, int arg6, byte[] arg7) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, boolean arg3, int arg4, java.lang.String arg5, int arg6, byte[] arg7, int arg8, int arg9, int arg10, int arg11) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -10455,6 +12375,10 @@ public final class FrameworkStatsLog {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
         builder.writeByteArray(null == arg7 ? new byte[0] : arg7);
+        builder.writeInt(arg8);
+        builder.writeInt(arg9);
+        builder.writeInt(arg10);
+        builder.writeInt(arg11);
 
         return builder.build();
     }
@@ -10477,7 +12401,7 @@ public final class FrameworkStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, int arg3, long arg4, long arg5, long arg6, long arg7) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, int arg3, long arg4, long arg5, long arg6, long arg7, int arg8) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         if (BYTES_TRANSFER_BY_TAG_AND_METERED == code) {
@@ -10493,6 +12417,7 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg5);
         builder.writeLong(arg6);
         builder.writeLong(arg7);
+        builder.writeInt(arg8);
 
         return builder.build();
     }
@@ -10521,6 +12446,9 @@ public final class FrameworkStatsLog {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
         if (MOBILE_BYTES_TRANSFER_BY_FG_BG == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        if (PROXY_BYTES_TRANSFER_BY_FG_BG == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
         builder.writeBoolean(arg2);
@@ -10591,7 +12519,7 @@ public final class FrameworkStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, int arg6, boolean arg7) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -10602,6 +12530,8 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg3);
         builder.writeInt(arg4);
         builder.writeBoolean(arg5);
+        builder.writeInt(arg6);
+        builder.writeBoolean(arg7);
 
         return builder.build();
     }
@@ -10641,6 +12571,38 @@ public final class FrameworkStatsLog {
         builder.writeInt(arg4);
         builder.writeInt(arg5);
         builder.writeInt(arg6);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, boolean arg8) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+        builder.writeInt(arg7);
+        builder.writeBoolean(arg8);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+        builder.writeInt(arg7);
+        builder.writeInt(arg8);
+        builder.writeInt(arg9);
+        builder.writeInt(arg10);
 
         return builder.build();
     }
@@ -10797,6 +12759,25 @@ public final class FrameworkStatsLog {
         builder.writeLong(arg3);
         builder.writeLong(arg4);
         builder.writeLong(arg5);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, long arg3, long arg4, long arg5, long arg6) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        if (MOBILE_BYTES_TRANSFER_BY_PROC_STATE == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_TRUNCATE_TIMESTAMP, true);
+        }
+        builder.writeInt(arg1);
+        if (MOBILE_BYTES_TRANSFER_BY_PROC_STATE == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg2);
+        builder.writeLong(arg3);
+        builder.writeLong(arg4);
+        builder.writeLong(arg5);
+        builder.writeLong(arg6);
 
         return builder.build();
     }
@@ -11270,6 +13251,8 @@ public final class FrameworkStatsLog {
         return builder.build();
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     public static StatsEvent buildStatsEvent(int code, int arg1, int[] arg2, int[] arg3) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -11544,6 +13527,16 @@ public final class FrameworkStatsLog {
         return builder.build();
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static StatsEvent buildStatsEvent(int code, float[] arg1) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeFloatArray(null == arg1 ? new float[0] : arg1);
+
+        return builder.build();
+    }
+
     // WorkSource methods.
 
     public static void write(int code, android.os.WorkSource ws, int arg2) {
@@ -11578,18 +13571,6 @@ public final class FrameworkStatsLog {
         if (workChains != null) {
             for (android.os.WorkSource.WorkChain wc : workChains) {
                 write(code, wc.getUids(), wc.getTags(), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25);
-            }
-        }
-    }
-
-    public static void write(int code, android.os.WorkSource ws, int arg2, int arg3, java.lang.String arg4) {
-        for (int i = 0; i < ws.size(); ++i) {
-            write_non_chained(code, ws.getUid(i), ws.getPackageName(i), arg2, arg3, arg4);
-        }
-        java.util.List<android.os.WorkSource.WorkChain> workChains = ws.getWorkChains();
-        if (workChains != null) {
-            for (android.os.WorkSource.WorkChain wc : workChains) {
-                write(code, wc.getUids(), wc.getTags(), arg2, arg3, arg4);
             }
         }
     }
@@ -11654,14 +13635,14 @@ public final class FrameworkStatsLog {
         }
     }
 
-    public static void write(int code, android.os.WorkSource ws, java.lang.String arg2, int arg3, int arg4, int arg5, int arg6, boolean arg7, boolean arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16, int arg17, boolean arg18, int arg19, int arg20, int arg21, long arg22, boolean arg23, boolean arg24, boolean arg25, boolean arg26, boolean arg27, boolean arg28, boolean arg29, boolean arg30, long arg31, boolean arg32, boolean arg33, boolean arg34, long arg35, long arg36, long arg37, int arg38, int arg39) {
+    public static void write(int code, android.os.WorkSource ws, java.lang.String arg2, int arg3, int arg4, int arg5, long arg6, boolean arg7, boolean arg8, boolean arg9, boolean arg10, boolean arg11, boolean arg12, boolean arg13, boolean arg14, boolean arg15, boolean arg16, int arg17, boolean arg18, int arg19, int arg20, int arg21, long arg22, boolean arg23, boolean arg24, boolean arg25, boolean arg26, boolean arg27, boolean arg28, boolean arg29, boolean arg30, long arg31, boolean arg32, boolean arg33, boolean arg34, long arg35, long arg36, long arg37, int arg38, int arg39, java.lang.String arg40, long arg41, long arg42, long arg43, long arg44, long arg45, long arg46, boolean arg47, boolean arg48, boolean arg49, int arg50, int arg51, java.lang.String arg52, java.lang.String[] arg53) {
         for (int i = 0; i < ws.size(); ++i) {
-            write_non_chained(code, ws.getUid(i), ws.getPackageName(i), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31, arg32, arg33, arg34, arg35, arg36, arg37, arg38, arg39);
+            write_non_chained(code, ws.getUid(i), ws.getPackageName(i), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31, arg32, arg33, arg34, arg35, arg36, arg37, arg38, arg39, arg40, arg41, arg42, arg43, arg44, arg45, arg46, arg47, arg48, arg49, arg50, arg51, arg52, arg53);
         }
         java.util.List<android.os.WorkSource.WorkChain> workChains = ws.getWorkChains();
         if (workChains != null) {
             for (android.os.WorkSource.WorkChain wc : workChains) {
-                write(code, wc.getUids(), wc.getTags(), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31, arg32, arg33, arg34, arg35, arg36, arg37, arg38, arg39);
+                write(code, wc.getUids(), wc.getTags(), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25, arg26, arg27, arg28, arg29, arg30, arg31, arg32, arg33, arg34, arg35, arg36, arg37, arg38, arg39, arg40, arg41, arg42, arg43, arg44, arg45, arg46, arg47, arg48, arg49, arg50, arg51, arg52, arg53);
             }
         }
     }

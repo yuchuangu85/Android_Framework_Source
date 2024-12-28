@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen/android/security/apc/ResponseCode.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/apc/ResponseCode.aidl
  */
 package android.security.apc;
 /**

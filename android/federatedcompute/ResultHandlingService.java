@@ -18,17 +18,17 @@ package android.federatedcompute;
 
 import static android.federatedcompute.common.ClientConstants.STATUS_SUCCESS;
 
+import android.annotation.NonNull;
 import android.app.Service;
 import android.content.Intent;
 import android.federatedcompute.aidl.IFederatedComputeCallback;
 import android.federatedcompute.aidl.IResultHandlingService;
-import android.federatedcompute.common.ExampleConsumption;
-import android.federatedcompute.common.TrainingOptions;
+import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
-import android.util.Log;
 
-import java.util.List;
+import com.android.federatedcompute.internal.util.LogUtil;
+
 import java.util.function.Consumer;
 
 /**
@@ -66,16 +66,8 @@ public abstract class ResultHandlingService extends Service {
 
     private class ServiceBinder extends IResultHandlingService.Stub {
         @Override
-        public void handleResult(
-                TrainingOptions trainingOptions,
-                boolean success,
-                List<ExampleConsumption> exampleConsumptionList,
-                IFederatedComputeCallback callback) {
-            ResultHandlingService.this.handleResult(
-                    trainingOptions,
-                    success,
-                    exampleConsumptionList,
-                    new ResultHandlingCallback(callback));
+        public void handleResult(Bundle params, IFederatedComputeCallback callback) {
+            ResultHandlingService.this.handleResult(params, new ResultHandlingCallback(callback));
         }
     }
 
@@ -101,7 +93,8 @@ public abstract class ResultHandlingService extends Service {
                 }
                 mInternalCallback.onFailure(status);
             } catch (RemoteException e) {
-                Log.w(TAG, "An error occurred when trying to communicate with FederatedCompute.");
+                LogUtil.w(
+                        TAG, "An error occurred when trying to communicate with FederatedCompute.");
             }
         }
     }
@@ -110,9 +103,5 @@ public abstract class ResultHandlingService extends Service {
      * The client app needs to implement this method to handle results. After handling the results,
      * the client app should signal FederatedCompute via the ResultHandlingCallback.
      */
-    public abstract void handleResult(
-            TrainingOptions trainingOptions,
-            boolean success,
-            List<ExampleConsumption> exampleConsumptionList,
-            Consumer<Integer> callback);
+    public abstract void handleResult(@NonNull Bundle params, Consumer<Integer> callback);
 }

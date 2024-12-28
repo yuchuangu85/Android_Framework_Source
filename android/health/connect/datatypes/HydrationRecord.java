@@ -61,7 +61,14 @@ public final class HydrationRecord extends IntervalRecord {
             @NonNull ZoneOffset endZoneOffset,
             @NonNull Volume volume,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         Objects.requireNonNull(volume);
         if (!skipValidation) {
             ValidationUtils.requireInRange(volume.getInLiters(), 0.0, 100.0, "volume");
@@ -83,6 +90,7 @@ public final class HydrationRecord extends IntervalRecord {
      * @param o the reference object with which to compare.
      * @return {@code true} if this object is the same as the obj
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

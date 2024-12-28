@@ -31,6 +31,7 @@ import android.telephony.data.TrafficDescriptor;
 import android.telephony.data.TrafficDescriptor.OsAppId;
 
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.flags.FeatureFlags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -130,7 +131,9 @@ public class TelephonyNetworkRequest {
             new SimpleImmutableEntry<>(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_LATENCY,
                     CAPABILITY_ATTRIBUTE_TRAFFIC_DESCRIPTOR_OS_APP_ID),
             new SimpleImmutableEntry<>(NetworkCapabilities.NET_CAPABILITY_PRIORITIZE_BANDWIDTH,
-                    CAPABILITY_ATTRIBUTE_TRAFFIC_DESCRIPTOR_OS_APP_ID)
+                    CAPABILITY_ATTRIBUTE_TRAFFIC_DESCRIPTOR_OS_APP_ID),
+            new SimpleImmutableEntry<>(NetworkCapabilities.NET_CAPABILITY_RCS,
+                CAPABILITY_ATTRIBUTE_APN_SETTING | CAPABILITY_ATTRIBUTE_TRAFFIC_DESCRIPTOR_DNN)
     );
 
     /** The phone instance. */
@@ -180,15 +183,21 @@ public class TelephonyNetworkRequest {
     /** The data evaluation result. */
     private @Nullable DataEvaluation mEvaluation;
 
+    /** Feature flag. */
+    private final @NonNull FeatureFlags mFeatureFlags;
+
     /**
      * Constructor
      *
      * @param request The native network request from the clients.
      * @param phone The phone instance
+     * @param featureFlags The feature flag
      */
-    public TelephonyNetworkRequest(NetworkRequest request, Phone phone) {
+    public TelephonyNetworkRequest(@NonNull NetworkRequest request, @NonNull Phone phone,
+                                   @NonNull FeatureFlags featureFlags) {
         mPhone = phone;
         mNativeNetworkRequest = request;
+        mFeatureFlags = featureFlags;
 
         int capabilitiesAttributes = CAPABILITY_ATTRIBUTE_NONE;
         for (int networkCapability : mNativeNetworkRequest.getCapabilities()) {
@@ -272,6 +281,31 @@ public class TelephonyNetworkRequest {
         if ((hasAttribute(CAPABILITY_ATTRIBUTE_APN_SETTING)
                 || hasAttribute(CAPABILITY_ATTRIBUTE_TRAFFIC_DESCRIPTOR_DNN))
                 && dataProfile.getApnSetting() != null) {
+            if (mFeatureFlags.satelliteInternet()) {
+                if (mNativeNetworkRequest.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                        && !mNativeNetworkRequest.hasTransport(
+                                NetworkCapabilities.TRANSPORT_SATELLITE)) {
+                    if (Arrays.stream(getCapabilities()).noneMatch(mDataConfigManager
+                            .getForcedCellularTransportCapabilities()::contains)) {
+                        // If the request is explicitly for the cellular, then the data profile
+                        // needs to support cellular.
+                        if (!dataProfile.getApnSetting().isForInfrastructure(
+                                ApnSetting.INFRASTRUCTURE_CELLULAR)) {
+                            return false;
+                        }
+                    }
+                } else if (mNativeNetworkRequest.hasTransport(
+                        NetworkCapabilities.TRANSPORT_SATELLITE)
+                        && !mNativeNetworkRequest.hasTransport(
+                                NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                    // If the request is explicitly for the satellite, then the data profile needs
+                    // to support satellite.
+                    if (!dataProfile.getApnSetting().isForInfrastructure(
+                            ApnSetting.INFRASTRUCTURE_SATELLITE)) {
+                        return false;
+                    }
+                }
+            }
             // Fallback to the legacy APN type matching.
             List<Integer> apnTypes = Arrays.stream(getCapabilities()).boxed()
                     .map(DataUtils::networkCapabilityToApnType)

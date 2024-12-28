@@ -20,6 +20,7 @@ import android.annotation.BytesLong;
 import android.annotation.CurrentTimeMillisLong;
 import android.annotation.CurrentTimeSecondsLong;
 import android.annotation.DurationMillisLong;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -238,6 +239,8 @@ public final class MediaStore {
     public static final String EXTRA_FILE_DESCRIPTOR = "file_descriptor";
     /** {@hide} */
     public static final String EXTRA_LOCAL_PROVIDER = "local_provider";
+    /** {@hide} */
+    public static final String EXTRA_IS_STABLE_URIS_ENABLED = "is_stable_uris_enabled";
 
     /** {@hide} */
     public static final String IS_SYSTEM_GALLERY_CALL = "is_system_gallery";
@@ -260,11 +263,21 @@ public final class MediaStore {
     /** {@hide} */
     public static final String GET_CLOUD_PROVIDER_RESULT = "get_cloud_provider_result";
     /** {@hide} */
+    public static final String GET_CLOUD_PROVIDER_LABEL_CALL = "get_cloud_provider_label";
+    /** {@hide} */
+    public static final String SET_CLOUD_PROVIDER_RESULT = "set_cloud_provider_result";
+    /** {@hide} */
     public static final String SET_CLOUD_PROVIDER_CALL = "set_cloud_provider";
     /** {@hide} */
     public static final String EXTRA_CLOUD_PROVIDER = "cloud_provider";
     /** {@hide} */
     public static final String EXTRA_CLOUD_PROVIDER_RESULT = "cloud_provider_result";
+    /** {@hide} */
+    public static final String GET_CLOUD_PROVIDER_DETAILS =
+            "get_cloud_provider_details";
+    /** {@hide} */
+    public static final String GET_CLOUD_PROVIDER_DETAILS_RESULT =
+            "get_cloud_provider_details_result";
     /** {@hide} */
     public static final String CREATE_SURFACE_CONTROLLER = "create_surface_controller";
 
@@ -272,10 +285,31 @@ public final class MediaStore {
     public static final String GRANT_MEDIA_READ_FOR_PACKAGE_CALL =
             "grant_media_read_for_package";
 
+    /** @hide */
+    public static final String REVOKE_READ_GRANT_FOR_PACKAGE_CALL =
+            "revoke_media_read_for_package";
+
     /** {@hide} */
     public static final String USES_FUSE_PASSTHROUGH = "uses_fuse_passthrough";
     /** {@hide} */
     public static final String USES_FUSE_PASSTHROUGH_RESULT = "uses_fuse_passthrough_result";
+    /** {@hide} */
+    public static final String PICKER_MEDIA_INIT_CALL = "picker_media_init";
+    /** {@hide} */
+    public static final String EXTRA_LOCAL_ONLY = "is_local_only";
+    /** {@hide} */
+    public static final String EXTRA_ALBUM_ID = "album_id";
+    /** {@hide} */
+    public static final String EXTRA_ALBUM_AUTHORITY = "album_authority";
+    /** {@hide} */
+    public static final String EXTRA_CALLING_PACKAGE_UID = "calling_package_uid";
+    /**
+     * Only used for testing.
+     * {@hide}
+     */
+    @VisibleForTesting
+    public static final String SET_STABLE_URIS_FLAG =
+            "set_stable_uris_flag";
 
     /**
      * Only used for testing.
@@ -290,7 +324,14 @@ public final class MediaStore {
      * {@hide}
      */
     @VisibleForTesting
-    public static final String READ_BACKED_UP_FILE_PATHS = "read_backed_up_file_paths";
+    public static final String READ_BACKUP = "read_backup";
+
+    /**
+     * Only used for testing.
+     * {@hide}
+     */
+    @VisibleForTesting
+    public static final String GET_OWNER_PACKAGE_NAME = "get_owner_package_name";
 
     /**
      * Only used for testing.
@@ -298,6 +339,20 @@ public final class MediaStore {
      */
     @VisibleForTesting
     public static final String GET_BACKUP_FILES = "get_backup_files";
+
+    /**
+     * Only used for testing.
+     * {@hide}
+     */
+    @VisibleForTesting
+    public static final String GET_RECOVERY_DATA = "get_recovery_data";
+
+    /**
+     * Only used for testing.
+     * {@hide}
+     */
+    @VisibleForTesting
+    public static final String REMOVE_RECOVERY_DATA = "remove_recovery_data";
 
     /**
      * Only used for testing.
@@ -482,18 +537,18 @@ public final class MediaStore {
     public static final String EXTRA_SHOW_ACTION_ICONS = "android.intent.extra.showActionIcons";
 
     /**
-     * The name of the Intent-extra used to control the onCompletion behavior of a MovieView.
-     * This is a boolean property that specifies whether or not to finish the MovieView activity
-     * when the movie completes playing. The default value is true, which means to automatically
-     * exit the movie player activity when the movie completes playing.
+     * The name of the Intent-extra used to control the onCompletion behavior of a MovieView. This
+     * is a boolean property that specifies whether or not to finish the MovieView activity when the
+     * movie completes playing. The default value is true, which means to automatically exit the
+     * movie player activity when the movie completes playing.
      */
-    public static final String EXTRA_FINISH_ON_COMPLETION = "android.intent.extra.finishOnCompletion";
+    public static final String EXTRA_FINISH_ON_COMPLETION =
+            "android.intent.extra.finishOnCompletion";
 
-    /**
-     * The name of the Intent action used to launch a camera in still image mode.
-     */
+    /** The name of the Intent action used to launch a camera in still image mode. */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
-    public static final String INTENT_ACTION_STILL_IMAGE_CAMERA = "android.media.action.STILL_IMAGE_CAMERA";
+    public static final String INTENT_ACTION_STILL_IMAGE_CAMERA =
+            "android.media.action.STILL_IMAGE_CAMERA";
 
     /**
      * Name under which an activity handling {@link #INTENT_ACTION_STILL_IMAGE_CAMERA} or
@@ -720,42 +775,39 @@ public final class MediaStore {
     public final static String EXTRA_OUTPUT = "output";
 
     /**
-     * Activity Action: Allow the user to select images or videos provided by
-     * system and return it. This is different than {@link Intent#ACTION_PICK}
-     * and {@link Intent#ACTION_GET_CONTENT} in that
+     * Activity Action: Allow the user to select images or videos provided by system and return it.
+     * This is different than {@link Intent#ACTION_PICK} and {@link Intent#ACTION_GET_CONTENT} in
+     * that
+     *
      * <ul>
-     * <li> the data for this action is provided by the system
-     * <li> this action is only used for picking images and videos
-     * <li> caller gets read access to user picked items even without storage
-     * permissions
+     *   <li>the data for this action is provided by the system
+     *   <li>this action is only used for picking images and videos
+     *   <li>caller gets read access to user picked items even without storage permissions
      * </ul>
-     * <p>
-     * Callers can optionally specify MIME type (such as {@code image/*} or
-     * {@code video/*}), resulting in a range of content selection that the
-     * caller is interested in. The optional MIME type can be requested with
-     * {@link Intent#setType(String)}.
-     * <p>
-     * If the caller needs multiple returned items (or caller wants to allow
-     * multiple selection), then it can specify
-     * {@link MediaStore#EXTRA_PICK_IMAGES_MAX} to indicate this.
-     * <p>
-     * When the caller requests multiple selection, the value of
-     * {@link MediaStore#EXTRA_PICK_IMAGES_MAX} must be a positive integer
-     * greater than 1 and less than or equal to
-     * {@link MediaStore#getPickImagesMaxLimit}, otherwise
-     * {@link Activity#RESULT_CANCELED} is returned.
-     * <p>
-     * Callers may use {@link Intent#EXTRA_LOCAL_ONLY} to limit content
-     * selection to local data.
-     * <p>
-     * Output: MediaStore content URI(s) of the item(s) that was picked.
-     * Unlike other MediaStore URIs, these are referred to as 'picker' URIs and
-     * expose a limited set of read-only operations. Specifically, picker URIs
-     * can only be opened for read and queried for columns in {@link PickerMediaColumns}.
-     * <p>
-     * Before this API, apps could use {@link Intent#ACTION_GET_CONTENT}. However,
-     * {@link #ACTION_PICK_IMAGES} is now the recommended option for images and videos,
-     * since it offers a better user experience.
+     *
+     * <p>Callers can optionally specify MIME type (such as {@code image/*} or {@code video/*}),
+     * resulting in a range of content selection that the caller is interested in. The optional MIME
+     * type can be requested with {@link Intent#setType(String)}.
+     *
+     * <p>If the caller needs multiple returned items (or caller wants to allow multiple selection),
+     * then it can specify {@link MediaStore#EXTRA_PICK_IMAGES_MAX} to indicate this.
+     *
+     * <p>When the caller requests multiple selection, the value of {@link
+     * MediaStore#EXTRA_PICK_IMAGES_MAX} must be a positive integer greater than 1 and less than or
+     * equal to {@link MediaStore#getPickImagesMaxLimit}, otherwise {@link Activity#RESULT_CANCELED}
+     * is returned. Use {@link MediaStore#EXTRA_PICK_IMAGES_IN_ORDER} in multiple selection mode to
+     * allow the user to pick images in order.
+     *
+     * <p>Callers may use {@link Intent#EXTRA_LOCAL_ONLY} to limit content selection to local data.
+     *
+     * <p>Output: MediaStore content URI(s) of the item(s) that was picked. Unlike other MediaStore
+     * URIs, these are referred to as 'picker' URIs and expose a limited set of read-only
+     * operations. Specifically, picker URIs can only be opened for read and queried for columns in
+     * {@link PickerMediaColumns}.
+     *
+     * <p>Before this API, apps could use {@link Intent#ACTION_GET_CONTENT}. However, {@link
+     * #ACTION_PICK_IMAGES} is now the recommended option for images and videos, since it offers a
+     * better user experience.
      */
     @SdkConstant(SdkConstantType.ACTIVITY_INTENT_ACTION)
     public static final String ACTION_PICK_IMAGES = "android.provider.action.PICK_IMAGES";
@@ -803,6 +855,20 @@ public final class MediaStore {
             "android.provider.action.PICK_IMAGES_SETTINGS";
 
     /**
+     * The name of an optional intent-extra used to allow ordered selection of items. Set this extra
+     * to true to allow the user to see the order of their selected items. The result returned to
+     * the caller will be the same as the user selected order. This extra is only allowed via the
+     * {@link MediaStore#ACTION_PICK_IMAGES}.
+     *
+     * <p>The value of this intent-extra should be a boolean. Default value is false.
+     *
+     * @see #ACTION_PICK_IMAGES
+     */
+    @FlaggedApi("com.android.providers.media.flags.pick_ordered_images")
+    public static final String EXTRA_PICK_IMAGES_IN_ORDER =
+            "android.provider.extra.PICK_IMAGES_IN_ORDER";
+
+    /**
      * The name of an optional intent-extra used to allow multiple selection of
      * items and constrain maximum number of items that can be returned by
      * {@link MediaStore#ACTION_PICK_IMAGES}, action may still return nothing
@@ -823,6 +889,65 @@ public final class MediaStore {
     public static int getPickImagesMaxLimit() {
         return PICK_IMAGES_MAX_LIMIT;
     }
+
+    /**
+     * The name of an optional intent-extra used to allow apps to specify the picker accent color.
+     * The extra can only be specified in {@link MediaStore#ACTION_PICK_IMAGES}.
+     * The accent color will be used for various primary elements in the PhotoPicker view.
+     * All other colors will be set based on android material guidelines.
+     * <p>
+     * The value of this intent extra should be a long color value. The alpha component of the
+     * given color is not taken into account while setting the accent color. We assume full color
+     * opacity.
+     * Only colors with luminance(can also be understood as brightness) greater than 0.05 and
+     * less than 0.9 are permitted.
+     * Luminance of a color is determined using:
+     * luminance = Color.luminance(color)
+     *       where color is the input accent color to be set.
+     * Check {@link Color} docs for more details on color luminance and long color values.
+     * In case the luminance of the input color is unacceptable, picker colors will be set
+     * based on the colors of the device android theme.
+     * In case of an invalid input color value i.e. the input color cannot be parsed,
+     * {@code IllegalArgumentException} is thrown.
+     */
+    @FlaggedApi("com.android.providers.media.flags.picker_accent_color")
+    public static final String EXTRA_PICK_IMAGES_ACCENT_COLOR =
+            "android.provider.extra.PICK_IMAGES_ACCENT_COLOR";
+
+    /**
+     * The name of an optional intent-extra used to allow apps to specify the tab the picker should
+     * open with. The extra can only be specified in {@link MediaStore#ACTION_PICK_IMAGES}.
+     * <p>
+     * The value of this intent-extra must be one of: {@link MediaStore#PICK_IMAGES_TAB_ALBUMS}
+     * for the albums tab and {@link MediaStore#PICK_IMAGES_TAB_IMAGES} for the photos tab.
+     * The system will decide which tab to open by default and in most cases,
+     * it is {@link MediaStore#PICK_IMAGES_TAB_IMAGES} i.e. the photos tab.
+     */
+    @FlaggedApi("com.android.providers.media.flags.picker_default_tab")
+    public static final String EXTRA_PICK_IMAGES_LAUNCH_TAB =
+            "android.provider.extra.PICK_IMAGES_LAUNCH_TAB";
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "PICK_IMAGES_TAB_" }, value = {
+            PICK_IMAGES_TAB_ALBUMS,
+            PICK_IMAGES_TAB_IMAGES
+    })
+    public @interface PickImagesTab { }
+
+    /**
+     * One of the permitted values for {@link MediaStore#EXTRA_PICK_IMAGES_LAUNCH_TAB} to open the
+     * picker with albums tab.
+     */
+    @FlaggedApi("com.android.providers.media.flags.picker_default_tab")
+    public static final int PICK_IMAGES_TAB_ALBUMS = 0;
+
+    /**
+     * One of the permitted values for {@link MediaStore#EXTRA_PICK_IMAGES_LAUNCH_TAB} to open the
+     * picker with photos tab.
+     */
+    @FlaggedApi("com.android.providers.media.flags.picker_default_tab")
+    public static final int PICK_IMAGES_TAB_IMAGES = 1;
 
     /**
      * Specify that the caller wants to receive the original media format without transcoding.
@@ -881,6 +1006,33 @@ public final class MediaStore {
      */
     public static final String EXTRA_MEDIA_CAPABILITIES_UID =
             "android.provider.extra.MEDIA_CAPABILITIES_UID";
+
+    /**
+     * The name of an optional intent-extra used to specify URIs for pre-selection in photo picker
+     * opened with {@link MediaStore#ACTION_PICK_IMAGES} in multi-select mode.
+     *
+     * <p>Only MediaStore content URI(s) of the item(s) received as a result of
+     * {@link MediaStore#ACTION_PICK_IMAGES} action are accepted. The value of this intent-extra
+     * should be an ArrayList of type parcelables. Default value is null. Maximum number of URIs
+     * that can be accepted is limited by the value passed in
+     * {@link MediaStore#EXTRA_PICK_IMAGES_MAX} as part of the {@link MediaStore#ACTION_PICK_IMAGES}
+     * intent. In case the count of input URIs is greater than the limit then
+     * {@code IllegalArgumentException} is thrown.</p>
+     *
+     * <p>The provided list will be checked for permissions and authority. Any URI that is
+     * inaccessible, doesn't match the current authorities(local or cloud) or is invalid will be
+     * filtered out.</p>
+     *
+     * <p>The items corresponding to the URIs will appear selected when the photo picker is opened.
+     * In the case of {@link MediaStore#EXTRA_PICK_IMAGES_IN_ORDER} the chronological order of the
+     * input list will be used for ordered selection of the pre-selected items.</p>
+     *
+     * <p>This is not a mechanism to revoke permissions for items, i.e. de-selection of a
+     * pre-selected item by the user will not result in revocation of the grant.</p>
+     */
+    @FlaggedApi("com.android.providers.media.flags.picker_pre_selection")
+    public static final String EXTRA_PICKER_PRE_SELECTION_URIS =
+            "android.provider.extra.PICKER_PRE_SELECTION_URIS";
 
     /**
      * Flag used to set file mode in bundle for opening a document.
@@ -1005,6 +1157,39 @@ public final class MediaStore {
      */
     @Match
     public static final String QUERY_ARG_MATCH_FAVORITE = "android:query-arg-match-favorite";
+
+    /**
+     * Flag that indicates if only the latest selection in the photoPicker for
+     * the calling app should be returned. If set to true, all items that were
+     * granted to the calling app in the last selection are returned.
+     *
+     * <p>Selection in this scenario refers to when the user selects items in
+     * <b> the permission prompt photo picker</b>. The access for these items
+     * is granted to the calling app and these grants are persisted unless the
+     * user deselects a granted item explicitly.</p>
+     *
+     * <p>The result excludes items owned by the calling app unless they are
+     * explicitly selected by the user.</p>
+     *
+     * <p>Note: If there has been no user selections after the introduction of
+     * this feature then all the granted items will be returned.</p>
+     *
+     * <p>This key can be placed in a {@link Bundle} of extras and passed to
+     * {@link ContentResolver#query}.</p>
+     *
+     * @see android.Manifest.permission#READ_MEDIA_VISUAL_USER_SELECTED
+     */
+    @FlaggedApi("com.android.providers.media.flags.picker_recent_selection")
+    public static final String QUERY_ARG_LATEST_SELECTION_ONLY =
+            "android:query-arg-latest-selection-only";
+
+    /**
+     * Permission that grants access to {@link MediaColumns#OWNER_PACKAGE_NAME}
+     * of every accessible media file.
+     */
+    @FlaggedApi("com.android.providers.media.flags.access_media_owner_package_name_permission")
+    public static final String ACCESS_MEDIA_OWNER_PACKAGE_NAME_PERMISSION =
+            "com.android.providers.media.permission.ACCESS_MEDIA_OWNER_PACKAGE_NAME";
 
     /** @hide */
     @IntDef(flag = true, prefix = { "MATCH_" }, value = {
@@ -1487,7 +1672,7 @@ public final class MediaStore {
          * expiration is typically 30 days.
          * <p>
          * Expired media items are automatically deleted once their expiration
-         * time has passed, typically during during the next device idle period.
+         * time has passed, typically during the next device idle period.
          */
         @CurrentTimeSecondsLong
         @Column(value = Cursor.FIELD_TYPE_INTEGER, readOnly = true)
@@ -4707,6 +4892,14 @@ public final class MediaStore {
         resolver.call(AUTHORITY, RUN_IDLE_MAINTENANCE_CALL, null, null);
     }
 
+    /** {@hide} */
+    public static void setStableUrisFlag(@NonNull ContentResolver resolver,
+            @NonNull String volumeName, boolean isEnabled) {
+        final Bundle extras = new Bundle();
+        extras.putBoolean(MediaStore.EXTRA_IS_STABLE_URIS_ENABLED, isEnabled);
+        resolver.call(AUTHORITY, SET_STABLE_URIS_FLAG, volumeName, extras);
+    }
+
     /**
      * Only used for testing.
      * {@hide}
@@ -4721,10 +4914,23 @@ public final class MediaStore {
      * {@hide}
      */
     @VisibleForTesting
-    public static String[] readBackedUpFilePaths(@NonNull ContentResolver resolver,
-            String volumeName) {
-        Bundle bundle = resolver.call(AUTHORITY, READ_BACKED_UP_FILE_PATHS, volumeName, null);
-        return bundle.getStringArray(READ_BACKED_UP_FILE_PATHS);
+    public static String readBackup(@NonNull ContentResolver resolver,
+            String volumeName, String filePath) {
+        Bundle extras = new Bundle();
+        extras.putString(Files.FileColumns.DATA, filePath);
+        Bundle bundle = resolver.call(AUTHORITY, READ_BACKUP, volumeName, extras);
+        return bundle.getString(READ_BACKUP);
+    }
+
+    /**
+     * Only used for testing.
+     * {@hide}
+     */
+    @VisibleForTesting
+    public static String getOwnerPackageName(@NonNull ContentResolver resolver, int ownerId) {
+        Bundle bundle = resolver.call(AUTHORITY, GET_OWNER_PACKAGE_NAME, String.valueOf(ownerId),
+                null);
+        return bundle.getString(GET_OWNER_PACKAGE_NAME);
     }
 
     /**
@@ -4745,6 +4951,25 @@ public final class MediaStore {
     public static String[] getBackupFiles(@NonNull ContentResolver resolver) {
         Bundle bundle = resolver.call(AUTHORITY, GET_BACKUP_FILES, null, null);
         return bundle.getStringArray(GET_BACKUP_FILES);
+    }
+
+    /**
+     * Only used for testing.
+     * {@hide}
+     */
+    @VisibleForTesting
+    public static String[] getRecoveryData(@NonNull ContentResolver resolver) {
+        Bundle bundle = resolver.call(AUTHORITY, GET_RECOVERY_DATA, null, null);
+        return bundle.getStringArray(GET_RECOVERY_DATA);
+    }
+
+    /**
+     * Only used for testing.
+     * {@hide}
+     */
+    @VisibleForTesting
+    public static void removeRecoveryData(@NonNull ContentResolver resolver) {
+        resolver.call(AUTHORITY, REMOVE_RECOVERY_DATA, null, null);
     }
 
     /**
@@ -4908,6 +5133,31 @@ public final class MediaStore {
             extras.putInt(Intent.EXTRA_UID, packageUid);
             extras.putParcelableArrayList(EXTRA_URI_LIST, new ArrayList<Uri>(uris));
             client.call(GRANT_MEDIA_READ_FOR_PACKAGE_CALL,
+                    /* arg= */ null,
+                    /* extras= */ extras);
+        } catch (RemoteException e) {
+            throw e.rethrowAsRuntimeException();
+        }
+    }
+
+    /**
+     * Revoke {@link com.android.providers.media.MediaGrants} for the given package, for the
+     * list of local (to the device) content uris. These must be valid picker uris.
+     *
+     * @hide
+     */
+    public static void revokeMediaReadForPackages(
+            @NonNull Context context, int packageUid, @NonNull List<Uri> uris) {
+        Objects.requireNonNull(uris);
+        if (uris.isEmpty()) {
+            return;
+        }
+        final ContentResolver resolver = context.getContentResolver();
+        try (ContentProviderClient client = resolver.acquireContentProviderClient(AUTHORITY)) {
+            final Bundle extras = new Bundle();
+            extras.putInt(Intent.EXTRA_UID, packageUid);
+            extras.putParcelableArrayList(EXTRA_URI_LIST, new ArrayList<Uri>(uris));
+            client.call(REVOKE_READ_GRANT_FOR_PACKAGE_CALL,
                     /* arg= */ null,
                     /* extras= */ extras);
         } catch (RemoteException e) {

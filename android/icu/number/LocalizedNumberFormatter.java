@@ -117,6 +117,16 @@ public class LocalizedNumberFormatter extends NumberFormatterSettings<LocalizedN
     }
 
     /**
+     * Disassociate the locale from this formatter.
+     *
+     * @return The fluent chain.
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public UnlocalizedNumberFormatter withoutLocale() {
+        return new UnlocalizedNumberFormatter(this, KEY_LOCALE, null);
+    }
+
+    /**
      *  Helper method that creates a FormattedStringBuilder and formats.
      */
     private FormattedNumber format(DecimalQuantity fq) {

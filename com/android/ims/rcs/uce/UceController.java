@@ -52,6 +52,7 @@ import com.android.ims.rcs.uce.request.UceRequestManager;
 import com.android.ims.rcs.uce.util.UceUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
+import com.android.internal.telephony.flags.FeatureFlags;
 
 import java.io.PrintWriter;
 import java.lang.annotation.Retention;
@@ -150,11 +151,12 @@ public class UceController {
     @VisibleForTesting
     public interface RequestManagerFactory {
         UceRequestManager createRequestManager(Context context, int subId, Looper looper,
-                UceControllerCallback callback);
+                UceControllerCallback callback, FeatureFlags featureFlags);
     }
 
-    private RequestManagerFactory mRequestManagerFactory = (context, subId, looper, callback) ->
-            new UceRequestManager(context, subId, looper, callback);
+    private RequestManagerFactory mRequestManagerFactory =
+            (context, subId, looper, callback, featureFlags) ->
+                    new UceRequestManager(context, subId, looper, callback, featureFlags);
 
     /**
      * Used to inject Controller instances for testing.
@@ -345,12 +347,14 @@ public class UceController {
     private UceDeviceState mDeviceState;
     // The cache of the capability request event triggered by ImsService
     private final CachedCapabilityEvent mCachedCapabilityEvent;
+    private final FeatureFlags mFeatureFlags;
 
-    public UceController(Context context, int subId) {
+    public UceController(Context context, int subId, FeatureFlags featureFlags) {
         mSubId = subId;
         mContext = context;
         mCachedCapabilityEvent = new CachedCapabilityEvent();
         mRcsConnectedState = RCS_STATE_DISCONNECTED;
+        mFeatureFlags = featureFlags;
         logi("create");
 
         initLooper();
@@ -361,7 +365,8 @@ public class UceController {
 
     @VisibleForTesting
     public UceController(Context context, int subId, UceDeviceState deviceState,
-            ControllerFactory controllerFactory, RequestManagerFactory requestManagerFactory) {
+            ControllerFactory controllerFactory, RequestManagerFactory requestManagerFactory,
+            FeatureFlags featureFlags) {
         mSubId = subId;
         mContext = context;
         mDeviceState = deviceState;
@@ -369,6 +374,7 @@ public class UceController {
         mRequestManagerFactory = requestManagerFactory;
         mCachedCapabilityEvent = new CachedCapabilityEvent();
         mRcsConnectedState = RCS_STATE_DISCONNECTED;
+        mFeatureFlags = featureFlags;
         initLooper();
         initControllers();
         initRequestManager();
@@ -392,7 +398,7 @@ public class UceController {
 
     private void initRequestManager() {
         mRequestManager = mRequestManagerFactory.createRequestManager(mContext, mSubId, mLooper,
-                mCtrlCallback);
+                mCtrlCallback, mFeatureFlags);
         mRequestManager.setSubscribeController(mSubscribeController);
         mRequestManager.setOptionsController(mOptionsController);
     }
@@ -474,6 +480,7 @@ public class UceController {
         mPublishController.onCarrierConfigChanged();
         mSubscribeController.onCarrierConfigChanged();
         mOptionsController.onCarrierConfigChanged();
+        mRequestManager.onCarrierConfigChanged();
     }
 
     private void handleCachedCapabilityEvent() {

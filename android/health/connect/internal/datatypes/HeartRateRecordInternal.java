@@ -55,7 +55,7 @@ public class HeartRateRecordInternal
         }
 
         @Override
-        public boolean equals(@NonNull Object object) {
+        public boolean equals(@Nullable Object object) {
             if (super.equals(object) && object instanceof HeartRateRecordInternal.HeartRateSample) {
                 HeartRateRecordInternal.HeartRateSample other =
                         (HeartRateRecordInternal.HeartRateSample) object;
@@ -70,8 +70,10 @@ public class HeartRateRecordInternal
         }
     }
 
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private Set<HeartRateSample> mHeartRateHeartRateSamples;
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     @Nullable
     public Set<HeartRateSample> getSamples() {

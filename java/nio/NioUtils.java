@@ -73,15 +73,15 @@ public final class NioUtils {
     }
 
     /**
-     * Helps bridge between io and nio.
+     * Helps bridge between io and nio. This method is kept only for the hidden API access.
+     * art/build/boot/hiddenapi/hiddenapi-max-target-o-low-priority.txt
      *
      * @hide
      */
     public static FileChannel newFileChannel(Closeable ioObject, FileDescriptor fd, int mode) {
         boolean readable = (mode & O_ACCMODE) != O_WRONLY;
         boolean writable = (mode & O_ACCMODE) != O_RDONLY;
-        boolean append = (mode & O_APPEND) != 0;
-        return FileChannelImpl.open(fd, null, readable, writable, append, ioObject);
+        return FileChannelImpl.open(fd, null, readable, writable, ioObject);
     }
 
     /**

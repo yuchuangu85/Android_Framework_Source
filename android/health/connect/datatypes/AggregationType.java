@@ -187,6 +187,25 @@ public final class AggregationType<T> {
         int RESTING_HEART_RATE_RECORD_BPM_AVG = 65;
         int SLEEP_SESSION_DURATION_TOTAL = 66;
         int EXERCISE_SESSION_DURATION_TOTAL = 67;
+        int BLOOD_PRESSURE_RECORD_DIASTOLIC_AVG = 68;
+        int BLOOD_PRESSURE_RECORD_DIASTOLIC_MAX = 69;
+        int BLOOD_PRESSURE_RECORD_DIASTOLIC_MIN = 70;
+        int BLOOD_PRESSURE_RECORD_SYSTOLIC_AVG = 71;
+        int BLOOD_PRESSURE_RECORD_SYSTOLIC_MAX = 72;
+        int BLOOD_PRESSURE_RECORD_SYSTOLIC_MIN = 73;
+        int NUTRITION_RECORD_TRANS_FAT_TOTAL = 74;
+        int CYCLING_PEDALING_CADENCE_RECORD_RPM_AVG = 75;
+        int CYCLING_PEDALING_CADENCE_RECORD_RPM_MIN = 76;
+        int CYCLING_PEDALING_CADENCE_RECORD_RPM_MAX = 77;
+        int SPEED_RECORD_SPEED_AVG = 78;
+        int SPEED_RECORD_SPEED_MIN = 79;
+        int SPEED_RECORD_SPEED_MAX = 80;
+        int STEPS_CADENCE_RECORD_RATE_AVG = 81;
+        int STEPS_CADENCE_RECORD_RATE_MIN = 82;
+        int STEPS_CADENCE_RECORD_RATE_MAX = 83;
+        int SKIN_TEMPERATURE_RECORD_DELTA_AVG = 84;
+        int SKIN_TEMPERATURE_RECORD_DELTA_MIN = 85;
+        int SKIN_TEMPERATURE_RECORD_DELTA_MAX = 86;
 
         /**
          * Valid set of values for this IntDef. Update this set when add new type or deprecate
@@ -209,6 +228,9 @@ public final class AggregationType<T> {
                         POWER_RECORD_POWER_AVG,
                         HYDRATION_RECORD_VOLUME_TOTAL,
                         FLOORS_CLIMBED_RECORD_FLOORS_CLIMBED_TOTAL,
+                        CYCLING_PEDALING_CADENCE_RECORD_RPM_AVG,
+                        CYCLING_PEDALING_CADENCE_RECORD_RPM_MIN,
+                        CYCLING_PEDALING_CADENCE_RECORD_RPM_MAX,
                         NUTRITION_RECORD_BIOTIN_TOTAL,
                         NUTRITION_RECORD_CAFFEINE_TOTAL,
                         NUTRITION_RECORD_CALCIUM_TOTAL,
@@ -241,6 +263,7 @@ public final class AggregationType<T> {
                         NUTRITION_RECORD_THIAMIN_TOTAL,
                         NUTRITION_RECORD_TOTAL_CARBOHYDRATE_TOTAL,
                         NUTRITION_RECORD_TOTAL_FAT_TOTAL,
+                        NUTRITION_RECORD_TRANS_FAT_TOTAL,
                         NUTRITION_RECORD_UNSATURATED_FAT_TOTAL,
                         NUTRITION_RECORD_VITAMIN_A_TOTAL,
                         NUTRITION_RECORD_VITAMIN_B12_TOTAL,
@@ -263,7 +286,22 @@ public final class AggregationType<T> {
                         HEART_RATE_RECORD_MEASUREMENTS_COUNT,
                         RESTING_HEART_RATE_RECORD_BPM_AVG,
                         SLEEP_SESSION_DURATION_TOTAL,
-                        EXERCISE_SESSION_DURATION_TOTAL);
+                        EXERCISE_SESSION_DURATION_TOTAL,
+                        BLOOD_PRESSURE_RECORD_DIASTOLIC_AVG,
+                        BLOOD_PRESSURE_RECORD_DIASTOLIC_MAX,
+                        BLOOD_PRESSURE_RECORD_DIASTOLIC_MIN,
+                        BLOOD_PRESSURE_RECORD_SYSTOLIC_AVG,
+                        BLOOD_PRESSURE_RECORD_SYSTOLIC_MAX,
+                        BLOOD_PRESSURE_RECORD_SYSTOLIC_MIN,
+                        SPEED_RECORD_SPEED_AVG,
+                        SPEED_RECORD_SPEED_MIN,
+                        SPEED_RECORD_SPEED_MAX,
+                        STEPS_CADENCE_RECORD_RATE_AVG,
+                        STEPS_CADENCE_RECORD_RATE_MIN,
+                        STEPS_CADENCE_RECORD_RATE_MAX,
+                        SKIN_TEMPERATURE_RECORD_DELTA_AVG,
+                        SKIN_TEMPERATURE_RECORD_DELTA_MIN,
+                        SKIN_TEMPERATURE_RECORD_DELTA_MAX);
 
         /** @hide */
         @IntDef({
@@ -334,7 +372,26 @@ public final class AggregationType<T> {
             HEART_RATE_RECORD_MEASUREMENTS_COUNT,
             RESTING_HEART_RATE_RECORD_BPM_AVG,
             SLEEP_SESSION_DURATION_TOTAL,
-            EXERCISE_SESSION_DURATION_TOTAL
+            EXERCISE_SESSION_DURATION_TOTAL,
+            NUTRITION_RECORD_TRANS_FAT_TOTAL,
+            CYCLING_PEDALING_CADENCE_RECORD_RPM_AVG,
+            CYCLING_PEDALING_CADENCE_RECORD_RPM_MIN,
+            CYCLING_PEDALING_CADENCE_RECORD_RPM_MAX,
+            BLOOD_PRESSURE_RECORD_DIASTOLIC_AVG,
+            BLOOD_PRESSURE_RECORD_DIASTOLIC_MAX,
+            BLOOD_PRESSURE_RECORD_DIASTOLIC_MIN,
+            BLOOD_PRESSURE_RECORD_SYSTOLIC_AVG,
+            BLOOD_PRESSURE_RECORD_SYSTOLIC_MAX,
+            BLOOD_PRESSURE_RECORD_SYSTOLIC_MIN,
+            SPEED_RECORD_SPEED_AVG,
+            SPEED_RECORD_SPEED_MIN,
+            SPEED_RECORD_SPEED_MAX,
+            STEPS_CADENCE_RECORD_RATE_AVG,
+            STEPS_CADENCE_RECORD_RATE_MIN,
+            STEPS_CADENCE_RECORD_RATE_MAX,
+            SKIN_TEMPERATURE_RECORD_DELTA_AVG,
+            SKIN_TEMPERATURE_RECORD_DELTA_MIN,
+            SKIN_TEMPERATURE_RECORD_DELTA_MAX
         })
         @Retention(RetentionPolicy.SOURCE)
         @interface Id {}

@@ -29,7 +29,6 @@ import android.content.pm.PackageManager;
 import android.os.OutcomeReceiver;
 import android.os.RemoteException;
 import android.text.TextUtils;
-import android.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -69,57 +68,23 @@ public final class DeviceLockManager {
      */
     public static final int DEVICE_LOCK_ROLE_FINANCING = 0;
 
-    private static SecurityException getSecurityException() {
-        return new SecurityException("Need MANAGE_DEVICE_LOCK_STATE permission");
-    }
-
-    private static Exception getUnknwnException() {
-        return new Exception("Unknown error");
-    }
-
-    private static final Map<Class, Map<Integer, Exception>> ERROR_MAP = Map.of(
-            ILockUnlockDeviceCallback.class, Map.of(
-                    ILockUnlockDeviceCallback.ERROR_UNKNOWN, getUnknwnException(),
-                    ILockUnlockDeviceCallback.ERROR_SECURITY, getSecurityException()
-            ),
-            IIsDeviceLockedCallback.class, Map.of(
-                    IIsDeviceLockedCallback.ERROR_UNKNOWN, getUnknwnException(),
-                    IIsDeviceLockedCallback.ERROR_SECURITY, getSecurityException()
-            ),
-            IGetDeviceIdCallback.class, Map.of(
-                    IGetDeviceIdCallback.ERROR_UNKNOWN, getUnknwnException(),
-                    IGetDeviceIdCallback.ERROR_SECURITY, getSecurityException(),
-                    IGetDeviceIdCallback.ERROR_INVALID_DEVICE_ID_TYPE_BITMAP,
-                        new Exception("Invalid device type"),
-                    IGetDeviceIdCallback.ERROR_CANNOT_GET_DEVICE_ID,
-                        new Exception("Unable to get device id")
-            ),
-            IGetKioskAppsCallback.class, Map.of(
-                    IGetKioskAppsCallback.ERROR_UNKNOWN, getUnknwnException()
-            )
-    );
-
-    private static Exception getException(Class clazz, int error) {
-        final Map<Integer, Exception> map = ERROR_MAP.get(clazz);
-        if (map == null) {
-            Log.e(TAG, "Cannot find error map for: " + clazz.getSimpleName());
-
-            return new Exception();
-        }
-
-        final Exception ex = map.get(error);
-        if (ex == null) {
-            return new Exception();
-        }
-
-        return ex;
-    }
-
     /**
      * @hide
      */
     public DeviceLockManager(Context context, IDeviceLockService service) {
         mService = service;
+    }
+
+    /**
+     * Return the underlying service interface.
+     * This is used to implement private APIs between the Device Lock Controller and the
+     * Device Lock System Service.
+     *
+     * @hide
+     */
+    @NonNull
+    public IDeviceLockService getService() {
+        return mService;
     }
 
     /**
@@ -143,9 +108,8 @@ public final class DeviceLockManager {
                         }
 
                         @Override
-                        public void onError(int error) {
-                            callback.onError(getException(ILockUnlockDeviceCallback.class,
-                                    error));
+                        public void onError(ParcelableException parcelableException) {
+                            callback.onError(parcelableException.getException());
                         }
                     });
         } catch (RemoteException e) {
@@ -174,9 +138,8 @@ public final class DeviceLockManager {
                         }
 
                         @Override
-                        public void onError(int error) {
-                            callback.onError(getException(ILockUnlockDeviceCallback.class,
-                                    error));
+                        public void onError(ParcelableException parcelableException) {
+                            callback.onError(parcelableException.getException());
                         }
                     });
         } catch (RemoteException e) {
@@ -205,10 +168,9 @@ public final class DeviceLockManager {
                         }
 
                         @Override
-                        public void onError(int error) {
+                        public void onError(ParcelableException parcelableException) {
                             executor.execute(() ->
-                                    callback.onError(getException(IIsDeviceLockedCallback.class,
-                                            error)));
+                                    callback.onError(parcelableException.getException()));
                         }
                     });
         } catch (RemoteException e) {
@@ -245,9 +207,8 @@ public final class DeviceLockManager {
                         }
 
                         @Override
-                        public void onError(int error) {
-                            callback.onError(getException(IGetDeviceIdCallback.class,
-                                    error));
+                        public void onError(ParcelableException parcelableException) {
+                            callback.onError(parcelableException.getException());
                         }
                     }
             );
@@ -281,9 +242,8 @@ public final class DeviceLockManager {
                         }
 
                         @Override
-                        public void onError(int error) {
-                            callback.onError(getException(IGetKioskAppsCallback.class,
-                                    error));
+                        public void onError(ParcelableException parcelableException) {
+                            callback.onError(parcelableException.getException());
                         }
                     }
             );

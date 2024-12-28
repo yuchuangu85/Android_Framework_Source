@@ -263,9 +263,10 @@ public class ImsNrSaModeHandler extends Handler{
             PersistableBundle bundle = mCarrierConfigManager.getConfigForSubId(mPhone.getSubId(),
                     KEY_NR_SA_DISABLE_POLICY_INT, KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY);
             mNrSaDisablePolicy = bundle.getInt(KEY_NR_SA_DISABLE_POLICY_INT);
-            mIsNrSaSupported = Arrays.stream(
-                    bundle.getIntArray(KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY)).anyMatch(
-                        value -> value == CARRIER_NR_AVAILABILITY_SA);
+            int[] nrAvailabilities = bundle.getIntArray(KEY_CARRIER_NR_AVAILABILITIES_INT_ARRAY);
+            mIsNrSaSupported = nrAvailabilities != null
+                    && Arrays.stream(nrAvailabilities).anyMatch(
+                            value -> value == CARRIER_NR_AVAILABILITY_SA);
 
             Log.d(TAG, "setNrSaDisablePolicy : NrSaDisablePolicy = "
                     + mNrSaDisablePolicy + ", IsNrSaSupported = "  + mIsNrSaSupported);
@@ -286,7 +287,7 @@ public class ImsNrSaModeHandler extends Handler{
 
     private void setNrSaMode(boolean onOrOff) {
         if (mIsNrSaSupported) {
-            mPhone.getDefaultPhone().mCi.setN1ModeEnabled(onOrOff, null);
+            mPhone.getDefaultPhone().setN1ModeEnabled(onOrOff, null);
             Log.i(TAG, "setNrSaMode : " + onOrOff);
 
             setNrSaDisabledForWfc(!onOrOff);

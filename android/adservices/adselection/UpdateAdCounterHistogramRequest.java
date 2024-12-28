@@ -18,13 +18,11 @@ package android.adservices.adselection;
 
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID;
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID_MESSAGE;
-import static android.adservices.common.FrequencyCapFilters.AD_EVENT_TYPE_INVALID;
 import static android.adservices.common.FrequencyCapFilters.AD_EVENT_TYPE_WIN;
 
 import android.adservices.common.AdTechIdentifier;
 import android.adservices.common.FrequencyCapFilters;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.os.OutcomeReceiver;
 
 import com.android.internal.util.Preconditions;
@@ -36,11 +34,9 @@ import java.util.concurrent.Executor;
  * Request object wrapping the required arguments needed to update an ad counter histogram.
  *
  * <p>The ad counter histograms, which are historical logs of events which are associated with an ad
- * counter key and an ad event type, are used to inform frequency cap filtering in FLEDGE.
- *
- * @hide
+ * counter key and an ad event type, are used to inform frequency cap filtering when using the
+ * Protected Audience APIs.
  */
-// TODO(b/221876775): Unhide for frequency cap API review
 public class UpdateAdCounterHistogramRequest {
     /** @hide */
     public static final String UNSET_AD_EVENT_TYPE_MESSAGE = "Ad event type must be set";
@@ -48,6 +44,11 @@ public class UpdateAdCounterHistogramRequest {
     /** @hide */
     public static final String DISALLOW_AD_EVENT_TYPE_WIN_MESSAGE =
             "Win event types cannot be manually updated";
+
+    /** @hide */
+    public static final String INVALID_AD_EVENT_TYPE_MESSAGE =
+            "Ad event type must be one of AD_EVENT_TYPE_IMPRESSION, AD_EVENT_TYPE_VIEW, or"
+                    + " AD_EVENT_TYPE_CLICK";
 
     /** @hide */
     public static final String UNSET_CALLER_ADTECH_MESSAGE = "Caller ad tech must not be null";
@@ -69,11 +70,11 @@ public class UpdateAdCounterHistogramRequest {
      *
      * <p>For more information about the ad selection ID, see {@link AdSelectionOutcome}.
      *
-     * <p>The ad must have been selected from FLEDGE ad selection in the last 24 hours, and the ad
-     * selection call must have been initiated from the same app as the current calling app. Event
-     * histograms for all ad counter keys associated with the ad specified by the ad selection ID
-     * will be updated for the ad event type from {@link #getAdEventType()}, to be used in FLEDGE
-     * frequency cap filtering.
+     * <p>The ad must have been selected from Protected Audience ad selection in the last 24 hours,
+     * and the ad selection call must have been initiated from the same app as the current calling
+     * app. Event histograms for all ad counter keys associated with the ad specified by the ad
+     * selection ID will be updated for the ad event type from {@link #getAdEventType()}, to be used
+     * in Protected Audience frequency cap filtering.
      */
     public long getAdSelectionId() {
         return mAdSelectionId;
@@ -140,19 +141,36 @@ public class UpdateAdCounterHistogramRequest {
 
     /** Builder for {@link UpdateAdCounterHistogramRequest} objects. */
     public static final class Builder {
-        private long mAdSelectionId = UNSET_AD_SELECTION_ID;
-        @FrequencyCapFilters.AdEventType private int mAdEventType = AD_EVENT_TYPE_INVALID;
-        @Nullable private AdTechIdentifier mCallerAdTech;
+        private long mAdSelectionId;
+        @FrequencyCapFilters.AdEventType private int mAdEventType;
+        @NonNull private AdTechIdentifier mCallerAdTech;
 
-        public Builder() {}
+        public Builder(
+                long adSelectionId, int adEventType, @NonNull AdTechIdentifier callerAdTech) {
+            Preconditions.checkArgument(
+                    adSelectionId != UNSET_AD_SELECTION_ID, UNSET_AD_SELECTION_ID_MESSAGE);
+            Preconditions.checkArgument(
+                    adEventType != AD_EVENT_TYPE_WIN, DISALLOW_AD_EVENT_TYPE_WIN_MESSAGE);
+            Preconditions.checkArgument(
+                    adEventType >= FrequencyCapFilters.AD_EVENT_TYPE_MIN
+                            && adEventType <= FrequencyCapFilters.AD_EVENT_TYPE_MAX,
+                    INVALID_AD_EVENT_TYPE_MESSAGE);
+            Objects.requireNonNull(callerAdTech, UNSET_CALLER_ADTECH_MESSAGE);
+
+            mAdSelectionId = adSelectionId;
+            mAdEventType = adEventType;
+            mCallerAdTech = callerAdTech;
+        }
 
         /**
-         * Gets the ad selection ID with which the rendered ad's events are associated.
+         * Sets the ad selection ID with which the rendered ad's events are associated.
          *
          * <p>See {@link #getAdSelectionId()} for more information.
          */
         @NonNull
         public Builder setAdSelectionId(long adSelectionId) {
+            Preconditions.checkArgument(
+                    adSelectionId != UNSET_AD_SELECTION_ID, UNSET_AD_SELECTION_ID_MESSAGE);
             mAdSelectionId = adSelectionId;
             return this;
         }
@@ -167,6 +185,10 @@ public class UpdateAdCounterHistogramRequest {
         public Builder setAdEventType(@FrequencyCapFilters.AdEventType int adEventType) {
             Preconditions.checkArgument(
                     adEventType != AD_EVENT_TYPE_WIN, DISALLOW_AD_EVENT_TYPE_WIN_MESSAGE);
+            Preconditions.checkArgument(
+                    adEventType >= FrequencyCapFilters.AD_EVENT_TYPE_MIN
+                            && adEventType <= FrequencyCapFilters.AD_EVENT_TYPE_MAX,
+                    INVALID_AD_EVENT_TYPE_MESSAGE);
             mAdEventType = adEventType;
             return this;
         }
@@ -183,21 +205,9 @@ public class UpdateAdCounterHistogramRequest {
             return this;
         }
 
-        /**
-         * Builds the {@link UpdateAdCounterHistogramRequest} object.
-         *
-         * @throws NullPointerException if the caller's {@link AdTechIdentifier} is not set
-         * @throws IllegalArgumentException if the ad selection ID is not set
-         */
+        /** Builds the {@link UpdateAdCounterHistogramRequest} object. */
         @NonNull
-        public UpdateAdCounterHistogramRequest build()
-                throws NullPointerException, IllegalArgumentException {
-            Preconditions.checkArgument(
-                    mAdSelectionId != UNSET_AD_SELECTION_ID, UNSET_AD_SELECTION_ID_MESSAGE);
-            Preconditions.checkArgument(
-                    mAdEventType != AD_EVENT_TYPE_INVALID, UNSET_AD_EVENT_TYPE_MESSAGE);
-            Objects.requireNonNull(mCallerAdTech, UNSET_CALLER_ADTECH_MESSAGE);
-
+        public UpdateAdCounterHistogramRequest build() {
             return new UpdateAdCounterHistogramRequest(this);
         }
     }

@@ -471,4 +471,14 @@ public class JapaneseCalendar extends GregorianCalendar {
         return super.getActualMaximum(field);
     }
 
+    /**
+     * {@inheritDoc}
+     * @deprecated This API is ICU internal only.
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    @Override
+    @Deprecated
+    protected boolean isEra0CountingBackward() {
+        return false;
+    }
 }

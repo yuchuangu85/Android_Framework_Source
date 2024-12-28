@@ -159,7 +159,14 @@ public final class ElevationGainedRecord extends IntervalRecord {
             @NonNull ZoneOffset endZoneOffset,
             @NonNull Length elevation,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         Objects.requireNonNull(elevation);
         if (!skipValidation) {
             ValidationUtils.requireInRange(
@@ -182,6 +189,7 @@ public final class ElevationGainedRecord extends IntervalRecord {
      * @param o the reference object with which to compare.
      * @return {@code true} if this object is the same as the obj
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

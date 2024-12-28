@@ -16,11 +16,14 @@
 
 package android.nfc.cardemulation;
 
+import android.annotation.FlaggedApi;
+import android.annotation.NonNull;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.app.Service;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.nfc.NfcAdapter;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -28,6 +31,9 @@ import android.os.Message;
 import android.os.Messenger;
 import android.os.RemoteException;
 import android.util.Log;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * <p>HostApduService is a convenience {@link Service} class that can be
@@ -230,7 +236,18 @@ public abstract class HostApduService extends Service {
     /**
      * @hide
      */
+    public static final int MSG_POLLING_LOOP = 4;
+
+    /**
+     * @hide
+     */
     public static final String KEY_DATA = "data";
+
+    /**
+     * @hide
+     */
+    public static final String KEY_POLLING_LOOP_FRAMES_BUNDLE =
+            "android.nfc.cardemulation.POLLING_FRAMES";
 
     /**
      * Messenger interface to NfcService for sending responses.
@@ -255,6 +272,7 @@ public abstract class HostApduService extends Service {
 
                 byte[] apdu = dataBundle.getByteArray(KEY_DATA);
                 if (apdu != null) {
+                        HostApduService has = HostApduService.this;
                     byte[] responseApdu = processCommandApdu(apdu, null);
                     if (responseApdu != null) {
                         if (mNfcService == null) {
@@ -306,6 +324,14 @@ public abstract class HostApduService extends Service {
                     Log.e(TAG, "RemoteException calling into NfcService.");
                 }
                 break;
+                case MSG_POLLING_LOOP:
+                    if (android.nfc.Flags.nfcReadPollingLoop()) {
+                        ArrayList<PollingFrame> pollingFrames =
+                                msg.getData().getParcelableArrayList(
+                                    KEY_POLLING_LOOP_FRAMES_BUNDLE, PollingFrame.class);
+                        processPollingFrames(pollingFrames);
+                    }
+                    break;
             default:
                 super.handleMessage(msg);
             }
@@ -366,6 +392,21 @@ public abstract class HostApduService extends Service {
         }
     }
 
+    /**
+     * This method is called when polling frames have been received from a
+     * remote device. If the device is in observe mode, the service should
+     * call {@link NfcAdapter#allowTransaction()} once it is ready to proceed
+     * with the transaction. If the device is not in observe mode, the service
+     * can use this polling frame information to determine how to proceed if it
+     * subsequently has {@link #processCommandApdu(byte[], Bundle)} called. The
+     * service must override this method inorder to receive polling frames,
+     * otherwise the base implementation drops the frame.
+     *
+     * @param frame A description of the polling frame.
+     */
+    @FlaggedApi(android.nfc.Flags.FLAG_NFC_READ_POLLING_LOOP)
+    public void processPollingFrames(@NonNull List<PollingFrame> frame) {
+    }
 
     /**
      * <p>This method will be called when a command APDU has been received

@@ -25,14 +25,10 @@
 
 package java.lang;
 
-// BEGIN Android-removed: dynamic constants not supported on Android.
-/*
 import java.lang.invoke.MethodHandles;
 import java.lang.constant.Constable;
 import java.lang.constant.ConstantDesc;
 import java.util.Optional;
-*/
-// END Android-removed: dynamic constants not supported on Android.
 
 import jdk.internal.math.FloatingDecimal;
 import jdk.internal.math.DoubleConsts;
@@ -160,10 +156,7 @@ import jdk.internal.vm.annotation.IntrinsicCandidate;
  */
 @jdk.internal.ValueBased
 public final class Double extends Number
-        implements Comparable<Double>
-// Android-removed: no Constable support.
-// , Constable, ConstantDesc
-{
+        implements Comparable<Double>, Constable, ConstantDesc {
     /**
      * A constant holding the positive infinity of type
      * {@code double}. It is equal to the value returned by
@@ -238,6 +231,15 @@ public final class Double extends Number
      * @since 1.5
      */
     public static final int SIZE = 64;
+
+    /**
+     * The number of bits in the significand of a {@code double} value.
+     * This is the parameter N in section {@jls 4.2.3} of
+     * <cite>The Java Language Specification</cite>.
+     *
+     * @since 19
+     */
+    public static final int PRECISION = 53;
 
     /**
      * The number of bytes used to represent a {@code double} value.
@@ -1183,14 +1185,14 @@ public final class Double extends Number
         return Math.min(a, b);
     }
 
-    // BEGIN Android-removed: dynamic constants not supported on Android.
     /**
      * Returns an {@link Optional} containing the nominal descriptor for this
      * instance, which is the instance itself.
      *
      * @return an {@link Optional} describing the {@linkplain Double} instance
      * @since 12
-     *
+     * @hide
+     */
     @Override
     public Optional<Double> describeConstable() {
         return Optional.of(this);
@@ -1203,12 +1205,12 @@ public final class Double extends Number
      * @param lookup ignored
      * @return the {@linkplain Double} instance
      * @since 12
-     *
+     * @hide
+     */
     @Override
     public Double resolveConstantDesc(MethodHandles.Lookup lookup) {
         return this;
     }
-    // END Android-removed: dynamic constants not supported on Android.
 
     /** use serialVersionUID from JDK 1.0.2 for interoperability */
     @java.io.Serial

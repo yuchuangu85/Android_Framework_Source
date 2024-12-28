@@ -22,8 +22,8 @@ import android.annotation.Nullable;
 /**
  * The callback interface to return {@link AppSearchBatchResult}.
  *
- * @param <KeyType> The type of the keys for {@link AppSearchBatchResult#getSuccesses} and
- * {@link AppSearchBatchResult#getFailures}.
+ * @param <KeyType> The type of the keys for {@link AppSearchBatchResult#getSuccesses} and {@link
+ *     AppSearchBatchResult#getFailures}.
  * @param <ValueType> The type of result objects associated with the keys.
  */
 public interface BatchResultCallback<KeyType, ValueType> {
@@ -47,8 +47,8 @@ public interface BatchResultCallback<KeyType, ValueType> {
      * <p>The error is not expected to be recoverable and there is no specific recommended action
      * other than displaying a permanent message to the user.
      *
-     * <p>Normal errors that are caused by invalid inputs or recoverable/retriable situations
-     * are reported associated with the input that caused them via the {@link #onResult} method.
+     * <p>Normal errors that are caused by invalid inputs or recoverable/retriable situations are
+     * reported associated with the input that caused them via the {@link #onResult} method.
      *
      * @param throwable an exception describing the system error
      */

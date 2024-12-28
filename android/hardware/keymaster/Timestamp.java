@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash d60ca1bb57f94508910cac7b8910c85e2a49a11f -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster-V4-java-source/gen/android/hardware/keymaster/Timestamp.java.d -o out/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster-V4-java-source/gen -Nhardware/interfaces/keymaster/aidl/aidl_api/android.hardware.keymaster/4 hardware/interfaces/keymaster/aidl/aidl_api/android.hardware.keymaster/4/android/hardware/keymaster/Timestamp.aidl
  */
 package android.hardware.keymaster;
 /** @hide */

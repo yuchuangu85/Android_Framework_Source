@@ -125,7 +125,7 @@ public class CharSequences {
      * Same results as turning the code point into a string (with the [ugly] new StringBuilder().appendCodePoint(codepoint).toString())
      * and comparing, but much faster (no object creation). 
      * Actually, there is one difference; a null compares as less.
-     * Note that this (=String) order is UTF-16 order -- *not* code point order.
+     * Note that this (=String) order is UTF-16 order -- <i>not</i> code point order.
      * 
      * @deprecated This API is ICU internal only.
      * @hide draft / provisional / internal are hidden on Android
@@ -169,7 +169,7 @@ public class CharSequences {
      * Utility to compare a string to a code point.
      * Same results as turning the code point into a string and comparing, but much faster (no object creation). 
      * Actually, there is one difference; a null compares as less.
-     * Note that this (=String) order is UTF-16 order -- *not* code point order.
+     * Note that this (=String) order is UTF-16 order -- <i>not</i> code point order.
      * 
      * @deprecated This API is ICU internal only.
      * @hide draft / provisional / internal are hidden on Android

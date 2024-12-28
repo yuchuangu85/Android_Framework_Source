@@ -31,6 +31,8 @@ import java.nio.channels.FileChannel;
 import sun.nio.ch.FileChannelImpl;
 import android.system.Os;
 import android.system.ErrnoException;
+import android.system.OsConstants;
+
 import dalvik.system.CloseGuard;
 import libcore.io.IoBridge;
 import libcore.io.IoTracker;
@@ -231,6 +233,20 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
     public RandomAccessFile(File file, String mode)
         throws FileNotFoundException
     {
+        // Android-changed: delegate to constructor which controls O_CLOEXEC.
+        this(file, mode, /* setCloExecFlag= */ false);
+    }
+
+    /**
+     * Identical to {@link #RandomAccessFile(File, String)}, but with a capability to control
+     * O_CLOEXEC flag of file descriptor.
+     *
+     * @param setCloExecFlag if true file descriptor will be opened with O_CLOEXE flag set
+     * @hide
+     */
+    // Android-changed: added an extra argument to set O_CLOEXEC.
+    public RandomAccessFile(File file, String mode, boolean setCloExecFlag)
+            throws FileNotFoundException {
         String name = (file != null ? file.getPath() : null);
         int imode = -1;
         if (mode.equals("r")) {
@@ -283,6 +299,8 @@ public class RandomAccessFile implements DataOutput, DataInput, Closeable {
             throw new FileNotFoundException("Invalid file path");
         }
         this.path = name;
+        // Android-added: set O_CLOEXEC flag if requested.
+        imode = setCloExecFlag ? imode | O_CLOEXEC : imode;
         this.mode = imode;
 
         // BEGIN Android-changed: Use IoBridge.open() instead of open.

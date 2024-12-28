@@ -20,6 +20,7 @@ import android.content.Context;
 
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneNotifier;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.telephony.Rlog;
 
 /**
@@ -35,10 +36,10 @@ public class ImsPhoneFactory {
      * @return the {@code ImsPhone} object
      */
     public static ImsPhone makePhone(Context context,
-            PhoneNotifier phoneNotifier, Phone defaultPhone) {
+            PhoneNotifier phoneNotifier, Phone defaultPhone, FeatureFlags featureFlags) {
 
         try {
-            return new ImsPhone(context, phoneNotifier, defaultPhone);
+            return new ImsPhone(context, phoneNotifier, defaultPhone, featureFlags);
         } catch (Exception e) {
             Rlog.e("VoltePhoneFactory", "makePhone", e);
             return null;

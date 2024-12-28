@@ -16,6 +16,7 @@
 
 package android.health.connect;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.SystemApi;
 import android.health.connect.datatypes.ActiveCaloriesBurnedRecord;
@@ -40,13 +41,17 @@ import java.lang.annotation.RetentionPolicy;
 @SystemApi
 public class HealthPermissionCategory {
     public static final int UNKNOWN = 0;
+
     // ACTIVITY
     /** Permission category for {@link ActiveCaloriesBurnedRecord} */
     public static final int ACTIVE_CALORIES_BURNED = 1;
+
     /** Permission category for {@link DistanceRecord} */
     public static final int DISTANCE = 2;
+
     /** Permission category for {@link ElevationGainedRecord} */
     public static final int ELEVATION_GAINED = 3;
+
     /**
      * Permission category for {@link android.health.connect.datatypes.ExerciseSessionRecord} and
      * {@link android.health.connect.datatypes.ExerciseLap}
@@ -58,70 +63,108 @@ public class HealthPermissionCategory {
 
     /** Permission category for {@link StepsRecord} */
     public static final int STEPS = 6;
+
     // BODY_MEASUREMENTS
     /** Permission category for {@link BasalMetabolicRateRecord} */
     public static final int BASAL_METABOLIC_RATE = 9;
+
     /** Permission category for {BodyFatRecord} */
     public static final int BODY_FAT = 10;
+
     /** Permission category for {BodyWaterMassRecord} */
     public static final int BODY_WATER_MASS = 11;
 
     /** Permission category for {BoneMassRecord} */
     public static final int BONE_MASS = 12;
+
     /** Permission category for {HeightRecord} */
     public static final int HEIGHT = 13;
+
     /** Permission category for {LeanBodyMassRecord} */
     public static final int LEAN_BODY_MASS = 15;
+
     /** Permission category for {@link PowerRecord} */
     public static final int POWER = 36;
+
     /** Permission category for {@link SpeedRecord} */
     public static final int SPEED = 37;
+
     /** Permission category for {TotalCaloriesBurnedRecord} */
     public static final int TOTAL_CALORIES_BURNED = 35;
+
     /** Permission category for {Vo2MaxRecord} */
     public static final int VO2_MAX = 7;
+
     /** Permission category for {WeightRecord} */
     public static final int WEIGHT = 17;
+
     /** Permission category for {WheelChairPushesRecord} */
     public static final int WHEELCHAIR_PUSHES = 8;
+
     // CYCLE_TRACKING
     /** Permission category for {CervicalMucusRecord} */
     public static final int CERVICAL_MUCUS = 18;
+
     /** Permission category for {IntermenstrualBleedingRecord} */
     public static final int INTERMENSTRUAL_BLEEDING = 38;
+
     /** Permission category for {MenstruationRecord} */
     public static final int MENSTRUATION = 20;
+
     /** Permission category for {OvulationTestRecord} */
     public static final int OVULATION_TEST = 21;
+
     /** Permission category for {SexualActivityRecord} */
     public static final int SEXUAL_ACTIVITY = 22;
+
     // NUTRITION
     /** Permission category for {HydrationRecord} */
     public static final int HYDRATION = 23;
+
     /** Permission category for {NutritionRecord} */
     public static final int NUTRITION = 24;
+
     // SLEEP
     /** Permission category for {BasalBodyTemperatureRecord} */
     public static final int BASAL_BODY_TEMPERATURE = 33;
+
     /** Permission category for {SleepRecord} */
     public static final int SLEEP = 25;
+
     // VITALS
     /** Permission category for {BloodGlucose} */
     public static final int BLOOD_GLUCOSE = 26;
+
     /** Permission category for {BloodPressure} */
     public static final int BLOOD_PRESSURE = 27;
+
     /** Permission category for {BodyTemperature} */
     public static final int BODY_TEMPERATURE = 28;
+
     /** Permission category for {@link HeartRateRecord} */
     public static final int HEART_RATE = 29;
+
     /** Permission category for {HeartRateVariability} */
     public static final int HEART_RATE_VARIABILITY = 30;
+
     /** Permission category for {OxygenSaturation} */
     public static final int OXYGEN_SATURATION = 31;
+
     /** Permission category for {RespiratoryRate} */
     public static final int RESPIRATORY_RATE = 32;
+
     /** Permission category for {RestingHeartRate} */
     public static final int RESTING_HEART_RATE = 34;
+
+    /**
+     * Permission category for {SkinTemperature}
+     */
+    @FlaggedApi("com.android.healthconnect.flags.skin_temperature")
+    public static final int SKIN_TEMPERATURE = 39;
+
+    /** Permission category for {PlannedExerciseSession} */
+    @FlaggedApi("com.android.healthconnect.flags.training_plans")
+    public static final int PLANNED_EXERCISE = 40;
 
     private HealthPermissionCategory() {}
 
@@ -162,7 +205,9 @@ public class HealthPermissionCategory {
         HEART_RATE_VARIABILITY,
         OXYGEN_SATURATION,
         RESPIRATORY_RATE,
-        RESTING_HEART_RATE
+        RESTING_HEART_RATE,
+        SKIN_TEMPERATURE,
+        PLANNED_EXERCISE
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Type {}

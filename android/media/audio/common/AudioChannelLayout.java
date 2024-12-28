@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 0c86a38729dd5d560fe3a0eca6aa9d8cf83efb00 --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen/android/media/audio/common/AudioChannelLayout.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3/android/media/audio/common/AudioChannelLayout.aidl
  */
 package android.media.audio.common;
 /** @hide */
@@ -281,11 +282,11 @@ public final class AudioChannelLayout implements android.os.Parcelable {
   @Override
   public String toString() {
     switch (_tag) {
-    case none: return "android.media.audio.common.AudioChannelLayout.none(" + (getNone()) + ")";
-    case invalid: return "android.media.audio.common.AudioChannelLayout.invalid(" + (getInvalid()) + ")";
-    case indexMask: return "android.media.audio.common.AudioChannelLayout.indexMask(" + (getIndexMask()) + ")";
-    case layoutMask: return "android.media.audio.common.AudioChannelLayout.layoutMask(" + (getLayoutMask()) + ")";
-    case voiceMask: return "android.media.audio.common.AudioChannelLayout.voiceMask(" + (getVoiceMask()) + ")";
+    case none: return "AudioChannelLayout.none(" + (getNone()) + ")";
+    case invalid: return "AudioChannelLayout.invalid(" + (getInvalid()) + ")";
+    case indexMask: return "AudioChannelLayout.indexMask(" + (getIndexMask()) + ")";
+    case layoutMask: return "AudioChannelLayout.layoutMask(" + (getLayoutMask()) + ")";
+    case voiceMask: return "AudioChannelLayout.voiceMask(" + (getVoiceMask()) + ")";
     }
     throw new IllegalStateException("unknown field: " + _tag);
   }

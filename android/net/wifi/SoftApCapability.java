@@ -234,6 +234,20 @@ public final class SoftApCapability implements Parcelable {
     }
 
     /**
+     * Set SoftAp Capabilities
+     * @param value Boolean to set value 0 or 1
+     * @param features @HotspotFeatures represents which feature to access
+     * @hide
+     */
+    public void setSupportedFeatures(boolean value, @HotspotFeatures long features) {
+        if (value) {
+            mSupportedFeatures |= features;
+        } else {
+            mSupportedFeatures &= ~features;
+        }
+    }
+
+    /**
      * Set supported channel list in target band type.
      *
      * @param band One of the following band types:
@@ -380,7 +394,7 @@ public final class SoftApCapability implements Parcelable {
     }
 
     @Override
-    public boolean equals(@NonNull Object o) {
+    public boolean equals(@Nullable Object o) {
         if (this == o) return true;
         if (!(o instanceof SoftApCapability)) return false;
         SoftApCapability capability = (SoftApCapability) o;

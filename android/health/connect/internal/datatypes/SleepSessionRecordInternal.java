@@ -33,8 +33,13 @@ import java.util.Objects;
  */
 @Identifier(recordIdentifier = RecordTypeIdentifier.RECORD_TYPE_SLEEP_SESSION)
 public final class SleepSessionRecordInternal extends IntervalRecordInternal<SleepSessionRecord> {
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private List<SleepStageInternal> mStages;
+
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private String mNotes;
+
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private String mTitle;
 
     @Nullable

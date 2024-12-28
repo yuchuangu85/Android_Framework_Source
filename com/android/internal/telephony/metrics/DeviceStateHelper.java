@@ -41,7 +41,7 @@ public class DeviceStateHelper {
                 .registerCallback(
                         new HandlerExecutor(new Handler(mHandlerThread.getLooper())),
                         state -> {
-                            updateFoldState(state);
+                            updateFoldState(state.getIdentifier());
                         });
     }
 

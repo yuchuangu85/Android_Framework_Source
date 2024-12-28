@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation -t --min_sdk_version platform_apis -pout/soong/.intermediates/system/hardware/interfaces/keystore2/aidl/android.system.keystore2_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.metrics-java-source/gen/android/security/metrics/IKeystoreMetrics.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.metrics-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/metrics/IKeystoreMetrics.aidl
  */
 package android.security.metrics;
 /**
@@ -38,6 +39,7 @@ public interface IKeystoreMetrics extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.security.metrics.IKeystoreMetrics
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -87,13 +89,9 @@ public interface IKeystoreMetrics extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -169,7 +167,8 @@ public interface IKeystoreMetrics extends android.os.IInterface
       return 0;
     }
   }
-  public static final java.lang.String DESCRIPTOR = "android$security$metrics$IKeystoreMetrics".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.security.metrics.IKeystoreMetrics";
   /**
    * Allows the metrics routing proxy to pull the metrics from keystore.
    * 

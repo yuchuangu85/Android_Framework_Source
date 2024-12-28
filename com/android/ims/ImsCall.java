@@ -2538,7 +2538,11 @@ public class ImsCall implements ICall {
                 setCallProfile(updatedProfile);
                 // Apply the new mediaProfile on top of the Call Profile so it is not ignored in
                 // case the ImsService has not had a chance to update it yet.
-                mCallProfile.mMediaProfile.copyFrom(profile);
+                if( mCallProfile != null && mCallProfile.mMediaProfile != null) {
+                    mCallProfile.mMediaProfile.copyFrom(profile);
+                } else {
+                    logi("Call was closed already, skip updating CallProfile");
+                }
             }
 
             if (listener != null) {

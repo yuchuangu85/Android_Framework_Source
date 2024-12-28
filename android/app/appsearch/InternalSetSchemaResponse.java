@@ -16,9 +16,14 @@
 
 package android.app.appsearch;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.os.Bundle;
+import android.app.appsearch.flags.Flags;
+import android.app.appsearch.safeparcel.AbstractSafeParcelable;
+import android.app.appsearch.safeparcel.SafeParcelable;
+import android.os.Parcel;
+import android.os.Parcelable;
 
 import java.util.Objects;
 
@@ -32,37 +37,33 @@ import java.util.Objects;
  *
  * @hide
  */
-public class InternalSetSchemaResponse {
+@SafeParcelable.Class(creator = "InternalSetSchemaResponseCreator")
+public class InternalSetSchemaResponse extends AbstractSafeParcelable {
 
-    private static final String IS_SUCCESS_FIELD = "isSuccess";
-    private static final String SET_SCHEMA_RESPONSE_BUNDLE_FIELD = "setSchemaResponseBundle";
-    private static final String ERROR_MESSAGE_FIELD = "errorMessage";
-
-    private final Bundle mBundle;
-
-    public InternalSetSchemaResponse(@NonNull Bundle bundle) {
-        mBundle = Objects.requireNonNull(bundle);
-    }
-
-    private InternalSetSchemaResponse(
-            boolean isSuccess,
-            @NonNull SetSchemaResponse setSchemaResponse,
-            @Nullable String errorMessage) {
-        Objects.requireNonNull(setSchemaResponse);
-        mBundle = new Bundle();
-        mBundle.putBoolean(IS_SUCCESS_FIELD, isSuccess);
-        mBundle.putBundle(SET_SCHEMA_RESPONSE_BUNDLE_FIELD, setSchemaResponse.getBundle());
-        mBundle.putString(ERROR_MESSAGE_FIELD, errorMessage);
-    }
-
-    /**
-     * Returns the {@link Bundle} populated by this builder.
-     *
-     * @hide
-     */
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
     @NonNull
-    public Bundle getBundle() {
-        return mBundle;
+    public static final Parcelable.Creator<InternalSetSchemaResponse> CREATOR =
+            new InternalSetSchemaResponseCreator();
+
+    @Field(id = 1, getter = "isSuccess")
+    private final boolean mIsSuccess;
+
+    @Field(id = 2, getter = "getSetSchemaResponse")
+    private final SetSchemaResponse mSetSchemaResponse;
+
+    @Field(id = 3, getter = "getErrorMessage")
+    @Nullable
+    private final String mErrorMessage;
+
+    @Constructor
+    public InternalSetSchemaResponse(
+            @Param(id = 1) boolean isSuccess,
+            @Param(id = 2) @NonNull SetSchemaResponse setSchemaResponse,
+            @Param(id = 3) @Nullable String errorMessage) {
+        Objects.requireNonNull(setSchemaResponse);
+        mIsSuccess = isSuccess;
+        mSetSchemaResponse = setSchemaResponse;
+        mErrorMessage = errorMessage;
     }
 
     /**
@@ -74,7 +75,7 @@ public class InternalSetSchemaResponse {
     public static InternalSetSchemaResponse newSuccessfulSetSchemaResponse(
             @NonNull SetSchemaResponse setSchemaResponse) {
         return new InternalSetSchemaResponse(
-                /*isSuccess=*/ true, setSchemaResponse, /*errorMessage=*/ null);
+                /* isSuccess= */ true, setSchemaResponse, /* errorMessage= */ null);
     }
 
     /**
@@ -86,12 +87,13 @@ public class InternalSetSchemaResponse {
     @NonNull
     public static InternalSetSchemaResponse newFailedSetSchemaResponse(
             @NonNull SetSchemaResponse setSchemaResponse, @NonNull String errorMessage) {
-        return new InternalSetSchemaResponse(/*isSuccess=*/ false, setSchemaResponse, errorMessage);
+        return new InternalSetSchemaResponse(
+                /* isSuccess= */ false, setSchemaResponse, errorMessage);
     }
 
     /** Returns {@code true} if the schema request is proceeded successfully. */
     public boolean isSuccess() {
-        return mBundle.getBoolean(IS_SUCCESS_FIELD);
+        return mIsSuccess;
     }
 
     /**
@@ -101,7 +103,7 @@ public class InternalSetSchemaResponse {
      */
     @NonNull
     public SetSchemaResponse getSetSchemaResponse() {
-        return new SetSchemaResponse(mBundle.getBundle(SET_SCHEMA_RESPONSE_BUNDLE_FIELD));
+        return mSetSchemaResponse;
     }
 
     /**
@@ -111,6 +113,12 @@ public class InternalSetSchemaResponse {
      */
     @Nullable
     public String getErrorMessage() {
-        return mBundle.getString(ERROR_MESSAGE_FIELD);
+        return mErrorMessage;
+    }
+
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        InternalSetSchemaResponseCreator.writeToParcel(this, dest, flags);
     }
 }

@@ -49,6 +49,8 @@ import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.ProxyController;
 import com.android.internal.telephony.SmsController;
+import com.android.internal.telephony.flags.FeatureFlags;
+import com.android.internal.telephony.flags.FeatureFlagsImpl;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 import com.android.internal.telephony.uicc.IccFileHandler;
@@ -103,6 +105,8 @@ public class CatService extends Handler implements AppInterface {
     private static final Object sInstanceLock = new Object();
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private static CatService[] sInstance = null;
+    @UnsupportedAppUsage
+    private static final FeatureFlags sFlags = new FeatureFlagsImpl();
     @UnsupportedAppUsage
     private CommandsInterface mCmdIf;
     @UnsupportedAppUsage
@@ -279,6 +283,14 @@ public class CatService extends Handler implements AppInterface {
         synchronized (sInstanceLock) {
             CatLog.d(this, "Disposing CatService object");
             mIccRecords.unregisterForRecordsLoaded(this);
+
+            if (sFlags.unregisterSmsBroadcastReceiverFromCatService()) {
+                try {
+                    mContext.unregisterReceiver(mSmsBroadcastReceiver);
+                } catch (IllegalArgumentException e) {
+                    CatLog.e(this, "mSmsBroadcastReceiver: was not registered" + e);
+                }
+            }
 
             // Clean up stk icon if dispose is called
             broadcastCardStateAndIccRefreshResp(CardState.CARDSTATE_ABSENT, null);
@@ -487,7 +499,8 @@ public class CatService extends Handler implements AppInterface {
                         destAddr = ((SendSMSParams) cmdParams).mDestAddress.text;
                     }
                     if (text != null && destAddr != null) {
-                        ProxyController proxyController = ProxyController.getInstance(mContext);
+                        ProxyController proxyController = ProxyController
+                                .getInstance(mContext, sFlags);
                         SubscriptionManager subscriptionManager = (SubscriptionManager)
                                 mContext.getSystemService(
                                         Context.TELEPHONY_SUBSCRIPTION_SERVICE);

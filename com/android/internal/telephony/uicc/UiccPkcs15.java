@@ -106,14 +106,21 @@ public class UiccPkcs15 extends Handler {
                 mCallback.sendToTarget();
                 return;
             }
-
+            IccIoResult response;
             switch (msg.what) {
                 case EVENT_SELECT_FILE_DONE:
-                    readBinary();
+                    response = (IccIoResult) ar.result;
+                    if (response.getException() == null) {
+                        readBinary();
+                    } else {
+                        log("Select file error : " + response.getException());
+                        AsyncResult.forMessage(mCallback, null, response.getException());
+                        mCallback.sendToTarget();
+                    }
                     break;
 
                 case EVENT_READ_BINARY_DONE:
-                    IccIoResult response = (IccIoResult) ar.result;
+                    response = (IccIoResult) ar.result;
                     String result = IccUtils.bytesToHexString(response.payload)
                             .toUpperCase(Locale.US);
                     log("IccIoResult: " + response + " payload: " + result);

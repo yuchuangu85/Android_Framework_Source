@@ -47,6 +47,7 @@ import android.service.euicc.IDownloadSubscriptionCallback;
 import android.service.euicc.IEraseSubscriptionsCallback;
 import android.service.euicc.IEuiccService;
 import android.service.euicc.IEuiccServiceDumpResultCallback;
+import android.service.euicc.IGetAvailableMemoryInBytesCallback;
 import android.service.euicc.IGetDefaultDownloadableSubscriptionListCallback;
 import android.service.euicc.IGetDownloadableSubscriptionMetadataCallback;
 import android.service.euicc.IGetEidCallback;
@@ -155,6 +156,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     private static final int CMD_START_OTA_IF_NECESSARY = 112;
     private static final int CMD_ERASE_SUBSCRIPTIONS_WITH_OPTIONS = 113;
     private static final int CMD_DUMP_EUICC_SERVICE = 114;
+    private static final int CMD_GET_AVAILABLE_MEMORY_IN_BYTES = 115;
 
     private static boolean isEuiccCommand(int what) {
         return what >= CMD_GET_EID;
@@ -206,6 +208,18 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     public interface GetEidCommandCallback extends BaseEuiccCommandCallback {
         /** Called when the EID lookup has completed. */
         void onGetEidComplete(String eid);
+    }
+
+    /** Callback class for {@link #getAvailableMemoryInBytes}. */
+    @VisibleForTesting(visibility = PACKAGE)
+    public interface GetAvailableMemoryInBytesCommandCallback extends BaseEuiccCommandCallback {
+        /** Called when the available memory in bytes lookup has completed. */
+        void onGetAvailableMemoryInBytesComplete(long availableMemoryInBytes);
+        /**
+         * Called when the connected LPA does not implement
+         * EuiccService#onGetAvailableMemoryInBytes(int).
+         */
+        void onUnsupportedOperationExceptionComplete(String message);
     }
 
     /** Callback class for {@link #getOtaStatus}. */
@@ -434,6 +448,13 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     @VisibleForTesting(visibility = PACKAGE)
     public void getEid(int cardId, GetEidCommandCallback callback) {
         sendMessage(CMD_GET_EID, cardId, 0 /* arg2 */, callback);
+    }
+
+    /** Asynchronously fetch the available memory in bytes. */
+    @VisibleForTesting(visibility = PACKAGE)
+    public void getAvailableMemoryInBytes(
+            int cardId, GetAvailableMemoryInBytesCommandCallback callback) {
+        sendMessage(CMD_GET_AVAILABLE_MEMORY_IN_BYTES, cardId, 0 /* arg2 */, callback);
     }
 
     /** Asynchronously get OTA status. */
@@ -760,6 +781,34 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                     });
                             break;
                         }
+                        case CMD_GET_AVAILABLE_MEMORY_IN_BYTES: {
+                            mEuiccService.getAvailableMemoryInBytes(slotId,
+                                    new IGetAvailableMemoryInBytesCallback.Stub() {
+                                        @Override
+                                        public void onSuccess(long availableMemoryInBytes) {
+                                            sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
+                                                ((GetAvailableMemoryInBytesCommandCallback)
+                                                        callback)
+                                                        .onGetAvailableMemoryInBytesComplete(
+                                                                availableMemoryInBytes);
+                                                onCommandEnd(callback);
+                                            });
+                                        }
+
+                                        @Override
+                                        public void onUnsupportedOperationException(
+                                                String message) {
+                                            sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
+                                                ((GetAvailableMemoryInBytesCommandCallback)
+                                                        callback)
+                                                        .onUnsupportedOperationExceptionComplete(
+                                                            message);
+                                                onCommandEnd(callback);
+                                            });
+                                        }
+                                    });
+                            break;
+                        }
                         case CMD_GET_DOWNLOADABLE_SUBSCRIPTION_METADATA: {
                             GetMetadataRequest request = (GetMetadataRequest) message.obj;
                             mEuiccService.getDownloadableSubscriptionMetadata(slotId,
@@ -1036,6 +1085,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
             case CMD_GET_OTA_STATUS:
             case CMD_START_OTA_IF_NECESSARY:
             case CMD_DUMP_EUICC_SERVICE:
+            case CMD_GET_AVAILABLE_MEMORY_IN_BYTES:
                 return (BaseEuiccCommandCallback) message.obj;
             case CMD_GET_DOWNLOADABLE_SUBSCRIPTION_METADATA:
                 return ((GetMetadataRequest) message.obj).mCallback;

@@ -48,6 +48,7 @@ public final class AppInfo {
          * @param name name/label of the application. Optional
          * @param icon icon of the application. Optional.
          */
+        @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
         public Builder(@NonNull String packageName, @Nullable String name, @Nullable Bitmap icon) {
             Objects.requireNonNull(packageName);
             mPackageName = packageName;
@@ -64,6 +65,7 @@ public final class AppInfo {
         }
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private AppInfo(@NonNull String packageName, @Nullable String name, @Nullable Bitmap icon) {
         Objects.requireNonNull(packageName);
         mPackageName = packageName;

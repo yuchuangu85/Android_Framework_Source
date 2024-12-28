@@ -56,6 +56,7 @@ public abstract class RecordInternal<T extends Record> {
 
     @Metadata.RecordingMethod private int mRecordingMethod;
 
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     RecordInternal() {
         Identifier annotation = this.getClass().getAnnotation(Identifier.class);
         Objects.requireNonNull(annotation);
@@ -114,12 +115,14 @@ public abstract class RecordInternal<T extends Record> {
         return mUuid;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public RecordInternal<T> setUuid(@Nullable UUID uuid) {
         this.mUuid = uuid;
         return this;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public RecordInternal<T> setUuid(@Nullable String uuid) {
         if (uuid == null || uuid.isEmpty()) {
@@ -136,6 +139,7 @@ public abstract class RecordInternal<T extends Record> {
         return mPackageName;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public RecordInternal<T> setPackageName(@Nullable String packageName) {
         this.mPackageName = packageName;
@@ -164,6 +168,7 @@ public abstract class RecordInternal<T extends Record> {
     }
 
     /** Sets the application name for this record. */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public RecordInternal<T> setAppName(@Nullable String appName) {
         mAppName = appName;
@@ -185,6 +190,7 @@ public abstract class RecordInternal<T extends Record> {
         return mClientRecordId;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public RecordInternal<T> setClientRecordId(@Nullable String clientRecordId) {
         this.mClientRecordId = clientRecordId;
@@ -206,6 +212,7 @@ public abstract class RecordInternal<T extends Record> {
         return mManufacturer;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public RecordInternal<T> setManufacturer(@Nullable String manufacturer) {
         this.mManufacturer = manufacturer;
@@ -217,6 +224,7 @@ public abstract class RecordInternal<T extends Record> {
         return mModel;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     public RecordInternal<T> setModel(@Nullable String model) {
         this.mModel = model;
@@ -270,6 +278,7 @@ public abstract class RecordInternal<T extends Record> {
     /** Child class must implement this method and return an external record for this record */
     public abstract T toExternalRecord();
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
     Metadata buildMetaData() {
         return new Metadata.Builder()

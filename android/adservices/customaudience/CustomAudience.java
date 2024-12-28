@@ -16,20 +16,27 @@
 
 package android.adservices.customaudience;
 
+import android.adservices.adselection.GetAdSelectionDataRequest;
 import android.adservices.common.AdData;
 import android.adservices.common.AdSelectionSignals;
 import android.adservices.common.AdTechIdentifier;
+import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.net.Uri;
+import android.os.OutcomeReceiver;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 import com.android.adservices.AdServicesParcelableUtil;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * Represents the information necessary for a custom audience to participate in ad selection.
@@ -39,6 +46,17 @@ import java.util.Objects;
  * targeting a single custom audience.
  */
 public final class CustomAudience implements Parcelable {
+    /** @hide */
+    public static final int FLAG_AUCTION_SERVER_REQUEST_DEFAULT = 0;
+
+    /**
+     * This auction server request flag indicates to the service that ads for this {@link
+     * CustomAudience} can be omitted in the server auction payload.
+     */
+    @FlaggedApi(
+            "com.android.adservices.flags.fledge_custom_audience_auction_server_request_flags_enabled")
+    public static final int FLAG_AUCTION_SERVER_REQUEST_OMIT_ADS = 1 << 0;
+
     @NonNull private final AdTechIdentifier mBuyer;
     @NonNull private final String mName;
     @Nullable private final Instant mActivationTime;
@@ -48,6 +66,15 @@ public final class CustomAudience implements Parcelable {
     @Nullable private final TrustedBiddingData mTrustedBiddingData;
     @NonNull private final Uri mBiddingLogicUri;
     @NonNull private final List<AdData> mAds;
+    @AuctionServerRequestFlag private final int mAuctionServerRequestFlags;
+
+    /** @hide */
+    @IntDef(
+            flag = true,
+            prefix = {"FLAG_AUCTION_SERVER_REQUEST"},
+            value = {FLAG_AUCTION_SERVER_REQUEST_DEFAULT, FLAG_AUCTION_SERVER_REQUEST_OMIT_ADS})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface AuctionServerRequestFlag {}
 
     @NonNull
     public static final Creator<CustomAudience> CREATOR = new Creator<CustomAudience>() {
@@ -76,6 +103,7 @@ public final class CustomAudience implements Parcelable {
         mTrustedBiddingData = builder.mTrustedBiddingData;
         mBiddingLogicUri = builder.mBiddingLogicUri;
         mAds = builder.mAds;
+        mAuctionServerRequestFlags = builder.mAuctionServerRequestFlags;
     }
 
     private CustomAudience(@NonNull Parcel in) {
@@ -98,6 +126,7 @@ public final class CustomAudience implements Parcelable {
                         in, TrustedBiddingData.CREATOR::createFromParcel);
         mBiddingLogicUri = Uri.CREATOR.createFromParcel(in);
         mAds = in.createTypedArrayList(AdData.CREATOR);
+        mAuctionServerRequestFlags = in.readInt();
     }
 
     @Override
@@ -127,6 +156,33 @@ public final class CustomAudience implements Parcelable {
                 (targetParcel, sourceData) -> sourceData.writeToParcel(targetParcel, flags));
         mBiddingLogicUri.writeToParcel(dest, flags);
         dest.writeTypedList(mAds);
+        dest.writeInt(mAuctionServerRequestFlags);
+    }
+
+    @Override
+    public String toString() {
+        return "CustomAudience{"
+                + "mBuyer="
+                + mBuyer
+                + ", mName='"
+                + mName
+                + ", mActivationTime="
+                + mActivationTime
+                + ", mExpirationTime="
+                + mExpirationTime
+                + ", mDailyUpdateUri="
+                + mDailyUpdateUri
+                + ", mUserBiddingSignals="
+                + mUserBiddingSignals
+                + ", mTrustedBiddingData="
+                + mTrustedBiddingData
+                + ", mBiddingLogicUri="
+                + mBiddingLogicUri
+                + ", mAds="
+                + mAds
+                + ", mAuctionServerRequestFlags="
+                + mAuctionServerRequestFlags
+                + '}';
     }
 
     /** @hide */
@@ -148,6 +204,9 @@ public final class CustomAudience implements Parcelable {
     /**
      * The custom audience's name is an arbitrary string provided by the owner and buyer on creation
      * of the {@link CustomAudience} object.
+     *
+     * <p>The overall size of the CA is limited and the size of this field is considered using
+     * {@link String#getBytes()} in {@code UTF-8} encoding.
      *
      * @return the String name of the custom audience
      */
@@ -260,12 +319,31 @@ public final class CustomAudience implements Parcelable {
      * participate in ad selection until a valid list of ads are provided via the daily update for
      * the custom audience.
      *
+     * <p>The combined ads size of the CA is limited and the sizes of each ad's string fields are
+     * considered using {@link String#getBytes()} in {@code UTF-8} encoding.
+     *
      * @return a {@link List} of {@link AdData} objects representing ads currently served by the
      *     custom audience
      */
     @NonNull
     public List<AdData> getAds() {
         return mAds;
+    }
+
+    /**
+     * Returns the bitfield of auction server request flags. These are flags that influence the
+     * creation of the payload generated by the {@link
+     * android.adservices.adselection.AdSelectionManager#getAdSelectionData(GetAdSelectionDataRequest,
+     * Executor, OutcomeReceiver)} API.
+     *
+     * <p>To create this bitfield, place an {@code |} bitwise operator between each {@link
+     * AuctionServerRequestFlag} to be enabled.
+     */
+    @FlaggedApi(
+            "com.android.adservices.flags.fledge_custom_audience_auction_server_request_flags_enabled")
+    @AuctionServerRequestFlag
+    public int getAuctionServerRequestFlags() {
+        return mAuctionServerRequestFlags;
     }
 
     /**
@@ -284,7 +362,8 @@ public final class CustomAudience implements Parcelable {
                 && Objects.equals(mUserBiddingSignals, that.mUserBiddingSignals)
                 && Objects.equals(mTrustedBiddingData, that.mTrustedBiddingData)
                 && mBiddingLogicUri.equals(that.mBiddingLogicUri)
-                && mAds.equals(that.mAds);
+                && mAds.equals(that.mAds)
+                && mAuctionServerRequestFlags == that.mAuctionServerRequestFlags;
     }
 
     /**
@@ -301,7 +380,8 @@ public final class CustomAudience implements Parcelable {
                 mUserBiddingSignals,
                 mTrustedBiddingData,
                 mBiddingLogicUri,
-                mAds);
+                mAds,
+                mAuctionServerRequestFlags);
     }
 
     /** Builder for {@link CustomAudience} objects. */
@@ -315,6 +395,7 @@ public final class CustomAudience implements Parcelable {
         @Nullable private TrustedBiddingData mTrustedBiddingData;
         @Nullable private Uri mBiddingLogicUri;
         @Nullable private List<AdData> mAds;
+        @AuctionServerRequestFlag private int mAuctionServerRequestFlags;
 
         // TODO(b/232883403): We may need to add @NonNUll members as args.
         public Builder() {
@@ -433,6 +514,20 @@ public final class CustomAudience implements Parcelable {
         }
 
         /**
+         * Sets the bitfield of auction server request flags.
+         *
+         * <p>See {@link #getAuctionServerRequestFlags()} for more information.
+         */
+        @FlaggedApi(
+                "com.android.adservices.flags.fledge_custom_audience_auction_server_request_flags_enabled")
+        @NonNull
+        public CustomAudience.Builder setAuctionServerRequestFlags(
+                @AuctionServerRequestFlag int auctionServerRequestFlags) {
+            mAuctionServerRequestFlags = auctionServerRequestFlags;
+            return this;
+        }
+
+        /**
          * Builds an instance of a {@link CustomAudience}.
          *
          * @throws NullPointerException     if any non-null parameter is null
@@ -441,10 +536,10 @@ public final class CustomAudience implements Parcelable {
          */
         @NonNull
         public CustomAudience build() {
-            Objects.requireNonNull(mBuyer);
-            Objects.requireNonNull(mName);
-            Objects.requireNonNull(mDailyUpdateUri);
-            Objects.requireNonNull(mBiddingLogicUri);
+            Objects.requireNonNull(mBuyer, "The buyer has not been provided");
+            Objects.requireNonNull(mName, "The name has not been provided");
+            Objects.requireNonNull(mDailyUpdateUri, "The daily update URI has not been provided");
+            Objects.requireNonNull(mBiddingLogicUri, "The bidding logic URI has not been provided");
 
             // To pass the API lint, we should not allow null Collection.
             if (mAds == null) {

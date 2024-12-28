@@ -16,12 +16,16 @@
 
 package android.bluetooth;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.bluetooth.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -29,202 +33,193 @@ import java.util.Objects;
 
 /**
  * Represents the codec configuration for a Bluetooth A2DP source device.
- * <p>Contains the source codec type, the codec priority, the codec sample
- * rate, the codec bits per sample, and the codec channel mode.
- * <p>The source codec type values are the same as those supported by the
- * device hardware.
  *
- * {@see BluetoothA2dp}
+ * <p>Contains the source codec type, the codec priority, the codec sample rate, the codec bits per
+ * sample, and the codec channel mode.
+ *
+ * <p>The source codec type values are the same as those supported by the device hardware.
+ *
+ * @see BluetoothA2dp
  */
 public final class BluetoothCodecConfig implements Parcelable {
     /** @hide */
-    @IntDef(prefix = "SOURCE_CODEC_TYPE_",
-        value = {SOURCE_CODEC_TYPE_SBC, SOURCE_CODEC_TYPE_AAC, SOURCE_CODEC_TYPE_APTX,
-            SOURCE_CODEC_TYPE_APTX_HD, SOURCE_CODEC_TYPE_LDAC, SOURCE_CODEC_TYPE_LC3,
-            SOURCE_CODEC_TYPE_OPUS, SOURCE_CODEC_TYPE_INVALID})
+    @IntDef(
+            prefix = "SOURCE_CODEC_TYPE_",
+            value = {
+                SOURCE_CODEC_TYPE_SBC,
+                SOURCE_CODEC_TYPE_AAC,
+                SOURCE_CODEC_TYPE_APTX,
+                SOURCE_CODEC_TYPE_APTX_HD,
+                SOURCE_CODEC_TYPE_LDAC,
+                SOURCE_CODEC_TYPE_LC3,
+                SOURCE_CODEC_TYPE_OPUS,
+                SOURCE_CODEC_TYPE_INVALID
+            })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SourceCodecType {}
 
     /**
-     * Source codec type SBC. This is the mandatory source codec
-     * type.
+     * Source codec type SBC. This is the mandatory source codec type.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_SBC = 0;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_SBC = 0;
 
     /**
      * Source codec type AAC.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_AAC = 1;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_AAC = 1;
 
     /**
      * Source codec type APTX.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_APTX = 2;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_APTX = 2;
 
     /**
      * Source codec type APTX HD.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_APTX_HD = 3;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_APTX_HD = 3;
 
     /**
      * Source codec type LDAC.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_LDAC = 4;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_LDAC = 4;
 
     /**
      * Source codec type LC3.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_LC3 = 5;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_LC3 = 5;
 
     /**
      * Source codec type Opus.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_OPUS = 6;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_OPUS = 6;
 
     /**
-     * Source codec type invalid. This is the default value used for codec
-     * type.
+     * Source codec type invalid. This is the default value used for codec type.
+     *
+     * @deprecated Use the {@link BluetoothCodecType} values returned by {@link
+     *     BluetoothA2dp#getSupportedCodecTypes} instead.
      */
-    public static final int SOURCE_CODEC_TYPE_INVALID = 1000 * 1000;
+    @Deprecated public static final int SOURCE_CODEC_TYPE_INVALID = 1000 * 1000;
 
-    /**
-     * Represents the count of valid source codec types.
-     */
-    private static final int SOURCE_CODEC_TYPE_MAX = 7;
+    /** Represents the count of valid source codec types. */
+    static final int SOURCE_CODEC_TYPE_MAX = 7;
 
     /** @hide */
-    @IntDef(prefix = "CODEC_PRIORITY_", value = {
-            CODEC_PRIORITY_DISABLED,
-            CODEC_PRIORITY_DEFAULT,
-            CODEC_PRIORITY_HIGHEST
-    })
+    @IntDef(
+            prefix = "CODEC_PRIORITY_",
+            value = {CODEC_PRIORITY_DISABLED, CODEC_PRIORITY_DEFAULT, CODEC_PRIORITY_HIGHEST})
     @Retention(RetentionPolicy.SOURCE)
     public @interface CodecPriority {}
 
     /**
-     * Codec priority disabled.
-     * Used to indicate that this codec is disabled and should not be used.
+     * Codec priority disabled. Used to indicate that this codec is disabled and should not be used.
      */
     public static final int CODEC_PRIORITY_DISABLED = -1;
 
-    /**
-     * Codec priority default.
-     * Default value used for codec priority.
-     */
+    /** Codec priority default. Default value used for codec priority. */
     public static final int CODEC_PRIORITY_DEFAULT = 0;
 
-    /**
-     * Codec priority highest.
-     * Used to indicate the highest priority a codec can have.
-     */
+    /** Codec priority highest. Used to indicate the highest priority a codec can have. */
     public static final int CODEC_PRIORITY_HIGHEST = 1000 * 1000;
 
     /** @hide */
-    @IntDef(prefix = "SAMPLE_RATE_", value = {
-            SAMPLE_RATE_NONE,
-            SAMPLE_RATE_44100,
-            SAMPLE_RATE_48000,
-            SAMPLE_RATE_88200,
-            SAMPLE_RATE_96000,
-            SAMPLE_RATE_176400,
-            SAMPLE_RATE_192000
-    })
+    @IntDef(
+            prefix = "SAMPLE_RATE_",
+            value = {
+                SAMPLE_RATE_NONE,
+                SAMPLE_RATE_44100,
+                SAMPLE_RATE_48000,
+                SAMPLE_RATE_88200,
+                SAMPLE_RATE_96000,
+                SAMPLE_RATE_176400,
+                SAMPLE_RATE_192000
+            })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SampleRate {}
 
-    /**
-     * Codec sample rate 0 Hz. Default value used for
-     * codec sample rate.
-     */
+    /** Codec sample rate 0 Hz. Default value used for codec sample rate. */
     public static final int SAMPLE_RATE_NONE = 0;
 
-    /**
-     * Codec sample rate 44100 Hz.
-     */
+    /** Codec sample rate 44100 Hz. */
     public static final int SAMPLE_RATE_44100 = 0x1 << 0;
 
-    /**
-     * Codec sample rate 48000 Hz.
-     */
+    /** Codec sample rate 48000 Hz. */
     public static final int SAMPLE_RATE_48000 = 0x1 << 1;
 
-    /**
-     * Codec sample rate 88200 Hz.
-     */
+    /** Codec sample rate 88200 Hz. */
     public static final int SAMPLE_RATE_88200 = 0x1 << 2;
 
-    /**
-     * Codec sample rate 96000 Hz.
-     */
+    /** Codec sample rate 96000 Hz. */
     public static final int SAMPLE_RATE_96000 = 0x1 << 3;
 
-    /**
-     * Codec sample rate 176400 Hz.
-     */
+    /** Codec sample rate 176400 Hz. */
     public static final int SAMPLE_RATE_176400 = 0x1 << 4;
 
-    /**
-     * Codec sample rate 192000 Hz.
-     */
+    /** Codec sample rate 192000 Hz. */
     public static final int SAMPLE_RATE_192000 = 0x1 << 5;
 
     /** @hide */
-    @IntDef(prefix = "BITS_PER_SAMPLE_", value = {
-            BITS_PER_SAMPLE_NONE,
-            BITS_PER_SAMPLE_16,
-            BITS_PER_SAMPLE_24,
-            BITS_PER_SAMPLE_32
-    })
+    @IntDef(
+            prefix = "BITS_PER_SAMPLE_",
+            value = {
+                BITS_PER_SAMPLE_NONE,
+                BITS_PER_SAMPLE_16,
+                BITS_PER_SAMPLE_24,
+                BITS_PER_SAMPLE_32
+            })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BitsPerSample {}
 
-    /**
-     * Codec bits per sample 0. Default value of the codec
-     * bits per sample.
-     */
+    /** Codec bits per sample 0. Default value of the codec bits per sample. */
     public static final int BITS_PER_SAMPLE_NONE = 0;
 
-    /**
-     * Codec bits per sample 16.
-     */
+    /** Codec bits per sample 16. */
     public static final int BITS_PER_SAMPLE_16 = 0x1 << 0;
 
-    /**
-     * Codec bits per sample 24.
-     */
+    /** Codec bits per sample 24. */
     public static final int BITS_PER_SAMPLE_24 = 0x1 << 1;
 
-    /**
-     * Codec bits per sample 32.
-     */
+    /** Codec bits per sample 32. */
     public static final int BITS_PER_SAMPLE_32 = 0x1 << 2;
 
     /** @hide */
-    @IntDef(prefix = "CHANNEL_MODE_", value = {
-            CHANNEL_MODE_NONE,
-            CHANNEL_MODE_MONO,
-            CHANNEL_MODE_STEREO
-    })
+    @IntDef(
+            prefix = "CHANNEL_MODE_",
+            value = {CHANNEL_MODE_NONE, CHANNEL_MODE_MONO, CHANNEL_MODE_STEREO})
     @Retention(RetentionPolicy.SOURCE)
     public @interface ChannelMode {}
 
-    /**
-     * Codec channel mode NONE. Default value of the
-     * codec channel mode.
-     */
+    /** Codec channel mode NONE. Default value of the codec channel mode. */
     public static final int CHANNEL_MODE_NONE = 0;
 
-    /**
-     * Codec channel mode MONO.
-     */
+    /** Codec channel mode MONO. */
     public static final int CHANNEL_MODE_MONO = 0x1 << 0;
 
-    /**
-     * Codec channel mode STEREO.
-     */
+    /** Codec channel mode STEREO. */
     public static final int CHANNEL_MODE_STEREO = 0x1 << 1;
 
-    private final @SourceCodecType int mCodecType;
+    private final @Nullable BluetoothCodecType mCodecType;
     private @CodecPriority int mCodecPriority;
     private final @SampleRate int mSampleRate;
     private final @BitsPerSample int mBitsPerSample;
@@ -245,15 +240,55 @@ public final class BluetoothCodecConfig implements Parcelable {
      * @param codecSpecific1 the specific value 1
      * @param codecSpecific2 the specific value 2
      * @param codecSpecific3 the specific value 3
-     * @param codecSpecific4 the specific value 4
-     * values to 0.
+     * @param codecSpecific4 the specific value 4 values to 0.
      * @hide
      */
     @UnsupportedAppUsage
-    public BluetoothCodecConfig(@SourceCodecType int codecType, @CodecPriority int codecPriority,
-            @SampleRate int sampleRate, @BitsPerSample int bitsPerSample,
-            @ChannelMode int channelMode, long codecSpecific1,
-            long codecSpecific2, long codecSpecific3,
+    public BluetoothCodecConfig(
+            @SourceCodecType int codecType,
+            @CodecPriority int codecPriority,
+            @SampleRate int sampleRate,
+            @BitsPerSample int bitsPerSample,
+            @ChannelMode int channelMode,
+            long codecSpecific1,
+            long codecSpecific2,
+            long codecSpecific3,
+            long codecSpecific4) {
+        this(
+                BluetoothCodecType.createFromType(codecType),
+                codecPriority,
+                sampleRate,
+                bitsPerSample,
+                channelMode,
+                codecSpecific1,
+                codecSpecific2,
+                codecSpecific3,
+                codecSpecific4);
+    }
+
+    /**
+     * Creates a new BluetoothCodecConfig.
+     *
+     * @param codecType the source codec type
+     * @param codecPriority the priority of this codec
+     * @param sampleRate the codec sample rate
+     * @param bitsPerSample the bits per sample of this codec
+     * @param channelMode the channel mode of this codec
+     * @param codecSpecific1 the specific value 1
+     * @param codecSpecific2 the specific value 2
+     * @param codecSpecific3 the specific value 3
+     * @param codecSpecific4 the specific value 4 values to 0.
+     * @hide
+     */
+    public BluetoothCodecConfig(
+            @Nullable BluetoothCodecType codecType,
+            @CodecPriority int codecPriority,
+            @SampleRate int sampleRate,
+            @BitsPerSample int bitsPerSample,
+            @ChannelMode int channelMode,
+            long codecSpecific1,
+            long codecSpecific2,
+            long codecSpecific3,
             long codecSpecific4) {
         mCodecType = codecType;
         mCodecPriority = codecPriority;
@@ -268,25 +303,31 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Creates a new BluetoothCodecConfig.
-     * <p> By default, the codec priority will be set
-     * to {@link BluetoothCodecConfig#CODEC_PRIORITY_DEFAULT}, the sample rate to
-     * {@link BluetoothCodecConfig#SAMPLE_RATE_NONE}, the bits per sample to
-     * {@link BluetoothCodecConfig#BITS_PER_SAMPLE_NONE}, the channel mode to
-     * {@link BluetoothCodecConfig#CHANNEL_MODE_NONE}, and all the codec specific
-     * values to 0.
+     *
+     * <p>By default, the codec priority will be set to {@link
+     * BluetoothCodecConfig#CODEC_PRIORITY_DEFAULT}, the sample rate to {@link
+     * BluetoothCodecConfig#SAMPLE_RATE_NONE}, the bits per sample to {@link
+     * BluetoothCodecConfig#BITS_PER_SAMPLE_NONE}, the channel mode to {@link
+     * BluetoothCodecConfig#CHANNEL_MODE_NONE}, and all the codec specific values to 0.
      *
      * @param codecType the source codec type
      * @hide
      */
     public BluetoothCodecConfig(@SourceCodecType int codecType) {
-        this(codecType, BluetoothCodecConfig.CODEC_PRIORITY_DEFAULT,
+        this(
+                BluetoothCodecType.createFromType(codecType),
+                BluetoothCodecConfig.CODEC_PRIORITY_DEFAULT,
                 BluetoothCodecConfig.SAMPLE_RATE_NONE,
                 BluetoothCodecConfig.BITS_PER_SAMPLE_NONE,
-                BluetoothCodecConfig.CHANNEL_MODE_NONE, 0, 0, 0, 0);
+                BluetoothCodecConfig.CHANNEL_MODE_NONE,
+                0,
+                0,
+                0,
+                0);
     }
 
     private BluetoothCodecConfig(Parcel in) {
-        mCodecType = in.readInt();
+        mCodecType = BluetoothCodecType.createFromType(in.readInt());
         mCodecPriority = in.readInt();
         mSampleRate = in.readInt();
         mBitsPerSample = in.readInt();
@@ -301,7 +342,7 @@ public final class BluetoothCodecConfig implements Parcelable {
     public boolean equals(@Nullable Object o) {
         if (o instanceof BluetoothCodecConfig) {
             BluetoothCodecConfig other = (BluetoothCodecConfig) o;
-            return (other.mCodecType == mCodecType
+            return (Objects.equals(other.mCodecType, mCodecType)
                     && other.mCodecPriority == mCodecPriority
                     && other.mSampleRate == mSampleRate
                     && other.mBitsPerSample == mBitsPerSample
@@ -315,14 +356,20 @@ public final class BluetoothCodecConfig implements Parcelable {
     }
 
     /**
-     * Returns a hash representation of this BluetoothCodecConfig
-     * based on all the config values.
+     * Returns a hash representation of this BluetoothCodecConfig based on all the config values.
      */
     @Override
     public int hashCode() {
-        return Objects.hash(mCodecType, mCodecPriority, mSampleRate,
-                mBitsPerSample, mChannelMode, mCodecSpecific1,
-                mCodecSpecific2, mCodecSpecific3, mCodecSpecific4);
+        return Objects.hash(
+                mCodecType,
+                mCodecPriority,
+                mSampleRate,
+                mBitsPerSample,
+                mChannelMode,
+                mCodecSpecific1,
+                mCodecSpecific2,
+                mCodecSpecific3,
+                mCodecSpecific4);
     }
 
     /**
@@ -332,8 +379,8 @@ public final class BluetoothCodecConfig implements Parcelable {
      * @param capStr the capability string to append to prevStr argument
      * @return the result string in the form "prevStr|capStr"
      */
-    private static String appendCapabilityToString(@Nullable String prevStr,
-            @NonNull String capStr) {
+    private static String appendCapabilityToString(
+            @Nullable String prevStr, @NonNull String capStr) {
         if (prevStr == null) {
             return capStr;
         }
@@ -341,11 +388,17 @@ public final class BluetoothCodecConfig implements Parcelable {
     }
 
     /**
-     * Returns a {@link String} that describes each BluetoothCodecConfig parameter
-     * current value.
+     * Returns a {@link String} that describes each BluetoothCodecConfig parameter current value.
      */
     @Override
     public String toString() {
+        String codecName = null;
+        int codecType = SOURCE_CODEC_TYPE_INVALID;
+        if (mCodecType != null) {
+            codecName = mCodecType.getCodecName();
+            codecType = mCodecType.getNativeCodecType();
+        }
+
         String sampleRateStr = null;
         if (mSampleRate == SAMPLE_RATE_NONE) {
             sampleRateStr = appendCapabilityToString(sampleRateStr, "NONE");
@@ -394,19 +447,25 @@ public final class BluetoothCodecConfig implements Parcelable {
             channelModeStr = appendCapabilityToString(channelModeStr, "STEREO");
         }
 
-        return "{codecName:" + getCodecName(mCodecType)
-                + ",mCodecType:" + mCodecType
-                + ",mCodecPriority:" + mCodecPriority
-                + ",mSampleRate:" + String.format("0x%x", mSampleRate)
-                + "(" + sampleRateStr + ")"
-                + ",mBitsPerSample:" + String.format("0x%x", mBitsPerSample)
-                + "(" + bitsPerSampleStr + ")"
-                + ",mChannelMode:" + String.format("0x%x", mChannelMode)
-                + "(" + channelModeStr + ")"
-                + ",mCodecSpecific1:" + mCodecSpecific1
-                + ",mCodecSpecific2:" + mCodecSpecific2
-                + ",mCodecSpecific3:" + mCodecSpecific3
-                + ",mCodecSpecific4:" + mCodecSpecific4 + "}";
+        return ("{codecName:" + codecName)
+                + (",mCodecType:" + codecType)
+                + (",mCodecPriority:" + mCodecPriority)
+                + (",mSampleRate:" + String.format("0x%x", mSampleRate) + "(" + sampleRateStr + ")")
+                + (",mBitsPerSample:"
+                        + String.format("0x%x", mBitsPerSample)
+                        + "("
+                        + bitsPerSampleStr
+                        + ")")
+                + (",mChannelMode:"
+                        + String.format("0x%x", mChannelMode)
+                        + "("
+                        + channelModeStr
+                        + ")")
+                + (",mCodecSpecific1:" + mCodecSpecific1)
+                + (",mCodecSpecific2:" + mCodecSpecific2)
+                + (",mCodecSpecific3:" + mCodecSpecific3)
+                + (",mCodecSpecific4:" + mCodecSpecific4)
+                + "}";
     }
 
     /**
@@ -418,27 +477,27 @@ public final class BluetoothCodecConfig implements Parcelable {
         return 0;
     }
 
-    public static final @NonNull Creator<BluetoothCodecConfig> CREATOR = new Creator<>() {
-        public BluetoothCodecConfig createFromParcel(Parcel in) {
-            return new BluetoothCodecConfig(in);
-        }
+    public static final @NonNull Creator<BluetoothCodecConfig> CREATOR =
+            new Creator<>() {
+                public BluetoothCodecConfig createFromParcel(Parcel in) {
+                    return new BluetoothCodecConfig(in);
+                }
 
-        public BluetoothCodecConfig[] newArray(int size) {
-            return new BluetoothCodecConfig[size];
-        }
-    };
+                public BluetoothCodecConfig[] newArray(int size) {
+                    return new BluetoothCodecConfig[size];
+                }
+            };
 
     /**
      * Flattens the object to a parcel
      *
      * @param out The Parcel in which the object should be written
      * @param flags Additional flags about how the object should be written
-     *
      * @hide
      */
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeInt(mCodecType);
+        out.writeInt(getCodecType());
         out.writeInt(mCodecPriority);
         out.writeInt(mSampleRate);
         out.writeInt(mBitsPerSample);
@@ -451,6 +510,7 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Returns the codec name converted to {@link String}.
+     *
      * @hide
      */
     public static @NonNull String getCodecName(@SourceCodecType int codecType) {
@@ -479,26 +539,38 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Returns the source codec type of this config.
+     *
+     * @deprecated use {@link BluetoothCodecConfig#getExtendedCodecType} instead.
      */
+    @Deprecated
+    @SuppressLint("WrongConstant")
     public @SourceCodecType int getCodecType() {
+        return mCodecType == null ? SOURCE_CODEC_TYPE_INVALID : mCodecType.getNativeCodecType();
+    }
+
+    /** Returns the source codec type of this config. */
+    @FlaggedApi(Flags.FLAG_A2DP_OFFLOAD_CODEC_EXTENSIBILITY)
+    public @Nullable BluetoothCodecType getExtendedCodecType() {
         return mCodecType;
     }
 
     /**
      * Checks whether the codec is mandatory.
-     * <p> The actual mandatory codec type for Android Bluetooth audio is SBC.
-     * See {@link #SOURCE_CODEC_TYPE_SBC}.
+     *
+     * <p>The actual mandatory codec type for Android Bluetooth audio is SBC. See {@link
+     * #SOURCE_CODEC_TYPE_SBC}.
      *
      * @return {@code true} if the codec is mandatory, {@code false} otherwise
      */
     public boolean isMandatoryCodec() {
-        return mCodecType == SOURCE_CODEC_TYPE_SBC;
+        return mCodecType == null ? false : mCodecType.isMandatoryCodec();
     }
 
     /**
      * Returns the codec selection priority.
-     * <p>The codec selection priority is relative to other codecs: larger value
-     * means higher priority.
+     *
+     * <p>The codec selection priority is relative to other codecs: larger value means higher
+     * priority.
      */
     public @CodecPriority int getCodecPriority() {
         return mCodecPriority;
@@ -506,8 +578,9 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Sets the codec selection priority.
-     * <p>The codec selection priority is relative to other codecs: larger value
-     * means higher priority.
+     *
+     * <p>The codec selection priority is relative to other codecs: larger value means higher
+     * priority.
      *
      * @param codecPriority the priority this codec should have
      * @hide
@@ -517,104 +590,114 @@ public final class BluetoothCodecConfig implements Parcelable {
     }
 
     /**
-     * Returns the codec sample rate. The value can be a bitmask with all
-     * supported sample rates.
+     * Returns the codec sample rate. The value can be a bitmask with all supported sample rates.
      */
     public @SampleRate int getSampleRate() {
         return mSampleRate;
     }
 
     /**
-     * Returns the codec bits per sample. The value can be a bitmask with all
-     * bits per sample supported.
+     * Returns the codec bits per sample. The value can be a bitmask with all bits per sample
+     * supported.
      */
     public @BitsPerSample int getBitsPerSample() {
         return mBitsPerSample;
     }
 
     /**
-     * Returns the codec channel mode. The value can be a bitmask with all
-     * supported channel modes.
+     * Returns the codec channel mode. The value can be a bitmask with all supported channel modes.
      */
     public @ChannelMode int getChannelMode() {
         return mChannelMode;
     }
 
     /**
-     * Returns the codec specific value1.
-     * As the value and usage differ for each codec, please refer to the concerned
-     * codec specification to obtain the codec specific information.
+     * Returns the codec specific value1. As the value and usage differ for each codec, please refer
+     * to the concerned codec specification to obtain the codec specific information.
      *
-     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific
+     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific information
+     * elements.
+     *
+     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio codec specific
      * information elements.
-     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio
-     * codec specific information elements.
-     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC
-     * codec specific information elements.
-     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family
-     * codec specific information elements.
-     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP
-     * codec specific information elements.
+     *
+     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC codec specific
+     * information elements.
+     *
+     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family codec specific
+     * information elements.
+     *
+     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP codec
+     * specific information elements.
      */
     public long getCodecSpecific1() {
         return mCodecSpecific1;
     }
 
     /**
-     * Returns the codec specific value2.
-     * As the value and usage differ for each codec, please refer to the concerned
-     * codec specification to obtain the codec specific information.
+     * Returns the codec specific value2. As the value and usage differ for each codec, please refer
+     * to the concerned codec specification to obtain the codec specific information.
      *
-     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific
+     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific information
+     * elements.
+     *
+     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio codec specific
      * information elements.
-     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio
-     * codec specific information elements.
-     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC
-     * codec specific information elements.
-     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family
-     * codec specific information elements.
-     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP
-     * codec specific information elements.
+     *
+     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC codec specific
+     * information elements.
+     *
+     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family codec specific
+     * information elements.
+     *
+     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP codec
+     * specific information elements.
      */
     public long getCodecSpecific2() {
         return mCodecSpecific2;
     }
 
     /**
-     * Returns the codec specific value3.
-     * As the value and usage differ for each codec, please refer to the concerned
-     * codec specification to obtain the codec specific information.
+     * Returns the codec specific value3. As the value and usage differ for each codec, please refer
+     * to the concerned codec specification to obtain the codec specific information.
      *
-     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific
+     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific information
+     * elements.
+     *
+     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio codec specific
      * information elements.
-     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio
-     * codec specific information elements.
-     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC
-     * codec specific information elements.
-     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family
-     * codec specific information elements.
-     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP
-     * codec specific information elements.
+     *
+     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC codec specific
+     * information elements.
+     *
+     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family codec specific
+     * information elements.
+     *
+     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP codec
+     * specific information elements.
      */
     public long getCodecSpecific3() {
         return mCodecSpecific3;
     }
 
     /**
-     * Returns the codec specific value4.
-     * As the value and usage differ for each codec, please refer to the concerned
-     * codec specification to obtain the codec specific information.
+     * Returns the codec specific value4. As the value and usage differ for each codec, please refer
+     * to the concerned codec specification to obtain the codec specific information.
      *
-     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific
+     * <p>See section 4.3.2 of the Bluetooth A2dp specification for SBC codec specific information
+     * elements.
+     *
+     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio codec specific
      * information elements.
-     * <p>See section 4.4.2 of the Bluetooth A2dp specification for MPEG-1,2 Audio
-     * codec specific information elements.
-     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC
-     * codec specific information elements.
-     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family
-     * codec specific information elements.
-     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP
-     * codec specific information elements.
+     *
+     * <p>See section 4.5.2 of the Bluetooth A2dp specification for MPEG-2, 4 AAC codec specific
+     * information elements.
+     *
+     * <p>See section 4.6.2 of the Bluetooth A2dp specification for ATRAC family codec specific
+     * information elements.
+     *
+     * <p>See section 4.7.2 of the Bluetooth A2dp specification for Vendor Specific A2DP codec
+     * specific information elements.
      */
     public long getCodecSpecific4() {
         return mCodecSpecific4;
@@ -633,6 +716,7 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Returns whether the object contains none or single sample rate.
+     *
      * @hide
      */
     public boolean hasSingleSampleRate() {
@@ -641,6 +725,7 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Returns whether the object contains none or single bits per sample.
+     *
      * @hide
      */
     public boolean hasSingleBitsPerSample() {
@@ -649,6 +734,7 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Returns whether the object contains none or single channel mode.
+     *
      * @hide
      */
     public boolean hasSingleChannelMode() {
@@ -663,58 +749,63 @@ public final class BluetoothCodecConfig implements Parcelable {
      * @hide
      */
     public boolean sameAudioFeedingParameters(BluetoothCodecConfig other) {
-        return (other != null && other.mSampleRate == mSampleRate
+        return (other != null
+                && other.mSampleRate == mSampleRate
                 && other.mBitsPerSample == mBitsPerSample
                 && other.mChannelMode == mChannelMode);
     }
 
     /**
-     * Checks whether another codec config has the similar feeding parameters.
-     * Any parameters with NONE value will be considered to be a wildcard matching.
+     * Checks whether another codec config has the similar feeding parameters. Any parameters with
+     * NONE value will be considered to be a wildcard matching.
      *
      * @param other the codec config to compare against
      * @return {@code true} if the audio feeding parameters are similar, {@code false} otherwise
      * @hide
      */
     public boolean similarCodecFeedingParameters(BluetoothCodecConfig other) {
-        if (other == null || mCodecType != other.mCodecType) {
+        if (other == null || !Objects.equals(mCodecType, other.mCodecType)) {
             return false;
         }
         int sampleRate = other.mSampleRate;
-        if (mSampleRate == SAMPLE_RATE_NONE
-                || sampleRate == SAMPLE_RATE_NONE) {
+        if (mSampleRate == SAMPLE_RATE_NONE || sampleRate == SAMPLE_RATE_NONE) {
             sampleRate = mSampleRate;
         }
         int bitsPerSample = other.mBitsPerSample;
-        if (mBitsPerSample == BITS_PER_SAMPLE_NONE
-                || bitsPerSample == BITS_PER_SAMPLE_NONE) {
+        if (mBitsPerSample == BITS_PER_SAMPLE_NONE || bitsPerSample == BITS_PER_SAMPLE_NONE) {
             bitsPerSample = mBitsPerSample;
         }
         int channelMode = other.mChannelMode;
-        if (mChannelMode == CHANNEL_MODE_NONE
-                || channelMode == CHANNEL_MODE_NONE) {
+        if (mChannelMode == CHANNEL_MODE_NONE || channelMode == CHANNEL_MODE_NONE) {
             channelMode = mChannelMode;
         }
-        return sameAudioFeedingParameters(new BluetoothCodecConfig(
-                mCodecType, /* priority */ 0, sampleRate, bitsPerSample, channelMode,
-                /* specific1 */ 0, /* specific2 */ 0, /* specific3 */ 0,
-                /* specific4 */ 0));
+        return sameAudioFeedingParameters(
+                new BluetoothCodecConfig(
+                        mCodecType, /* priority */
+                        0,
+                        sampleRate,
+                        bitsPerSample,
+                        channelMode,
+                        /* specific1 */ 0, /* specific2 */
+                        0, /* specific3 */
+                        0,
+                        /* specific4 */ 0));
     }
 
     /**
      * Checks whether the codec specific parameters are the same.
-     * <p> Currently, only AAC VBR and LDAC Playback Quality on CodecSpecific1
-     * are compared.
+     *
+     * <p>Currently, only AAC VBR and LDAC Playback Quality on CodecSpecific1 are compared.
      *
      * @param other the codec config to compare against
      * @return {@code true} if the codec specific parameters are the same, {@code false} otherwise
      * @hide
      */
     public boolean sameCodecSpecificParameters(BluetoothCodecConfig other) {
-        if (other == null && mCodecType != other.mCodecType) {
+        if (other == null && !Objects.equals(mCodecType, other.mCodecType)) {
             return false;
         }
-        switch (mCodecType) {
+        switch (getCodecType()) {
             case SOURCE_CODEC_TYPE_AAC:
             case SOURCE_CODEC_TYPE_LDAC:
             case SOURCE_CODEC_TYPE_LC3:
@@ -722,7 +813,7 @@ public final class BluetoothCodecConfig implements Parcelable {
                 if (mCodecSpecific1 != other.mCodecSpecific1) {
                     return false;
                 }
-            // fall through
+                // fall through
             default:
                 return true;
         }
@@ -730,16 +821,16 @@ public final class BluetoothCodecConfig implements Parcelable {
 
     /**
      * Builder for {@link BluetoothCodecConfig}.
-     * <p> By default, the codec type will be set to
-     * {@link BluetoothCodecConfig#SOURCE_CODEC_TYPE_INVALID}, the codec priority
-     * to {@link BluetoothCodecConfig#CODEC_PRIORITY_DEFAULT}, the sample rate to
-     * {@link BluetoothCodecConfig#SAMPLE_RATE_NONE}, the bits per sample to
-     * {@link BluetoothCodecConfig#BITS_PER_SAMPLE_NONE}, the channel mode to
-     * {@link BluetoothCodecConfig#CHANNEL_MODE_NONE}, and all the codec specific
-     * values to 0.
+     *
+     * <p>By default, the codec type will be set to {@link
+     * BluetoothCodecConfig#SOURCE_CODEC_TYPE_INVALID}, the codec priority to {@link
+     * BluetoothCodecConfig#CODEC_PRIORITY_DEFAULT}, the sample rate to {@link
+     * BluetoothCodecConfig#SAMPLE_RATE_NONE}, the bits per sample to {@link
+     * BluetoothCodecConfig#BITS_PER_SAMPLE_NONE}, the channel mode to {@link
+     * BluetoothCodecConfig#CHANNEL_MODE_NONE}, and all the codec specific values to 0.
      */
     public static final class Builder {
-        private int mCodecType = BluetoothCodecConfig.SOURCE_CODEC_TYPE_INVALID;
+        private @Nullable BluetoothCodecType mCodecType = null;
         private int mCodecPriority = BluetoothCodecConfig.CODEC_PRIORITY_DEFAULT;
         private int mSampleRate = BluetoothCodecConfig.SAMPLE_RATE_NONE;
         private int mBitsPerSample = BluetoothCodecConfig.BITS_PER_SAMPLE_NONE;
@@ -754,8 +845,22 @@ public final class BluetoothCodecConfig implements Parcelable {
          *
          * @param codecType of this codec
          * @return the same Builder instance
+         * @deprecated use {@link BluetoothCodecType} instead
          */
+        @Deprecated
         public @NonNull Builder setCodecType(@SourceCodecType int codecType) {
+            mCodecType = BluetoothCodecType.createFromType(codecType);
+            return this;
+        }
+
+        /**
+         * Set codec type for Bluetooth codec config.
+         *
+         * @param codecType of this codec
+         * @return the same Builder instance
+         */
+        @FlaggedApi(Flags.FLAG_A2DP_OFFLOAD_CODEC_EXTENSIBILITY)
+        public @NonNull Builder setExtendedCodecType(@Nullable BluetoothCodecType codecType) {
             mCodecType = codecType;
             return this;
         }
@@ -850,13 +955,19 @@ public final class BluetoothCodecConfig implements Parcelable {
 
         /**
          * Build {@link BluetoothCodecConfig}.
+         *
          * @return new BluetoothCodecConfig built
          */
         public @NonNull BluetoothCodecConfig build() {
-            return new BluetoothCodecConfig(mCodecType, mCodecPriority,
-                    mSampleRate, mBitsPerSample,
-                    mChannelMode, mCodecSpecific1,
-                    mCodecSpecific2, mCodecSpecific3,
+            return new BluetoothCodecConfig(
+                    mCodecType,
+                    mCodecPriority,
+                    mSampleRate,
+                    mBitsPerSample,
+                    mChannelMode,
+                    mCodecSpecific1,
+                    mCodecSpecific2,
+                    mCodecSpecific3,
                     mCodecSpecific4);
         }
     }

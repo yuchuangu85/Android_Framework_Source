@@ -35,7 +35,6 @@ import java.util.Objects;
 import java.util.concurrent.Executor;
 
 /** TestCustomAudienceManager provides APIs for app and ad-SDKs to test custom audiences. */
-// TODO(b/269798827): Enable for R.
 @RequiresApi(Build.VERSION_CODES.S)
 public class TestCustomAudienceManager {
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getFledgeLogger();

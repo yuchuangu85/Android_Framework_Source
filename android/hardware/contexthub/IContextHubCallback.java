@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 03f1982c8e20e58494a4ff8c9736b1c257dfeb6c --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen/android/hardware/contexthub/IContextHubCallback.java.d -o out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen -Nhardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3 hardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3/android/hardware/contexthub/IContextHubCallback.aidl
  */
 package android.hardware.contexthub;
 public interface IContextHubCallback extends android.os.IInterface
@@ -10,8 +11,8 @@ public interface IContextHubCallback extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "b0fd976b134e549e03726d3ebeeae848e520d3d3";
+  public static final int VERSION = 3;
+  public static final String HASH = "03f1982c8e20e58494a4ff8c9736b1c257dfeb6c";
   /** Default implementation for IContextHubCallback. */
   public static class Default implements android.hardware.contexthub.IContextHubCallback
   {
@@ -30,6 +31,17 @@ public interface IContextHubCallback extends android.os.IInterface
     @Override public void handleNanSessionRequest(android.hardware.contexthub.NanSessionRequest request) throws android.os.RemoteException
     {
     }
+    @Override public void handleMessageDeliveryStatus(char hostEndpointId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException
+    {
+    }
+    @Override public byte[] getUuid() throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public java.lang.String getName() throws android.os.RemoteException
+    {
+      return null;
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -47,6 +59,7 @@ public interface IContextHubCallback extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.contexthub.IContextHubCallback
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -77,25 +90,19 @@ public interface IContextHubCallback extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -146,6 +153,31 @@ public interface IContextHubCallback extends android.os.IInterface
           data.enforceNoDataAvail();
           this.handleNanSessionRequest(_arg0);
           reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_handleMessageDeliveryStatus:
+        {
+          char _arg0;
+          _arg0 = (char)data.readInt();
+          android.hardware.contexthub.MessageDeliveryStatus _arg1;
+          _arg1 = data.readTypedObject(android.hardware.contexthub.MessageDeliveryStatus.CREATOR);
+          data.enforceNoDataAvail();
+          this.handleMessageDeliveryStatus(_arg0, _arg1);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_getUuid:
+        {
+          byte[] _result = this.getUuid();
+          reply.writeNoException();
+          reply.writeFixedArray(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE, 16);
+          break;
+        }
+        case TRANSACTION_getName:
+        {
+          java.lang.String _result = this.getName();
+          reply.writeNoException();
+          reply.writeString(_result);
           break;
         }
         default:
@@ -264,6 +296,65 @@ public interface IContextHubCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void handleMessageDeliveryStatus(char hostEndpointId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(((int)hostEndpointId));
+          _data.writeTypedObject(messageDeliveryStatus, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_handleMessageDeliveryStatus, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method handleMessageDeliveryStatus is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
+      @Override public byte[] getUuid() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        byte[] _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getUuid, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getUuid is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.createFixedArray(byte[].class, 16);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public java.lang.String getName() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        java.lang.String _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getName, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getName is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readString();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -304,9 +395,13 @@ public interface IContextHubCallback extends android.os.IInterface
     static final int TRANSACTION_handleContextHubAsyncEvent = (android.os.IBinder.FIRST_CALL_TRANSACTION + 2);
     static final int TRANSACTION_handleTransactionResult = (android.os.IBinder.FIRST_CALL_TRANSACTION + 3);
     static final int TRANSACTION_handleNanSessionRequest = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
+    static final int TRANSACTION_handleMessageDeliveryStatus = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
+    static final int TRANSACTION_getUuid = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
+    static final int TRANSACTION_getName = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$contexthub$IContextHubCallback".replace('$', '.');
   public static final int CONTEXTHUB_NAN_TRANSACTION_TIMEOUT_MS = 10000;
   public void handleNanoappInfo(android.hardware.contexthub.NanoappInfo[] appInfo) throws android.os.RemoteException;
@@ -314,6 +409,9 @@ public interface IContextHubCallback extends android.os.IInterface
   public void handleContextHubAsyncEvent(int evt) throws android.os.RemoteException;
   public void handleTransactionResult(int transactionId, boolean success) throws android.os.RemoteException;
   public void handleNanSessionRequest(android.hardware.contexthub.NanSessionRequest request) throws android.os.RemoteException;
+  public void handleMessageDeliveryStatus(char hostEndpointId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException;
+  public byte[] getUuid() throws android.os.RemoteException;
+  public java.lang.String getName() throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

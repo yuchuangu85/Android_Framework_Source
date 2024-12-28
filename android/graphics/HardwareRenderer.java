@@ -25,6 +25,8 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
+import android.hardware.DataSpace;
+import android.hardware.HardwareBuffer;
 import android.hardware.OverlayProperties;
 import android.hardware.display.DisplayManager;
 import android.os.IBinder;
@@ -144,6 +146,32 @@ public class HardwareRenderer {
     public @interface DumpFlags {
     }
 
+
+    /**
+     * Trims all Skia caches.
+     * @hide
+     */
+    public static final int CACHE_TRIM_ALL = 0;
+    /**
+     * Trims Skia font caches.
+     * @hide
+     */
+    public static final int CACHE_TRIM_FONT = 1;
+    /**
+     * Trims Skia resource caches.
+     * @hide
+     */
+    public static final int CACHE_TRIM_RESOURCES = 2;
+
+    /** @hide */
+    @IntDef(prefix = {"CACHE_TRIM_"}, value = {
+            CACHE_TRIM_ALL,
+            CACHE_TRIM_FONT,
+            CACHE_TRIM_RESOURCES
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface CacheTrimLevel {}
+
     /**
      * Name of the file that holds the shaders cache.
      */
@@ -156,7 +184,7 @@ public class HardwareRenderer {
     /** @hide */
     protected RenderNode mRootNode;
     private boolean mOpaque = true;
-    private boolean mForceDark = false;
+    private int mForceDark = ForceDarkType.NONE;
     private @ActivityInfo.ColorMode int mColorMode = ActivityInfo.COLOR_MODE_DEFAULT;
     private float mDesiredSdrHdrRatio = 1f;
 
@@ -545,10 +573,10 @@ public class HardwareRenderer {
      * Whether or not the force-dark feature should be used for this renderer.
      * @hide
      */
-    public boolean setForceDark(boolean enable) {
-        if (mForceDark != enable) {
-            mForceDark = enable;
-            nSetForceDark(mNativeProxy, enable);
+    public boolean setForceDark(@ForceDarkType.ForceDarkTypeDef int type) {
+        if (mForceDark != type) {
+            mForceDark = type;
+            nSetForceDark(mNativeProxy, type);
             return true;
         }
         return false;
@@ -1131,6 +1159,20 @@ public class HardwareRenderer {
         nTrimMemory(level);
     }
 
+    /**
+     * Invoke this when all font caches should be flushed. This can cause jank on next render
+     * commands so use it only after expensive font allocation operations which would
+     * allocate large amount of temporary memory.
+     *
+     * @param level Hint about which caches to trim. See {@link #CACHE_TRIM_ALL},
+     *              {@link #CACHE_TRIM_FONT}, {@link #CACHE_TRIM_RESOURCES}
+     *
+     * @hide
+     */
+    public static void trimCaches(@CacheTrimLevel int level) {
+        nTrimCaches(level);
+    }
+
     /** @hide */
     public static void overrideProperty(@NonNull String name, @NonNull String value) {
         if (name == null || value == null) {
@@ -1350,10 +1392,6 @@ public class HardwareRenderer {
             int largestWidth = activeMode.getPhysicalWidth();
             int largestHeight = activeMode.getPhysicalHeight();
             final OverlayProperties overlayProperties = defaultDisplay.getOverlaySupport();
-            boolean supportFp16ForHdr = overlayProperties != null
-                    ? overlayProperties.supportFp16ForHdr() : false;
-            boolean supportMixedColorSpaces = overlayProperties != null
-                    ? overlayProperties.supportMixedColorSpaces() : false;
 
             for (int i = 0; i < allDisplays.length; i++) {
                 final Display display = allDisplays[i];
@@ -1381,7 +1419,15 @@ public class HardwareRenderer {
             nInitDisplayInfo(largestWidth, largestHeight, defaultDisplay.getRefreshRate(),
                     wideColorDataspace, defaultDisplay.getAppVsyncOffsetNanos(),
                     defaultDisplay.getPresentationDeadlineNanos(),
-                    supportFp16ForHdr, supportMixedColorSpaces);
+                    overlayProperties.isCombinationSupported(
+                            DataSpace.DATASPACE_SCRGB, HardwareBuffer.RGBA_FP16),
+                    overlayProperties.isCombinationSupported(
+                            DataSpace.pack(
+                                    DataSpace.STANDARD_DCI_P3,
+                                    DataSpace.TRANSFER_SRGB,
+                                    DataSpace.RANGE_EXTENDED),
+                            HardwareBuffer.RGBA_10101010),
+                    overlayProperties.isMixedColorSpacesSupported());
 
             mDisplayInitialized = true;
         }
@@ -1497,6 +1543,8 @@ public class HardwareRenderer {
 
     private static native void nTrimMemory(int level);
 
+    private static native void nTrimCaches(int level);
+
     private static native void nOverrideProperty(String name, String value);
 
     private static native void nFence(long nativeProxy);
@@ -1558,13 +1606,14 @@ public class HardwareRenderer {
 
     private static native void nAllocateBuffers(long nativeProxy);
 
-    private static native void nSetForceDark(long nativeProxy, boolean enabled);
+    private static native void nSetForceDark(long nativeProxy, int type);
 
     private static native void nSetDisplayDensityDpi(int densityDpi);
 
     private static native void nInitDisplayInfo(int width, int height, float refreshRate,
             int wideColorDataspace, long appVsyncOffsetNanos, long presentationDeadlineNanos,
-            boolean supportsFp16ForHdr, boolean nInitDisplayInfo);
+            boolean supportsFp16ForHdr, boolean isRgba10101010SupportedForHdr,
+            boolean nSupportMixedColorSpaces);
 
     private static native void nSetDrawingEnabled(boolean drawingEnabled);
 

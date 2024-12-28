@@ -240,7 +240,8 @@ public final class SafetyEvent implements Parcelable {
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public Builder(@NonNull SafetyEvent safetyEvent) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             requireNonNull(safetyEvent);
             mType = safetyEvent.mType;

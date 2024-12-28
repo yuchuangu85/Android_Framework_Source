@@ -21,7 +21,10 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
+import android.os.Build;
 import android.os.SystemClock;
+
+import androidx.annotation.RequiresApi;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
@@ -592,6 +595,7 @@ public final class StatsEvent {
          *
          * @param elements array of booleans.
          **/
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
         @NonNull
         public Builder writeBooleanArray(@NonNull final boolean[] elements) {
             final byte numElements = (byte)elements.length;
@@ -615,6 +619,7 @@ public final class StatsEvent {
          *
          * @param elements array of ints.
          **/
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
         @NonNull
         public Builder writeIntArray(@NonNull final int[] elements) {
             final byte numElements = (byte)elements.length;
@@ -638,6 +643,7 @@ public final class StatsEvent {
          *
          * @param elements array of longs.
          **/
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
         @NonNull
         public Builder writeLongArray(@NonNull final long[] elements) {
             final byte numElements = (byte)elements.length;
@@ -661,6 +667,7 @@ public final class StatsEvent {
          *
          * @param elements array of floats.
          **/
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
         @NonNull
         public Builder writeFloatArray(@NonNull final float[] elements) {
             final byte numElements = (byte)elements.length;
@@ -684,6 +691,7 @@ public final class StatsEvent {
          *
          * @param elements array of strings.
          **/
+        @RequiresApi(Build.VERSION_CODES.TIRAMISU)
         @NonNull
         public Builder writeStringArray(@NonNull final String[] elements) {
             final byte numElements = (byte)elements.length;

@@ -19,6 +19,7 @@ package android.health.connect.datatypes;
 import static android.health.connect.datatypes.validation.ValidationUtils.validateIntDefValue;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.health.connect.internal.datatypes.RecordInternal;
 
@@ -67,7 +68,7 @@ public abstract class Record {
      * @return {@code true} if this object is the same as the obj
      */
     @Override
-    public boolean equals(@NonNull Object object) {
+    public boolean equals(@Nullable Object object) {
         if (this == object) return true;
         if (Objects.isNull(object)) {
             return false;

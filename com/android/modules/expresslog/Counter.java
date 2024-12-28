@@ -18,8 +18,6 @@ package com.android.modules.expresslog;
 
 import android.annotation.NonNull;
 
-import com.android.modules.expresslog.StatsExpressLog;
-
 /** Counter encapsulates StatsD write API calls */
 public final class Counter {
 
@@ -49,7 +47,8 @@ public final class Counter {
      * @param amount to increment counter
      */
     public static void logIncrement(@NonNull String metricId, long amount) {
-        final long metricIdHash = Utils.hashString(metricId);
+        final long metricIdHash =
+                MetricIds.getMetricIdHash(metricId, MetricIds.METRIC_TYPE_COUNTER);
         StatsExpressLog.write(StatsExpressLog.EXPRESS_EVENT_REPORTED, metricIdHash, amount);
     }
 
@@ -60,7 +59,8 @@ public final class Counter {
      * @param amount to increment counter
      */
     public static void logIncrementWithUid(@NonNull String metricId, int uid, long amount) {
-        final long metricIdHash = Utils.hashString(metricId);
+        final long metricIdHash =
+                MetricIds.getMetricIdHash(metricId, MetricIds.METRIC_TYPE_COUNTER_WITH_UID);
         StatsExpressLog.write(
             StatsExpressLog.EXPRESS_UID_EVENT_REPORTED, metricIdHash, amount, uid);
     }

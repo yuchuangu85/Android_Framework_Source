@@ -143,7 +143,7 @@ import sun.security.jca.*;
  *   </thead>
  *   <tbody>
  *     <tr>
- *       <td rowspan="2"><span style="white-space: nowrap">AES</span></td>
+ *       <td rowspan="3"><span style="white-space: nowrap">AES</span></td>
  *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">CFB</span><br><span style="white-space: nowrap">CTR</span><br><span style="white-space: nowrap">CTS</span><br><span style="white-space: nowrap">ECB</span><br><span style="white-space: nowrap">OFB</span></td>
  *       <td><span style="white-space: nowrap">ISO10126Padding</span><br><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
  *       <td><span style="white-space: nowrap">1+</span></td>
@@ -156,7 +156,13 @@ import sun.security.jca.*;
  *       <td></td>
  *     </tr>
  *     <tr>
- *       <td rowspan="2"><span style="white-space: nowrap">AES_128</span></td>
+ *       <td><span style="white-space: nowrap">GCM-SIV</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">30+</span></td>
+ *       <td></td>
+ *     </tr>
+ *     <tr>
+ *       <td rowspan="3"><span style="white-space: nowrap">AES_128</span></td>
  *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">ECB</span></td>
  *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
  *       <td><span style="white-space: nowrap">26+</span></td>
@@ -169,7 +175,13 @@ import sun.security.jca.*;
  *       <td></td>
  *     </tr>
  *     <tr>
- *       <td rowspan="2"><span style="white-space: nowrap">AES_256</span></td>
+ *       <td><span style="white-space: nowrap">GCM-SIV</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">30+</span></td>
+ *       <td></td>
+ *     </tr>
+ *     <tr>
+ *       <td rowspan="3"><span style="white-space: nowrap">AES_256</span></td>
  *       <td><span style="white-space: nowrap">CBC</span><br><span style="white-space: nowrap">ECB</span></td>
  *       <td><span style="white-space: nowrap">NoPadding</span><br><span style="white-space: nowrap">PKCS5Padding</span></td>
  *       <td><span style="white-space: nowrap">26+</span></td>
@@ -179,6 +191,12 @@ import sun.security.jca.*;
  *       <td><span style="white-space: nowrap">GCM</span></td>
  *       <td><span style="white-space: nowrap">NoPadding</span></td>
  *       <td><span style="white-space: nowrap">26+</span></td>
+ *       <td></td>
+ *     </tr>
+ *     <tr>
+ *       <td><span style="white-space: nowrap">GCM-SIV</span></td>
+ *       <td><span style="white-space: nowrap">NoPadding</span></td>
+ *       <td><span style="white-space: nowrap">30+</span></td>
  *       <td></td>
  *     </tr>
  *     <tr>

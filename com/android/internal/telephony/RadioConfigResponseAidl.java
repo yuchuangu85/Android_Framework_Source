@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.hardware.radio.RadioResponseInfo;
 import android.os.RemoteException;
 import android.telephony.PhoneCapability;
 
@@ -23,6 +24,7 @@ import com.android.internal.telephony.uicc.IccSlotStatus;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Set;
 
 /**
@@ -108,6 +110,30 @@ public class RadioConfigResponseAidl extends
             }
         } else {
             loge("getPhoneCapabilityResponse: Error " + info.toString());
+        }
+    }
+
+    /**
+     * Response function for IRadioConfig.getSimultaneousCallingSupport().
+     */
+    @Override
+    public void getSimultaneousCallingSupportResponse(
+            android.hardware.radio.RadioResponseInfo info,
+            int[] enabledLogicalSlots)
+            throws RemoteException {
+        RILRequest rr = mRadioConfig.processResponse(info);
+        if (rr != null) {
+            ArrayList<Integer> ret = RILUtils.primitiveArrayToArrayList(enabledLogicalSlots);
+            if (info.error == android.hardware.radio.RadioError.NONE) {
+                // send response
+                RadioResponse.sendMessageResponse(rr.mResult, ret);
+                logd(rr, RILUtils.requestToString(rr.mRequest) + " " + ret);
+            } else {
+                rr.onError(info.error, enabledLogicalSlots);
+                loge(rr, RILUtils.requestToString(rr.mRequest) + " error " + info.error);
+            }
+        } else {
+            loge("getSimultaneousCallingSupportResponse: Error " + info.toString());
         }
     }
 

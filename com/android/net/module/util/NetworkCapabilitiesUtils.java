@@ -39,12 +39,13 @@ import static android.net.NetworkCapabilities.NET_CAPABILITY_XCAP;
 import static android.net.NetworkCapabilities.TRANSPORT_BLUETOOTH;
 import static android.net.NetworkCapabilities.TRANSPORT_CELLULAR;
 import static android.net.NetworkCapabilities.TRANSPORT_ETHERNET;
+import static android.net.NetworkCapabilities.TRANSPORT_SATELLITE;
 import static android.net.NetworkCapabilities.TRANSPORT_USB;
 import static android.net.NetworkCapabilities.TRANSPORT_VPN;
 import static android.net.NetworkCapabilities.TRANSPORT_WIFI;
 import static android.net.NetworkCapabilities.TRANSPORT_WIFI_AWARE;
 
-import static com.android.net.module.util.BitUtils.packBitList;
+import static com.android.net.module.util.BitUtils.packBits;
 import static com.android.net.module.util.BitUtils.unpackBits;
 
 import android.annotation.NonNull;
@@ -75,8 +76,8 @@ public final class NetworkCapabilitiesUtils {
         TRANSPORT_BLUETOOTH,
         TRANSPORT_WIFI,
         TRANSPORT_ETHERNET,
-        TRANSPORT_USB
-
+        TRANSPORT_USB,
+        TRANSPORT_SATELLITE
         // Notably, TRANSPORT_TEST is not in this list as any network that has TRANSPORT_TEST and
         // one of the above transports should be counted as that transport, to keep tests as
         // realistic as possible.
@@ -88,41 +89,41 @@ public final class NetworkCapabilitiesUtils {
       * and {@code FORCE_RESTRICTED_CAPABILITIES}.
      */
     @VisibleForTesting
-    public static final long RESTRICTED_CAPABILITIES = packBitList(
-            NET_CAPABILITY_BIP,
-            NET_CAPABILITY_CBS,
-            NET_CAPABILITY_DUN,
-            NET_CAPABILITY_EIMS,
-            NET_CAPABILITY_ENTERPRISE,
-            NET_CAPABILITY_FOTA,
-            NET_CAPABILITY_IA,
-            NET_CAPABILITY_IMS,
-            NET_CAPABILITY_MCX,
-            NET_CAPABILITY_RCS,
-            NET_CAPABILITY_VEHICLE_INTERNAL,
-            NET_CAPABILITY_VSIM,
-            NET_CAPABILITY_XCAP,
-            NET_CAPABILITY_MMTEL);
+    public static final long RESTRICTED_CAPABILITIES =
+            (1L << NET_CAPABILITY_BIP) |
+            (1L << NET_CAPABILITY_CBS) |
+            (1L << NET_CAPABILITY_DUN) |
+            (1L << NET_CAPABILITY_EIMS) |
+            (1L << NET_CAPABILITY_ENTERPRISE) |
+            (1L << NET_CAPABILITY_FOTA) |
+            (1L << NET_CAPABILITY_IA) |
+            (1L << NET_CAPABILITY_IMS) |
+            (1L << NET_CAPABILITY_MCX) |
+            (1L << NET_CAPABILITY_RCS) |
+            (1L << NET_CAPABILITY_VEHICLE_INTERNAL) |
+            (1L << NET_CAPABILITY_VSIM) |
+            (1L << NET_CAPABILITY_XCAP) |
+            (1L << NET_CAPABILITY_MMTEL);
 
     /**
      * Capabilities that force network to be restricted.
      * See {@code NetworkCapabilities#maybeMarkCapabilitiesRestricted}.
      */
-    private static final long FORCE_RESTRICTED_CAPABILITIES = packBitList(
-            NET_CAPABILITY_ENTERPRISE,
-            NET_CAPABILITY_OEM_PAID,
-            NET_CAPABILITY_OEM_PRIVATE);
+    private static final long FORCE_RESTRICTED_CAPABILITIES =
+            (1L << NET_CAPABILITY_ENTERPRISE) |
+            (1L << NET_CAPABILITY_OEM_PAID) |
+            (1L << NET_CAPABILITY_OEM_PRIVATE);
 
     /**
      * Capabilities that suggest that a network is unrestricted.
      * See {@code NetworkCapabilities#maybeMarkCapabilitiesRestricted}.
      */
     @VisibleForTesting
-    public static final long UNRESTRICTED_CAPABILITIES = packBitList(
-            NET_CAPABILITY_INTERNET,
-            NET_CAPABILITY_MMS,
-            NET_CAPABILITY_SUPL,
-            NET_CAPABILITY_WIFI_P2P);
+    public static final long UNRESTRICTED_CAPABILITIES =
+            (1L << NET_CAPABILITY_INTERNET) |
+            (1L << NET_CAPABILITY_MMS) |
+            (1L << NET_CAPABILITY_SUPL) |
+            (1L << NET_CAPABILITY_WIFI_P2P);
 
     /**
      * Get a transport that can be used to classify a network when displaying its info to users.
@@ -158,28 +159,33 @@ public final class NetworkCapabilitiesUtils {
      *
      * @return {@code true} if the network should be restricted.
      */
-    // TODO: Use packBits(nc.getCapabilities()) to check more easily using bit masks.
     public static boolean inferRestrictedCapability(NetworkCapabilities nc) {
+        return inferRestrictedCapability(packBits(nc.getCapabilities()));
+    }
+
+    /**
+     * Infers that all the capabilities it provides are typically provided by restricted networks
+     * or not.
+     *
+     * @param capabilities see {@link NetworkCapabilities#getCapabilities()}
+     *
+     * @return {@code true} if the network should be restricted.
+     */
+    public static boolean inferRestrictedCapability(long capabilities) {
         // Check if we have any capability that forces the network to be restricted.
-        for (int capability : unpackBits(FORCE_RESTRICTED_CAPABILITIES)) {
-            if (nc.hasCapability(capability)) {
-                return true;
-            }
+        if ((capabilities & FORCE_RESTRICTED_CAPABILITIES) != 0) {
+            return true;
         }
 
         // Verify there aren't any unrestricted capabilities.  If there are we say
         // the whole thing is unrestricted unless it is forced to be restricted.
-        for (int capability : unpackBits(UNRESTRICTED_CAPABILITIES)) {
-            if (nc.hasCapability(capability)) {
-                return false;
-            }
+        if ((capabilities & UNRESTRICTED_CAPABILITIES) != 0) {
+            return false;
         }
 
         // Must have at least some restricted capabilities.
-        for (int capability : unpackBits(RESTRICTED_CAPABILITIES)) {
-            if (nc.hasCapability(capability)) {
-                return true;
-            }
+        if ((capabilities & RESTRICTED_CAPABILITIES) != 0) {
+            return true;
         }
         return false;
     }

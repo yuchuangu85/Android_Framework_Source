@@ -16,9 +16,7 @@
 
 package android.bluetooth.le;
 
-/**
- * Bluetooth LE advertising callbacks, used to deliver advertising operation status.
- */
+/** Bluetooth LE advertising callbacks, used to deliver advertising operation status. */
 public abstract class AdvertiseCallback {
 
     /**
@@ -33,24 +31,16 @@ public abstract class AdvertiseCallback {
      */
     public static final int ADVERTISE_FAILED_DATA_TOO_LARGE = 1;
 
-    /**
-     * Failed to start advertising because no advertising instance is available.
-     */
+    /** Failed to start advertising because no advertising instance is available. */
     public static final int ADVERTISE_FAILED_TOO_MANY_ADVERTISERS = 2;
 
-    /**
-     * Failed to start advertising as the advertising is already started.
-     */
+    /** Failed to start advertising as the advertising is already started. */
     public static final int ADVERTISE_FAILED_ALREADY_STARTED = 3;
 
-    /**
-     * Operation failed due to an internal error.
-     */
+    /** Operation failed due to an internal error. */
     public static final int ADVERTISE_FAILED_INTERNAL_ERROR = 4;
 
-    /**
-     * This feature is not supported on this platform.
-     */
+    /** This feature is not supported on this platform. */
     public static final int ADVERTISE_FAILED_FEATURE_UNSUPPORTED = 5;
 
     /**
@@ -58,17 +48,15 @@ public abstract class AdvertiseCallback {
      * that the advertising has been started successfully.
      *
      * @param settingsInEffect The actual settings used for advertising, which may be different from
-     * what has been requested.
+     *     what has been requested.
      */
-    public void onStartSuccess(AdvertiseSettings settingsInEffect) {
-    }
+    public void onStartSuccess(AdvertiseSettings settingsInEffect) {}
 
     /**
      * Callback when advertising could not be started.
      *
      * @param errorCode Error code (see ADVERTISE_FAILED_* constants) for advertising start
-     * failures.
+     *     failures.
      */
-    public void onStartFailure(int errorCode) {
-    }
+    public void onStartFailure(int errorCode) {}
 }

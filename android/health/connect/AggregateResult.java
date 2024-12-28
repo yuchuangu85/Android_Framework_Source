@@ -36,6 +36,7 @@ public final class AggregateResult<T> {
     private ZoneOffset mZoneOffset;
     private Set<DataOrigin> mDataOrigins;
 
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     public AggregateResult(T result) {
         mResult = result;
     }

@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash ec0dfedf764f3916783848c540ad312a74fa755d --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.ims-V2-java-source/gen/android/hardware/radio/ims/ImsCall.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.ims-V2-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.ims/2 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.ims/2/android/hardware/radio/ims/ImsCall.aidl
  */
 package android.hardware.radio.ims;
+/** @hide */
 public class ImsCall implements android.os.Parcelable
 {
   public int index = 0;
@@ -73,7 +75,7 @@ public class ImsCall implements android.os.Parcelable
     _aidl_sj.add("callState: " + (callState));
     _aidl_sj.add("direction: " + (direction));
     _aidl_sj.add("isHeldByRemote: " + (isHeldByRemote));
-    return "android.hardware.radio.ims.ImsCall" + _aidl_sj.toString()  ;
+    return "ImsCall" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

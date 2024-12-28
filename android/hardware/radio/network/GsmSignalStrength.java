@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/GsmSignalStrength.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/GsmSignalStrength.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public class GsmSignalStrength implements android.os.Parcelable
 {
   public int signalStrength = 0;
@@ -58,7 +60,7 @@ public class GsmSignalStrength implements android.os.Parcelable
     _aidl_sj.add("signalStrength: " + (signalStrength));
     _aidl_sj.add("bitErrorRate: " + (bitErrorRate));
     _aidl_sj.add("timingAdvance: " + (timingAdvance));
-    return "android.hardware.radio.network.GsmSignalStrength" + _aidl_sj.toString()  ;
+    return "GsmSignalStrength" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

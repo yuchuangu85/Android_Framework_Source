@@ -49,4 +49,11 @@ public abstract class IkeException extends Exception {
     public static IkeException wrapAsIkeException(Exception exception) {
         return ShimUtils.getInstance().getWrappedIkeException(exception);
     }
+
+    /**
+     * Returns the error code for metrics
+     *
+     * @hide
+     */
+    public abstract int getMetricsErrorCode();
 }

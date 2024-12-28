@@ -18,6 +18,9 @@ package com.android.adservices;
 
 import android.util.Log;
 
+import com.google.errorprone.annotations.FormatMethod;
+import com.google.errorprone.annotations.FormatString;
+
 import java.util.Locale;
 
 /**
@@ -38,7 +41,8 @@ public class LogUtil {
     }
 
     /** Log the message as VERBOSE. Return The number of bytes written. */
-    public static int v(String format, Object... params) {
+    @FormatMethod
+    public static int v(@FormatString String format, Object... params) {
         if (Log.isLoggable(TAG, Log.VERBOSE)) {
             String msg = format(format, params);
             return Log.v(TAG, msg);
@@ -55,7 +59,8 @@ public class LogUtil {
     }
 
     /** Log the message as DEBUG. Return The number of bytes written. */
-    public static int d(String format, Object... params) {
+    @FormatMethod
+    public static int d(@FormatString String format, Object... params) {
         if (Log.isLoggable(TAG, Log.DEBUG)) {
             String msg = format(format, params);
             return Log.d(TAG, msg);
@@ -64,7 +69,8 @@ public class LogUtil {
     }
 
     /** Log the message as DEBUG. Return The number of bytes written. */
-    public static int d(Throwable tr, String format, Object... params) {
+    @FormatMethod
+    public static int d(Throwable tr, @FormatString String format, Object... params) {
         if (Log.isLoggable(TAG, Log.DEBUG)) {
             String msg = format(format, params);
             return Log.d(TAG, msg, tr);
@@ -81,7 +87,8 @@ public class LogUtil {
     }
 
     /** Log the message as INFO. Return The number of bytes written */
-    public static int i(String format, Object... params) {
+    @FormatMethod
+    public static int i(@FormatString String format, Object... params) {
         if (Log.isLoggable(TAG, Log.INFO)) {
             String msg = format(format, params);
             return Log.i(TAG, msg);
@@ -98,7 +105,8 @@ public class LogUtil {
     }
 
     /** Log the message as WARNING. Return The number of bytes written */
-    public static int w(String format, Object... params) {
+    @FormatMethod
+    public static int w(@FormatString String format, Object... params) {
         if (Log.isLoggable(TAG, Log.WARN)) {
             String msg = format(format, params);
             return Log.w(TAG, msg);
@@ -115,7 +123,8 @@ public class LogUtil {
     }
 
     /** Log the message as ERROR. Return The number of bytes written */
-    public static int e(String format, Object... params) {
+    @FormatMethod
+    public static int e(@FormatString String format, Object... params) {
         if (Log.isLoggable(TAG, Log.ERROR)) {
             String msg = format(format, params);
             return Log.e(TAG, msg);
@@ -138,12 +147,14 @@ public class LogUtil {
     }
 
     /** Log the message as ERROR. Return The number of bytes written */
-    public static int e(Throwable tr, String format, Object... params) {
+    @FormatMethod
+    public static int e(Throwable tr, @FormatString String format, Object... params) {
         return Log.isLoggable(TAG, Log.ERROR) ? e(tr, format(format, params)) : 0;
     }
 
     /** Log the message as WARNING. Return The number of bytes written */
-    public static int w(Throwable tr, String format, Object... params) {
+    @FormatMethod
+    public static int w(Throwable tr, @FormatString String format, Object... params) {
         if (Log.isLoggable(TAG, Log.WARN)) {
             if (Log.isLoggable(TAG, Log.DEBUG)) {
                 String msg = format(format, params);
@@ -165,7 +176,9 @@ public class LogUtil {
      */
     @Deprecated
     public static int d(String msg, Throwable tr) {
-        return d(tr, msg);
+        @SuppressWarnings("FormatStringAnnotation")
+        int result = d(tr, msg);
+        return result;
     }
 
     /**
@@ -176,7 +189,9 @@ public class LogUtil {
      */
     @Deprecated
     public static int w(String msg, Throwable tr) {
-        return w(tr, msg);
+        @SuppressWarnings("FormatStringAnnotation")
+        int result = w(tr, msg);
+        return result;
     }
 
     /**

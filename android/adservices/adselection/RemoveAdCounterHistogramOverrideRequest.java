@@ -16,7 +16,6 @@
 
 package android.adservices.adselection;
 
-import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_AD_COUNTER_KEY_MESSAGE;
 import static android.adservices.adselection.SetAdCounterHistogramOverrideRequest.NULL_BUYER_MESSAGE;
 import static android.adservices.adselection.UpdateAdCounterHistogramRequest.UNSET_AD_EVENT_TYPE_MESSAGE;
 import static android.adservices.common.FrequencyCapFilters.AD_EVENT_TYPE_INVALID;
@@ -39,10 +38,10 @@ import java.util.Objects;
  *
  * @hide
  */
-// TODO(b/221876775): Unhide for frequency cap API review
+// TODO(b/265204820): Unhide for frequency cap dev override API review
 public class RemoveAdCounterHistogramOverrideRequest {
     @FrequencyCapFilters.AdEventType private final int mAdEventType;
-    @NonNull private final String mAdCounterKey;
+    private final int mAdCounterKey;
     @NonNull private final AdTechIdentifier mBuyer;
 
     private RemoveAdCounterHistogramOverrideRequest(@NonNull Builder builder) {
@@ -75,7 +74,7 @@ public class RemoveAdCounterHistogramOverrideRequest {
      * represent a grouping to filter on.
      */
     @NonNull
-    public String getAdCounterKey() {
+    public int getAdCounterKey() {
         return mAdCounterKey;
     }
 
@@ -98,9 +97,9 @@ public class RemoveAdCounterHistogramOverrideRequest {
         return "RemoveAdCounterHistogramOverrideRequest{"
                 + "mAdEventType="
                 + mAdEventType
-                + ", mAdCounterKey='"
+                + ", mAdCounterKey="
                 + mAdCounterKey
-                + "', mBuyer="
+                + ", mBuyer="
                 + mBuyer
                 + '}';
     }
@@ -108,7 +107,7 @@ public class RemoveAdCounterHistogramOverrideRequest {
     /** Builder for {@link RemoveAdCounterHistogramOverrideRequest} objects. */
     public static final class Builder {
         @FrequencyCapFilters.AdEventType private int mAdEventType = AD_EVENT_TYPE_INVALID;
-        @Nullable private String mAdCounterKey;
+        private int mAdCounterKey;
         @Nullable private AdTechIdentifier mBuyer;
 
         public Builder() {}
@@ -130,8 +129,7 @@ public class RemoveAdCounterHistogramOverrideRequest {
          * <p>See {@link #getAdCounterKey()} for more information.
          */
         @NonNull
-        public Builder setAdCounterKey(@NonNull String adCounterKey) {
-            Objects.requireNonNull(adCounterKey, NULL_AD_COUNTER_KEY_MESSAGE);
+        public Builder setAdCounterKey(int adCounterKey) {
             mAdCounterKey = adCounterKey;
             return this;
         }
@@ -159,7 +157,6 @@ public class RemoveAdCounterHistogramOverrideRequest {
                 throws NullPointerException, IllegalArgumentException {
             Preconditions.checkArgument(
                     mAdEventType != AD_EVENT_TYPE_INVALID, UNSET_AD_EVENT_TYPE_MESSAGE);
-            Objects.requireNonNull(mAdCounterKey, NULL_AD_COUNTER_KEY_MESSAGE);
             Objects.requireNonNull(mBuyer, NULL_BUYER_MESSAGE);
 
             return new RemoveAdCounterHistogramOverrideRequest(this);

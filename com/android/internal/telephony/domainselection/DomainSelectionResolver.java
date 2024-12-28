@@ -22,8 +22,11 @@ import static com.android.internal.telephony.RIL.RADIO_HAL_VERSION_2_1;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.content.ComponentName;
 import android.content.Context;
+import android.os.SystemProperties;
 import android.telephony.DomainSelectionService;
+import android.text.TextUtils;
 import android.util.IndentingPrintWriter;
 import android.util.LocalLog;
 import android.util.Log;
@@ -31,6 +34,8 @@ import android.util.Log;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
+import com.android.internal.telephony.flags.Flags;
+import com.android.internal.telephony.util.TelephonyUtils;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -42,19 +47,27 @@ import java.io.PrintWriter;
  * selector.
  */
 public class DomainSelectionResolver {
+    @VisibleForTesting
+    protected static final String PACKAGE_NAME_NONE = "none";
     private static final String TAG = DomainSelectionResolver.class.getSimpleName();
+    private static final boolean DBG = TelephonyUtils.IS_DEBUGGABLE;
+    /** For test purpose only with userdebug release */
+    private static final String PROP_DISABLE_DOMAIN_SELECTION =
+            "telephony.test.disable_domain_selection";
     private static DomainSelectionResolver sInstance = null;
 
     /**
      * Creates the DomainSelectionResolver singleton instance.
      *
      * @param context The context of the application.
-     * @param deviceConfigEnabled The flag to indicate whether or not the device supports
-     *                            the domain selection service or not.
+     * @param flattenedComponentName A flattened component name for the domain selection service
+     *                               to be bound to the domain selection controller.
      */
-    public static void make(Context context, boolean deviceConfigEnabled) {
+    public static void make(Context context, String flattenedComponentName) {
+        Log.i(TAG, "make flag=" + Flags.apDomainSelectionEnabled()
+                + ", useOem=" + Flags.useOemDomainSelectionService());
         if (sInstance == null) {
-            sInstance = new DomainSelectionResolver(context, deviceConfigEnabled);
+            sInstance = new DomainSelectionResolver(context, flattenedComponentName);
         }
     }
 
@@ -86,34 +99,33 @@ public class DomainSelectionResolver {
     @VisibleForTesting
     public interface DomainSelectionControllerFactory {
         /**
-         * Returns a {@link DomainSelectionController} created using the specified
-         * context and {@link DomainSelectionService} instance.
+         * Returns a {@link DomainSelectionController} created using the specified context.
          */
-        DomainSelectionController create(@NonNull Context context,
-                @NonNull DomainSelectionService service);
+        DomainSelectionController create(@NonNull Context context);
     }
 
     private DomainSelectionControllerFactory mDomainSelectionControllerFactory =
             new DomainSelectionControllerFactory() {
-        @Override
-        public DomainSelectionController create(@NonNull Context context,
-                @NonNull DomainSelectionService service) {
-            return new DomainSelectionController(context, service);
-        }
-    };
+                @Override
+                public DomainSelectionController create(@NonNull Context context) {
+                    return new DomainSelectionController(context);
+                }
+            };
 
     // Persistent Logging
     private final LocalLog mEventLog = new LocalLog(10);
     private final Context mContext;
-    // The flag to indicate whether the device supports the domain selection service or not.
-    private final boolean mDeviceConfigEnabled;
+    // Stores the default component name to bind the domain selection service so that
+    // the test can override this component name with their own domain selection service.
+    private final ComponentName mDefaultComponentName;
     // DomainSelectionController, which are bound to DomainSelectionService.
     private DomainSelectionController mController;
 
-    public DomainSelectionResolver(Context context, boolean deviceConfigEnabled) {
+    public DomainSelectionResolver(Context context, String flattenedComponentName) {
         mContext = context;
-        mDeviceConfigEnabled = deviceConfigEnabled;
-        logi("DomainSelectionResolver created: device-config=" + deviceConfigEnabled);
+        flattenedComponentName = (flattenedComponentName == null) ? "" : flattenedComponentName;
+        mDefaultComponentName = ComponentName.unflattenFromString(flattenedComponentName);
+        logi("DomainSelectionResolver created: componentName=[" + flattenedComponentName + "]");
     }
 
     /**
@@ -126,7 +138,11 @@ public class DomainSelectionResolver {
      *         {@code false} otherwise.
      */
     public boolean isDomainSelectionSupported() {
-        return mDeviceConfigEnabled && PhoneFactory.getDefaultPhone()
+        if (DBG && SystemProperties.getBoolean(PROP_DISABLE_DOMAIN_SELECTION, false)) {
+            logi("Disabled for test");
+            return false;
+        }
+        return mDefaultComponentName != null && PhoneFactory.getDefaultPhone()
                 .getHalVersion(HAL_SERVICE_NETWORK).greaterOrEqual(RADIO_HAL_VERSION_2_1);
     }
 
@@ -150,9 +166,14 @@ public class DomainSelectionResolver {
             throw new IllegalStateException("DomainSelection is not supported!");
         }
 
-        if (phone == null || !phone.isImsAvailable()) {
-            // If ImsPhone is null or the binder of ImsService is not available,
-            // CS domain is used for the telephony services.
+        if (phone == null || phone.getImsPhone() == null
+                || (!(isEmergency && selectorType == DomainSelectionService.SELECTOR_TYPE_CALLING)
+                        && !phone.isImsAvailable())) {
+            // In case of emergency calls, to recover the temporary failure in IMS service
+            // connection, DomainSelection shall be started even when IMS isn't available.
+            // DomainSelector will keep finding next available transport.
+            // For other telephony services, if the binder of ImsService is not available,
+            // CS domain will be used.
             return null;
         }
 
@@ -166,14 +187,60 @@ public class DomainSelectionResolver {
     }
 
     /**
-     * Needs to be called after the constructor to create a {@link DomainSelectionController} that
-     * is bound to the given {@link DomainSelectionService}.
-     *
-     * @param service A {@link DomainSelectionService} to be bound.
+     * Creates the {@link DomainSelectionController} and requests the domain selection controller
+     * to bind to the {@link DomainSelectionService} with the component name.
      */
-    public void initialize(@NonNull DomainSelectionService service) {
-        logi("Initialize.");
-        mController = mDomainSelectionControllerFactory.create(mContext, service);
+    public void initialize() {
+        logi("Initialize");
+        mController = mDomainSelectionControllerFactory.create(mContext);
+        if (mDefaultComponentName != null) {
+            mController.bind(mDefaultComponentName);
+        } else {
+            logi("No component name specified for domain selection service.");
+        }
+    }
+
+    /**
+     * Sets the component name of domain selection service to be bound.
+     *
+     * NOTE: This should only be used for testing.
+     *
+     * @return {@code true} if the requested operation is successfully done,
+     *         {@code false} otherwise.
+     */
+    public boolean setDomainSelectionServiceOverride(@NonNull ComponentName componentName) {
+        if (mController == null) {
+            logd("Controller is not initialized.");
+            return false;
+        }
+        logi("setDomainSelectionServiceOverride: " + componentName);
+        if (TextUtils.isEmpty(componentName.getPackageName())
+                || TextUtils.equals(PACKAGE_NAME_NONE, componentName.getPackageName())) {
+            // Unbind the active service connection to the domain selection service.
+            mController.unbind();
+            return true;
+        }
+        // Override the domain selection service with the given component name.
+        return mController.bind(componentName);
+    }
+
+    /**
+     * Clears the overridden domain selection service and restores the domain selection service
+     * with the default component.
+     *
+     * NOTE: This should only be used for testing.
+     *
+     * @return {@code true} if the requested operation is successfully done,
+     *         {@code false} otherwise.
+     */
+    public boolean clearDomainSelectionServiceOverride() {
+        if (mController == null) {
+            logd("Controller is not initialized.");
+            return false;
+        }
+        logi("clearDomainSelectionServiceOverride");
+        mController.unbind();
+        return mController.bind(mDefaultComponentName);
     }
 
     /**
@@ -198,6 +265,10 @@ public class DomainSelectionResolver {
             controller.dump(ipw);
         }
         ipw.decreaseIndent();
+    }
+
+    private void logd(String s) {
+        Log.d(TAG, s);
     }
 
     private void logi(String s) {

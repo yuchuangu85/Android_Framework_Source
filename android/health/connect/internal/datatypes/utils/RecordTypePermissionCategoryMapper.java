@@ -42,10 +42,12 @@ import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_NUTRITION;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_OVULATION_TEST;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_OXYGEN_SATURATION;
+import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_PLANNED_EXERCISE_SESSION;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_POWER;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_RESPIRATORY_RATE;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_RESTING_HEART_RATE;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_SEXUAL_ACTIVITY;
+import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_SKIN_TEMPERATURE;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_SLEEP_SESSION;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_SPEED;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_STEPS;
@@ -127,6 +129,9 @@ public final class RecordTypePermissionCategoryMapper {
                         put(
                                 RECORD_TYPE_RESTING_HEART_RATE,
                                 HealthPermissionCategory.RESTING_HEART_RATE);
+                        put(
+                                RECORD_TYPE_SKIN_TEMPERATURE,
+                                HealthPermissionCategory.SKIN_TEMPERATURE);
                         put(RECORD_TYPE_HEIGHT, HealthPermissionCategory.HEIGHT);
                         put(RECORD_TYPE_WEIGHT, HealthPermissionCategory.WEIGHT);
                         put(RECORD_TYPE_BODY_WATER_MASS, HealthPermissionCategory.BODY_WATER_MASS);
@@ -138,6 +143,9 @@ public final class RecordTypePermissionCategoryMapper {
                                 RECORD_TYPE_INTERMENSTRUAL_BLEEDING,
                                 HealthPermissionCategory.INTERMENSTRUAL_BLEEDING);
                         put(RECORD_TYPE_EXERCISE_SESSION, HealthPermissionCategory.EXERCISE);
+                        put(
+                                RECORD_TYPE_PLANNED_EXERCISE_SESSION,
+                                HealthPermissionCategory.PLANNED_EXERCISE);
                         put(RECORD_TYPE_SLEEP_SESSION, HealthPermissionCategory.SLEEP);
                     }
                 };

@@ -32,6 +32,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.function.Function;
 
 // Android-changed: Use the shared SystemCleaner instance on Android.
+// Android-changed: Exceptions are only ignored by Cleaner.create() threads.
 /**
  * {@code Cleaner} manages a set of object references and corresponding cleaning actions.
  * <p>
@@ -56,9 +57,6 @@ import java.util.function.Function;
  * <p>
  * The execution of the cleaning action is performed
  * by a thread associated with the cleaner.
- * All exceptions thrown by the cleaning action are ignored.
- * The cleaner and other cleaning actions are not affected by
- * exceptions in a cleaning action.
  * The thread runs until all registered cleaning actions have
  * completed and the cleaner itself is reclaimed by the garbage collector.
  * <p>
@@ -166,6 +164,8 @@ public final class Cleaner {
      * {@link ClassLoader#getSystemClassLoader() system class loader}.
      * The thread has no permissions, enforced only if a
      * {@link java.lang.System#setSecurityManager(SecurityManager) SecurityManager is set}.
+     * <p>
+     * All exceptions thrown by the cleaning actions in this thread are ignored.
      * <p>
      * The cleaner terminates when it is phantom reachable and all of the
      * registered cleaning actions are complete.

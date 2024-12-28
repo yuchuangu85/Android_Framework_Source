@@ -20,6 +20,8 @@ import static android.telephony.DomainSelectionService.SELECTOR_TYPE_CALLING;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.net.Uri;
+import android.telecom.PhoneAccount;
 import android.telephony.AccessNetworkConstants.RadioAccessNetworkType;
 import android.telephony.Annotation.DisconnectCauses;
 import android.telephony.DomainSelectionService;
@@ -37,15 +39,6 @@ import java.util.concurrent.CompletableFuture;
 public class NormalCallDomainSelectionConnection extends DomainSelectionConnection {
 
     private static final boolean DBG = false;
-
-    private static final String PREFIX_WPS = "*272";
-
-    // WPS prefix when CLIR is being activated for the call.
-    private static final String PREFIX_WPS_CLIR_ACTIVATE = "*31#*272";
-
-    // WPS prefix when CLIR is being deactivated for the call.
-    private static final String PREFIX_WPS_CLIR_DEACTIVATE = "#31#*272";
-
 
     private @Nullable DomainSelectionConnectionCallback mCallback;
 
@@ -82,7 +75,7 @@ public class NormalCallDomainSelectionConnection extends DomainSelectionConnecti
     /** {@inheritDoc} */
     @Override
     public void onRequestEmergencyNetworkScan(@RadioAccessNetworkType int[] preferredNetworks,
-            @EmergencyScanType int scanType) {
+            @EmergencyScanType int scanType, boolean resetScan) {
         // Not expected with normal calling.
         // Override to prevent abnormal behavior.
     }
@@ -123,7 +116,7 @@ public class NormalCallDomainSelectionConnection extends DomainSelectionConnecti
                         slotId, subId, SELECTOR_TYPE_CALLING)
                         .setEmergency(false)
                         .setCallId(callId)
-                        .setNumber(number)
+                        .setAddress(Uri.fromParts(PhoneAccount.SCHEME_TEL, number, null))
                         .setCsDisconnectCause(callFailCause)
                         .setVideoCall(isVideoCall);
 
@@ -131,16 +124,5 @@ public class NormalCallDomainSelectionConnection extends DomainSelectionConnecti
             builder.setPsDisconnectCause(imsReasonInfo);
         }
         return builder.build();
-    }
-
-    /**
-     * Check if the call is Wireless Priority Service call
-     * @param dialString  The number being dialed.
-     * @return {@code true} if dialString matches WPS pattern and {@code false} otherwise.
-     */
-    public static boolean isWpsCall(String dialString) {
-        return (dialString != null) && (dialString.startsWith(PREFIX_WPS)
-                || dialString.startsWith(PREFIX_WPS_CLIR_ACTIVATE)
-                || dialString.startsWith(PREFIX_WPS_CLIR_DEACTIVATE));
     }
 }

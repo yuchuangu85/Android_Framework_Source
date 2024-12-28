@@ -343,9 +343,6 @@ public class DeviceCapabilityListener {
     private void unregisterImsProvisionCallback() {
         logd("unregisterImsProvisionCallback");
 
-        // Clear the registering IMS callback message from the handler thread
-        mHandler.removeRegisterImsContentChangedMessage();
-
         // Unregister mmtel callback
         if (mImsMmTelManager != null) {
             try {

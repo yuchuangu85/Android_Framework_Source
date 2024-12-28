@@ -51,6 +51,7 @@ import android.graphics.PixelFormat;
 import android.graphics.Point;
 import android.media.MediaPlayer;
 import android.net.Uri;
+import android.os.Binder;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.IBinder;
@@ -124,8 +125,8 @@ public abstract class CloudMediaProvider extends ContentProvider {
     private final UriMatcher mMatcher = new UriMatcher(UriMatcher.NO_MATCH);
     private volatile int mMediaStoreAuthorityAppId;
 
-    private final AsyncContentProviderWrapper mAsyncContentProviderWrapper =
-            new AsyncContentProviderWrapper();
+    private String mAuthority;
+
 
     /**
      * Implementation is provided by the parent class. Cannot be overridden.
@@ -138,6 +139,7 @@ public abstract class CloudMediaProvider extends ContentProvider {
     }
 
     private void registerAuthority(String authority) {
+        mAuthority = authority;
         mMatcher.addURI(authority, URI_PATH_MEDIA, MATCH_MEDIAS);
         mMatcher.addURI(authority, URI_PATH_DELETED_MEDIA, MATCH_DELETED_MEDIAS);
         mMatcher.addURI(authority, URI_PATH_ALBUM, MATCH_ALBUMS);
@@ -153,7 +155,8 @@ public abstract class CloudMediaProvider extends ContentProvider {
     @NonNull
     public final Bundle onGetAsyncContentProvider() {
         Bundle bundle = new Bundle();
-        bundle.putBinder(EXTRA_ASYNC_CONTENT_PROVIDER, mAsyncContentProviderWrapper.asBinder());
+        bundle.putBinder(EXTRA_ASYNC_CONTENT_PROVIDER,
+                (new AsyncContentProviderWrapper()).asBinder());
         return bundle;
     }
 
@@ -206,6 +209,7 @@ public abstract class CloudMediaProvider extends ContentProvider {
      * <li> {@link CloudMediaProviderContract#EXTRA_SYNC_GENERATION}
      * <li> {@link CloudMediaProviderContract#EXTRA_PAGE_TOKEN}
      * <li> {@link CloudMediaProviderContract#EXTRA_ALBUM_ID}
+     * <li> {@link CloudMediaProviderContract#EXTRA_PAGE_SIZE}
      * </ul>
      * @return cursor representing media items containing all
      * {@link CloudMediaProviderContract.MediaColumns} columns
@@ -259,6 +263,7 @@ public abstract class CloudMediaProvider extends ContentProvider {
      * <ul>
      * <li> {@link CloudMediaProviderContract#EXTRA_SYNC_GENERATION}
      * <li> {@link CloudMediaProviderContract#EXTRA_PAGE_TOKEN}
+     * <li> {@link CloudMediaProviderContract#EXTRA_PAGE_SIZE}
      * </ul>
      * @return cursor representing album items containing all
      * {@link CloudMediaProviderContract.AlbumColumns} columns
@@ -270,7 +275,9 @@ public abstract class CloudMediaProvider extends ContentProvider {
     }
 
     /**
-     * Returns a thumbnail of {@code size} for a media item identified by {@code mediaId}.
+     * Returns a thumbnail of {@code size} for a media item identified by {@code mediaId}
+     * <p>The cloud media provider should strictly return thumbnail in the original
+     * {@link CloudMediaProviderContract.MediaColumns#MIME_TYPE} of the item.
      * <p>
      * This is expected to be a much lower resolution version than the item returned by
      * {@link #onOpenMedia}.
@@ -357,15 +364,21 @@ public abstract class CloudMediaProvider extends ContentProvider {
 
     private Bundle callUnchecked(String method, String arg, Bundle extras)
             throws FileNotFoundException {
+        Bundle result = new Bundle();
         if (METHOD_GET_MEDIA_COLLECTION_INFO.equals(method)) {
-            return onGetMediaCollectionInfo(extras);
+            long startTime = System.currentTimeMillis();
+            result = onGetMediaCollectionInfo(extras);
+            CmpApiVerifier.verifyApiResult(new CmpApiResult(
+                            CmpApiVerifier.CloudMediaProviderApis.OnGetMediaCollectionInfo, result),
+                    System.currentTimeMillis() - startTime, mAuthority);
         } else if (METHOD_CREATE_SURFACE_CONTROLLER.equals(method)) {
-            return onCreateCloudMediaSurfaceController(extras);
+            result = onCreateCloudMediaSurfaceController(extras);
         } else if (METHOD_GET_ASYNC_CONTENT_PROVIDER.equals(method)) {
-            return onGetAsyncContentProvider();
+            result = onGetAsyncContentProvider();
         } else {
             throw new UnsupportedOperationException("Method not supported " + method);
         }
+        return result;
     }
 
     private Bundle onCreateCloudMediaSurfaceController(@NonNull Bundle extras) {
@@ -424,7 +437,12 @@ public abstract class CloudMediaProvider extends ContentProvider {
             @Nullable CancellationSignal signal) throws FileNotFoundException {
         String mediaId = uri.getLastPathSegment();
 
-        return onOpenMedia(mediaId, /* extras */ null, signal);
+        long startTime = System.currentTimeMillis();
+        ParcelFileDescriptor result = onOpenMedia(mediaId, /* extras */ null, signal);
+        CmpApiVerifier.verifyApiResult(new CmpApiResult(
+                        CmpApiVerifier.CloudMediaProviderApis.OnOpenMedia, result),
+                System.currentTimeMillis() - startTime, mAuthority);
+        return result;
     }
 
     /**
@@ -473,7 +491,12 @@ public abstract class CloudMediaProvider extends ContentProvider {
             previewSize = new Point(minPreviewLength, minPreviewLength);
         }
 
-        return onOpenPreview(mediaId, previewSize, bundle, signal);
+        long startTime = System.currentTimeMillis();
+        AssetFileDescriptor result = onOpenPreview(mediaId, previewSize, bundle, signal);
+        CmpApiVerifier.verifyApiResult(new CmpApiResult(
+                        CmpApiVerifier.CloudMediaProviderApis.OnOpenPreview, result, previewSize),
+                System.currentTimeMillis() - startTime, mAuthority);
+        return result;
     }
 
     /**
@@ -487,16 +510,34 @@ public abstract class CloudMediaProvider extends ContentProvider {
     @Override
     public final Cursor query(@NonNull Uri uri, @Nullable String[] projection,
             @Nullable Bundle queryArgs, @Nullable CancellationSignal cancellationSignal) {
+        if (queryArgs == null) {
+            queryArgs = new Bundle();
+        }
+        Cursor result;
+        long startTime = System.currentTimeMillis();
         switch (mMatcher.match(uri)) {
             case MATCH_MEDIAS:
-                return onQueryMedia(queryArgs);
+                result = onQueryMedia(queryArgs);
+                CmpApiVerifier.verifyApiResult(new CmpApiResult(
+                                CmpApiVerifier.CloudMediaProviderApis.OnQueryMedia, result),
+                        System.currentTimeMillis() - startTime, mAuthority);
+                break;
             case MATCH_DELETED_MEDIAS:
-                return onQueryDeletedMedia(queryArgs);
+                result = onQueryDeletedMedia(queryArgs);
+                CmpApiVerifier.verifyApiResult(new CmpApiResult(
+                                CmpApiVerifier.CloudMediaProviderApis.OnQueryDeletedMedia, result),
+                        System.currentTimeMillis() - startTime, mAuthority);
+                break;
             case MATCH_ALBUMS:
-                return onQueryAlbums(queryArgs);
+                result = onQueryAlbums(queryArgs);
+                CmpApiVerifier.verifyApiResult(new CmpApiResult(
+                                CmpApiVerifier.CloudMediaProviderApis.OnQueryAlbums, result),
+                        System.currentTimeMillis() - startTime, mAuthority);
+                break;
             default:
                 throw new UnsupportedOperationException("Unsupported Uri " + uri);
         }
+        return result;
     }
 
     /**

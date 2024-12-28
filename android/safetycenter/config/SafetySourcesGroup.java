@@ -314,7 +314,8 @@ public final class SafetySourcesGroup implements Parcelable {
         @RequiresApi(UPSIDE_DOWN_CAKE)
         public Builder(@NonNull SafetySourcesGroup original) {
             if (!SdkLevel.isAtLeastU()) {
-                throw new UnsupportedOperationException();
+                throw new UnsupportedOperationException(
+                        "Method not supported on versions lower than UPSIDE_DOWN_CAKE");
             }
             requireNonNull(original);
             mSafetySources.addAll(original.mSafetySources);

@@ -16,8 +16,6 @@
 
 package android.bluetooth;
 
-import static android.bluetooth.BluetoothUtils.getSyncTimeout;
-
 import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.RequiresPermission;
@@ -36,19 +34,14 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 
-import com.android.modules.utils.SynchronousResultReceiver;
-
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
 
 /**
- * This class provides the public APIs to control the Bluetooth A2DP Sink
- * profile.
+ * This class provides the public APIs to control the Bluetooth A2DP Sink profile.
  *
- * <p>BluetoothA2dpSink is a proxy object for controlling the Bluetooth A2DP Sink
- * Service via IPC. Use {@link BluetoothAdapter#getProfileProxy} to get
- * the BluetoothA2dpSink proxy object.
+ * <p>BluetoothA2dpSink is a proxy object for controlling the Bluetooth A2DP Sink Service via IPC.
+ * Use {@link BluetoothAdapter#getProfileProxy} to get the BluetoothA2dpSink proxy object.
  *
  * @hide
  */
@@ -59,19 +52,19 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     private static final boolean VDBG = false;
 
     /**
-     * Intent used to broadcast the change in connection state of the A2DP Sink
-     * profile.
+     * Intent used to broadcast the change in connection state of the A2DP Sink profile.
      *
      * <p>This intent will have 3 extras:
+     *
      * <ul>
-     * <li> {@link #EXTRA_STATE} - The current state of the profile. </li>
-     * <li> {@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.</li>
-     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device. </li>
+     *   <li>{@link #EXTRA_STATE} - The current state of the profile.
+     *   <li>{@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.
+     *   <li>{@link BluetoothDevice#EXTRA_DEVICE} - The remote device.
      * </ul>
      *
-     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of
-     * {@link #STATE_DISCONNECTED}, {@link #STATE_CONNECTING},
-     * {@link #STATE_CONNECTED}, {@link #STATE_DISCONNECTING}.
+     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of {@link
+     * #STATE_DISCONNECTED}, {@link #STATE_CONNECTING}, {@link #STATE_CONNECTED}, {@link
+     * #STATE_DISCONNECTING}.
      *
      * @hide
      */
@@ -85,100 +78,94 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
 
     private final BluetoothAdapter mAdapter;
     private final AttributionSource mAttributionSource;
-    private final BluetoothProfileConnector<IBluetoothA2dpSink> mProfileConnector =
-            new BluetoothProfileConnector(this, BluetoothProfile.A2DP_SINK,
-                    "BluetoothA2dpSink", IBluetoothA2dpSink.class.getName()) {
-                @Override
-                public IBluetoothA2dpSink getServiceInterface(IBinder service) {
-                    return IBluetoothA2dpSink.Stub.asInterface(service);
-                }
-    };
+
+    private IBluetoothA2dpSink mService;
 
     /**
-     * Create a BluetoothA2dp proxy object for interacting with the local
-     * Bluetooth A2DP service.
+     * Create a BluetoothA2dp proxy object for interacting with the local Bluetooth A2DP service.
      */
-    /* package */ BluetoothA2dpSink(Context context, ServiceListener listener,
-            BluetoothAdapter adapter) {
+    /* package */ BluetoothA2dpSink(Context context, BluetoothAdapter adapter) {
         mAdapter = adapter;
         mAttributionSource = adapter.getAttributionSource();
-        mProfileConnector.connect(context, listener);
+        mService = null;
     }
 
     /** @hide */
     @Override
-    public void close() {
-        mProfileConnector.disconnect();
+    public void onServiceConnected(IBinder service) {
+        mService = IBluetoothA2dpSink.Stub.asInterface(service);
+    }
+
+    /** @hide */
+    @Override
+    public void onServiceDisconnected() {
+        mService = null;
     }
 
     private IBluetoothA2dpSink getService() {
-        return mProfileConnector.getService();
+        return mService;
+    }
+
+    /** @hide */
+    @Override
+    public BluetoothAdapter getAdapter() {
+        return mAdapter;
     }
 
     @Override
-    public void finalize() {
-        close();
-    }
+    @SuppressWarnings("Finalize") // empty finalize for api signature
+    public void finalize() {}
 
     /**
      * Initiate connection to a profile of the remote bluetooth device.
      *
-     * <p> Currently, the system supports only 1 connection to the
-     * A2DP profile. The API will automatically disconnect connected
-     * devices before connecting.
+     * <p>Currently, the system supports only 1 connection to the A2DP profile. The API will
+     * automatically disconnect connected devices before connecting.
      *
-     * <p> This API returns false in scenarios like the profile on the
-     * device is already connected or Bluetooth is not turned on.
-     * When this API returns true, it is guaranteed that
-     * connection state intent for the profile will be broadcasted with
-     * the state. Users can get the connection state of the profile
-     * from this intent.
+     * <p>This API returns false in scenarios like the profile on the device is already connected or
+     * Bluetooth is not turned on. When this API returns true, it is guaranteed that connection
+     * state intent for the profile will be broadcasted with the state. Users can get the connection
+     * state of the profile from this intent.
      *
      * @param device Remote Bluetooth Device
      * @return false on immediate error, true otherwise
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean connect(BluetoothDevice device) {
         if (DBG) log("connect(" + device + ")");
         final IBluetoothA2dpSink service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.connect(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.connect(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Initiate disconnection from a profile
      *
-     * <p> This API will return false in scenarios like the profile on the
-     * Bluetooth device is not in connected state etc. When this API returns,
-     * true, it is guaranteed that the connection state change
-     * intent will be broadcasted with the state. Users can get the
-     * disconnection state of the profile from this intent.
+     * <p>This API will return false in scenarios like the profile on the Bluetooth device is not in
+     * connected state etc. When this API returns, true, it is guaranteed that the connection state
+     * change intent will be broadcasted with the state. Users can get the disconnection state of
+     * the profile from this intent.
      *
-     * <p> If the disconnection is initiated by a remote device, the state
-     * will transition from {@link #STATE_CONNECTED} to
-     * {@link #STATE_DISCONNECTED}. If the disconnect is initiated by the
-     * host (local) device the state will transition from
-     * {@link #STATE_CONNECTED} to state {@link #STATE_DISCONNECTING} to
-     * state {@link #STATE_DISCONNECTED}. The transition to
-     * {@link #STATE_DISCONNECTING} can be used to distinguish between the
-     * two scenarios.
+     * <p>If the disconnection is initiated by a remote device, the state will transition from
+     * {@link #STATE_CONNECTED} to {@link #STATE_DISCONNECTED}. If the disconnect is initiated by
+     * the host (local) device the state will transition from {@link #STATE_CONNECTED} to state
+     * {@link #STATE_DISCONNECTING} to state {@link #STATE_DISCONNECTED}. The transition to {@link
+     * #STATE_DISCONNECTING} can be used to distinguish between the two scenarios.
      *
      * @param device Remote Bluetooth Device
      * @return false on immediate error, true otherwise
@@ -191,20 +178,17 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     public boolean disconnect(BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
         final IBluetoothA2dpSink service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.disconnect(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.disconnect(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -218,23 +202,18 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     public List<BluetoothDevice> getConnectedDevices() {
         if (VDBG) log("getConnectedDevices()");
         final IBluetoothA2dpSink service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getConnectedDevices(mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
-                        mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+                        service.getConnectedDevices(mAttributionSource), mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
     /**
@@ -248,23 +227,19 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         if (VDBG) log("getDevicesMatchingStates()");
         final IBluetoothA2dpSink service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getDevicesMatchingConnectionStates(states, mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
+                        service.getDevicesMatchingConnectionStates(states, mAttributionSource),
                         mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
     /**
@@ -278,31 +253,26 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     public int getConnectionState(BluetoothDevice device) {
         if (VDBG) log("getConnectionState(" + device + ")");
         final IBluetoothA2dpSink service = getService();
-        final int defaultValue = BluetoothProfile.STATE_DISCONNECTED;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionState(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getConnectionState(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothProfile.STATE_DISCONNECTED;
     }
 
     /**
-     * Get the current audio configuration for the A2DP source device,
-     * or null if the device has no audio configuration
+     * Get the current audio configuration for the A2DP source device, or null if the device has no
+     * audio configuration
      *
      * @param device Remote bluetooth device.
      * @return audio configuration for the device, or null
-     *
-     * {@see BluetoothAudioConfig}
-     *
+     * @see BluetoothAudioConfig
      * @hide
      */
     @RequiresLegacyBluetoothPermission
@@ -311,39 +281,35 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     public BluetoothAudioConfig getAudioConfig(BluetoothDevice device) {
         if (VDBG) log("getAudioConfig(" + device + ")");
         final IBluetoothA2dpSink service = getService();
-        final BluetoothAudioConfig defaultValue = null;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<BluetoothAudioConfig> recv =
-                        SynchronousResultReceiver.get();
-                service.getAudioConfig(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getAudioConfig(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return null;
     }
 
     /**
      * Set priority of the profile
      *
-     * <p> The device should already be paired.
-     * Priority can be one of {@link #PRIORITY_ON} or {@link #PRIORITY_OFF}
+     * <p>The device should already be paired. Priority can be one of {@link #PRIORITY_ON} or {@link
+     * #PRIORITY_OFF}
      *
      * @param device Paired bluetooth device
-     * @param priority
      * @return true if priority is set, false on error
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean setPriority(BluetoothDevice device, int priority) {
         if (DBG) log("setPriority(" + device + ", " + priority + ")");
         return setConnectionPolicy(device, BluetoothAdapter.priorityToConnectionPolicy(priority));
@@ -352,9 +318,9 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     /**
      * Set connection policy of the profile
      *
-     * <p> The device should already be paired.
-     * Connection policy can be one of {@link #CONNECTION_POLICY_ALLOWED},
-     * {@link #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The device should already be paired. Connection policy can be one of {@link
+     * #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN}, {@link
+     * #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Paired bluetooth device
      * @param connectionPolicy is the connection policy to set to for this profile
@@ -363,47 +329,47 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED
-    })
-    public boolean setConnectionPolicy(@NonNull BluetoothDevice device,
-            @ConnectionPolicy int connectionPolicy) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED
+            })
+    public boolean setConnectionPolicy(
+            @NonNull BluetoothDevice device, @ConnectionPolicy int connectionPolicy) {
         if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
         final IBluetoothA2dpSink service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
-        } else if (isEnabled() && isValidDevice(device)
+        } else if (isEnabled()
+                && isValidDevice(device)
                 && (connectionPolicy == BluetoothProfile.CONNECTION_POLICY_FORBIDDEN
-                    || connectionPolicy == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
+                        || connectionPolicy == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setConnectionPolicy(device, connectionPolicy, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setConnectionPolicy(device, connectionPolicy, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Get the priority of the profile.
      *
-     * <p> The priority can be any of:
-     * {@link #PRIORITY_OFF}, {@link #PRIORITY_ON}, {@link #PRIORITY_UNDEFINED}
+     * <p>The priority can be any of: {@link #PRIORITY_OFF}, {@link #PRIORITY_ON}, {@link
+     * #PRIORITY_UNDEFINED}
      *
      * @param device Bluetooth device
      * @return priority of the device
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public int getPriority(BluetoothDevice device) {
         if (VDBG) log("getPriority(" + device + ")");
         return BluetoothAdapter.connectionPolicyToPriority(getConnectionPolicy(device));
@@ -412,9 +378,8 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
     /**
      * Get the connection policy of the profile.
      *
-     * <p> The connection policy can be any of:
-     * {@link #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN},
-     * {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The connection policy can be any of: {@link #CONNECTION_POLICY_ALLOWED}, {@link
+     * #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Bluetooth device
      * @return connection policy of the device
@@ -422,27 +387,25 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @ConnectionPolicy int getConnectionPolicy(@NonNull BluetoothDevice device) {
         if (VDBG) log("getConnectionPolicy(" + device + ")");
         final IBluetoothA2dpSink service = getService();
-        final int defaultValue = BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionPolicy(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getConnectionPolicy(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
     }
 
     /**
@@ -450,38 +413,35 @@ public final class BluetoothA2dpSink implements BluetoothProfile {
      *
      * @param device BluetoothDevice device
      * @return true if audio is playing (A2dp is streaming music), false otherwise
-     *
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean isAudioPlaying(@NonNull BluetoothDevice device) {
         if (VDBG) log("isAudioPlaying(" + device + ")");
         final IBluetoothA2dpSink service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.isA2dpPlaying(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.isA2dpPlaying(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Helper for converting a state to a string.
      *
-     * For debug use only - strings are not internationalized.
+     * <p>For debug use only - strings are not internationalized.
      *
      * @hide
      */

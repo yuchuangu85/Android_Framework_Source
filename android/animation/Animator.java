@@ -26,6 +26,7 @@ import android.os.Build;
 import android.util.LongArray;
 
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * This is the superclass for classes which provide basic support for animations which can be
@@ -76,7 +77,7 @@ public abstract class Animator implements Cloneable {
      * of it in case the list is modified while iterating. The array can be reused to avoid
      * allocation on every notification.
      */
-    private Object[] mCachedList;
+    private AtomicReference<Object[]> mCachedList = new AtomicReference<>();
 
     /**
      * Tracks whether we've notified listeners of the onAnimationStart() event. This can be
@@ -452,7 +453,7 @@ public abstract class Animator implements Cloneable {
             if (mPauseListeners != null) {
                 anim.mPauseListeners = new ArrayList<AnimatorPauseListener>(mPauseListeners);
             }
-            anim.mCachedList = null;
+            anim.mCachedList.set(null);
             anim.mStartListenersCalled = false;
             return anim;
         } catch (CloneNotSupportedException e) {
@@ -568,13 +569,13 @@ public abstract class Animator implements Cloneable {
      * repetition. lastPlayTime is similar and is used to calculate how many repeats have been
      * done between the two times.
      */
-    void animateValuesInRange(long currentPlayTime, long lastPlayTime, boolean notify) {}
+    void animateValuesInRange(long currentPlayTime, long lastPlayTime) {}
 
     /**
      * Internal use only. This animates any animation that has ended since lastPlayTime.
      * If an animation hasn't been finished, no change will be made.
      */
-    void animateSkipToEnds(long currentPlayTime, long lastPlayTime, boolean notify) {}
+    void animateSkipToEnds(long currentPlayTime, long lastPlayTime) {}
 
     /**
      * Internal use only. Adds all start times (after delay) to and end times to times.
@@ -654,13 +655,9 @@ public abstract class Animator implements Cloneable {
         int size = list == null ? 0 : list.size();
         if (size > 0) {
             // Try to reuse mCacheList to store the items of list.
-            Object[] array;
-            if (mCachedList == null || mCachedList.length < size) {
+            Object[] array = mCachedList.getAndSet(null);
+            if (array == null || array.length < size) {
                 array = new Object[size];
-            } else {
-                array = mCachedList;
-                // Clear it in case there is some reentrancy
-                mCachedList = null;
             }
             list.toArray(array);
             for (int i = 0; i < size; i++) {
@@ -670,7 +667,7 @@ public abstract class Animator implements Cloneable {
                 array[i] = null;
             }
             // Store it for the next call so we can reuse this array, if needed.
-            mCachedList = array;
+            mCachedList.compareAndSet(null, array);
         }
     }
 

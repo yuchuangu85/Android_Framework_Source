@@ -27,11 +27,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-
 /**
  * A parcelable collection of buffer constraints by codec type.
  *
- * {@hide}
+ * @hide
  */
 @SystemApi
 public final class BufferConstraints implements Parcelable {
@@ -42,8 +41,7 @@ public final class BufferConstraints implements Parcelable {
     private Map<Integer, BufferConstraint> mBufferConstraints;
     private List<BufferConstraint> mBufferConstraintList;
 
-    public BufferConstraints(@NonNull List<BufferConstraint>
-            bufferConstraintList) {
+    public BufferConstraints(@NonNull List<BufferConstraint> bufferConstraintList) {
 
         mBufferConstraintList = new ArrayList<BufferConstraint>(bufferConstraintList);
         mBufferConstraints = new HashMap<Integer, BufferConstraint>();

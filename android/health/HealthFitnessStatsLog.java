@@ -17,13 +17,13 @@ public final class HealthFitnessStatsLog {
 
     /**
      * HealthConnectApiCalled health_connect_api_called<br>
-     * Usage: StatsLog.write(StatsLog.HEALTH_CONNECT_API_CALLED, int api_method, int api_status, int error_code, long duration_millis, int number_of_records, int rate_limit);<br>
+     * Usage: StatsLog.write(StatsLog.HEALTH_CONNECT_API_CALLED, int api_method, int api_status, int error_code, long duration_millis, int number_of_records, int rate_limit, int caller_foreground_state);<br>
      */
     public static final int HEALTH_CONNECT_API_CALLED = 616;
 
     /**
      * HealthConnectUsageStats health_connect_usage_stats<br>
-     * Usage: StatsLog.write(StatsLog.HEALTH_CONNECT_USAGE_STATS, int connected_apps_count, int available_apps_count);<br>
+     * Usage: StatsLog.write(StatsLog.HEALTH_CONNECT_USAGE_STATS, int connected_apps_count, int available_apps_count, boolean is_monthly_active_user);<br>
      */
     public static final int HEALTH_CONNECT_USAGE_STATS = 617;
 
@@ -108,6 +108,11 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_API_CALLED__RATE_LIMIT__RATE_LIMIT_BACKGROUND_24_HRS_BW_4000_TO_5000 = 22;
     public static final int HEALTH_CONNECT_API_CALLED__RATE_LIMIT__RATE_LIMIT_BACKGROUND_24_HRS_ABOVE_5000 = 23;
 
+    // Values for HealthConnectApiCalled.caller_foreground_state
+    public static final int HEALTH_CONNECT_API_CALLED__CALLER_FOREGROUND_STATE__UNSPECIFIED = 0;
+    public static final int HEALTH_CONNECT_API_CALLED__CALLER_FOREGROUND_STATE__FOREGROUND = 1;
+    public static final int HEALTH_CONNECT_API_CALLED__CALLER_FOREGROUND_STATE__BACKGROUND = 2;
+
     // Values for HealthConnectUiImpression.page
     public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__PAGE_UNKNOWN = 0;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__HOME_PAGE = 1;
@@ -131,8 +136,17 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__MIGRATION_IN_PROGRESS_PAGE = 21;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__MIGRATION_APP_UPDATE_NEEDED_PAGE = 22;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__MIGRATION_MODULE_UPDATE_NEEDED_PAGE = 23;
-    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__MIGRATION_MORE_SPACE_NEEDED_PAGE = 24;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__MIGRATION_PAUSED_PAGE = 25;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__MANAGE_DATA_PAGE = 26;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__DATA_SOURCES_PAGE = 27;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__ADD_AN_APP_PAGE = 28;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__DATA_RESTORE_IN_PROGRESS_PAGE = 29;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__ADDITIONAL_ACCESS_PAGE = 30;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__SETTINGS_MANAGE_APP_PERMISSIONS_PAGE = 31;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__SEARCH_APPS_PAGE = 32;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__REQUEST_COMBINED_ADDITIONAL_PERMISSIONS_PAGE = 33;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__REQUEST_BACKGROUND_READ_PERMISSION_PAGE = 34;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__PAGE__REQUEST_HISTORY_READ_PERMISSION_PAGE = 35;
 
     // Values for HealthConnectUiImpression.element
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ELEMENT_UNKNOWN = 0;
@@ -266,8 +280,6 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__SET_APP_PRIORITY_DIALOG_SAVE_BUTTON = 132;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_UPDATE_NEEDED_UPDATE_BUTTON = 133;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_UPDATE_NEEDED_CANCEL_BUTTON = 134;
-    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_MORE_SPACE_NEEDED_FREE_UP_SPACE_BUTTON = 135;
-    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_MORE_SPACE_NEEDED_TRY_AGAIN_BUTTON = 136;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_DONE_DIALOG_CONTAINER = 137;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_DONE_DIALOG_BUTTON = 138;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_IN_PROGRESS_DIALOG_CONTAINER = 139;
@@ -284,6 +296,64 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__LOADING_PAGE_STATE = 150;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ERROR_PAGE_STATE = 151;
     public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__WITH_DATA_PAGE_STATE = 152;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MANAGE_DATA_BUTTON = 153;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_SOURCES_AND_PRIORITY_BUTTON = 154;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__SET_UNITS_BUTTON = 155;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_TYPE_SPINNER_BUTTON = 156;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_TOTALS_CARD = 157;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__APP_SOURCE_BUTTON = 158;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ADD_AN_APP_BUTTON = 159;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EDIT_SOURCE_LIST_BUTTON = 160;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__POTENTIAL_PRIORITY_APP_BUTTON = 161;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__REORDER_APP_SOURCE_BUTTON = 162;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__REMOVE_APP_SOURCE_BUTTON = 163;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_UPDATE_NEEDED_BANNER = 164;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_UPDATE_NEEDED_BANNER_UPDATE_BUTTON = 165;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_UPDATE_NEEDED_CANCEL_RESTORE_BUTTON = 166;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_FAILED_BANNER = 167;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_FAILED_BANNER_BUTTON = 168;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_CANCEL_DIALOG = 169;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_CANCEL_DIALOG_CANCEL_BUTTON = 170;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_CANCEL_DIALOG_CONTINUE_BUTTON = 171;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_SUCCESS_SNACKBAR = 172;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_APP_UPDATE_APP_BUTTON = 173;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_APP_UPDATE_LEARN_MORE_BUTTON = 174;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ADDITIONAL_ACCESS_BUTTON = 175;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_ROUTES_BUTTON = 176;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_ROUTES_DIALOG_ALLOW_ALL_BUTTON = 177;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_ROUTES_DIALOG_ASK_BUTTON = 178;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_ROUTES_DIALOG_DENY_BUTTON = 179;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_ROUTES_DIALOG_CONTAINER = 180;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_APP_UPDATE_DISMISS_BUTTON = 181;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_IN_PROGRESS_DIALOG_CONTAINER = 182;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DATA_RESTORE_IN_PROGRESS_DIALOG_BUTTON = 183;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_PAUSED_CONTINUE_BUTTON = 184;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__MIGRATION_PAUSED_CANCEL_BUTTON = 185;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_SESSION_MAP_VIEW = 186;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__INACTIVE_APP_BUTTON = 187;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__SEND_FEEDBACK_BUTTON = 188;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ENABLE_EXERCISE_PERMISSION_DIALOG_CONTAINER = 189;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ENABLE_EXERCISE_PERMISSION_DIALOG_POSITIVE_BUTTON = 190;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ENABLE_EXERCISE_PERMISSION_DIALOG_NEGATIVE_BUTTON = 191;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DISABLE_EXERCISE_PERMISSION_DIALOG_CONTAINER = 192;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DISABLE_EXERCISE_PERMISSION_DIALOG_POSITIVE_BUTTON = 193;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__DISABLE_EXERCISE_PERMISSION_DIALOG_NEGATIVE_BUTTON = 194;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_ROUTE_DIALOG_ALWAYS_ALLOW_BUTTON = 195;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__REVERSE_SESSION_DETAIL_ENTRY_VIEW = 196;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__FORMATTED_SECTION_TITLE_VIEW = 197;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ALLOW_COMBINED_ADDITIONAL_PERMISSIONS_BUTTON = 198;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__CANCEL_COMBINED_ADDITIONAL_PERMISSIONS_BUTTON = 199;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ALLOW_BACKGROUND_READ_BUTTON = 200;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__CANCEL_BACKGROUND_READ_BUTTON = 201;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__ALLOW_HISTORY_READ_BUTTON = 202;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__CANCEL_HISTORY_READ_BUTTON = 203;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__BACKGROUND_READ_BUTTON = 204;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__HISTORY_READ_BUTTON = 205;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__FORMATTED_SECTION_CONTENT_VIEW = 207;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__EXERCISE_PERFORMANCE_GOAL_ENTRY_VIEW = 208;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__PLANNED_EXERCISE_SESSION_ENTRY_BUTTON = 209;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__PLANNED_EXERCISE_BLOCK_ENTRY_VIEW = 210;
+    public static final int HEALTH_CONNECT_UI_IMPRESSION__ELEMENT__PLANNED_EXERCISE_STEP_ENTRY_VIEW = 211;
 
     // Values for HealthConnectUiInteraction.page
     public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__PAGE_UNKNOWN = 0;
@@ -308,8 +378,17 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__MIGRATION_IN_PROGRESS_PAGE = 21;
     public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__MIGRATION_APP_UPDATE_NEEDED_PAGE = 22;
     public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__MIGRATION_MODULE_UPDATE_NEEDED_PAGE = 23;
-    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__MIGRATION_MORE_SPACE_NEEDED_PAGE = 24;
     public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__MIGRATION_PAUSED_PAGE = 25;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__MANAGE_DATA_PAGE = 26;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__DATA_SOURCES_PAGE = 27;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__ADD_AN_APP_PAGE = 28;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__DATA_RESTORE_IN_PROGRESS_PAGE = 29;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__ADDITIONAL_ACCESS_PAGE = 30;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__SETTINGS_MANAGE_APP_PERMISSIONS_PAGE = 31;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__SEARCH_APPS_PAGE = 32;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__REQUEST_COMBINED_ADDITIONAL_PERMISSIONS_PAGE = 33;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__REQUEST_BACKGROUND_READ_PERMISSION_PAGE = 34;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__PAGE__REQUEST_HISTORY_READ_PERMISSION_PAGE = 35;
 
     // Values for HealthConnectUiInteraction.element
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ELEMENT_UNKNOWN = 0;
@@ -443,8 +522,6 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__SET_APP_PRIORITY_DIALOG_SAVE_BUTTON = 132;
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_UPDATE_NEEDED_UPDATE_BUTTON = 133;
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_UPDATE_NEEDED_CANCEL_BUTTON = 134;
-    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_MORE_SPACE_NEEDED_FREE_UP_SPACE_BUTTON = 135;
-    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_MORE_SPACE_NEEDED_TRY_AGAIN_BUTTON = 136;
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_DONE_DIALOG_CONTAINER = 137;
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_DONE_DIALOG_BUTTON = 138;
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_IN_PROGRESS_DIALOG_CONTAINER = 139;
@@ -461,6 +538,64 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__LOADING_PAGE_STATE = 150;
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ERROR_PAGE_STATE = 151;
     public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__WITH_DATA_PAGE_STATE = 152;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MANAGE_DATA_BUTTON = 153;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_SOURCES_AND_PRIORITY_BUTTON = 154;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__SET_UNITS_BUTTON = 155;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_TYPE_SPINNER_BUTTON = 156;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_TOTALS_CARD = 157;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__APP_SOURCE_BUTTON = 158;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ADD_AN_APP_BUTTON = 159;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EDIT_SOURCE_LIST_BUTTON = 160;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__POTENTIAL_PRIORITY_APP_BUTTON = 161;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__REORDER_APP_SOURCE_BUTTON = 162;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__REMOVE_APP_SOURCE_BUTTON = 163;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_UPDATE_NEEDED_BANNER = 164;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_UPDATE_NEEDED_BANNER_UPDATE_BUTTON = 165;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_UPDATE_NEEDED_CANCEL_RESTORE_BUTTON = 166;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_FAILED_BANNER = 167;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_FAILED_BANNER_BUTTON = 168;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_CANCEL_DIALOG = 169;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_CANCEL_DIALOG_CANCEL_BUTTON = 170;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_CANCEL_DIALOG_CONTINUE_BUTTON = 171;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_SUCCESS_SNACKBAR = 172;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_APP_UPDATE_APP_BUTTON = 173;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_APP_UPDATE_LEARN_MORE_BUTTON = 174;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ADDITIONAL_ACCESS_BUTTON = 175;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_ROUTES_BUTTON = 176;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_ROUTES_DIALOG_ALLOW_ALL_BUTTON = 177;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_ROUTES_DIALOG_ASK_BUTTON = 178;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_ROUTES_DIALOG_DENY_BUTTON = 179;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_ROUTES_DIALOG_CONTAINER = 180;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_APP_UPDATE_DISMISS_BUTTON = 181;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_IN_PROGRESS_DIALOG_CONTAINER = 182;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DATA_RESTORE_IN_PROGRESS_DIALOG_BUTTON = 183;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_PAUSED_CONTINUE_BUTTON = 184;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__MIGRATION_PAUSED_CANCEL_BUTTON = 185;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_SESSION_MAP_VIEW = 186;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__INACTIVE_APP_BUTTON = 187;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__SEND_FEEDBACK_BUTTON = 188;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ENABLE_EXERCISE_PERMISSION_DIALOG_CONTAINER = 189;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ENABLE_EXERCISE_PERMISSION_DIALOG_POSITIVE_BUTTON = 190;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ENABLE_EXERCISE_PERMISSION_DIALOG_NEGATIVE_BUTTON = 191;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DISABLE_EXERCISE_PERMISSION_DIALOG_CONTAINER = 192;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DISABLE_EXERCISE_PERMISSION_DIALOG_POSITIVE_BUTTON = 193;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__DISABLE_EXERCISE_PERMISSION_DIALOG_NEGATIVE_BUTTON = 194;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_ROUTE_DIALOG_ALWAYS_ALLOW_BUTTON = 195;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__REVERSE_SESSION_DETAIL_ENTRY_VIEW = 196;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__FORMATTED_SECTION_TITLE_VIEW = 197;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ALLOW_COMBINED_ADDITIONAL_PERMISSIONS_BUTTON = 198;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__CANCEL_COMBINED_ADDITIONAL_PERMISSIONS_BUTTON = 199;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ALLOW_BACKGROUND_READ_BUTTON = 200;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__CANCEL_BACKGROUND_READ_BUTTON = 201;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__ALLOW_HISTORY_READ_BUTTON = 202;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__CANCEL_HISTORY_READ_BUTTON = 203;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__BACKGROUND_READ_BUTTON = 204;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__HISTORY_READ_BUTTON = 205;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__FORMATTED_SECTION_CONTENT_VIEW = 207;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__EXERCISE_PERFORMANCE_GOAL_ENTRY_VIEW = 208;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__PLANNED_EXERCISE_SESSION_ENTRY_BUTTON = 209;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__PLANNED_EXERCISE_BLOCK_ENTRY_VIEW = 210;
+    public static final int HEALTH_CONNECT_UI_INTERACTION__ELEMENT__PLANNED_EXERCISE_STEP_ENTRY_VIEW = 211;
 
     // Values for HealthConnectUiInteraction.action
     public static final int HEALTH_CONNECT_UI_INTERACTION__ACTION__ACTION_UNKNOWN = 0;
@@ -528,6 +663,8 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_ONE__VO2_MAX = 32;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_ONE__WEIGHT = 33;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_ONE__WHEELCHAIR_PUSHES = 34;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_ONE__SKIN_TEMPERATURE = 35;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_ONE__PLANNED_EXERCISE_SESSION = 36;
 
     // Values for HealthConnectApiInvoked.data_type_two
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_TWO__DATA_TYPE_UNKNOWN = 0;
@@ -565,6 +702,8 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_TWO__VO2_MAX = 32;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_TWO__WEIGHT = 33;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_TWO__WHEELCHAIR_PUSHES = 34;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_TWO__SKIN_TEMPERATURE = 35;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_TWO__PLANNED_EXERCISE_SESSION = 36;
 
     // Values for HealthConnectApiInvoked.data_type_three
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_THREE__DATA_TYPE_UNKNOWN = 0;
@@ -602,6 +741,8 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_THREE__VO2_MAX = 32;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_THREE__WEIGHT = 33;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_THREE__WHEELCHAIR_PUSHES = 34;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_THREE__SKIN_TEMPERATURE = 35;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_THREE__PLANNED_EXERCISE_SESSION = 36;
 
     // Values for HealthConnectApiInvoked.data_type_four
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FOUR__DATA_TYPE_UNKNOWN = 0;
@@ -639,6 +780,8 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FOUR__VO2_MAX = 32;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FOUR__WEIGHT = 33;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FOUR__WHEELCHAIR_PUSHES = 34;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FOUR__SKIN_TEMPERATURE = 35;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FOUR__PLANNED_EXERCISE_SESSION = 36;
 
     // Values for HealthConnectApiInvoked.data_type_five
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FIVE__DATA_TYPE_UNKNOWN = 0;
@@ -676,6 +819,8 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FIVE__VO2_MAX = 32;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FIVE__WEIGHT = 33;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FIVE__WHEELCHAIR_PUSHES = 34;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FIVE__SKIN_TEMPERATURE = 35;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_FIVE__PLANNED_EXERCISE_SESSION = 36;
 
     // Values for HealthConnectApiInvoked.data_type_six
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_SIX__DATA_TYPE_UNKNOWN = 0;
@@ -713,20 +858,38 @@ public final class HealthFitnessStatsLog {
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_SIX__VO2_MAX = 32;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_SIX__WEIGHT = 33;
     public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_SIX__WHEELCHAIR_PUSHES = 34;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_SIX__SKIN_TEMPERATURE = 35;
+    public static final int HEALTH_CONNECT_API_INVOKED__DATA_TYPE_SIX__PLANNED_EXERCISE_SESSION = 36;
 
     // Values for ExerciseRouteApiCalled.operation
     public static final int EXERCISE_ROUTE_API_CALLED__OPERATION__OPERATION_READ = 0;
     public static final int EXERCISE_ROUTE_API_CALLED__OPERATION__OPERATION_UPSERT = 1;
 
     // Annotation constants.
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_IS_UID = StatsLog.ANNOTATION_ID_IS_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRUNCATE_TIMESTAMP = StatsLog.ANNOTATION_ID_TRUNCATE_TIMESTAMP;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD = StatsLog.ANNOTATION_ID_PRIMARY_FIELD;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_EXCLUSIVE_STATE = StatsLog.ANNOTATION_ID_EXCLUSIVE_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID = StatsLog.ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_DEFAULT_STATE = StatsLog.ANNOTATION_ID_DEFAULT_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRIGGER_STATE_RESET = StatsLog.ANNOTATION_ID_TRIGGER_STATE_RESET;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_STATE_NESTED = StatsLog.ANNOTATION_ID_STATE_NESTED;
+
 
     // Write methods
     public static void write(int code, int arg1) {
@@ -748,6 +911,17 @@ public final class HealthFitnessStatsLog {
         StatsLog.write(builder.build());
     }
 
+    public static void write(int code, int arg1, int arg2, boolean arg3) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeBoolean(arg3);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
     public static void write(int code, int arg1, int arg2, int arg3) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -759,7 +933,7 @@ public final class HealthFitnessStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, int arg2, int arg3, long arg4, int arg5, int arg6) {
+    public static void write(int code, int arg1, int arg2, int arg3, long arg4, int arg5, int arg6, int arg7) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -768,11 +942,13 @@ public final class HealthFitnessStatsLog {
         builder.writeLong(arg4);
         builder.writeInt(arg5);
         builder.writeInt(arg6);
+        builder.writeInt(arg7);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     public static void write(int code, int arg1, int arg2, int arg3, long arg4, java.lang.String arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
@@ -815,6 +991,7 @@ public final class HealthFitnessStatsLog {
         StatsLog.write(builder.build());
     }
 
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
     @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     public static void write(int code, int arg1, java.lang.String arg2, int arg3) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();

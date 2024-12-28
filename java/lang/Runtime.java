@@ -928,7 +928,7 @@ public class Runtime {
         if (filename == null) {
             throw new NullPointerException("filename == null");
         }
-        String error = nativeLoad(filename, fromClass.getClassLoader());
+        String error = nativeLoad(filename, fromClass.getClassLoader(), fromClass);
         if (error != null) {
             throw new UnsatisfiedLinkError(error);
         }
@@ -1028,20 +1028,19 @@ public class Runtime {
         // the behavior when we used to not pass the class.
         loadLibrary0(loader, null, libname);
     }
-    
+
     /**
      * Loads the shared library {@code libname} in the context of {@code loader} and
      * {@code callerClass}.
      *
-     * @param      loader    the class loader that initiated the loading. Used by the
-     *                       underlying linker to determine linker namespace. A {@code null}
-     *                       value represents the boot class loader.
-     * @param      fromClass the class that initiated the loading. Used when loader is
-     *                       {@code null} and ignored in all other cases. When used, it 
-     *                       determines the linker namespace from the class's .dex location.
-     *                       {@code null} indicates the default namespace for the boot 
-     *                       class loader.
-     * @param      libname   the name of the library.
+     * @param      loader the class loader that initiated the loading. Used by the
+     *             underlying linker to determine linker namespace. A {@code null}
+     *             value represents the boot class loader.
+     * @param      callerClass the class that initiated the loading. When not
+     *             {@code null}, it is also used to determine the linker
+     *             namespace from the class's dex file location (which is in an
+     *             apk or dex jar).
+     * @param      libname the name of the library.
      */
     private synchronized void loadLibrary0(ClassLoader loader, Class<?> callerClass, String libname) {
         if (libname.indexOf((int)File.separatorChar) != -1) {
@@ -1077,7 +1076,7 @@ public class Runtime {
                 throw new UnsatisfiedLinkError(loader + " couldn't find \"" +
                                                System.mapLibraryName(libraryName) + "\"");
             }
-            String error = nativeLoad(filename, loader);
+            String error = nativeLoad(filename, loader, callerClass);
             if (error != null) {
                 throw new UnsatisfiedLinkError(error);
             }
@@ -1122,6 +1121,7 @@ public class Runtime {
         return paths;
     }
 
+    // This method is used through reflection from /art/test/150-loadlibrary.
     private static String nativeLoad(String filename, ClassLoader loader) {
         return nativeLoad(filename, loader, null);
     }

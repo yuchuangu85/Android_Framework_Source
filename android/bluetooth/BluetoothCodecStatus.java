@@ -26,20 +26,17 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Represents the codec status (configuration and capability) for a Bluetooth
- * A2DP source device.
+ * Represents the codec status (configuration and capability) for a Bluetooth A2DP source device.
  *
- * {@see BluetoothA2dp}
+ * @see BluetoothA2dp
  */
 public final class BluetoothCodecStatus implements Parcelable {
     /**
      * Extra for the codec configuration intents of the individual profiles.
      *
-     * This extra represents the current codec status of the A2DP
-     * profile.
+     * <p>This extra represents the current codec status of the A2DP profile.
      */
-    public static final String EXTRA_CODEC_STATUS =
-            "android.bluetooth.extra.CODEC_STATUS";
+    public static final String EXTRA_CODEC_STATUS = "android.bluetooth.extra.CODEC_STATUS";
 
     private final @Nullable BluetoothCodecConfig mCodecConfig;
     private final @Nullable List<BluetoothCodecConfig> mCodecsLocalCapabilities;
@@ -50,7 +47,8 @@ public final class BluetoothCodecStatus implements Parcelable {
      *
      * @hide
      */
-    public BluetoothCodecStatus(@Nullable BluetoothCodecConfig codecConfig,
+    public BluetoothCodecStatus(
+            @Nullable BluetoothCodecConfig codecConfig,
             @Nullable List<BluetoothCodecConfig> codecsLocalCapabilities,
             @Nullable List<BluetoothCodecConfig> codecsSelectableCapabilities) {
         mCodecConfig = codecConfig;
@@ -70,22 +68,22 @@ public final class BluetoothCodecStatus implements Parcelable {
             BluetoothCodecStatus other = (BluetoothCodecStatus) o;
             return (Objects.equals(other.mCodecConfig, mCodecConfig)
                     && sameCapabilities(other.mCodecsLocalCapabilities, mCodecsLocalCapabilities)
-                    && sameCapabilities(other.mCodecsSelectableCapabilities,
-                    mCodecsSelectableCapabilities));
+                    && sameCapabilities(
+                            other.mCodecsSelectableCapabilities, mCodecsSelectableCapabilities));
         }
         return false;
     }
 
     /**
-     * Checks whether two lists of capabilities contain same capabilities.
-     * The order of the capabilities in each list is ignored.
+     * Checks whether two lists of capabilities contain same capabilities. The order of the
+     * capabilities in each list is ignored.
      *
      * @param c1 the first list of capabilities to compare
      * @param c2 the second list of capabilities to compare
      * @return {@code true} if both lists contain same capabilities
      */
-    private static boolean sameCapabilities(@Nullable List<BluetoothCodecConfig> c1,
-                                           @Nullable List<BluetoothCodecConfig> c2) {
+    private static boolean sameCapabilities(
+            @Nullable List<BluetoothCodecConfig> c1, @Nullable List<BluetoothCodecConfig> c2) {
         if (c1 == null) {
             return (c2 == null);
         }
@@ -99,15 +97,17 @@ public final class BluetoothCodecStatus implements Parcelable {
     }
 
     /**
-     * Checks whether the codec config matches the selectable capabilities.
-     * Any parameters of the codec config with NONE value will be considered a wildcard matching.
+     * Checks whether the codec config matches the selectable capabilities. Any parameters of the
+     * codec config with NONE value will be considered a wildcard matching.
      *
      * @param codecConfig the codec config to compare against
      * @return {@code true} if the codec config matches, {@code false} otherwise
      */
     public boolean isCodecConfigSelectable(@Nullable BluetoothCodecConfig codecConfig) {
-        if (codecConfig == null || !codecConfig.hasSingleSampleRate()
-                || !codecConfig.hasSingleBitsPerSample() || !codecConfig.hasSingleChannelMode()) {
+        if (codecConfig == null
+                || !codecConfig.hasSingleSampleRate()
+                || !codecConfig.hasSingleBitsPerSample()
+                || !codecConfig.hasSingleChannelMode()) {
             return false;
         }
         for (BluetoothCodecConfig selectableConfig : mCodecsSelectableCapabilities) {
@@ -134,24 +134,23 @@ public final class BluetoothCodecStatus implements Parcelable {
         return false;
     }
 
-    /**
-     * Returns a hash based on the codec config and local capabilities.
-     */
+    /** Returns a hash based on the codec config and local capabilities. */
     @Override
     public int hashCode() {
-        return Objects.hash(mCodecConfig, mCodecsLocalCapabilities,
-                mCodecsLocalCapabilities);
+        return Objects.hash(mCodecConfig, mCodecsLocalCapabilities, mCodecsLocalCapabilities);
     }
 
     /**
-     * Returns a {@link String} that describes each BluetoothCodecStatus parameter
-     * current value.
+     * Returns a {@link String} that describes each BluetoothCodecStatus parameter current value.
      */
     @Override
     public String toString() {
-        return "{mCodecConfig:" + mCodecConfig
-                + ",mCodecsLocalCapabilities:" + mCodecsLocalCapabilities
-                + ",mCodecsSelectableCapabilities:" + mCodecsSelectableCapabilities
+        return "{mCodecConfig:"
+                + mCodecConfig
+                + ",mCodecsLocalCapabilities:"
+                + mCodecsLocalCapabilities
+                + ",mCodecsSelectableCapabilities:"
+                + mCodecsSelectableCapabilities
                 + "}";
     }
 
@@ -164,15 +163,16 @@ public final class BluetoothCodecStatus implements Parcelable {
         return 0;
     }
 
-    public static final @NonNull Creator<BluetoothCodecStatus> CREATOR = new Creator<>() {
-        public BluetoothCodecStatus createFromParcel(Parcel in) {
-            return new BluetoothCodecStatus(in);
-        }
+    public static final @NonNull Creator<BluetoothCodecStatus> CREATOR =
+            new Creator<>() {
+                public BluetoothCodecStatus createFromParcel(Parcel in) {
+                    return new BluetoothCodecStatus(in);
+                }
 
-        public BluetoothCodecStatus[] newArray(int size) {
-            return new BluetoothCodecStatus[size];
-        }
-    };
+                public BluetoothCodecStatus[] newArray(int size) {
+                    return new BluetoothCodecStatus[size];
+                }
+            };
 
     /**
      * Flattens the object to a parcel.
@@ -187,32 +187,26 @@ public final class BluetoothCodecStatus implements Parcelable {
         out.writeTypedList(mCodecsSelectableCapabilities);
     }
 
-    /**
-     * Returns the current codec configuration.
-     */
+    /** Returns the current codec configuration. */
     public @Nullable BluetoothCodecConfig getCodecConfig() {
         return mCodecConfig;
     }
 
-    /**
-     * Returns the codecs local capabilities.
-     */
+    /** Returns the codecs local capabilities. */
     public @NonNull List<BluetoothCodecConfig> getCodecsLocalCapabilities() {
         return (mCodecsLocalCapabilities == null)
-                ? Collections.emptyList() : mCodecsLocalCapabilities;
+                ? Collections.emptyList()
+                : mCodecsLocalCapabilities;
     }
 
-    /**
-     * Returns the codecs selectable capabilities.
-     */
+    /** Returns the codecs selectable capabilities. */
     public @NonNull List<BluetoothCodecConfig> getCodecsSelectableCapabilities() {
         return (mCodecsSelectableCapabilities == null)
-                ? Collections.emptyList() : mCodecsSelectableCapabilities;
+                ? Collections.emptyList()
+                : mCodecsSelectableCapabilities;
     }
 
-    /**
-     * Builder for {@link BluetoothCodecStatus}.
-     */
+    /** Builder for {@link BluetoothCodecStatus}. */
     public static final class Builder {
         private BluetoothCodecConfig mCodecConfig = null;
         private List<BluetoothCodecConfig> mCodecsLocalCapabilities = null;
@@ -255,11 +249,12 @@ public final class BluetoothCodecStatus implements Parcelable {
 
         /**
          * Build {@link BluetoothCodecStatus}.
+         *
          * @return new BluetoothCodecStatus built
          */
         public @NonNull BluetoothCodecStatus build() {
-            return new BluetoothCodecStatus(mCodecConfig, mCodecsLocalCapabilities,
-                    mCodecsSelectableCapabilities);
+            return new BluetoothCodecStatus(
+                    mCodecConfig, mCodecsLocalCapabilities, mCodecsSelectableCapabilities);
         }
     }
 }

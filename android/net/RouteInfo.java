@@ -584,7 +584,7 @@ public final class RouteInfo implements Parcelable {
             }
             RouteKey p = (RouteKey) o;
             // No need to do anything special for scoped addresses. Inet6Address#equals does not
-            // consider the scope ID, but the netd route IPCs (e.g., INetd#networkAddRouteParcel)
+            // consider the scope ID, but the route IPCs (e.g., RoutingCoordinatorManager#addRoute)
             // and the kernel ignore scoped addresses both in the prefix and in the nexthop and only
             // look at RTA_OIF.
             return Objects.equals(p.mDestination, mDestination)

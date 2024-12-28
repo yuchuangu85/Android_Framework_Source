@@ -642,7 +642,14 @@ public class EthernetManager {
     }
 
     /**
-     * Listen to changes in the state of ethernet.
+     * Register a IntConsumer to be called back on ethernet state changes.
+     *
+     * <p>{@link IntConsumer#accept} with the current ethernet state will be triggered immediately
+     * upon adding a listener. The same callback is invoked on Ethernet state change, i.e. when
+     * calling {@link #setEthernetEnabled}.
+     * <p>The reported state is represented by:
+     * {@link #ETHERNET_STATE_DISABLED}: ethernet is now disabled.
+     * {@link #ETHERNET_STATE_ENABLED}: ethernet is now enabled.
      *
      * @param executor to run callbacks on.
      * @param listener to listen ethernet state changed.

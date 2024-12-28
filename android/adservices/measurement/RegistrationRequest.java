@@ -210,6 +210,8 @@ public final class RegistrationRequest implements Parcelable {
          * @param registrationUri registration uri endpoint for registering a source/trigger
          * @param appPackageName app package name that is calling PP API
          * @param sdkPackageName sdk package name that is calling PP API
+         * @throws IllegalArgumentException if the scheme for {@code registrationUri} is not HTTPS
+         * or if {@code type} is not one of {@code REGISTER_SOURCE} or {@code REGISTER_TRIGGER}
          */
         public Builder(
                 @RegistrationType int type,
@@ -221,6 +223,11 @@ public final class RegistrationRequest implements Parcelable {
             }
 
             Objects.requireNonNull(registrationUri);
+            if (registrationUri.getScheme() == null
+                    || !registrationUri.getScheme().equalsIgnoreCase("https")) {
+                throw new IllegalArgumentException("registrationUri must have an HTTPS scheme");
+            }
+
             Objects.requireNonNull(appPackageName);
             Objects.requireNonNull(sdkPackageName);
             mRegistrationType = type;

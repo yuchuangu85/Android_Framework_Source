@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/PhysicalChannelConfigBand.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/PhysicalChannelConfigBand.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public final class PhysicalChannelConfigBand implements android.os.Parcelable {
   // tags for union fields
   public final static int noinit = 0;  // boolean noinit;
@@ -189,11 +191,11 @@ public final class PhysicalChannelConfigBand implements android.os.Parcelable {
   @Override
   public String toString() {
     switch (_tag) {
-    case noinit: return "android.hardware.radio.network.PhysicalChannelConfigBand.noinit(" + (getNoinit()) + ")";
-    case geranBand: return "android.hardware.radio.network.PhysicalChannelConfigBand.geranBand(" + (android.hardware.radio.network.GeranBands.$.toString(getGeranBand())) + ")";
-    case utranBand: return "android.hardware.radio.network.PhysicalChannelConfigBand.utranBand(" + (android.hardware.radio.network.UtranBands.$.toString(getUtranBand())) + ")";
-    case eutranBand: return "android.hardware.radio.network.PhysicalChannelConfigBand.eutranBand(" + (android.hardware.radio.network.EutranBands.$.toString(getEutranBand())) + ")";
-    case ngranBand: return "android.hardware.radio.network.PhysicalChannelConfigBand.ngranBand(" + (android.hardware.radio.network.NgranBands.$.toString(getNgranBand())) + ")";
+    case noinit: return "PhysicalChannelConfigBand.noinit(" + (getNoinit()) + ")";
+    case geranBand: return "PhysicalChannelConfigBand.geranBand(" + (android.hardware.radio.network.GeranBands.$.toString(getGeranBand())) + ")";
+    case utranBand: return "PhysicalChannelConfigBand.utranBand(" + (android.hardware.radio.network.UtranBands.$.toString(getUtranBand())) + ")";
+    case eutranBand: return "PhysicalChannelConfigBand.eutranBand(" + (android.hardware.radio.network.EutranBands.$.toString(getEutranBand())) + ")";
+    case ngranBand: return "PhysicalChannelConfigBand.ngranBand(" + (android.hardware.radio.network.NgranBands.$.toString(getNgranBand())) + ")";
     }
     throw new IllegalStateException("unknown field: " + _tag);
   }

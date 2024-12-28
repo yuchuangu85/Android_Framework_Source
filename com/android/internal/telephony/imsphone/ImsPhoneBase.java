@@ -43,6 +43,7 @@ import com.android.internal.telephony.OperatorInfo;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.telephony.Rlog;
 
@@ -58,8 +59,9 @@ abstract class ImsPhoneBase extends Phone {
     private PhoneConstants.State mState = PhoneConstants.State.IDLE;
 
     public ImsPhoneBase(String name, Context context, PhoneNotifier notifier,
-                        boolean unitTestMode) {
-        super(name, notifier, context, new ImsPhoneCommandInterface(context), unitTestMode);
+                        boolean unitTestMode, FeatureFlags featureFlags) {
+        super(name, notifier, context, new ImsPhoneCommandInterface(context), unitTestMode,
+                featureFlags);
     }
 
     @Override

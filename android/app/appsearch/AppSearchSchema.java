@@ -16,14 +16,25 @@
 
 package android.app.appsearch;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
+import android.app.appsearch.exceptions.AppSearchException;
 import android.app.appsearch.exceptions.IllegalSchemaException;
-import android.app.appsearch.util.BundleUtil;
+import android.app.appsearch.flags.Flags;
+import android.app.appsearch.safeparcel.AbstractSafeParcelable;
+import android.app.appsearch.safeparcel.PropertyConfigParcel;
+import android.app.appsearch.safeparcel.PropertyConfigParcel.DocumentIndexingConfigParcel;
+import android.app.appsearch.safeparcel.PropertyConfigParcel.JoinableConfigParcel;
+import android.app.appsearch.safeparcel.PropertyConfigParcel.StringIndexingConfigParcel;
+import android.app.appsearch.safeparcel.SafeParcelable;
 import android.app.appsearch.util.IndentingStringBuilder;
 import android.os.Bundle;
+import android.os.Parcel;
+import android.os.Parcelable;
 import android.util.ArraySet;
 
 import com.android.internal.util.Preconditions;
@@ -32,7 +43,9 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -46,26 +59,36 @@ import java.util.Set;
  *
  * @see AppSearchSession#setSchema
  */
-public final class AppSearchSchema {
-    private static final String SCHEMA_TYPE_FIELD = "schemaType";
-    private static final String PROPERTIES_FIELD = "properties";
+@SafeParcelable.Class(creator = "AppSearchSchemaCreator")
+@SuppressWarnings("HiddenSuperclass")
+public final class AppSearchSchema extends AbstractSafeParcelable {
 
-    private final Bundle mBundle;
-
-    /** @hide */
-    public AppSearchSchema(@NonNull Bundle bundle) {
-        Objects.requireNonNull(bundle);
-        mBundle = bundle;
-    }
-
-    /**
-     * Returns the {@link Bundle} populated by this builder.
-     *
-     * @hide
-     */
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
     @NonNull
-    public Bundle getBundle() {
-        return mBundle;
+    public static final Parcelable.Creator<AppSearchSchema> CREATOR = new AppSearchSchemaCreator();
+
+    @Field(id = 1, getter = "getSchemaType")
+    private final String mSchemaType;
+
+    @Field(id = 2)
+    final List<PropertyConfigParcel> mPropertyConfigParcels;
+
+    @Field(id = 3, getter = "getParentTypes")
+    private final List<String> mParentTypes;
+
+    @Field(id = 4, getter = "getDescription")
+    private final String mDescription;
+
+    @Constructor
+    AppSearchSchema(
+            @Param(id = 1) @NonNull String schemaType,
+            @Param(id = 2) @NonNull List<PropertyConfigParcel> propertyConfigParcels,
+            @Param(id = 3) @NonNull List<String> parentTypes,
+            @Param(id = 4) @NonNull String description) {
+        mSchemaType = Objects.requireNonNull(schemaType);
+        mPropertyConfigParcels = Objects.requireNonNull(propertyConfigParcels);
+        mParentTypes = Objects.requireNonNull(parentTypes);
+        mDescription = Objects.requireNonNull(description);
     }
 
     @Override
@@ -88,6 +111,7 @@ public final class AppSearchSchema {
         builder.append("{\n");
         builder.increaseIndentLevel();
         builder.append("schemaType: \"").append(getSchemaType()).append("\",\n");
+        builder.append("description: \"").append(getDescription()).append("\",\n");
         builder.append("properties: [\n");
 
         AppSearchSchema.PropertyConfig[] sortedProperties =
@@ -110,10 +134,25 @@ public final class AppSearchSchema {
         builder.append("}");
     }
 
-    /** Returns the name of this schema type, e.g. Email. */
+    /** Returns the name of this schema type, such as Email. */
     @NonNull
     public String getSchemaType() {
-        return mBundle.getString(SCHEMA_TYPE_FIELD, "");
+        return mSchemaType;
+    }
+
+    /**
+     * Returns a natural language description of this schema type.
+     *
+     * <p>Ex. The description for an Email type could be "A type of electronic message".
+     *
+     * <p>This information is purely to help apps consuming this type to understand its semantic
+     * meaning. This field has no effect in AppSearch - it is just stored with the AppSearchSchema.
+     * If {@link Builder#setDescription} is uncalled, then this method will return an empty string.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+    @NonNull
+    public String getDescription() {
+        return mDescription;
     }
 
     /**
@@ -122,18 +161,23 @@ public final class AppSearchSchema {
      * <p>This method creates a new list when called.
      */
     @NonNull
-    @SuppressWarnings({"MixedMutabilityReturnType", "deprecation"})
+    @SuppressWarnings({"MixedMutabilityReturnType"})
     public List<PropertyConfig> getProperties() {
-        ArrayList<Bundle> propertyBundles =
-                mBundle.getParcelableArrayList(AppSearchSchema.PROPERTIES_FIELD);
-        if (propertyBundles == null || propertyBundles.isEmpty()) {
+        if (mPropertyConfigParcels.isEmpty()) {
             return Collections.emptyList();
         }
-        List<PropertyConfig> ret = new ArrayList<>(propertyBundles.size());
-        for (int i = 0; i < propertyBundles.size(); i++) {
-            ret.add(PropertyConfig.fromBundle(propertyBundles.get(i)));
+        List<PropertyConfig> ret = new ArrayList<>(mPropertyConfigParcels.size());
+        for (int i = 0; i < mPropertyConfigParcels.size(); i++) {
+            ret.add(PropertyConfig.fromParcel(mPropertyConfigParcels.get(i)));
         }
         return ret;
+    }
+
+    /** Returns the list of parent types of this schema for polymorphism. */
+    @FlaggedApi(Flags.FLAG_ENABLE_GET_PARENT_TYPES_AND_INDEXABLE_NESTED_PROPERTIES)
+    @NonNull
+    public List<String> getParentTypes() {
+        return Collections.unmodifiableList(mParentTypes);
     }
 
     @Override
@@ -148,25 +192,54 @@ public final class AppSearchSchema {
         if (!getSchemaType().equals(otherSchema.getSchemaType())) {
             return false;
         }
+        if (!getDescription().equals(otherSchema.getDescription())) {
+            return false;
+        }
+        if (!getParentTypes().equals(otherSchema.getParentTypes())) {
+            return false;
+        }
         return getProperties().equals(otherSchema.getProperties());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(getSchemaType(), getProperties());
+        return Objects.hash(getSchemaType(), getProperties(), getParentTypes(), getDescription());
+    }
+
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        AppSearchSchemaCreator.writeToParcel(this, dest, flags);
     }
 
     /** Builder for {@link AppSearchSchema objects}. */
     public static final class Builder {
         private final String mSchemaType;
-        private ArrayList<Bundle> mPropertyBundles = new ArrayList<>();
+        private String mDescription = "";
+        private ArrayList<PropertyConfigParcel> mPropertyConfigParcels = new ArrayList<>();
+        private LinkedHashSet<String> mParentTypes = new LinkedHashSet<>();
         private final Set<String> mPropertyNames = new ArraySet<>();
         private boolean mBuilt = false;
 
         /** Creates a new {@link AppSearchSchema.Builder}. */
         public Builder(@NonNull String schemaType) {
-            Objects.requireNonNull(schemaType);
-            mSchemaType = schemaType;
+            mSchemaType = Objects.requireNonNull(schemaType);
+        }
+
+        /**
+         * Sets a natural language description of this schema type.
+         *
+         * <p>For more details about the description field, see {@link
+         * AppSearchSchema#getDescription}.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+        @CanIgnoreReturnValue
+        @NonNull
+        public AppSearchSchema.Builder setDescription(@NonNull String description) {
+            Objects.requireNonNull(description);
+            resetIfBuilt();
+            mDescription = description;
+            return this;
         }
 
         /** Adds a property to the given type. */
@@ -179,23 +252,94 @@ public final class AppSearchSchema {
             if (!mPropertyNames.add(name)) {
                 throw new IllegalSchemaException("Property defined more than once: " + name);
             }
-            mPropertyBundles.add(propertyConfig.mBundle);
+            mPropertyConfigParcels.add(propertyConfig.mPropertyConfigParcel);
+            return this;
+        }
+
+        /**
+         * Adds a parent type to the given type for polymorphism, so that the given type will be
+         * considered as a subtype of {@code parentSchemaType}.
+         *
+         * <p>Subtype relations are automatically considered transitive, so callers are only
+         * required to provide direct parents. Specifically, if T1 &lt;: T2 and T2 &lt;: T3 are
+         * known, then T1 &lt;: T3 will be inferred automatically, where &lt;: is the subtype
+         * symbol.
+         *
+         * <p>Polymorphism is currently supported in the following ways:
+         *
+         * <ul>
+         *   <li>Search filters on a parent type will automatically be extended to the child types
+         *       as well. For example, if Artist &lt;: Person, then a search with a filter on type
+         *       Person (by calling {@link SearchSpec.Builder#addFilterSchemas}) will also include
+         *       documents of type Artist in the search result.
+         *   <li>In the projection API, the property paths to project specified for a parent type
+         *       will automatically be extended to the child types as well. If both a parent type
+         *       and one of its child type are specified in the projection API, the parent type's
+         *       paths will be merged into the child's. For more details on projection, see {@link
+         *       SearchSpec.Builder#addProjection}.
+         *   <li>A document property defined as type U is allowed to be set with a document of type
+         *       T, as long as T &lt;: U, but note that index will only be based on the defined
+         *       type, which is U. For example, consider a document of type "Company" with a
+         *       repeated "employees" field of type "Person". We can add employees of either type
+         *       "Person" or type "Artist" or both to this property, as long as "Artist" is a
+         *       subtype of "Person". However, the index of the "employees" property will be based
+         *       on what's defined in "Person", even for an added document of type "Artist".
+         * </ul>
+         *
+         * <p>Subtypes must meet the following requirements. A violation of the requirements will
+         * cause {@link AppSearchSession#setSchema} to throw an {@link AppSearchException} with the
+         * result code of {@link AppSearchResult#RESULT_INVALID_ARGUMENT}. Consider a type Artist
+         * and a type Person, and Artist claims to be a subtype of Person, then:
+         *
+         * <ul>
+         *   <li>Every property in Person must have a corresponding property in Artist with the same
+         *       name.
+         *   <li>Every non-document property in Person must have the same type as the type of the
+         *       corresponding property in Artist. For example, if "age" is an integer property in
+         *       Person, then "age" must also be an integer property in Artist, instead of a string.
+         *   <li>The schema type of every document property in Artist must be a subtype of the
+         *       schema type of the corresponding document property in Person, if such a property
+         *       exists in Person. For example, if "awards" is a document property of type Award in
+         *       Person, then the type of the "awards" property in Artist must be a subtype of
+         *       Award, say ArtAward. Note that every type is a subtype of itself.
+         *   <li>Every property in Artist must have a cardinality stricter than or equal to the
+         *       cardinality of the corresponding property in Person, if such a property exists in
+         *       Person. For example, if "awards" is a property in Person of cardinality OPTIONAL,
+         *       then the cardinality of the "awards" property in Artist can only be REQUIRED or
+         *       OPTIONAL. Rule: REQUIRED &lt; OPTIONAL &lt; REPEATED.
+         *   <li>There are no other enforcements on the corresponding properties in Artist, such as
+         *       index type, tokenizer type, etc. These settings can be safely overridden.
+         * </ul>
+         *
+         * <p>A type can be defined to have multiple parents, but it must be compatible with each of
+         * its parents based on the above rules. For example, if LocalBusiness is defined as a
+         * subtype of both Place and Organization, then the compatibility of LocalBusiness with
+         * Place and the compatibility of LocalBusiness with Organization will both be checked.
+         */
+        @CanIgnoreReturnValue
+        @NonNull
+        public AppSearchSchema.Builder addParentType(@NonNull String parentSchemaType) {
+            Objects.requireNonNull(parentSchemaType);
+            resetIfBuilt();
+            mParentTypes.add(parentSchemaType);
             return this;
         }
 
         /** Constructs a new {@link AppSearchSchema} from the contents of this builder. */
         @NonNull
         public AppSearchSchema build() {
-            Bundle bundle = new Bundle();
-            bundle.putString(AppSearchSchema.SCHEMA_TYPE_FIELD, mSchemaType);
-            bundle.putParcelableArrayList(AppSearchSchema.PROPERTIES_FIELD, mPropertyBundles);
             mBuilt = true;
-            return new AppSearchSchema(bundle);
+            return new AppSearchSchema(
+                    mSchemaType,
+                    mPropertyConfigParcels,
+                    new ArrayList<>(mParentTypes),
+                    mDescription);
         }
 
         private void resetIfBuilt() {
             if (mBuilt) {
-                mPropertyBundles = new ArrayList<>(mPropertyBundles);
+                mPropertyConfigParcels = new ArrayList<>(mPropertyConfigParcels);
+                mParentTypes = new LinkedHashSet<>(mParentTypes);
                 mBuilt = false;
             }
         }
@@ -208,10 +352,6 @@ public final class AppSearchSchema {
      * property.
      */
     public abstract static class PropertyConfig {
-        static final String NAME_FIELD = "name";
-        static final String DATA_TYPE_FIELD = "dataType";
-        static final String CARDINALITY_FIELD = "cardinality";
-
         /**
          * Physical data-types of the contents of the property.
          *
@@ -286,12 +426,10 @@ public final class AppSearchSchema {
         /** Exactly one value [1]. */
         public static final int CARDINALITY_REQUIRED = 3;
 
-        final Bundle mBundle;
+        final PropertyConfigParcel mPropertyConfigParcel;
 
-        @Nullable private Integer mHashCode;
-
-        PropertyConfig(@NonNull Bundle bundle) {
-            mBundle = Objects.requireNonNull(bundle);
+        PropertyConfig(@NonNull PropertyConfigParcel propertyConfigParcel) {
+            mPropertyConfigParcel = Objects.requireNonNull(propertyConfigParcel);
         }
 
         @Override
@@ -314,6 +452,7 @@ public final class AppSearchSchema {
             builder.append("{\n");
             builder.increaseIndentLevel();
             builder.append("name: \"").append(getName()).append("\",\n");
+            builder.append("description: \"").append(getDescription()).append("\",\n");
 
             if (this instanceof AppSearchSchema.StringPropertyConfig) {
                 ((StringPropertyConfig) this).appendStringPropertyConfigFields(builder);
@@ -366,17 +505,34 @@ public final class AppSearchSchema {
         /** Returns the name of this property. */
         @NonNull
         public String getName() {
-            return mBundle.getString(NAME_FIELD, "");
+            return mPropertyConfigParcel.getName();
         }
 
         /**
-         * Returns the type of data the property contains (e.g. string, int, bytes, etc).
+         * Returns a natural language description of this property.
+         *
+         * <p>Ex. The description for the "homeAddress" property of a "Person" type could be "the
+         * address at which this person lives".
+         *
+         * <p>This information is purely to help apps consuming this type the semantic meaning of
+         * its properties. This field has no effect in AppSearch - it is just stored with the
+         * AppSearchSchema. If the description is not set, then this method will return an empty
+         * string.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+        @NonNull
+        public String getDescription() {
+            return mPropertyConfigParcel.getDescription();
+        }
+
+        /**
+         * Returns the type of data the property contains (such as string, int, bytes, etc).
          *
          * @hide
          */
         @DataType
         public int getDataType() {
-            return mBundle.getInt(DATA_TYPE_FIELD, -1);
+            return mPropertyConfigParcel.getDataType();
         }
 
         /**
@@ -384,7 +540,7 @@ public final class AppSearchSchema {
          */
         @Cardinality
         public int getCardinality() {
-            return mBundle.getInt(CARDINALITY_FIELD, CARDINALITY_OPTIONAL);
+            return mPropertyConfigParcel.getCardinality();
         }
 
         @Override
@@ -396,15 +552,12 @@ public final class AppSearchSchema {
                 return false;
             }
             PropertyConfig otherProperty = (PropertyConfig) other;
-            return BundleUtil.deepEquals(this.mBundle, otherProperty.mBundle);
+            return Objects.equals(mPropertyConfigParcel, otherProperty.mPropertyConfigParcel);
         }
 
         @Override
         public int hashCode() {
-            if (mHashCode == null) {
-                mHashCode = BundleUtil.deepHashCode(mBundle);
-            }
-            return mHashCode;
+            return mPropertyConfigParcel.hashCode();
         }
 
         /**
@@ -418,37 +571,34 @@ public final class AppSearchSchema {
          * @hide
          */
         @NonNull
-        public static PropertyConfig fromBundle(@NonNull Bundle propertyBundle) {
-            switch (propertyBundle.getInt(PropertyConfig.DATA_TYPE_FIELD)) {
+        public static PropertyConfig fromParcel(
+                @NonNull PropertyConfigParcel propertyConfigParcel) {
+            Objects.requireNonNull(propertyConfigParcel);
+            switch (propertyConfigParcel.getDataType()) {
                 case PropertyConfig.DATA_TYPE_STRING:
-                    return new StringPropertyConfig(propertyBundle);
+                    return new StringPropertyConfig(propertyConfigParcel);
                 case PropertyConfig.DATA_TYPE_LONG:
-                    return new LongPropertyConfig(propertyBundle);
+                    return new LongPropertyConfig(propertyConfigParcel);
                 case PropertyConfig.DATA_TYPE_DOUBLE:
-                    return new DoublePropertyConfig(propertyBundle);
+                    return new DoublePropertyConfig(propertyConfigParcel);
                 case PropertyConfig.DATA_TYPE_BOOLEAN:
-                    return new BooleanPropertyConfig(propertyBundle);
+                    return new BooleanPropertyConfig(propertyConfigParcel);
                 case PropertyConfig.DATA_TYPE_BYTES:
-                    return new BytesPropertyConfig(propertyBundle);
+                    return new BytesPropertyConfig(propertyConfigParcel);
                 case PropertyConfig.DATA_TYPE_DOCUMENT:
-                    return new DocumentPropertyConfig(propertyBundle);
+                    return new DocumentPropertyConfig(propertyConfigParcel);
                 default:
                     throw new IllegalArgumentException(
                             "Unsupported property bundle of type "
-                                    + propertyBundle.getInt(PropertyConfig.DATA_TYPE_FIELD)
+                                    + propertyConfigParcel.getDataType()
                                     + "; contents: "
-                                    + propertyBundle);
+                                    + propertyConfigParcel);
             }
         }
     }
 
     /** Configuration for a property of type String in a Document. */
     public static final class StringPropertyConfig extends PropertyConfig {
-        private static final String INDEXING_TYPE_FIELD = "indexingType";
-        private static final String TOKENIZER_TYPE_FIELD = "tokenizerType";
-        private static final String JOINABLE_VALUE_TYPE_FIELD = "joinableValueType";
-        private static final String DELETION_PROPAGATION_FIELD = "deletionPropagation";
-
         /**
          * Encapsulates the configurations on how AppSearch should query/index these terms.
          *
@@ -470,7 +620,7 @@ public final class AppSearchSchema {
          * Content in this property should only be returned for queries matching the exact tokens
          * appearing in this property.
          *
-         * <p>Ex. A property with "fool" should NOT match a query for "foo".
+         * <p>For example, a property with "fool" should NOT match a query for "foo".
          */
         public static final int INDEXING_TYPE_EXACT_TERMS = 1;
 
@@ -478,7 +628,7 @@ public final class AppSearchSchema {
          * Content in this property should be returned for queries that are either exact matches or
          * query matches of the tokens appearing in this property.
          *
-         * <p>Ex. A property with "fool" <b>should</b> match a query for "foo".
+         * <p>For example, a property with "fool" <b>should</b> match a query for "foo".
          */
         public static final int INDEXING_TYPE_PREFIXES = 2;
 
@@ -513,8 +663,8 @@ public final class AppSearchSchema {
          * this property based on word breaks. Segments of whitespace and punctuation are not
          * considered tokens.
          *
-         * <p>Ex. A property with "foo bar. baz." will produce tokens for "foo", "bar" and "baz".
-         * The segments " " and "." will not be considered tokens.
+         * <p>For example, a property with "foo bar. baz." will produce tokens for "foo", "bar" and
+         * "baz". The segments " " and "." will not be considered tokens.
          *
          * <p>It is only valid for tokenizer_type to be 'PLAIN' if {@link #getIndexingType} is
          * {@link #INDEXING_TYPE_EXACT_TERMS} or {@link #INDEXING_TYPE_PREFIXES}.
@@ -526,8 +676,9 @@ public final class AppSearchSchema {
          * values that are tokenized using this type. Therefore, the output token is equivalent to
          * the raw string value.
          *
-         * <p>Ex. A property with "Hello, world!" will produce the token "Hello, world!", preserving
-         * punctuation and capitalization, and not creating separate tokens between the space.
+         * <p>For example, a property with "Hello, world!" will produce the token "Hello, world!",
+         * preserving punctuation and capitalization, and not creating separate tokens between the
+         * space.
          *
          * <p>It is only valid for tokenizer_type to be 'VERBATIM' if {@link #getIndexingType} is
          * {@link #INDEXING_TYPE_EXACT_TERMS} or {@link #INDEXING_TYPE_PREFIXES}.
@@ -538,8 +689,8 @@ public final class AppSearchSchema {
          * Tokenization for emails. This value indicates that tokens should be extracted from this
          * property based on email structure.
          *
-         * <p>Ex. A property with "alex.sav@google.com" will produce tokens for "alex", "sav",
-         * "alex.sav", "google", "com", and "alexsav@google.com"
+         * <p>For example, a property with "alex.sav@google.com" will produce tokens for "alex",
+         * "sav", "alex.sav", "google", "com", and "alexsav@google.com"
          *
          * <p>It is only valid for tokenizer_type to be 'RFC822' if {@link #getIndexingType} is
          * {@link #INDEXING_TYPE_EXACT_TERMS} or {@link #INDEXING_TYPE_PREFIXES}.
@@ -580,20 +731,32 @@ public final class AppSearchSchema {
          */
         public static final int JOINABLE_VALUE_TYPE_QUALIFIED_ID = 1;
 
-        StringPropertyConfig(@NonNull Bundle bundle) {
-            super(bundle);
+        StringPropertyConfig(@NonNull PropertyConfigParcel propertyConfigParcel) {
+            super(propertyConfigParcel);
         }
 
         /** Returns how the property is indexed. */
         @IndexingType
         public int getIndexingType() {
-            return mBundle.getInt(INDEXING_TYPE_FIELD);
+            StringIndexingConfigParcel indexingConfigParcel =
+                    mPropertyConfigParcel.getStringIndexingConfigParcel();
+            if (indexingConfigParcel == null) {
+                return INDEXING_TYPE_NONE;
+            }
+
+            return indexingConfigParcel.getIndexingType();
         }
 
         /** Returns how this property is tokenized (split into words). */
         @TokenizerType
         public int getTokenizerType() {
-            return mBundle.getInt(TOKENIZER_TYPE_FIELD);
+            StringIndexingConfigParcel indexingConfigParcel =
+                    mPropertyConfigParcel.getStringIndexingConfigParcel();
+            if (indexingConfigParcel == null) {
+                return TOKENIZER_TYPE_NONE;
+            }
+
+            return indexingConfigParcel.getTokenizerType();
         }
 
         /**
@@ -601,23 +764,19 @@ public final class AppSearchSchema {
          */
         @JoinableValueType
         public int getJoinableValueType() {
-            return mBundle.getInt(JOINABLE_VALUE_TYPE_FIELD, JOINABLE_VALUE_TYPE_NONE);
-        }
+            JoinableConfigParcel joinableConfigParcel =
+                    mPropertyConfigParcel.getJoinableConfigParcel();
+            if (joinableConfigParcel == null) {
+                return JOINABLE_VALUE_TYPE_NONE;
+            }
 
-        /**
-         * Returns whether or not documents in this schema should be deleted when the document
-         * referenced by this field is deleted.
-         *
-         * @see JoinSpec
-         * @hide
-         */
-        public boolean getDeletionPropagation() {
-            return mBundle.getBoolean(DELETION_PROPAGATION_FIELD, false);
+            return joinableConfigParcel.getJoinableValueType();
         }
 
         /** Builder for {@link StringPropertyConfig}. */
         public static final class Builder {
             private final String mPropertyName;
+            private String mDescription = "";
             @Cardinality private int mCardinality = CARDINALITY_OPTIONAL;
             @IndexingType private int mIndexingType = INDEXING_TYPE_NONE;
             @TokenizerType private int mTokenizerType = TOKENIZER_TYPE_NONE;
@@ -630,7 +789,21 @@ public final class AppSearchSchema {
             }
 
             /**
-             * The cardinality of the property (whether it is optional, required or repeated).
+             * Sets a natural language description of this property.
+             *
+             * <p>For more details about the description field, see {@link
+             * AppSearchSchema.PropertyConfig#getDescription}.
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+            @SuppressWarnings("MissingGetterMatchingBuilder") // getter defined in superclass
+            @NonNull
+            public StringPropertyConfig.Builder setDescription(@NonNull String description) {
+                mDescription = Objects.requireNonNull(description);
+                return this;
+            }
+
+            /**
+             * Sets the cardinality of the property (whether it is optional, required or repeated).
              *
              * <p>If this method is not called, the default cardinality is {@link
              * PropertyConfig#CARDINALITY_OPTIONAL}.
@@ -667,8 +840,8 @@ public final class AppSearchSchema {
              * StringPropertyConfig#TOKENIZER_TYPE_NONE}, so that it is not tokenized.
              *
              * <p>This method must be called with a value other than {@link
-             * StringPropertyConfig#TOKENIZER_TYPE_NONE} if the property is indexed (i.e. if {@link
-             * #setIndexingType} has been called with a value other than {@link
+             * StringPropertyConfig#TOKENIZER_TYPE_NONE} if the property is indexed (that is, if
+             * {@link #setIndexingType} has been called with a value other than {@link
              * StringPropertyConfig#INDEXING_TYPE_NONE}).
              */
             @CanIgnoreReturnValue
@@ -685,6 +858,8 @@ public final class AppSearchSchema {
              *
              * <p>If this method is not called, the default joinable value type is {@link
              * StringPropertyConfig#JOINABLE_VALUE_TYPE_NONE}, so that it is not joinable.
+             *
+             * <p>At most, 64 properties can be set as joinable per schema.
              */
             @CanIgnoreReturnValue
             @NonNull
@@ -696,21 +871,6 @@ public final class AppSearchSchema {
                         JOINABLE_VALUE_TYPE_QUALIFIED_ID,
                         "joinableValueType");
                 mJoinableValueType = joinableValueType;
-                return this;
-            }
-
-            /**
-             * Configures whether or not documents in this schema will be removed when the document
-             * referred to by this property is deleted.
-             *
-             * <p>Requires that a joinable value type is set.
-             *
-             * @hide
-             */
-            @SuppressWarnings("MissingGetterMatchingBuilder") // getDeletionPropagation
-            @NonNull
-            public Builder setDeletionPropagation(boolean deletionPropagation) {
-                mDeletionPropagation = deletionPropagation;
                 return this;
             }
 
@@ -732,22 +892,24 @@ public final class AppSearchSchema {
                     Preconditions.checkState(
                             mCardinality != CARDINALITY_REPEATED,
                             "Cannot set JOINABLE_VALUE_TYPE_QUALIFIED_ID with"
-                                + " CARDINALITY_REPEATED.");
+                                    + " CARDINALITY_REPEATED.");
                 } else {
                     Preconditions.checkState(
                             !mDeletionPropagation,
                             "Cannot set deletion "
                                     + "propagation without setting a joinable value type");
                 }
-                Bundle bundle = new Bundle();
-                bundle.putString(NAME_FIELD, mPropertyName);
-                bundle.putInt(DATA_TYPE_FIELD, DATA_TYPE_STRING);
-                bundle.putInt(CARDINALITY_FIELD, mCardinality);
-                bundle.putInt(INDEXING_TYPE_FIELD, mIndexingType);
-                bundle.putInt(TOKENIZER_TYPE_FIELD, mTokenizerType);
-                bundle.putInt(JOINABLE_VALUE_TYPE_FIELD, mJoinableValueType);
-                bundle.putBoolean(DELETION_PROPAGATION_FIELD, mDeletionPropagation);
-                return new StringPropertyConfig(bundle);
+                PropertyConfigParcel.StringIndexingConfigParcel stringConfigParcel =
+                        new StringIndexingConfigParcel(mIndexingType, mTokenizerType);
+                JoinableConfigParcel joinableConfigParcel =
+                        new JoinableConfigParcel(mJoinableValueType, mDeletionPropagation);
+                return new StringPropertyConfig(
+                        PropertyConfigParcel.createForString(
+                                mPropertyName,
+                                mDescription,
+                                mCardinality,
+                                stringConfigParcel,
+                                joinableConfigParcel));
             }
         }
 
@@ -806,8 +968,6 @@ public final class AppSearchSchema {
 
     /** Configuration for a property containing a 64-bit integer. */
     public static final class LongPropertyConfig extends PropertyConfig {
-        private static final String INDEXING_TYPE_FIELD = "indexingType";
-
         /**
          * Encapsulates the configurations on how AppSearch should query/index these 64-bit
          * integers.
@@ -825,23 +985,29 @@ public final class AppSearchSchema {
          * Content in this property will be indexed and can be fetched via numeric search range
          * query.
          *
-         * <p>Ex. A property with 1024 should match numeric search range query [0, 2000].
+         * <p>For example, a property with 1024 should match numeric search range query [0, 2000].
          */
         public static final int INDEXING_TYPE_RANGE = 1;
 
-        LongPropertyConfig(@NonNull Bundle bundle) {
-            super(bundle);
+        LongPropertyConfig(@NonNull PropertyConfigParcel propertyConfigParcel) {
+            super(propertyConfigParcel);
         }
 
         /** Returns how the property is indexed. */
         @IndexingType
         public int getIndexingType() {
-            return mBundle.getInt(INDEXING_TYPE_FIELD, INDEXING_TYPE_NONE);
+            PropertyConfigParcel.IntegerIndexingConfigParcel indexingConfigParcel =
+                    mPropertyConfigParcel.getIntegerIndexingConfigParcel();
+            if (indexingConfigParcel == null) {
+                return INDEXING_TYPE_NONE;
+            }
+            return indexingConfigParcel.getIndexingType();
         }
 
         /** Builder for {@link LongPropertyConfig}. */
         public static final class Builder {
             private final String mPropertyName;
+            private String mDescription = "";
             @Cardinality private int mCardinality = CARDINALITY_OPTIONAL;
             @IndexingType private int mIndexingType = INDEXING_TYPE_NONE;
 
@@ -851,7 +1017,21 @@ public final class AppSearchSchema {
             }
 
             /**
-             * The cardinality of the property (whether it is optional, required or repeated).
+             * Sets a natural language description of this property.
+             *
+             * <p>For more details about the description field, see {@link
+             * AppSearchSchema.PropertyConfig#getDescription}.
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+            @SuppressWarnings("MissingGetterMatchingBuilder") // getter defined in superclass
+            @NonNull
+            public LongPropertyConfig.Builder setDescription(@NonNull String description) {
+                mDescription = Objects.requireNonNull(description);
+                return this;
+            }
+
+            /**
+             * Sets the cardinality of the property (whether it is optional, required or repeated).
              *
              * <p>If this method is not called, the default cardinality is {@link
              * PropertyConfig#CARDINALITY_OPTIONAL}.
@@ -885,12 +1065,9 @@ public final class AppSearchSchema {
             /** Constructs a new {@link LongPropertyConfig} from the contents of this builder. */
             @NonNull
             public LongPropertyConfig build() {
-                Bundle bundle = new Bundle();
-                bundle.putString(NAME_FIELD, mPropertyName);
-                bundle.putInt(DATA_TYPE_FIELD, DATA_TYPE_LONG);
-                bundle.putInt(CARDINALITY_FIELD, mCardinality);
-                bundle.putInt(INDEXING_TYPE_FIELD, mIndexingType);
-                return new LongPropertyConfig(bundle);
+                return new LongPropertyConfig(
+                        PropertyConfigParcel.createForLong(
+                                mPropertyName, mDescription, mCardinality, mIndexingType));
             }
         }
 
@@ -918,13 +1095,14 @@ public final class AppSearchSchema {
 
     /** Configuration for a property containing a double-precision decimal number. */
     public static final class DoublePropertyConfig extends PropertyConfig {
-        DoublePropertyConfig(@NonNull Bundle bundle) {
-            super(bundle);
+        DoublePropertyConfig(@NonNull PropertyConfigParcel propertyConfigParcel) {
+            super(propertyConfigParcel);
         }
 
         /** Builder for {@link DoublePropertyConfig}. */
         public static final class Builder {
             private final String mPropertyName;
+            private String mDescription = "";
             @Cardinality private int mCardinality = CARDINALITY_OPTIONAL;
 
             /** Creates a new {@link DoublePropertyConfig.Builder}. */
@@ -933,7 +1111,21 @@ public final class AppSearchSchema {
             }
 
             /**
-             * The cardinality of the property (whether it is optional, required or repeated).
+             * Sets a natural language description of this property.
+             *
+             * <p>For more details about the description field, see {@link
+             * AppSearchSchema.PropertyConfig#getDescription}.
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+            @SuppressWarnings("MissingGetterMatchingBuilder") // getter defined in superclass
+            @NonNull
+            public DoublePropertyConfig.Builder setDescription(@NonNull String description) {
+                mDescription = Objects.requireNonNull(description);
+                return this;
+            }
+
+            /**
+             * Sets the cardinality of the property (whether it is optional, required or repeated).
              *
              * <p>If this method is not called, the default cardinality is {@link
              * PropertyConfig#CARDINALITY_OPTIONAL}.
@@ -951,24 +1143,23 @@ public final class AppSearchSchema {
             /** Constructs a new {@link DoublePropertyConfig} from the contents of this builder. */
             @NonNull
             public DoublePropertyConfig build() {
-                Bundle bundle = new Bundle();
-                bundle.putString(NAME_FIELD, mPropertyName);
-                bundle.putInt(DATA_TYPE_FIELD, DATA_TYPE_DOUBLE);
-                bundle.putInt(CARDINALITY_FIELD, mCardinality);
-                return new DoublePropertyConfig(bundle);
+                return new DoublePropertyConfig(
+                        PropertyConfigParcel.createForDouble(
+                                mPropertyName, mDescription, mCardinality));
             }
         }
     }
 
     /** Configuration for a property containing a boolean. */
     public static final class BooleanPropertyConfig extends PropertyConfig {
-        BooleanPropertyConfig(@NonNull Bundle bundle) {
-            super(bundle);
+        BooleanPropertyConfig(@NonNull PropertyConfigParcel propertyConfigParcel) {
+            super(propertyConfigParcel);
         }
 
         /** Builder for {@link BooleanPropertyConfig}. */
         public static final class Builder {
             private final String mPropertyName;
+            private String mDescription = "";
             @Cardinality private int mCardinality = CARDINALITY_OPTIONAL;
 
             /** Creates a new {@link BooleanPropertyConfig.Builder}. */
@@ -977,7 +1168,21 @@ public final class AppSearchSchema {
             }
 
             /**
-             * The cardinality of the property (whether it is optional, required or repeated).
+             * Sets a natural language description of this property.
+             *
+             * <p>For more details about the description field, see {@link
+             * AppSearchSchema.PropertyConfig#getDescription}.
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+            @SuppressWarnings("MissingGetterMatchingBuilder") // getter defined in superclass
+            @NonNull
+            public BooleanPropertyConfig.Builder setDescription(@NonNull String description) {
+                mDescription = Objects.requireNonNull(description);
+                return this;
+            }
+
+            /**
+             * Sets the cardinality of the property (whether it is optional, required or repeated).
              *
              * <p>If this method is not called, the default cardinality is {@link
              * PropertyConfig#CARDINALITY_OPTIONAL}.
@@ -995,24 +1200,23 @@ public final class AppSearchSchema {
             /** Constructs a new {@link BooleanPropertyConfig} from the contents of this builder. */
             @NonNull
             public BooleanPropertyConfig build() {
-                Bundle bundle = new Bundle();
-                bundle.putString(NAME_FIELD, mPropertyName);
-                bundle.putInt(DATA_TYPE_FIELD, DATA_TYPE_BOOLEAN);
-                bundle.putInt(CARDINALITY_FIELD, mCardinality);
-                return new BooleanPropertyConfig(bundle);
+                return new BooleanPropertyConfig(
+                        PropertyConfigParcel.createForBoolean(
+                                mPropertyName, mDescription, mCardinality));
             }
         }
     }
 
     /** Configuration for a property containing a byte array. */
     public static final class BytesPropertyConfig extends PropertyConfig {
-        BytesPropertyConfig(@NonNull Bundle bundle) {
-            super(bundle);
+        BytesPropertyConfig(@NonNull PropertyConfigParcel propertyConfigParcel) {
+            super(propertyConfigParcel);
         }
 
         /** Builder for {@link BytesPropertyConfig}. */
         public static final class Builder {
             private final String mPropertyName;
+            private String mDescription = "";
             @Cardinality private int mCardinality = CARDINALITY_OPTIONAL;
 
             /** Creates a new {@link BytesPropertyConfig.Builder}. */
@@ -1021,7 +1225,21 @@ public final class AppSearchSchema {
             }
 
             /**
-             * The cardinality of the property (whether it is optional, required or repeated).
+             * Sets a natural language description of this property.
+             *
+             * <p>For more details about the description field, see {@link
+             * AppSearchSchema.PropertyConfig#getDescription}.
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+            @SuppressWarnings("MissingGetterMatchingBuilder") // getter defined in superclass
+            @NonNull
+            public BytesPropertyConfig.Builder setDescription(@NonNull String description) {
+                mDescription = Objects.requireNonNull(description);
+                return this;
+            }
+
+            /**
+             * Sets the cardinality of the property (whether it is optional, required or repeated).
              *
              * <p>If this method is not called, the default cardinality is {@link
              * PropertyConfig#CARDINALITY_OPTIONAL}.
@@ -1039,47 +1257,72 @@ public final class AppSearchSchema {
             /** Constructs a new {@link BytesPropertyConfig} from the contents of this builder. */
             @NonNull
             public BytesPropertyConfig build() {
-                Bundle bundle = new Bundle();
-                bundle.putString(NAME_FIELD, mPropertyName);
-                bundle.putInt(DATA_TYPE_FIELD, DATA_TYPE_BYTES);
-                bundle.putInt(CARDINALITY_FIELD, mCardinality);
-                return new BytesPropertyConfig(bundle);
+                return new BytesPropertyConfig(
+                        PropertyConfigParcel.createForBytes(
+                                mPropertyName, mDescription, mCardinality));
             }
         }
     }
 
     /** Configuration for a property containing another Document. */
     public static final class DocumentPropertyConfig extends PropertyConfig {
-        private static final String SCHEMA_TYPE_FIELD = "schemaType";
-        private static final String INDEX_NESTED_PROPERTIES_FIELD = "indexNestedProperties";
-
-        DocumentPropertyConfig(@NonNull Bundle bundle) {
-            super(bundle);
+        DocumentPropertyConfig(@NonNull PropertyConfigParcel propertyConfigParcel) {
+            super(propertyConfigParcel);
         }
 
         /** Returns the logical schema-type of the contents of this document property. */
         @NonNull
         public String getSchemaType() {
-            return Objects.requireNonNull(mBundle.getString(SCHEMA_TYPE_FIELD));
+            return Objects.requireNonNull(mPropertyConfigParcel.getSchemaType());
         }
 
         /**
-         * Returns whether fields in the nested document should be indexed according to that
+         * Returns whether properties in the nested document should be indexed according to that
          * document's schema.
          *
          * <p>If false, the nested document's properties are not indexed regardless of its own
          * schema.
+         *
+         * @see DocumentPropertyConfig.Builder#addIndexableNestedProperties(Collection) for indexing
+         *     a subset of properties from the nested document.
          */
         public boolean shouldIndexNestedProperties() {
-            return mBundle.getBoolean(INDEX_NESTED_PROPERTIES_FIELD);
+            DocumentIndexingConfigParcel indexingConfigParcel =
+                    mPropertyConfigParcel.getDocumentIndexingConfigParcel();
+            if (indexingConfigParcel == null) {
+                return false;
+            }
+
+            return indexingConfigParcel.shouldIndexNestedProperties();
+        }
+
+        /** Returns the list of indexable nested properties for the nested document. */
+        @FlaggedApi(Flags.FLAG_ENABLE_GET_PARENT_TYPES_AND_INDEXABLE_NESTED_PROPERTIES)
+        @NonNull
+        public List<String> getIndexableNestedProperties() {
+            DocumentIndexingConfigParcel indexingConfigParcel =
+                    mPropertyConfigParcel.getDocumentIndexingConfigParcel();
+            if (indexingConfigParcel == null) {
+                return Collections.emptyList();
+            }
+
+            List<String> indexableNestedPropertiesList =
+                    indexingConfigParcel.getIndexableNestedPropertiesList();
+            if (indexableNestedPropertiesList == null) {
+                return Collections.emptyList();
+            }
+
+            return Collections.unmodifiableList(indexableNestedPropertiesList);
         }
 
         /** Builder for {@link DocumentPropertyConfig}. */
         public static final class Builder {
             private final String mPropertyName;
             private final String mSchemaType;
+            private String mDescription = "";
             @Cardinality private int mCardinality = CARDINALITY_OPTIONAL;
             private boolean mShouldIndexNestedProperties = false;
+            private final Set<String> mIndexableNestedPropertiesList = new ArraySet<>();
 
             /**
              * Creates a new {@link DocumentPropertyConfig.Builder}.
@@ -1096,7 +1339,21 @@ public final class AppSearchSchema {
             }
 
             /**
-             * The cardinality of the property (whether it is optional, required or repeated).
+             * Sets a natural language description of this property.
+             *
+             * <p>For more details about the description field, see {@link
+             * AppSearchSchema.PropertyConfig#getDescription}.
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
+            @SuppressWarnings("MissingGetterMatchingBuilder") // getter defined in superclass
+            @NonNull
+            public DocumentPropertyConfig.Builder setDescription(@NonNull String description) {
+                mDescription = Objects.requireNonNull(description);
+                return this;
+            }
+
+            /**
+             * Sets the cardinality of the property (whether it is optional, required or repeated).
              *
              * <p>If this method is not called, the default cardinality is {@link
              * PropertyConfig#CARDINALITY_OPTIONAL}.
@@ -1112,11 +1369,14 @@ public final class AppSearchSchema {
             }
 
             /**
-             * Configures whether fields in the nested document should be indexed according to that
-             * document's schema.
+             * Configures whether properties in the nested document should be indexed according to
+             * that document's schema.
              *
              * <p>If false, the nested document's properties are not indexed regardless of its own
              * schema.
+             *
+             * <p>To index a subset of properties from the nested document, set this to false and
+             * use {@link #addIndexableNestedProperties(Collection)}.
              */
             @CanIgnoreReturnValue
             @NonNull
@@ -1126,16 +1386,117 @@ public final class AppSearchSchema {
                 return this;
             }
 
-            /** Constructs a new {@link PropertyConfig} from the contents of this builder. */
+            /**
+             * Adds one or more properties for indexing from the nested document property.
+             *
+             * @see #addIndexableNestedProperties(Collection)
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_GET_PARENT_TYPES_AND_INDEXABLE_NESTED_PROPERTIES)
+            @CanIgnoreReturnValue
+            @NonNull
+            public DocumentPropertyConfig.Builder addIndexableNestedProperties(
+                    @NonNull String... indexableNestedProperties) {
+                Objects.requireNonNull(indexableNestedProperties);
+                return addIndexableNestedProperties(Arrays.asList(indexableNestedProperties));
+            }
+
+            /**
+             * Adds one or more property paths for indexing from the nested document property.
+             *
+             * @see #addIndexableNestedProperties(Collection)
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_GET_PARENT_TYPES_AND_INDEXABLE_NESTED_PROPERTIES)
+            @CanIgnoreReturnValue
+            @SuppressLint("MissingGetterMatchingBuilder")
+            @NonNull
+            public DocumentPropertyConfig.Builder addIndexableNestedPropertyPaths(
+                    @NonNull PropertyPath... indexableNestedPropertyPaths) {
+                Objects.requireNonNull(indexableNestedPropertyPaths);
+                return addIndexableNestedPropertyPaths(Arrays.asList(indexableNestedPropertyPaths));
+            }
+
+            /**
+             * Adds one or more properties for indexing from the nested document. The added property
+             * will be indexed according to that property's indexing configurations in the
+             * document's schema definition. All properties in this list will consume a sectionId
+             * regardless of its actual indexing config -- this includes properties added that do
+             * not actually exist, as well as properties that are not set as indexable in the nested
+             * schema type.
+             *
+             * <p>Input strings should follow the format of the property path for the nested
+             * property, with '.' as the path separator. This nested document's property name should
+             * not be included in the property path.
+             *
+             * <p>Ex. Consider an 'Organization' schema type which defines a nested document
+             * property 'address' (Address schema type), where Address has a nested document
+             * property 'country' (Country schema type with string 'name' property), and a string
+             * 'street' property. The 'street' and 'country's name' properties from the 'address'
+             * document property can be indexed for the 'Organization' schema type by calling:
+             *
+             * <pre>{@code
+             * OrganizationSchema.addProperty(
+             *                 new DocumentPropertyConfig.Builder("address", "Address")
+             *                         .addIndexableNestedProperties("street", "country.name")
+             *                         .build()).
+             * }</pre>
+             *
+             * <p>{@link DocumentPropertyConfig.Builder#setShouldIndexNestedProperties} is required
+             * to be false if any indexable nested property is added this way for the document
+             * property. Attempting to build a DocumentPropertyConfig when this is not true throws
+             * {@link IllegalArgumentException}.
+             */
+            @CanIgnoreReturnValue
+            @NonNull
+            public DocumentPropertyConfig.Builder addIndexableNestedProperties(
+                    @NonNull Collection<String> indexableNestedProperties) {
+                Objects.requireNonNull(indexableNestedProperties);
+                mIndexableNestedPropertiesList.addAll(indexableNestedProperties);
+                return this;
+            }
+
+            /**
+             * Adds one or more property paths for indexing from the nested document property.
+             *
+             * @see #addIndexableNestedProperties(Collection)
+             */
+            @FlaggedApi(Flags.FLAG_ENABLE_GET_PARENT_TYPES_AND_INDEXABLE_NESTED_PROPERTIES)
+            @CanIgnoreReturnValue
+            @SuppressLint("MissingGetterMatchingBuilder")
+            @NonNull
+            public DocumentPropertyConfig.Builder addIndexableNestedPropertyPaths(
+                    @NonNull Collection<PropertyPath> indexableNestedPropertyPaths) {
+                Objects.requireNonNull(indexableNestedPropertyPaths);
+                List<PropertyPath> propertyPathList = new ArrayList<>(indexableNestedPropertyPaths);
+                for (int i = 0; i < indexableNestedPropertyPaths.size(); i++) {
+                    mIndexableNestedPropertiesList.add(propertyPathList.get(i).toString());
+                }
+                return this;
+            }
+
+            /**
+             * Constructs a new {@link PropertyConfig} from the contents of this builder.
+             *
+             * @throws IllegalArgumentException if the provided PropertyConfig sets {@link
+             *     #shouldIndexNestedProperties()} to true and has one or more properties defined
+             *     using {@link #addIndexableNestedProperties(Collection)}.
+             */
             @NonNull
             public DocumentPropertyConfig build() {
-                Bundle bundle = new Bundle();
-                bundle.putString(NAME_FIELD, mPropertyName);
-                bundle.putInt(DATA_TYPE_FIELD, DATA_TYPE_DOCUMENT);
-                bundle.putInt(CARDINALITY_FIELD, mCardinality);
-                bundle.putBoolean(INDEX_NESTED_PROPERTIES_FIELD, mShouldIndexNestedProperties);
-                bundle.putString(SCHEMA_TYPE_FIELD, mSchemaType);
-                return new DocumentPropertyConfig(bundle);
+                if (mShouldIndexNestedProperties && !mIndexableNestedPropertiesList.isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "DocumentIndexingConfig#shouldIndexNestedProperties is required "
+                                    + "to be false when one or more indexableNestedProperties are "
+                                    + "provided.");
+                }
+                return new DocumentPropertyConfig(
+                        PropertyConfigParcel.createForDocument(
+                                mPropertyName,
+                                mDescription,
+                                mCardinality,
+                                mSchemaType,
+                                new DocumentIndexingConfigParcel(
+                                        mShouldIndexNestedProperties,
+                                        new ArrayList<>(mIndexableNestedPropertiesList))));
             }
         }
 
@@ -1150,6 +1511,10 @@ public final class AppSearchSchema {
         void appendDocumentPropertyConfigFields(@NonNull IndentingStringBuilder builder) {
             builder.append("shouldIndexNestedProperties: ")
                     .append(shouldIndexNestedProperties())
+                    .append(",\n");
+
+            builder.append("indexableNestedProperties: ")
+                    .append(getIndexableNestedProperties())
                     .append(",\n");
 
             builder.append("schemaType: \"").append(getSchemaType()).append("\",\n");

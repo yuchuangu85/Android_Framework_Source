@@ -19,6 +19,7 @@ package android.health.connect;
 import android.annotation.SystemApi;
 import android.app.SystemServiceRegistry;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.health.connect.aidl.IHealthConnectService;
 
 /**
@@ -42,9 +43,20 @@ public class HealthServicesInitializer {
                 Context.HEALTHCONNECT_SERVICE,
                 HealthConnectManager.class,
                 (context, serviceBinder) -> {
+                    if (!isHardwareSupported(context)) {
+                        return null;
+                    }
                     IHealthConnectService service =
                             IHealthConnectService.Stub.asInterface(serviceBinder);
                     return new HealthConnectManager(context, service);
                 });
+    }
+
+    private static boolean isHardwareSupported(Context context) {
+        PackageManager pm = context.getPackageManager();
+        return (!pm.hasSystemFeature(PackageManager.FEATURE_EMBEDDED)
+                && !pm.hasSystemFeature(PackageManager.FEATURE_WATCH)
+                && !pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+                && !pm.hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE));
     }
 }

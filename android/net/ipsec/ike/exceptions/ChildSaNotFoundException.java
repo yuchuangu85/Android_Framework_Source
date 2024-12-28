@@ -18,6 +18,8 @@ package android.net.ipsec.ike.exceptions;
 import android.net.ipsec.ike.ChildSessionCallback;
 import android.net.ipsec.ike.IkeSessionCallback;
 
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
+
 /**
  * This exception is thrown if the remote server received a request for a nonexistent Child SA.
  *
@@ -67,5 +69,15 @@ public final class ChildSaNotFoundException extends IkeProtocolException {
     /** Returns the SPI of the Child SA (IPsec SA) that does not exist. */
     public int getIpSecSpi() {
         return mIpSecSpi;
+    }
+
+    /**
+     * Returns the error code for metrics
+     *
+     * @hide
+     */
+    @Override
+    public int getMetricsErrorCode() {
+        return IkeMetrics.IKE_ERROR_PROTOCOL_CHILD_SA_NOT_FOUND;
     }
 }

@@ -88,6 +88,9 @@ public final class UwbOemExtensionCallbackListener extends IUwbOemExtensionCallb
     public void onSessionStatusNotificationReceived(PersistableBundle sessionStatusBundle)
             throws RemoteException {
         synchronized (this) {
+            if (mCallback == null || mExecutor == null) {
+                return;
+            }
             final long identity = Binder.clearCallingIdentity();
             try {
                 if (SdkLevel.isAtLeastU()) {
@@ -104,6 +107,9 @@ public final class UwbOemExtensionCallbackListener extends IUwbOemExtensionCallb
     public void onDeviceStatusNotificationReceived(PersistableBundle deviceStateBundle)
             throws RemoteException {
         synchronized (this) {
+            if (mCallback == null || mExecutor == null) {
+                return;
+            }
             final long identity = Binder.clearCallingIdentity();
             try {
                 if (SdkLevel.isAtLeastU()) {
@@ -121,6 +127,10 @@ public final class UwbOemExtensionCallbackListener extends IUwbOemExtensionCallb
     public int onSessionConfigurationReceived(PersistableBundle openSessionBundle)
             throws RemoteException {
         synchronized (this) {
+            if (mCallback == null) {
+                return 0;
+            }
+
             int status = 0;
             final long identity = Binder.clearCallingIdentity();
             try {
@@ -151,6 +161,9 @@ public final class UwbOemExtensionCallbackListener extends IUwbOemExtensionCallb
     public RangingReport onRangingReportReceived(RangingReport rangingReport)
             throws RemoteException {
         synchronized (this) {
+            if (mCallback == null) {
+                return rangingReport;
+            }
             final long identity = Binder.clearCallingIdentity();
             RangingReport vendorRangingReport = rangingReport;
             try {
@@ -183,6 +196,10 @@ public final class UwbOemExtensionCallbackListener extends IUwbOemExtensionCallb
     public boolean onCheckPointedTarget(PersistableBundle pointedTargetBundle)
             throws RemoteException {
         synchronized (this) {
+            if (mCallback == null) {
+                return false;
+            }
+
             final long identity = Binder.clearCallingIdentity();
             boolean result = false;
             try {

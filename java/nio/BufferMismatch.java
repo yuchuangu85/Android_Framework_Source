@@ -33,6 +33,8 @@ final class BufferMismatch {
 
     static int mismatch(ByteBuffer a, int aOff, ByteBuffer b, int bOff, int length) {
         int i = 0;
+        // Android-removed: Disable vectorized match until http://b/305287555 is fixed.
+        /*
         if (length > 7) {
             if (a.get(aOff) != b.get(bOff))
                 return 0;
@@ -44,6 +46,7 @@ final class BufferMismatch {
             if (i >= 0) return i;
             i = length - ~i;
         }
+        */
         for (; i < length; i++) {
             if (a.get(aOff + i) != b.get(bOff + i))
                 return i;
@@ -56,6 +59,8 @@ final class BufferMismatch {
         // Ensure only heap or off-heap buffer instances use the
         // vectorized mismatch. If either buffer is a StringCharBuffer
         // (order is null) then the slow path is taken
+        // Android-removed: Disable vectorized match until http://b/305287555 is fixed.
+        /*
         if (length > 3 && a.charRegionOrder() == b.charRegionOrder()
             && a.charRegionOrder() != null && b.charRegionOrder() != null) {
             if (a.get(aOff) != b.get(bOff))
@@ -68,6 +73,7 @@ final class BufferMismatch {
             if (i >= 0) return i;
             i = length - ~i;
         }
+        */
         for (; i < length; i++) {
             if (a.get(aOff + i) != b.get(bOff + i))
                 return i;
@@ -77,6 +83,8 @@ final class BufferMismatch {
 
     static int mismatch(ShortBuffer a, int aOff, ShortBuffer b, int bOff, int length) {
         int i = 0;
+        // Android-removed: Disable vectorized match until http://b/305287555 is fixed.
+        /*
         if (length > 3 && a.order() == b.order()) {
             if (a.get(aOff) != b.get(bOff))
                 return 0;
@@ -88,6 +96,7 @@ final class BufferMismatch {
             if (i >= 0) return i;
             i = length - ~i;
         }
+        */
         for (; i < length; i++) {
             if (a.get(aOff + i) != b.get(bOff + i))
                 return i;
@@ -97,6 +106,8 @@ final class BufferMismatch {
 
     static int mismatch(IntBuffer a, int aOff, IntBuffer b, int bOff, int length) {
         int i = 0;
+        // Android-removed: Disable vectorized match until http://b/305287555 is fixed.
+        /*
         if (length > 1 && a.order() == b.order()) {
             if (a.get(aOff) != b.get(bOff))
                 return 0;
@@ -108,6 +119,7 @@ final class BufferMismatch {
             if (i >= 0) return i;
             i = length - ~i;
         }
+        */
         for (; i < length; i++) {
             if (a.get(aOff + i) != b.get(bOff + i))
                 return i;
@@ -117,6 +129,8 @@ final class BufferMismatch {
 
     static int mismatch(FloatBuffer a, int aOff, FloatBuffer b, int bOff, int length) {
         int i = 0;
+        // Android-removed: Disable vectorized match until http://b/305287555 is fixed.
+        /*
         if (length > 1 && a.order() == b.order()) {
             if (Float.floatToRawIntBits(a.get(aOff)) == Float.floatToRawIntBits(b.get(bOff))) {
                 i = ArraysSupport.vectorizedMismatch(
@@ -144,6 +158,7 @@ final class BufferMismatch {
                 i = length - ~i;
             }
         }
+        */
         for (; i < length; i++) {
             float av = a.get(aOff + i);
             float bv = b.get(bOff + i);
@@ -155,6 +170,8 @@ final class BufferMismatch {
 
     static int mismatch(LongBuffer a, int aOff, LongBuffer b, int bOff, int length) {
         int i = 0;
+        // Android-removed: Disable vectorized match until http://b/305287555 is fixed.
+        /*
         if (length > 0 && a.order() == b.order()) {
             if (a.get(aOff) != b.get(bOff))
                 return 0;
@@ -165,6 +182,7 @@ final class BufferMismatch {
                     ArraysSupport.LOG2_ARRAY_LONG_INDEX_SCALE);
             return i >= 0 ? i : -1;
         }
+        */
         for (; i < length; i++) {
             if (a.get(aOff + i) != b.get(bOff + i))
                 return i;
@@ -174,6 +192,8 @@ final class BufferMismatch {
 
     static int mismatch(DoubleBuffer a, int aOff, DoubleBuffer b, int bOff, int length) {
         int i = 0;
+        // Android-removed: Disable vectorized match until http://b/305287555 is fixed.
+        /*
         if (length > 0 && a.order() == b.order()) {
             if (Double.doubleToRawLongBits(a.get(aOff)) == Double.doubleToRawLongBits(b.get(bOff))) {
                 i = ArraysSupport.vectorizedMismatch(
@@ -201,6 +221,7 @@ final class BufferMismatch {
                 return -1;
             }
         }
+        */
         for (; i < length; i++) {
             double av = a.get(aOff + i);
             double bv = b.get(bOff + i);

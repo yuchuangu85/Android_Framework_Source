@@ -62,6 +62,10 @@ import sun.security.jca.GetInstance.Instance;
  *     </tr>
  *   </thead>
  *   <tbody>
+ *     <tr>
+ *       <td>AESCMAC</td>
+ *       <td>31+</td>
+ *     </tr>
  *     <tr class="deprecated">
  *       <td>DESMAC</td>
  *       <td>1-8</td>
@@ -122,21 +126,21 @@ import sun.security.jca.GetInstance.Instance;
  *       <td>PBEwithHmacSHA1</td>
  *       <td>1+</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA224</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA256</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA384</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>PBEwithHmacSHA512</td>
- *       <td>26+</td>
+ *       <td>26-31</td>
  *     </tr>
  *   </tbody>
  * </table>

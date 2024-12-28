@@ -30,7 +30,6 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-// Android-changed: removed ValueBased paragraph.
 /**
  * A container object which may or may not contain a non-{@code null} value.
  * If a value is present, {@code isPresent()} returns {@code true}. If no
@@ -43,11 +42,11 @@ import java.util.stream.Stream;
  * {@link #ifPresent(Consumer) ifPresent()} (performs an
  * action if a value is present).
  *
- * <!--<p>This is a <a href="{@docRoot}/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
+ * <p>This is a <a href="https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/doc-files/ValueBased.html">value-based</a>
  * class; programmers should treat instances that are
  * {@linkplain #equals(Object) equal} as interchangeable and should not
  * use instances for synchronization, or unpredictable behavior may
- * occur. For example, in a future release, synchronization may fail.-->
+ * occur. For example, in a future release, synchronization may fail.
  *
  * @apiNote
  * {@code Optional} is primarily intended for use as a method return type where

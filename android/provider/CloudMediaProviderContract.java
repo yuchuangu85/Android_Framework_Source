@@ -88,8 +88,8 @@ public final class CloudMediaProviderContract {
         public static final String DATE_TAKEN_MILLIS = "date_taken_millis";
 
         /**
-         * Number associated with a media item indicating what generation or batch the media item
-         * was synced into the media collection.
+         * Non-negative number associated with a media item indicating what generation or batch the
+         * media item was synced into the media collection.
          * <p>
          * Providers should associate a monotonically increasing sync generation number to each
          * media item which is expected to increase for each atomic modification on the media item.
@@ -549,6 +549,22 @@ public final class CloudMediaProviderContract {
      * Type: STRING
      */
     public static final String EXTRA_ALBUM_ID = "android.provider.extra.ALBUM_ID";
+
+    /**
+     * The maximum number of query results that should be included in a batch when syncing metadata
+     * with cloud provider.
+     *
+     * This extra can be passed as a {@link Bundle} parameter to the media or album query methods.
+     *
+     * It is optional for the provider to honor this extra and return results at max page size.
+     *
+     * @see CloudMediaProvider#onQueryMedia
+     * @see CloudMediaProvider#onQueryAlbums
+     *
+     * <p>
+     * Type: INTEGER
+     */
+    public static final String EXTRA_PAGE_SIZE = "android.provider.extra.PAGE_SIZE";
 
     /**
      * Limits the query results to only media items less than the given file size in bytes.

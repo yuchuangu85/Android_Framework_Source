@@ -72,7 +72,10 @@ public final class NutritionRecordInternal extends IntervalRecordInternal<Nutrit
     private double mFolate = DEFAULT_DOUBLE;
     private double mMonounsaturatedFat = DEFAULT_DOUBLE;
     private double mPantothenicAcid = DEFAULT_DOUBLE;
+
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private String mMealName;
+
     private double mIron = DEFAULT_DOUBLE;
     private double mVitaminA = DEFAULT_DOUBLE;
     private double mFolicAcid = DEFAULT_DOUBLE;

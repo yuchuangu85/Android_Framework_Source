@@ -18,6 +18,7 @@ package android.app;
 import static android.Manifest.permission.DUMP;
 import static android.Manifest.permission.PACKAGE_USAGE_STATS;
 import static android.Manifest.permission.READ_RESTRICTED_STATS;
+import static android.provider.DeviceConfig.NAMESPACE_STATSD_JAVA;
 
 import android.annotation.CallbackExecutor;
 import android.annotation.NonNull;
@@ -32,8 +33,10 @@ import android.os.IPullAtomResultReceiver;
 import android.os.IStatsManagerService;
 import android.os.IStatsQueryCallback;
 import android.os.OutcomeReceiver;
+import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.StatsFrameworkInitializer;
+import android.provider.DeviceConfig;
 import android.util.AndroidException;
 import android.util.Log;
 import android.util.StatsEvent;
@@ -45,6 +48,11 @@ import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.build.SdkLevel;
 
+import java.io.DataInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.BufferOverflowException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -514,7 +522,11 @@ public final class StatsManager {
         synchronized (sLock) {
             try {
                 IStatsManagerService service = getIStatsManagerServiceLocked();
-                return service.getData(configKey, mContext.getOpPackageName());
+                if (getUseFileDescriptor()) {
+                    return getDataWithFd(service, configKey, mContext.getOpPackageName());
+                } else {
+                    return service.getData(configKey, mContext.getOpPackageName());
+                }
             } catch (RemoteException e) {
                 Log.e(TAG, "Failed to connect to statsmanager when getting data");
                 throw new StatsUnavailableException("could not connect", e);
@@ -914,6 +926,80 @@ public final class StatsManager {
 
         public StatsQueryException(@NonNull String reason, @NonNull Throwable e) {
             super("Failed to query statsd: " + reason, e);
+        }
+    }
+
+    private static boolean getUseFileDescriptor() {
+        return SdkLevel.isAtLeastT();
+    }
+
+    private static final int MAX_BUFFER_SIZE = 1024 * 1024 * 20; // 20MB
+    private static final int CHUNK_SIZE = 1024 * 64; // 64kB
+
+    /**
+     * Executes a binder transaction with file descriptors.
+     */
+    private static byte[] getDataWithFd(IStatsManagerService service, long configKey,
+            String packageName) throws IllegalStateException, RemoteException {
+        ParcelFileDescriptor[] pipe;
+        try {
+            pipe = ParcelFileDescriptor.createPipe();
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to create a pipe to receive reports.", e);
+            throw new IllegalStateException("Failed to create a pipe to receive reports.", e);
+        }
+
+        ParcelFileDescriptor readFd = pipe[0];
+        ParcelFileDescriptor writeFd = pipe[1];
+
+        // StatsManagerService write/flush will block until read() will start to consume data.
+        // OTOH read cannot start until binder sync operation is over.
+        // To decouple this dependency call to StatsManagerService should be async
+        service.getDataFd(configKey, packageName, writeFd);
+        try {
+            writeFd.close();
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to pass FD to StatsManagerService", e);
+            throw new IllegalStateException("Failed to pass FD to StatsManagerService.", e);
+        }
+
+        try (FileInputStream inputStream = new ParcelFileDescriptor.AutoCloseInputStream(readFd);
+             DataInputStream dataInputStream = new DataInputStream(inputStream)) {
+
+            byte[] chunk = new byte[CHUNK_SIZE];
+
+            // read 4 bytes determining size of the reports
+            final int expectedReportSize = dataInputStream.readInt();
+            if (expectedReportSize > MAX_BUFFER_SIZE || expectedReportSize <= 0) {
+                Log.e(TAG, "expectedReportSize must be in a range (0, MAX_BUFFER_SIZE]: "
+                        + expectedReportSize);
+                throw new IllegalStateException("expectedReportSize > MAX_BUFFER_SIZE.");
+            }
+
+            ByteBuffer resultBuffer = ByteBuffer.allocate(expectedReportSize);
+            // read chunk-by-chunk, it will block until next chunk is ready or until EOF symbol
+            // is read. EOF symbol is written by FD close(), which happens when async binder
+            // transaction is over.
+            int chunkLen = 0;
+            int readBytes = 0;
+            // -1 denotes EOF
+            while ((chunkLen = dataInputStream.read(chunk, 0, CHUNK_SIZE)) != -1) {
+                try {
+                    resultBuffer.put(chunk, 0, chunkLen);
+                } catch (BufferOverflowException e) {
+                    Log.e(TAG, "Failed to store report chunk", e);
+                    throw new IllegalStateException("Failed to store report chunk.", e);
+                }
+                readBytes += chunkLen;
+            }
+            if (readBytes != expectedReportSize) {
+                throw new IllegalStateException("Incomplete data read from StatsManagerService.");
+            }
+            return resultBuffer.array();
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to read report data from StatsManagerService", e);
+            throw new IllegalStateException("Failed to read report data from StatsManagerService.",
+                    e);
         }
     }
 }

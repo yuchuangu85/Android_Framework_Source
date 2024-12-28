@@ -25,6 +25,7 @@ import android.text.TextUtils;
 
 /**
  * Represents the Hearing Access Profile preset.
+ *
  * @hide
  */
 @SystemApi
@@ -42,8 +43,8 @@ public final class BluetoothHapPresetInfo implements Parcelable {
      * @param isWritable Is writable flag
      * @param isAvailable Is available flag
      */
-    /*package*/ BluetoothHapPresetInfo(int presetIndex, @NonNull String presetName,
-            boolean isWritable, boolean isAvailable) {
+    /*package*/ BluetoothHapPresetInfo(
+            int presetIndex, @NonNull String presetName, boolean isWritable, boolean isAvailable) {
         this.mPresetIndex = presetIndex;
         this.mPresetName = presetName;
         this.mIsWritable = isWritable;
@@ -98,9 +99,7 @@ public final class BluetoothHapPresetInfo implements Parcelable {
         return mIsAvailable;
     }
 
-    /**
-     * HapPresetInfo array creator
-     */
+    /** HapPresetInfo array creator */
     public static final @NonNull Creator<BluetoothHapPresetInfo> CREATOR =
             new Creator<BluetoothHapPresetInfo>() {
                 public BluetoothHapPresetInfo createFromParcel(@NonNull Parcel in) {
@@ -128,9 +127,11 @@ public final class BluetoothHapPresetInfo implements Parcelable {
 
     /**
      * Builder for {@link BluetoothHapPresetInfo}.
-     * <p> By default, the preset index will be set to
-     * {@link BluetoothHapClient#PRESET_INDEX_UNAVAILABLE}, the name to an empty string,
-     * writability and availability both to false.
+     *
+     * <p>By default, the preset index will be set to {@link
+     * BluetoothHapClient#PRESET_INDEX_UNAVAILABLE}, the name to an empty string, writability and
+     * availability both to false.
+     *
      * @hide
      */
     public static final class Builder {
@@ -147,8 +148,9 @@ public final class BluetoothHapPresetInfo implements Parcelable {
          */
         public Builder(int index, @NonNull String name) {
             if (TextUtils.isEmpty(name)) {
-                throw new IllegalArgumentException("The size of the preset name for HAP shall be at"
-                        + " least one character long.");
+                throw new IllegalArgumentException(
+                        "The size of the preset name for HAP shall be at"
+                                + " least one character long.");
             }
             if (index < 0) {
                 throw new IllegalArgumentException(
@@ -183,6 +185,7 @@ public final class BluetoothHapPresetInfo implements Parcelable {
 
         /**
          * Build {@link BluetoothHapPresetInfo}.
+         *
          * @return new BluetoothHapPresetInfo built
          */
         public @NonNull BluetoothHapPresetInfo build() {

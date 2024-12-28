@@ -44,57 +44,56 @@ import java.util.Objects;
  *       BluetoothQualityReport.BqrCommon} object, and call {@link #getBqrEvent} to get a {@link
  *       BluetoothQualityReport.BqrVsLsto} object.
  *   <li>For A2DP choppy event, you can call {@link #getBqrCommon} to get a {@link
- *       BluetoothQualityReport.BqrCommon} object, and call {@link #getBqrEvent} to get a
- *       {@link BluetoothQualityReport.BqrVsA2dpChoppy} object.
+ *       BluetoothQualityReport.BqrCommon} object, and call {@link #getBqrEvent} to get a {@link
+ *       BluetoothQualityReport.BqrVsA2dpChoppy} object.
  *   <li>For SCO choppy event, you can call {@link #getBqrCommon} to get a {@link
- *       BluetoothQualityReport.BqrCommon} object, and call {@link #getBqrEvent} to get a
- *       {@link BluetoothQualityReport.BqrVsScoChoppy} object.
+ *       BluetoothQualityReport.BqrCommon} object, and call {@link #getBqrEvent} to get a {@link
+ *       BluetoothQualityReport.BqrVsScoChoppy} object.
  *   <li>For Connect fail event, you can call {@link #getBqrCommon} to get a {@link
- *       BluetoothQualityReport.BqrCommon} object, and call {@link #getBqrEvent} to get a
- *       {@link BluetoothQualityReport.BqrConnectFail} object.
+ *       BluetoothQualityReport.BqrCommon} object, and call {@link #getBqrEvent} to get a {@link
+ *       BluetoothQualityReport.BqrConnectFail} object.
  * </ul>
  *
  * @hide
  */
 @SystemApi
 public final class BluetoothQualityReport implements Parcelable {
-    private static final String TAG = "BluetoothQualityReport";
+    private static final String TAG = BluetoothQualityReport.class.getSimpleName();
 
     /**
      * Quality report ID: Monitor.
      *
      * @hide
      */
-    @SystemApi
-    public static final int QUALITY_REPORT_ID_MONITOR = 0x01;
+    @SystemApi public static final int QUALITY_REPORT_ID_MONITOR = 0x01;
+
     /**
      * Quality report ID: Approaching LSTO.
      *
      * @hide
      */
-    @SystemApi
-    public static final int QUALITY_REPORT_ID_APPROACH_LSTO = 0x02;
+    @SystemApi public static final int QUALITY_REPORT_ID_APPROACH_LSTO = 0x02;
+
     /**
      * Quality report ID: A2DP choppy.
      *
      * @hide
      */
-    @SystemApi
-    public static final int QUALITY_REPORT_ID_A2DP_CHOPPY = 0x03;
+    @SystemApi public static final int QUALITY_REPORT_ID_A2DP_CHOPPY = 0x03;
+
     /**
      * Quality report ID: SCO choppy.
      *
      * @hide
      */
-    @SystemApi
-    public static final int QUALITY_REPORT_ID_SCO_CHOPPY = 0x04;
+    @SystemApi public static final int QUALITY_REPORT_ID_SCO_CHOPPY = 0x04;
+
     /**
      * Quality report ID: Connect Fail.
      *
      * @hide
      */
-    @SystemApi
-    public static final int QUALITY_REPORT_ID_CONN_FAIL = 0x08;
+    @SystemApi public static final int QUALITY_REPORT_ID_CONN_FAIL = 0x08;
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
@@ -390,18 +389,16 @@ public final class BluetoothQualityReport implements Parcelable {
     }
 
     /**
-     * Get the event data object based on current Quality Report Id.
-     * If the report id is {@link #QUALITY_REPORT_ID_MONITOR},
-     * this returns a {@link BluetoothQualityReport.BqrCommon} object.
-     * If the report id is {@link #QUALITY_REPORT_ID_APPROACH_LSTO},
-     * this returns a {@link BluetoothQualityReport.BqrVsLsto} object.
-     * If the report id is {@link #QUALITY_REPORT_ID_A2DP_CHOPPY},
-     * this returns a {@link BluetoothQualityReport.BqrVsA2dpChoppy} object.
-     * If the report id is {@link #QUALITY_REPORT_ID_SCO_CHOPPY},
-     * this returns a {@link BluetoothQualityReport.BqrVsScoChoppy} object.
-     * If the report id is {@link #QUALITY_REPORT_ID_CONN_FAIL},
-     * this returns a {@link BluetoothQualityReport.BqrConnectFail} object.
-     * If the report id is none of the above, this returns {@code null}.
+     * Get the event data object based on current Quality Report Id. If the report id is {@link
+     * #QUALITY_REPORT_ID_MONITOR}, this returns a {@link BluetoothQualityReport.BqrCommon} object.
+     * If the report id is {@link #QUALITY_REPORT_ID_APPROACH_LSTO}, this returns a {@link
+     * BluetoothQualityReport.BqrVsLsto} object. If the report id is {@link
+     * #QUALITY_REPORT_ID_A2DP_CHOPPY}, this returns a {@link
+     * BluetoothQualityReport.BqrVsA2dpChoppy} object. If the report id is {@link
+     * #QUALITY_REPORT_ID_SCO_CHOPPY}, this returns a {@link BluetoothQualityReport.BqrVsScoChoppy}
+     * object. If the report id is {@link #QUALITY_REPORT_ID_CONN_FAIL}, this returns a {@link
+     * BluetoothQualityReport.BqrConnectFail} object. If the report id is none of the above, this
+     * returns {@code null}.
      *
      * @return the event data object based on the quality report id
      * @hide
@@ -477,9 +474,7 @@ public final class BluetoothQualityReport implements Parcelable {
         }
     }
 
-    /**
-     * BluetoothQualityReport to String.
-     */
+    /** BluetoothQualityReport to String. */
     @Override
     @NonNull
     public String toString() {
@@ -525,12 +520,12 @@ public final class BluetoothQualityReport implements Parcelable {
      */
     @SystemApi
     public static final class Builder {
-        private String remoteAddr;
+        private String remoteAddr = "00:00:00:00:00:00";
         private int lmpVer;
         private int lmpSubVer;
         private int manufacturerId;
-        private String remoteName;
-        private BluetoothClass bluetoothClass;
+        private String remoteName = "";
+        private BluetoothClass bluetoothClass = new BluetoothClass(0);
         private byte[] rawData;
 
         /**
@@ -555,7 +550,11 @@ public final class BluetoothQualityReport implements Parcelable {
         @NonNull
         @SystemApi
         public Builder setRemoteAddress(@Nullable String remoteAddr) {
-            this.remoteAddr = remoteAddr;
+            if (!BluetoothAdapter.checkBluetoothAddress(remoteAddr)) {
+                Log.d(TAG, "remote address is not a valid bluetooth address: " + remoteAddr);
+            } else {
+                this.remoteAddr = remoteAddr;
+            }
             return this;
         }
 
@@ -611,7 +610,11 @@ public final class BluetoothQualityReport implements Parcelable {
         @NonNull
         @SystemApi
         public Builder setRemoteName(@Nullable String remoteName) {
-            this.remoteName = remoteName;
+            if (remoteName == null) {
+                Log.d(TAG, "remote name is null");
+            } else {
+                this.remoteName = remoteName;
+            }
             return this;
         }
 
@@ -625,7 +628,11 @@ public final class BluetoothQualityReport implements Parcelable {
         @NonNull
         @SystemApi
         public Builder setBluetoothClass(@Nullable BluetoothClass bluetoothClass) {
-            this.bluetoothClass = bluetoothClass;
+            if (bluetoothClass == null) {
+                Log.d(TAG, "remote bluetooth class is null");
+            } else {
+                this.bluetoothClass = bluetoothClass;
+            }
             return this;
         }
 
@@ -639,7 +646,6 @@ public final class BluetoothQualityReport implements Parcelable {
         @NonNull
         @SystemApi
         public BluetoothQualityReport build() {
-            validateBluetoothQualityReport();
             return new BluetoothQualityReport(
                     remoteAddr,
                     lmpVer,
@@ -648,18 +654,6 @@ public final class BluetoothQualityReport implements Parcelable {
                     remoteName,
                     bluetoothClass,
                     rawData);
-        }
-
-        private void validateBluetoothQualityReport() {
-            if (!BluetoothAdapter.checkBluetoothAddress(remoteAddr)) {
-                Log.d(TAG, "remote addr is invalid");
-                remoteAddr = "00:00:00:00:00:00";
-            }
-
-            if (remoteName == null) {
-                Log.d(TAG, "remote name is null");
-                remoteName = "";
-            }
         }
     }
 
@@ -822,16 +816,14 @@ public final class BluetoothQualityReport implements Parcelable {
          *
          * @hide
          */
-        @SystemApi
-        public static final int CONNECTION_ROLE_CENTRAL = 0;
+        @SystemApi public static final int CONNECTION_ROLE_CENTRAL = 0;
 
         /**
          * Connection role: peripheral.
          *
          * @hide
          */
-        @SystemApi
-        public static final int CONNECTION_ROLE_PERIPHERAL = 1;
+        @SystemApi public static final int CONNECTION_ROLE_PERIPHERAL = 1;
 
         /** @hide */
         @Retention(RetentionPolicy.SOURCE)
@@ -1106,9 +1098,7 @@ public final class BluetoothQualityReport implements Parcelable {
                     }
                 };
 
-        /**
-         * BqrCommon to String.
-         */
+        /** BqrCommon to String. */
         @Override
         @NonNull
         public String toString() {
@@ -1364,9 +1354,7 @@ public final class BluetoothQualityReport implements Parcelable {
                     }
                 };
 
-        /**
-         * BqrVsLsto to String.
-         */
+        /** BqrVsLsto to String. */
         @Override
         @NonNull
         public String toString() {
@@ -1573,9 +1561,7 @@ public final class BluetoothQualityReport implements Parcelable {
                     }
                 };
 
-        /**
-         * BqrVsA2dpChoppy to String.
-         */
+        /** BqrVsA2dpChoppy to String. */
         @Override
         @NonNull
         public String toString() {
@@ -1799,9 +1785,9 @@ public final class BluetoothQualityReport implements Parcelable {
         }
 
         /**
-         * Get the count of missed Mic interrrupts.
+         * Get the count of missed Mic interrupts.
          *
-         * @return the count of missed Mic interrrupts
+         * @return the count of missed Mic interrupts
          * @hide
          */
         @SystemApi
@@ -1810,9 +1796,9 @@ public final class BluetoothQualityReport implements Parcelable {
         }
 
         /**
-         * Get the count of missed LPA interrrupts.
+         * Get the count of missed LPA interrupts.
          *
-         * @return the count of missed LPA interrrupts
+         * @return the count of missed LPA interrupts
          * @hide
          */
         @SystemApi
@@ -1821,9 +1807,9 @@ public final class BluetoothQualityReport implements Parcelable {
         }
 
         /**
-         * Get the count of missed Speaker interrrupts.
+         * Get the count of missed Speaker interrupts.
          *
-         * @return the count of missed Speaker interrrupts
+         * @return the count of missed Speaker interrupts
          * @hide
          */
         @SystemApi
@@ -1948,9 +1934,7 @@ public final class BluetoothQualityReport implements Parcelable {
                     }
                 };
 
-        /**
-         * BqrVsScoChoppy to String.
-         */
+        /** BqrVsScoChoppy to String. */
         @Override
         @NonNull
         public String toString() {
@@ -2012,41 +1996,41 @@ public final class BluetoothQualityReport implements Parcelable {
     @SystemApi
     public static final class BqrConnectFail implements Parcelable {
         private static final String TAG = BluetoothQualityReport.TAG + ".BqrConnectFail";
+
         /**
          * Connect Fail reason: No error.
          *
          * @hide
          */
-        @SystemApi
-        public static final int CONNECT_FAIL_ID_NO_ERROR = 0x00;
+        @SystemApi public static final int CONNECT_FAIL_ID_NO_ERROR = 0x00;
+
         /**
          * Connect Fail reason: Page timeout.
          *
          * @hide
          */
-        @SystemApi
-        public static final int CONNECT_FAIL_ID_PAGE_TIMEOUT = 0x04;
+        @SystemApi public static final int CONNECT_FAIL_ID_PAGE_TIMEOUT = 0x04;
+
         /**
          * Connect Fail reason: Connection timeout.
          *
          * @hide
          */
-        @SystemApi
-        public static final int CONNECT_FAIL_ID_CONNECTION_TIMEOUT = 0x08;
+        @SystemApi public static final int CONNECT_FAIL_ID_CONNECTION_TIMEOUT = 0x08;
+
         /**
          * Connect Fail reason: ACL already exists.
          *
          * @hide
          */
-        @SystemApi
-        public static final int CONNECT_FAIL_ID_ACL_ALREADY_EXIST = 0x0b;
+        @SystemApi public static final int CONNECT_FAIL_ID_ACL_ALREADY_EXIST = 0x0b;
+
         /**
          * Connect Fail reason: Controller busy.
          *
          * @hide
          */
-        @SystemApi
-        public static final int CONNECT_FAIL_ID_CONTROLLER_BUSY = 0x3a;
+        @SystemApi public static final int CONNECT_FAIL_ID_CONTROLLER_BUSY = 0x3a;
 
         /** @hide */
         @Retention(RetentionPolicy.SOURCE)
@@ -2150,9 +2134,7 @@ public final class BluetoothQualityReport implements Parcelable {
             }
         }
 
-        /**
-         * BqrConnectFail to String.
-         */
+        /** BqrConnectFail to String. */
         @Override
         @NonNull
         public String toString() {

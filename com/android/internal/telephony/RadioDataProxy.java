@@ -22,9 +22,7 @@ import android.os.AsyncResult;
 import android.os.Message;
 import android.os.RemoteException;
 import android.telephony.Rlog;
-import android.telephony.ServiceState;
 import android.telephony.data.DataProfile;
-import android.telephony.data.DataService;
 import android.telephony.data.NetworkSliceInfo;
 import android.telephony.data.TrafficDescriptor;
 
@@ -34,8 +32,8 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 
 /**
- * A holder for IRadioData. Use getHidl to get IRadio 1.0 and call the HIDL implementations or
- * getAidl to get IRadioData and call the AIDL implementations of the HAL APIs.
+ * A holder for IRadioData.
+ * Use getAidl to get IRadioData and call the AIDL implementations of the HAL APIs.
  */
 public class RadioDataProxy extends RadioServiceProxy {
     private static final String TAG = "RadioDataProxy";
@@ -129,12 +127,8 @@ public class RadioDataProxy extends RadioServiceProxy {
         if (isEmpty()) return;
         if (isAidl()) {
             mDataProxy.deactivateDataCall(serial, cid, reason);
-        } else if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_2)) {
-            ((android.hardware.radio.V1_2.IRadio) mRadioProxy).deactivateDataCall_1_2(
-                    serial, cid, reason);
         } else {
-            mRadioProxy.deactivateDataCall(serial, cid,
-                    reason == DataService.REQUEST_REASON_SHUTDOWN);
+            mRadioProxy.deactivateDataCall_1_2(serial, cid, reason);
         }
     }
 
@@ -216,11 +210,9 @@ public class RadioDataProxy extends RadioServiceProxy {
      * Call IRadioData#setDataProfile
      * @param serial Serial number of request
      * @param profiles Array of DataProfiles to set
-     * @param isRoaming Whether or not the device is roaming
      * @throws RemoteException
      */
-    public void setDataProfile(int serial, DataProfile[] profiles, boolean isRoaming)
-            throws RemoteException {
+    public void setDataProfile(int serial, DataProfile[] profiles) throws RemoteException {
         if (isEmpty()) return;
         if (isAidl()) {
             android.hardware.radio.data.DataProfileInfo[] dpis =
@@ -235,22 +227,12 @@ public class RadioDataProxy extends RadioServiceProxy {
                 dpis.add(RILUtils.convertToHalDataProfile15(dp));
             }
             ((android.hardware.radio.V1_5.IRadio) mRadioProxy).setDataProfile_1_5(serial, dpis);
-        } else if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_4)) {
+        } else {
             ArrayList<android.hardware.radio.V1_4.DataProfileInfo> dpis = new ArrayList<>();
             for (DataProfile dp : profiles) {
                 dpis.add(RILUtils.convertToHalDataProfile14(dp));
             }
-            ((android.hardware.radio.V1_4.IRadio) mRadioProxy).setDataProfile_1_4(serial, dpis);
-        } else {
-            ArrayList<android.hardware.radio.V1_0.DataProfileInfo> dpis = new ArrayList<>();
-            for (DataProfile dp : profiles) {
-                if (dp.isPersistent()) {
-                    dpis.add(RILUtils.convertToHalDataProfile10(dp));
-                }
-            }
-            if (!dpis.isEmpty()) {
-                mRadioProxy.setDataProfile(serial, dpis, isRoaming);
-            }
+            mRadioProxy.setDataProfile_1_4(serial, dpis);
         }
     }
 
@@ -277,10 +259,9 @@ public class RadioDataProxy extends RadioServiceProxy {
      * Call IRadioData#setInitialAttachApn
      * @param serial Serial number of request
      * @param dataProfile Data profile containing APN settings
-     * @param isRoaming Whether or not the device is roaming
      * @throws RemoteException
      */
-    public void setInitialAttachApn(int serial, DataProfile dataProfile, boolean isRoaming)
+    public void setInitialAttachApn(int serial, DataProfile dataProfile)
             throws RemoteException {
         if (isEmpty()) return;
         if (isAidl()) {
@@ -288,22 +269,17 @@ public class RadioDataProxy extends RadioServiceProxy {
         } else if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_5)) {
             ((android.hardware.radio.V1_5.IRadio) mRadioProxy).setInitialAttachApn_1_5(serial,
                     RILUtils.convertToHalDataProfile15(dataProfile));
-        } else if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_4)) {
-            ((android.hardware.radio.V1_4.IRadio) mRadioProxy).setInitialAttachApn_1_4(serial,
-                    RILUtils.convertToHalDataProfile14(dataProfile));
         } else {
-            mRadioProxy.setInitialAttachApn(serial, RILUtils.convertToHalDataProfile10(dataProfile),
-                    dataProfile.isPersistent(), isRoaming);
+            mRadioProxy.setInitialAttachApn_1_4(serial,
+                    RILUtils.convertToHalDataProfile14(dataProfile));
         }
     }
 
     /**
      * Call IRadioData#setupDataCall
      * @param serial Serial number of request
-     * @param phoneId Phone ID of the requestor
      * @param accessNetwork Access network to setup the data call
      * @param dataProfileInfo Data profile info
-     * @param isRoaming Whether or not the device is roaming
      * @param roamingAllowed Whether or not data roaming is allowed by the user
      * @param reason Request reason
      * @param linkProperties LinkProperties containing address and DNS info
@@ -316,15 +292,14 @@ public class RadioDataProxy extends RadioServiceProxy {
      *                            is allowed
      * @throws RemoteException
      */
-    public void setupDataCall(int serial, int phoneId, int accessNetwork,
-            DataProfile dataProfileInfo, boolean isRoaming, boolean roamingAllowed, int reason,
-            LinkProperties linkProperties, int pduSessionId, NetworkSliceInfo sliceInfo,
-            TrafficDescriptor trafficDescriptor, boolean matchAllRuleAllowed)
-            throws RemoteException {
+    public void setupDataCall(int serial, int accessNetwork, DataProfile dataProfileInfo,
+            boolean roamingAllowed, int reason, LinkProperties linkProperties, int pduSessionId,
+            NetworkSliceInfo sliceInfo, TrafficDescriptor trafficDescriptor,
+            boolean matchAllRuleAllowed) throws RemoteException {
         if (isEmpty()) return;
         ArrayList<String> addresses = new ArrayList<>();
         ArrayList<String> dnses = new ArrayList<>();
-        String[] dnsesArr = null;
+        String[] dnsesArr;
         if (linkProperties != null) {
             for (InetAddress address : linkProperties.getAddresses()) {
                 addresses.add(address.getHostAddress());
@@ -361,31 +336,10 @@ public class RadioDataProxy extends RadioServiceProxy {
                     accessNetwork, RILUtils.convertToHalDataProfile15(dataProfileInfo),
                     roamingAllowed, reason, RILUtils.convertToHalLinkProperties15(linkProperties),
                     dnses);
-        } else if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_4)) {
-            ((android.hardware.radio.V1_4.IRadio) mRadioProxy).setupDataCall_1_4(serial,
-                    accessNetwork, RILUtils.convertToHalDataProfile14(dataProfileInfo),
-                    roamingAllowed, reason, addresses, dnses);
-        } else if (mHalVersion.greaterOrEqual(RIL.RADIO_HAL_VERSION_1_2)) {
-            ((android.hardware.radio.V1_2.IRadio) mRadioProxy).setupDataCall_1_2(serial,
-                    accessNetwork, RILUtils.convertToHalDataProfile10(dataProfileInfo),
-                    dataProfileInfo.isPersistent(), roamingAllowed, isRoaming, reason, addresses,
-                    dnses);
         } else {
-            // Getting data RAT here is just a workaround to support the older 1.0 vendor RIL.
-            // The new data service interface passes access network type instead of RAT for
-            // setup data request. It is impossible to convert access network type back to RAT here,
-            // so we directly get the data RAT from phone.
-            int dataRat = ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN;
-            Phone phone = PhoneFactory.getPhone(phoneId);
-            if (phone != null) {
-                ServiceState ss = phone.getServiceState();
-                if (ss != null) {
-                    dataRat = ss.getRilDataRadioTechnology();
-                }
-            }
-            mRadioProxy.setupDataCall(serial, dataRat,
-                    RILUtils.convertToHalDataProfile10(dataProfileInfo),
-                    dataProfileInfo.isPersistent(), roamingAllowed, isRoaming);
+            mRadioProxy.setupDataCall_1_4(serial, accessNetwork,
+                    RILUtils.convertToHalDataProfile14(dataProfileInfo),
+                    roamingAllowed, reason, addresses, dnses);
         }
     }
 
@@ -415,7 +369,7 @@ public class RadioDataProxy extends RadioServiceProxy {
      */
     public void startKeepalive(int serial, int contextId, KeepalivePacketData packetData,
             int intervalMillis, Message result) throws RemoteException {
-        if (isEmpty() || mHalVersion.less(RIL.RADIO_HAL_VERSION_1_1)) return;
+        if (isEmpty()) return;
         if (isAidl()) {
             android.hardware.radio.data.KeepaliveRequest req =
                     new android.hardware.radio.data.KeepaliveRequest();
@@ -476,7 +430,7 @@ public class RadioDataProxy extends RadioServiceProxy {
             req.destinationPort = packetData.getDstPort();
             req.maxKeepaliveIntervalMillis = intervalMillis;
 
-            ((android.hardware.radio.V1_1.IRadio) mRadioProxy).startKeepalive(serial, req);
+            mRadioProxy.startKeepalive(serial, req);
         }
     }
 
@@ -487,11 +441,11 @@ public class RadioDataProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void stopKeepalive(int serial, int sessionHandle) throws RemoteException {
-        if (isEmpty() || mHalVersion.less(RIL.RADIO_HAL_VERSION_1_1)) return;
+        if (isEmpty()) return;
         if (isAidl()) {
             mDataProxy.stopKeepalive(serial, sessionHandle);
         } else {
-            ((android.hardware.radio.V1_1.IRadio) mRadioProxy).stopKeepalive(serial, sessionHandle);
+            mRadioProxy.stopKeepalive(serial, sessionHandle);
         }
     }
 }

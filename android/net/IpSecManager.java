@@ -65,6 +65,13 @@ import java.util.Objects;
 public class IpSecManager {
     private static final String TAG = "IpSecManager";
 
+    // TODO : remove this class when udc-mainline-prod is abandoned and android.net.flags.Flags is
+    // available here
+    /** @hide */
+    public static class Flags {
+        static final String IPSEC_TRANSFORM_STATE = "com.android.net.flags.ipsec_transform_state";
+    }
+
     /**
      * Feature flag to declare the kernel support of updating IPsec SAs.
      *
@@ -1082,6 +1089,12 @@ public class IpSecManager {
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
+    }
+
+    /** @hide */
+    public IpSecTransformState getTransformState(int transformId)
+            throws IllegalStateException, RemoteException {
+        return mService.getTransformState(transformId);
     }
 
     /**

@@ -58,7 +58,7 @@ public class CarrierServicesSmsFilter {
     public static final int EVENT_ON_FILTER_COMPLETE_NOT_CALLED = 1;
 
     /** onFilterComplete timeout. */
-    public static final int FILTER_COMPLETE_TIMEOUT_MS = 10 * 60 * 1000; //10 minutes
+    public static final int FILTER_COMPLETE_TIMEOUT_MS = 12 * 60 * 1000; //12 minutes
 
     /** SMS anomaly uuid -- CarrierMessagingService did not respond */
     private static final UUID sAnomalyNoResponseFromCarrierMessagingService =
@@ -381,7 +381,9 @@ public class CarrierServicesSmsFilter {
         }
 
         private void addToCallbacks(CarrierSmsFilterCallback callback) {
-            mCallbacks.add(callback);
+            synchronized (mFilterLock) {
+                mCallbacks.add(callback);
+            }
         }
 
     }

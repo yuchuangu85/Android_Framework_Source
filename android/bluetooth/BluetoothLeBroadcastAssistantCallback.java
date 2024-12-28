@@ -25,15 +25,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executor;
 
-/**
- * @hide
- */
+/** @hide */
 public class BluetoothLeBroadcastAssistantCallback
-            extends IBluetoothLeBroadcastAssistantCallback.Stub {
+        extends IBluetoothLeBroadcastAssistantCallback.Stub {
     private static final String TAG = BluetoothLeBroadcastAssistantCallback.class.getSimpleName();
     private boolean mIsRegistered = false;
-    private final Map<BluetoothLeBroadcastAssistant.Callback,
-            Executor> mCallbackMap = new HashMap<>();
+    private final Map<BluetoothLeBroadcastAssistant.Callback, Executor> mCallbackMap =
+            new HashMap<>();
     IBluetoothLeBroadcastAssistant mAdapter;
 
     public BluetoothLeBroadcastAssistantCallback(IBluetoothLeBroadcastAssistant adapter) {
@@ -46,8 +44,8 @@ public class BluetoothLeBroadcastAssistantCallback
      * @param callback user implementation of the {@link BluetoothLeBroadcastAssistant#Callback}
      * @throws IllegalArgumentException if the same <var>callback<var> is already registered.
      */
-    public void register(@NonNull Executor executor,
-                         @NonNull BluetoothLeBroadcastAssistant.Callback callback) {
+    public void register(
+            @NonNull Executor executor, @NonNull BluetoothLeBroadcastAssistant.Callback callback) {
         synchronized (this) {
             if (mCallbackMap.containsKey(callback)) {
                 throw new IllegalArgumentException("callback is already registered");
@@ -192,8 +190,8 @@ public class BluetoothLeBroadcastAssistantCallback
     }
 
     @Override
-    public void onSourceAddFailed(BluetoothDevice sink, BluetoothLeBroadcastMetadata source,
-                           int reason) {
+    public void onSourceAddFailed(
+            BluetoothDevice sink, BluetoothLeBroadcastMetadata source, int reason) {
         synchronized (this) {
             for (BluetoothLeBroadcastAssistant.Callback cb : mCallbackMap.keySet()) {
                 Executor executor = mCallbackMap.get(cb);
@@ -268,14 +266,29 @@ public class BluetoothLeBroadcastAssistantCallback
     }
 
     @Override
-    public void onReceiveStateChanged(BluetoothDevice sink, int sourceId,
-                               BluetoothLeBroadcastReceiveState state) {
+    public void onReceiveStateChanged(
+            BluetoothDevice sink, int sourceId, BluetoothLeBroadcastReceiveState state) {
         synchronized (this) {
             for (BluetoothLeBroadcastAssistant.Callback cb : mCallbackMap.keySet()) {
                 Executor executor = mCallbackMap.get(cb);
                 final long identity = Binder.clearCallingIdentity();
                 try {
                     executor.execute(() -> cb.onReceiveStateChanged(sink, sourceId, state));
+                } finally {
+                    Binder.restoreCallingIdentity(identity);
+                }
+            }
+        }
+    }
+
+    @Override
+    public void onSourceLost(int broadcastId) {
+        synchronized (this) {
+            for (BluetoothLeBroadcastAssistant.Callback cb : mCallbackMap.keySet()) {
+                Executor executor = mCallbackMap.get(cb);
+                final long identity = Binder.clearCallingIdentity();
+                try {
+                    executor.execute(() -> cb.onSourceLost(broadcastId));
                 } finally {
                     Binder.restoreCallingIdentity(identity);
                 }

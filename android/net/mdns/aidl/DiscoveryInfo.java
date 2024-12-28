@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 1 --hash ae4cfe565d66acc7d816aabd0dfab991e64031ab --min_sdk_version 30 --ninja -d out/soong/.intermediates/packages/modules/Connectivity/staticlibs/netd/mdns_aidl_interface-V1-java-source/gen/android/net/mdns/aidl/DiscoveryInfo.java.d -o out/soong/.intermediates/packages/modules/Connectivity/staticlibs/netd/mdns_aidl_interface-V1-java-source/gen -Npackages/modules/Connectivity/staticlibs/netd/aidl_api/mdns_aidl_interface/1 packages/modules/Connectivity/staticlibs/netd/aidl_api/mdns_aidl_interface/1/android/net/mdns/aidl/DiscoveryInfo.aidl
  */
 package android.net.mdns.aidl;
 /** @hide */
@@ -142,7 +143,7 @@ public class DiscoveryInfo implements android.os.Parcelable
     _aidl_sj.add("domainName: " + (java.util.Objects.toString(domainName)));
     _aidl_sj.add("interfaceIdx: " + (interfaceIdx));
     _aidl_sj.add("netId: " + (netId));
-    return "android.net.mdns.aidl.DiscoveryInfo" + _aidl_sj.toString()  ;
+    return "DiscoveryInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public boolean equals(Object other) {

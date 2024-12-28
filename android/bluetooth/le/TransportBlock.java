@@ -27,8 +27,8 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 /**
- * Wrapper for Transport Discovery Data Transport Blocks.
- * This class represents a Transport Block from a Transport Discovery Data.
+ * Wrapper for Transport Discovery Data Transport Blocks. This class represents a Transport Block
+ * from a Transport Discovery Data.
  *
  * @see TransportDiscoveryData
  * @see AdvertiseData
@@ -48,8 +48,8 @@ public final class TransportBlock implements Parcelable {
      * @param transportDataLength the total length of the Transport Data
      * @param transportData the Transport Data
      */
-    public TransportBlock(int orgId, int tdsFlags, int transportDataLength,
-            @Nullable byte[] transportData) {
+    public TransportBlock(
+            int orgId, int tdsFlags, int transportDataLength, @Nullable byte[] transportData) {
         mOrgId = orgId;
         mTdsFlags = tdsFlags;
         mTransportDataLength = transportDataLength;
@@ -78,17 +78,13 @@ public final class TransportBlock implements Parcelable {
         }
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @Override
     public int describeContents() {
         return 0;
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @Override
     public boolean equals(@Nullable Object obj) {
         if (this == obj) {
@@ -101,21 +97,28 @@ public final class TransportBlock implements Parcelable {
         return Arrays.equals(toByteArray(), other.toByteArray());
     }
 
-    public static final @NonNull Creator<TransportBlock> CREATOR = new Creator<TransportBlock>() {
-        @Override
-        public TransportBlock createFromParcel(Parcel in) {
-            return new TransportBlock(in);
-        }
+    /** @hide */
+    @Override
+    public int hashCode() {
+        return Arrays.hashCode(toByteArray());
+    }
 
-        @Override
-        public TransportBlock[] newArray(int size) {
-            return new TransportBlock[size];
-        }
-    };
+    public static final @NonNull Creator<TransportBlock> CREATOR =
+            new Creator<TransportBlock>() {
+                @Override
+                public TransportBlock createFromParcel(Parcel in) {
+                    return new TransportBlock(in);
+                }
+
+                @Override
+                public TransportBlock[] newArray(int size) {
+                    return new TransportBlock[size];
+                }
+            };
 
     /**
-     * Gets the Organization ID of the Transport Block which corresponds to one of the
-     * the Bluetooth SIG Assigned Numbers.
+     * Gets the Organization ID of the Transport Block which corresponds to one of the Bluetooth SIG
+     * Assigned Numbers.
      */
     public int getOrgId() {
         return mOrgId;
@@ -129,16 +132,12 @@ public final class TransportBlock implements Parcelable {
         return mTdsFlags;
     }
 
-    /**
-     * Gets the total number of octets in the Transport Data field in this Transport Block.
-     */
+    /** Gets the total number of octets in the Transport Data field in this Transport Block. */
     public int getTransportDataLength() {
         return mTransportDataLength;
     }
 
-    /**
-     * Gets the Transport Data of the Transport Block which contains organization-specific data.
-     */
+    /** Gets the Transport Data of the Transport Block which contains organization-specific data. */
     @Nullable
     public byte[] getTransportData() {
         return mTransportData;

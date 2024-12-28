@@ -27,6 +27,7 @@ import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.metrics.SatelliteStats;
+import com.android.internal.telephony.satellite.SatelliteServiceUtils;
 
 /**
  * Stats to log to satellite metrics
@@ -132,71 +133,81 @@ public class ControllerMetricsStats {
 
     /** Report a counter when an attempt for outgoing datagram is successfully done */
     public void reportOutgoingDatagramSuccessCount(
-            @NonNull @SatelliteManager.DatagramType int datagramType) {
-        SatelliteStats.SatelliteControllerParams controllerParam;
-        if (datagramType == SatelliteManager.DATAGRAM_TYPE_SOS_MESSAGE) {
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfOutgoingDatagramSuccess(ADD_COUNT)
-                    .setCountOfDatagramTypeSosSmsSuccess(ADD_COUNT)
-                    .build();
-        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfOutgoingDatagramSuccess(ADD_COUNT)
-                    .setCountOfDatagramTypeLocationSharingSuccess(ADD_COUNT)
-                    .build();
-        } else { // datagramType == SatelliteManager.DATAGRAM_TYPE_UNKNOWN
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfOutgoingDatagramSuccess(ADD_COUNT)
-                    .build();
+            @NonNull @SatelliteManager.DatagramType int datagramType, boolean isDemoMode) {
+        SatelliteStats.SatelliteControllerParams.Builder builder =
+                new SatelliteStats.SatelliteControllerParams.Builder();
+
+        if (isDemoMode) {
+            builder.setCountOfDemoModeOutgoingDatagramSuccess(ADD_COUNT);
+        } else {
+            builder.setCountOfOutgoingDatagramSuccess(ADD_COUNT);
         }
+
+        if (SatelliteServiceUtils.isSosMessage(datagramType)) {
+            builder.setCountOfDatagramTypeSosSmsSuccess(ADD_COUNT);
+        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
+            builder.setCountOfDatagramTypeLocationSharingSuccess(ADD_COUNT);
+        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_KEEP_ALIVE) {
+            builder.setCountOfDatagramTypeKeepAliveSuccess(ADD_COUNT).build();
+        }
+
+        SatelliteStats.SatelliteControllerParams controllerParam = builder.build();
         logd("reportServiceEnablementSuccessCount(): " + controllerParam);
         mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
     }
 
     /** Report a counter when an attempt for outgoing datagram is failed */
     public void reportOutgoingDatagramFailCount(
-            @NonNull @SatelliteManager.DatagramType int datagramType) {
-        SatelliteStats.SatelliteControllerParams controllerParam;
-        if (datagramType == SatelliteManager.DATAGRAM_TYPE_SOS_MESSAGE) {
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfOutgoingDatagramFail(ADD_COUNT)
-                    .setCountOfDatagramTypeSosSmsFail(ADD_COUNT)
-                    .build();
-        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfOutgoingDatagramFail(ADD_COUNT)
-                    .setCountOfDatagramTypeLocationSharingFail(ADD_COUNT)
-                    .build();
-        } else { // datagramType == SatelliteManager.DATAGRAM_TYPE_UNKNOWN
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfOutgoingDatagramFail(ADD_COUNT)
-                    .build();
+            @NonNull @SatelliteManager.DatagramType int datagramType, boolean isDemoMode) {
+        SatelliteStats.SatelliteControllerParams.Builder builder =
+                new SatelliteStats.SatelliteControllerParams.Builder();
+
+        if (isDemoMode) {
+            builder.setCountOfDemoModeOutgoingDatagramFail(ADD_COUNT);
+        } else {
+            builder.setCountOfOutgoingDatagramFail(ADD_COUNT);
         }
+
+        if (SatelliteServiceUtils.isSosMessage(datagramType)) {
+            builder.setCountOfDatagramTypeSosSmsFail(ADD_COUNT);
+        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
+            builder.setCountOfDatagramTypeLocationSharingFail(ADD_COUNT);
+        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_KEEP_ALIVE) {
+            builder.setCountOfDatagramTypeKeepAliveFail(ADD_COUNT);
+        }
+
+        SatelliteStats.SatelliteControllerParams controllerParam = builder.build();
         logd("reportOutgoingDatagramFailCount(): " + controllerParam);
         mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
     }
 
     /** Report a counter when an attempt for incoming datagram is failed */
     public void reportIncomingDatagramCount(
-            @NonNull @SatelliteManager.SatelliteError int result) {
-        SatelliteStats.SatelliteControllerParams controllerParam;
-        if (result == SatelliteManager.SATELLITE_ERROR_NONE) {
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfIncomingDatagramSuccess(ADD_COUNT)
-                    .build();
+            @NonNull @SatelliteManager.SatelliteResult int result, boolean isDemoMode) {
+        SatelliteStats.SatelliteControllerParams.Builder builder =
+                new SatelliteStats.SatelliteControllerParams.Builder();
+        if (isDemoMode) {
+            if (result == SatelliteManager.SATELLITE_RESULT_SUCCESS) {
+                builder.setCountOfDemoModeIncomingDatagramSuccess(ADD_COUNT);
+            } else {
+                builder.setCountOfDemoModeIncomingDatagramFail(ADD_COUNT);
+            }
         } else {
-            controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
-                    .setCountOfIncomingDatagramFail(ADD_COUNT)
-                    .build();
+            if (result == SatelliteManager.SATELLITE_RESULT_SUCCESS) {
+                builder.setCountOfIncomingDatagramSuccess(ADD_COUNT);
+            } else {
+                builder.setCountOfIncomingDatagramFail(ADD_COUNT);
+            }
         }
+        SatelliteStats.SatelliteControllerParams  controllerParam = builder.build();
         logd("reportIncomingDatagramCount(): " + controllerParam);
         mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
     }
 
     /** Report a counter when an attempt for de-provision is success or not */
-    public void reportProvisionCount(@NonNull @SatelliteManager.SatelliteError int result) {
+    public void reportProvisionCount(@NonNull @SatelliteManager.SatelliteResult int result) {
         SatelliteStats.SatelliteControllerParams controllerParam;
-        if (result == SatelliteManager.SATELLITE_ERROR_NONE) {
+        if (result == SatelliteManager.SATELLITE_RESULT_SUCCESS) {
             controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
                     .setCountOfProvisionSuccess(ADD_COUNT)
                     .build();
@@ -210,9 +221,9 @@ public class ControllerMetricsStats {
     }
 
     /** Report a counter when an attempt for de-provision is success or not */
-    public void reportDeprovisionCount(@NonNull @SatelliteManager.SatelliteError int result) {
+    public void reportDeprovisionCount(@NonNull @SatelliteManager.SatelliteResult int result) {
         SatelliteStats.SatelliteControllerParams controllerParam;
-        if (result == SatelliteManager.SATELLITE_ERROR_NONE) {
+        if (result == SatelliteManager.SATELLITE_RESULT_SUCCESS) {
             controllerParam = new SatelliteStats.SatelliteControllerParams.Builder()
                     .setCountOfDeprovisionSuccess(ADD_COUNT)
                     .build();

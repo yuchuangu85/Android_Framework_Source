@@ -18,9 +18,12 @@ package android.adservices.customaudience;
 
 import android.adservices.common.AdSelectionSignals;
 import android.adservices.common.AdTechIdentifier;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.OutcomeReceiver;
+
+import com.android.adservices.flags.Flags;
 
 import java.util.Objects;
 import java.util.concurrent.Executor;
@@ -81,12 +84,11 @@ public class AddCustomAudienceOverrideRequest {
     }
 
     /**
-     * Returns the override bidding logic JavaScript version.
+     * Returns the value to return as version for JavaScript bidding logic.
      *
      * <p>Default to be {@code 0L}, which will fall back to use default version(V1 or V2).
-     *
-     * @hide
      */
+    @FlaggedApi(Flags.FLAG_FLEDGE_AD_SELECTION_FILTERING_ENABLED)
     public long getBiddingLogicJsVersion() {
         return mBiddingLogicJsVersion;
     }
@@ -149,9 +151,8 @@ public class AddCustomAudienceOverrideRequest {
          * Sets the bidding logic JavaScript version.
          *
          * <p>Default to be {@code 0L}, which will fall back to use default version(V1 or V2).
-         *
-         * @hide
          */
+        @FlaggedApi(Flags.FLAG_FLEDGE_AD_SELECTION_FILTERING_ENABLED)
         @NonNull
         public AddCustomAudienceOverrideRequest.Builder setBiddingLogicJsVersion(
                 long biddingLogicJsVersion) {

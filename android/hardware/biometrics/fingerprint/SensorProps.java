@@ -1,17 +1,48 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --structured --version 5 --hash notfrozen -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster_interface/4/preprocessed.aidl --previous_api_dir=hardware/interfaces/biometrics/fingerprint/aidl/aidl_api/android.hardware.biometrics.fingerprint/4 --previous_hash 41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen/android/hardware/biometrics/fingerprint/SensorProps.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen -Nhardware/interfaces/biometrics/fingerprint/aidl hardware/interfaces/biometrics/fingerprint/aidl/android/hardware/biometrics/fingerprint/SensorProps.aidl
  */
 package android.hardware.biometrics.fingerprint;
 /** @hide */
 public class SensorProps implements android.os.Parcelable
 {
+  /** Statically configured properties that apply to this fingerprint sensor. */
   public android.hardware.biometrics.common.CommonProps commonProps;
+  /** A statically configured sensor type representing this fingerprint sensor. */
   public byte sensorType = android.hardware.biometrics.fingerprint.FingerprintSensorType.UNKNOWN;
+  /**
+   * A list of display-specific locations from where the sensor is usable from. See SensorLocation
+   * for more details.
+   */
   public android.hardware.biometrics.fingerprint.SensorLocation[] sensorLocations;
+  /**
+   * Must be set to true for sensors that support "swipe" gestures via
+   * android.view.KeyEvent#KEYCODE_SYSTEM_NAVIGATION_*.
+   */
   public boolean supportsNavigationGestures = false;
+  /** Specifies whether or not the implementation supports ISession#detectInteraction. */
   public boolean supportsDetectInteraction = false;
+  /**
+   * Whether the HAL is responsible for detecting and processing of display touches. This is only
+   * applicable to under-display fingerprint sensors (UDFPS). If the value is false, the framework
+   * will be responsible for handling the display touch events and passing them down to the HAL by
+   * using ISession#onPointerDown and ISession#onPointerUp. If the value is true, the framework
+   * will not notify the HAL about touch events.
+   * 
+   * This value must be ignored for non-UDFPS sensors.
+   */
   public boolean halHandlesDisplayTouches = false;
+  /**
+   * Whether the HAL is responsible for fingerprint illumination, for example through enabling the
+   * display's high-brightness mode. This is only applicable to optical under-display fingerprint
+   * sensors (optical UDFPS). If the value is false, the framework will be responsible for
+   * illuminating the finger and reporting ISession#onUiReady. If the value is true, the framework
+   * will not illuminate the finger and will not report ISession#onUiReady.
+   * 
+   * This value must be ignored for sensors that aren't optical UDFPS.
+   */
   public boolean halControlsIllumination = false;
+  /** Parameters used for fingerprint touch detection. */
   public android.hardware.biometrics.fingerprint.TouchDetectionParameters touchDetectionParameters;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }

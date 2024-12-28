@@ -38,10 +38,10 @@ public interface TypeDescriptor {
      * If this {@code TypeDescriptor} object can be described in nominal form,
      * then this method returns a type descriptor as specified in JVMS {@jvms 4.3}.
      * The result descriptor string can be used to produce
-     * a {@linkplain java.lang.constant.ConstantDesc nominal descriptor}.
+     * a {@code java.lang.constant.ConstantDesc nominal descriptor}.
      *
      * Otherwise, the result string is not a type descriptor.
-     * No {@linkplain java.lang.constant.ConstantDesc nominal descriptor}
+     * No {@code java.lang.constant.ConstantDesc nominal descriptor}
      * can be produced from the result string.
      *
      * @return the descriptor string for this {@code TypeDescriptor} object

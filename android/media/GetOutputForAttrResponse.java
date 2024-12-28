@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/capture_state_listener-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen/android/media/GetOutputForAttrResponse.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/GetOutputForAttrResponse.aidl
  */
 package android.media;
 /** {@hide} */
@@ -20,7 +21,7 @@ public class GetOutputForAttrResponse implements android.os.Parcelable
   public android.media.audio.common.AudioConfigBase configBase;
   public boolean isBitPerfect = false;
   /** The corrected audio attributes. * */
-  public android.media.AudioAttributesInternal attr;
+  public android.media.audio.common.AudioAttributes attr;
   public static final android.os.Parcelable.Creator<GetOutputForAttrResponse> CREATOR = new android.os.Parcelable.Creator<GetOutputForAttrResponse>() {
     @Override
     public GetOutputForAttrResponse createFromParcel(android.os.Parcel _aidl_source) {
@@ -74,7 +75,7 @@ public class GetOutputForAttrResponse implements android.os.Parcelable
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       isBitPerfect = _aidl_parcel.readBoolean();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
-      attr = _aidl_parcel.readTypedObject(android.media.AudioAttributesInternal.CREATOR);
+      attr = _aidl_parcel.readTypedObject(android.media.audio.common.AudioAttributes.CREATOR);
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");

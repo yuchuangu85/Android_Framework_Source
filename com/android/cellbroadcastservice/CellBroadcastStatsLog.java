@@ -138,34 +138,42 @@ public final class CellBroadcastStatsLog {
     public static final int CELL_BROADCAST_MODULE_ERROR_REPORTED__TYPE__ERROR_FOUND_MULTIPLE_CBR_PKGS = 19;
 
     // Annotation constants.
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_IS_UID =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             1 : StatsLog.ANNOTATION_ID_IS_UID;
 
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRUNCATE_TIMESTAMP =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             2 : StatsLog.ANNOTATION_ID_TRUNCATE_TIMESTAMP;
 
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             3 : StatsLog.ANNOTATION_ID_PRIMARY_FIELD;
 
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_EXCLUSIVE_STATE =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             4 : StatsLog.ANNOTATION_ID_EXCLUSIVE_STATE;
 
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             5 : StatsLog.ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID;
 
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_DEFAULT_STATE =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             6 : StatsLog.ANNOTATION_ID_DEFAULT_STATE;
 
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRIGGER_STATE_RESET =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             7 : StatsLog.ANNOTATION_ID_TRIGGER_STATE_RESET;
 
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_STATE_NESTED =
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
             8 : StatsLog.ANNOTATION_ID_STATE_NESTED;

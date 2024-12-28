@@ -18,6 +18,7 @@ package android.health.connect.datatypes;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_TOTAL_CALORIES_BURNED;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.health.connect.HealthConnectManager;
 import android.health.connect.datatypes.units.Energy;
 import android.health.connect.datatypes.validation.ValidationUtils;
@@ -66,7 +67,14 @@ public final class TotalCaloriesBurnedRecord extends IntervalRecord {
             @NonNull ZoneOffset endZoneOffset,
             @NonNull Energy energy,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         Objects.requireNonNull(metadata);
         Objects.requireNonNull(startTime);
         Objects.requireNonNull(startZoneOffset);
@@ -95,7 +103,7 @@ public final class TotalCaloriesBurnedRecord extends IntervalRecord {
      *     otherwise.
      */
     @Override
-    public boolean equals(@NonNull Object object) {
+    public boolean equals(@Nullable Object object) {
         if (super.equals(object) && object instanceof TotalCaloriesBurnedRecord) {
             TotalCaloriesBurnedRecord other = (TotalCaloriesBurnedRecord) object;
             return this.getEnergy().equals(other.getEnergy());

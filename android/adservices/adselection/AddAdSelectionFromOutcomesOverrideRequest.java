@@ -30,7 +30,6 @@ import java.util.Objects;
  * the specific override, a {@code String} selectionLogicJs and {@code String} selectionSignals
  * field representing the override value
  *
- * @hide
  */
 public class AddAdSelectionFromOutcomesOverrideRequest {
     @NonNull private final AdSelectionFromOutcomesConfig mAdSelectionFromOutcomesConfig;

@@ -24,7 +24,7 @@ import java.io.InputStream;
 /**
  * BluetoothInputStream.
  *
- * Used to write to a Bluetooth socket.
+ * <p>Used to write to a Bluetooth socket.
  *
  * @hide
  */
@@ -36,9 +36,7 @@ import java.io.InputStream;
         mSocket = s;
     }
 
-    /**
-     * Return number of bytes available before this stream will block.
-     */
+    /** Return number of bytes available before this stream will block. */
     public int available() throws IOException {
         return mSocket.available();
     }
@@ -48,10 +46,9 @@ import java.io.InputStream;
     }
 
     /**
-     * Reads a single byte from this stream and returns it as an integer in the
-     * range from 0 to 255. Returns -1 if the end of the stream has been
-     * reached. Blocks until one byte has been read, the end of the source
-     * stream is detected or an exception is thrown.
+     * Reads a single byte from this stream and returns it as an integer in the range from 0 to 255.
+     * Returns -1 if the end of the stream has been reached. Blocks until one byte has been read,
+     * the end of the source stream is detected or an exception is thrown.
      *
      * @return the byte read or -1 if the end of stream has been reached.
      * @throws IOException if the stream is closed or another IOException occurs.
@@ -68,16 +65,16 @@ import java.io.InputStream;
     }
 
     /**
-     * Reads at most {@code length} bytes from this stream and stores them in
-     * the byte array {@code b} starting at {@code offset}.
+     * Reads at most {@code length} bytes from this stream and stores them in the byte array {@code
+     * b} starting at {@code offset}.
      *
      * @param b the byte array in which to store the bytes read.
      * @param offset the initial position in {@code buffer} to store the bytes read from this
-     * stream.
+     *     stream.
      * @param length the maximum number of bytes to store in {@code b}.
      * @return the number of bytes actually read or -1 if the end of the stream has been reached.
      * @throws IndexOutOfBoundsException if {@code offset < 0} or {@code length < 0}, or if {@code
-     * offset + length} is greater than the length of {@code b}.
+     *     offset + length} is greater than the length of {@code b}.
      * @throws IOException if the stream is closed or another IOException occurs.
      * @since Android 1.5
      */

@@ -22,6 +22,7 @@ import static android.adservices.appsetid.AppSetIdManager.APPSETID_SERVICE;
 import static android.adservices.common.AdServicesCommonManager.AD_SERVICES_COMMON_SERVICE;
 import static android.adservices.customaudience.CustomAudienceManager.CUSTOM_AUDIENCE_SERVICE;
 import static android.adservices.measurement.MeasurementManager.MEASUREMENT_SERVICE;
+import static android.adservices.signals.ProtectedSignalsManager.PROTECTED_SIGNALS_SERVICE;
 import static android.adservices.topics.TopicsManager.TOPICS_SERVICE;
 
 import android.adservices.adid.AdIdManager;
@@ -30,6 +31,7 @@ import android.adservices.appsetid.AppSetIdManager;
 import android.adservices.common.AdServicesCommonManager;
 import android.adservices.customaudience.CustomAudienceManager;
 import android.adservices.measurement.MeasurementManager;
+import android.adservices.signals.ProtectedSignalsManager;
 import android.adservices.topics.TopicsManager;
 import android.annotation.SystemApi;
 import android.app.SystemServiceRegistry;
@@ -89,6 +91,17 @@ public class AdServicesFrameworkInitializer {
                 .registerServiceMutator(
                         AD_SELECTION_SERVICE,
                         (service, ctx) -> ((AdSelectionManager) service).initialize(ctx));
+
+        LogUtil.d("Registering AdServices's ProtectedSignalsManager.");
+        SystemServiceRegistry.registerContextAwareService(
+                PROTECTED_SIGNALS_SERVICE,
+                ProtectedSignalsManager.class,
+                ProtectedSignalsManager::new);
+        // TODO(b/242889021): don't use this workaround on devices that have proper fix
+        SdkSandboxSystemServiceRegistry.getInstance()
+                .registerServiceMutator(
+                        PROTECTED_SIGNALS_SERVICE,
+                        (service, ctx) -> ((ProtectedSignalsManager) service).initialize(ctx));
 
         LogUtil.d("Registering AdServices's MeasurementManager.");
         SystemServiceRegistry.registerContextAwareService(

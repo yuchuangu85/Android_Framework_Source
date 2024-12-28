@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/NrVopsInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/NrVopsInfo.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public class NrVopsInfo implements android.os.Parcelable
 {
   public byte vopsSupported = 0;
@@ -69,7 +71,7 @@ public class NrVopsInfo implements android.os.Parcelable
     _aidl_sj.add("vopsSupported: " + (vopsSupported));
     _aidl_sj.add("emcSupported: " + (emcSupported));
     _aidl_sj.add("emfSupported: " + (emfSupported));
-    return "android.hardware.radio.network.NrVopsInfo" + _aidl_sj.toString()  ;
+    return "NrVopsInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

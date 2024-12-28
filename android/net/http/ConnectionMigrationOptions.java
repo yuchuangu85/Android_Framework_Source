@@ -90,77 +90,10 @@ public class ConnectionMigrationOptions {
     }
 
     /**
-     * See {@link Builder#setAllowServerMigration}
-     *
-     * {@hide}
-     */
-    @Nullable
-    @Experimental
-    public Boolean getAllowServerMigration() {
-        return mAllowServerMigration;
-    }
-
-    /**
-     * See {@link Builder#setMigrateIdleConnections}
-     *
-     * {@hide}
-     */
-    @Nullable
-    @Experimental
-    public Boolean getMigrateIdleConnections() {
-        return mMigrateIdleConnections;
-    }
-
-    /**
-     * See {@link Builder#setIdleMigrationPeriodSeconds}
-     *
-     * {@hide}
-     */
-    @Experimental
-    @Nullable
-    public Duration getIdleMigrationPeriod() {
-        return mIdleMigrationPeriod;
-    }
-
-    /**
      * See {@link Builder#setAllowNonDefaultNetworkUsage(int)}
      */
-    @Experimental
     public @MigrationOptionState int getAllowNonDefaultNetworkUsage() {
         return mAllowNonDefaultNetworkUsage;
-    }
-
-    /**
-     * See {@link Builder#setMaxTimeOnNonDefaultNetworkSeconds}
-     *
-     * {@hide}
-     */
-    @Experimental
-    @Nullable
-    public Duration getMaxTimeOnNonDefaultNetwork() {
-        return mMaxTimeOnNonDefaultNetwork;
-    }
-
-    /**
-     * See {@link Builder#setMaxWriteErrorNonDefaultNetworkMigrationsCount}
-     *
-     * {@hide}
-     */
-    @Experimental
-    @Nullable
-    public Integer getMaxWriteErrorNonDefaultNetworkMigrationsCount() {
-        return mMaxWriteErrorNonDefaultNetworkMigrationsCount;
-    }
-
-    /**
-     * See {@link Builder#setMaxPathDegradingNonDefaultNetworkMigrationsCount}
-     *
-     * {@hide}
-     */
-    @Experimental
-    @Nullable
-    public Integer getMaxPathDegradingNonDefaultMigrationsCount() {
-        return mMaxPathDegradingNonDefaultMigrationsCount;
     }
 
     ConnectionMigrationOptions(@NonNull Builder builder) {
@@ -231,58 +164,6 @@ public class ConnectionMigrationOptions {
         }
 
         /**
-         * Enables the possibility of migrating connections to an alternate server address
-         * at the server's request.
-         *
-         * @return this builder for chaining
-         *
-         * {@hide}
-         */
-        @Experimental
-        @NonNull
-        public Builder setAllowServerMigration(boolean allowServerMigration) {
-            this.mAllowServerMigration = allowServerMigration;
-            return this;
-        }
-
-        /**
-         * Configures whether migration of idle connections should be enabled or not.
-         *
-         * <p>If set to true, idle connections will be migrated too, as long as they haven't been
-         * idle for too long. The setting is shared for all connection migration types. The maximum
-         * idle period for which connections will still be migrated can be customized using {@link
-         * #setIdleMigrationPeriodSeconds}.
-         *
-         * @return this builder for chaining
-         *
-         * {@hide}
-         */
-        @Experimental
-        @NonNull
-        public Builder setMigrateIdleConnections(boolean migrateIdleConnections) {
-            this.mMigrateIdleConnections = migrateIdleConnections;
-            return this;
-        }
-
-        /**
-         * Sets the maximum idle period for which connections will still be migrated, in seconds.
-         * The setting is shared for all connection migration types.
-         *
-         * <p>Only relevant if {@link #setMigrateIdleConnections(boolean)} is enabled.
-         *
-         * @return this builder for chaining
-         *
-         * {@hide}
-         */
-        @Experimental
-        @NonNull
-        public Builder setIdleMigrationPeriodSeconds(
-                @NonNull Duration idleConnectionMigrationPeriod) {
-            this.mIdleConnectionMigrationPeriod = idleConnectionMigrationPeriod;
-            return this;
-        }
-
-        /**
          * Sets whether connections can be migrated to an alternate network when Cronet detects
          * a degradation of the path currently in use. Requires setting
          * {@link #setPathDegradationMigration(int)} to {@link #MIGRATION_OPTION_ENABLED} to
@@ -299,64 +180,6 @@ public class ConnectionMigrationOptions {
         @NonNull
         public Builder setAllowNonDefaultNetworkUsage(@MigrationOptionState int state) {
             this.mAllowNonDefaultNetworkUsage = state;
-            return this;
-        }
-
-        /**
-         * Sets the maximum period for which connections migrated to non-default networks remain
-         * there before they're migrated back. This time is not cumulative - each migration off
-         * the default network for each connection measures and compares to this value separately.
-         *
-         * <p>Only relevant if {@link #setAllowNonDefaultNetworkUsage(int)} is set to
-         * {@link #MIGRATION_OPTION_ENABLED}
-         *
-         * @return this builder for chaining
-         *
-         * {@hide}
-         */
-        @Experimental
-        @NonNull
-        public Builder setMaxTimeOnNonDefaultNetworkSeconds(
-                @NonNull Duration maxTimeOnNonDefaultNetwork) {
-            this.mMaxTimeOnNonDefaultNetwork = maxTimeOnNonDefaultNetwork;
-            return this;
-        }
-
-        /**
-         * Sets the maximum number of migrations to the non-default network upon encountering write
-         * errors. Counted cumulatively per network per connection.
-         *
-         * <p>Only relevant if {@link #setAllowNonDefaultNetworkUsage(int)} is set to
-         * {@link #MIGRATION_OPTION_ENABLED}
-         *
-         * @return this builder for chaining
-         *
-         * {@hide}
-         */
-        @Experimental
-        @NonNull
-        public Builder setMaxWriteErrorNonDefaultNetworkMigrationsCount(
-                int maxWriteErrorNonDefaultMigrationsCount) {
-            this.mMaxWriteErrorNonDefaultNetworkMigrationsCount = maxWriteErrorNonDefaultMigrationsCount;
-            return this;
-        }
-
-        /**
-         * Sets the maximum number of migrations to the non-default network upon encountering path
-         * degradation for the existing connection. Counted cumulatively per network per connection.
-         *
-         * <p>Only relevant if {@link #setAllowNonDefaultNetworkUsage(int)} is set to
-         * {@link #MIGRATION_OPTION_ENABLED}
-         *
-         * @return this builder for chaining
-         *
-         * {@hide}
-         */
-        @Experimental
-        @NonNull
-        public Builder setMaxPathDegradingNonDefaultNetworkMigrationsCount(
-                int maxPathDegradingNonDefaultMigrationsCount) {
-            this.mMaxPathDegradingNonDefaultMigrationsCount = maxPathDegradingNonDefaultMigrationsCount;
             return this;
         }
 

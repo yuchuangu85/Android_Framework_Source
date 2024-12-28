@@ -18,23 +18,33 @@ package android.system.virtualmachine;
 
 import static java.util.Objects.requireNonNull;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresFeature;
 import android.annotation.RequiresPermission;
+import android.annotation.StringDef;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.annotation.WorkerThread;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.os.RemoteException;
 import android.sysprop.HypervisorProperties;
+import android.system.virtualizationservice.IVirtualizationService;
 import android.util.ArrayMap;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.system.virtualmachine.flags.Flags;
 
+import java.io.File;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -85,15 +95,85 @@ public class VirtualMachineManager {
     })
     public @interface Capability {}
 
-    /* The implementation supports creating protected VMs, whose memory is inaccessible to the
-     * host OS.
+    /**
+     * The implementation supports creating protected VMs, whose memory is inaccessible to the host
+     * OS.
+     *
+     * @see VirtualMachineConfig.Builder#setProtectedVm
      */
     public static final int CAPABILITY_PROTECTED_VM = 1;
 
-    /* The implementation supports creating non-protected VMs, whose memory is accessible to the
+    /**
+     * The implementation supports creating non-protected VMs, whose memory is accessible to the
      * host OS.
+     *
+     * @see VirtualMachineConfig.Builder#setProtectedVm
      */
     public static final int CAPABILITY_NON_PROTECTED_VM = 2;
+
+    /**
+     * Features provided by {@link VirtualMachineManager}.
+     *
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @StringDef(
+            prefix = "FEATURE_",
+            value = {
+                FEATURE_DICE_CHANGES,
+                FEATURE_LLPVM_CHANGES,
+                FEATURE_MULTI_TENANT,
+                FEATURE_REMOTE_ATTESTATION,
+                FEATURE_VENDOR_MODULES,
+            })
+    public @interface Features {}
+
+    /**
+     * Feature to include new data in the VM DICE chain.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    public static final String FEATURE_DICE_CHANGES = IVirtualizationService.FEATURE_DICE_CHANGES;
+
+    /**
+     * Feature to run payload as non-root user.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    public static final String FEATURE_MULTI_TENANT = IVirtualizationService.FEATURE_MULTI_TENANT;
+
+    /**
+     * Feature to allow remote attestation in Microdroid.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    public static final String FEATURE_REMOTE_ATTESTATION =
+            IVirtualizationService.FEATURE_REMOTE_ATTESTATION;
+
+    /**
+     * Feature to allow vendor modules in Microdroid.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    public static final String FEATURE_VENDOR_MODULES =
+            IVirtualizationService.FEATURE_VENDOR_MODULES;
+
+    /**
+     * Feature to enable Secretkeeper protected secrets in Microdroid based pVMs.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    public static final String FEATURE_LLPVM_CHANGES = IVirtualizationService.FEATURE_LLPVM_CHANGES;
 
     /**
      * Returns a set of flags indicating what this implementation of virtualization is capable of.
@@ -162,7 +242,7 @@ public class VirtualMachineManager {
      *
      * @see #getOrCreate
      * @throws VirtualMachineException if the virtual machine exists but could not be successfully
-     *     retrieved.
+     *     retrieved. This can be resolved by calling {@link #delete} on the VM.
      * @hide
      */
     @SystemApi
@@ -206,11 +286,12 @@ public class VirtualMachineManager {
     public VirtualMachine importFromDescriptor(
             @NonNull String name, @NonNull VirtualMachineDescriptor vmDescriptor)
             throws VirtualMachineException {
+        VirtualMachine vm;
         synchronized (sCreateLock) {
-            VirtualMachine vm = VirtualMachine.fromDescriptor(mContext, name, vmDescriptor);
+            vm = VirtualMachine.fromDescriptor(mContext, name, vmDescriptor);
             mVmsByName.put(name, new WeakReference<>(vm));
-            return vm;
         }
+        return vm;
     }
 
     /**
@@ -256,7 +337,7 @@ public class VirtualMachineManager {
         synchronized (sCreateLock) {
             VirtualMachine vm = getVmByName(name);
             if (vm == null) {
-                VirtualMachine.deleteVmDirectory(mContext, name);
+                VirtualMachine.vmInstanceCleanup(mContext, name);
             } else {
                 vm.delete(mContext, name);
             }
@@ -276,5 +357,105 @@ public class VirtualMachineManager {
             }
         }
         return null;
+    }
+
+    private static final String JSON_SUFFIX = ".json";
+    private static final List<String> SUPPORTED_OS_LIST_FROM_CFG =
+            extractSupportedOSListFromConfig();
+
+    private boolean isVendorModuleEnabled() {
+        return VirtualizationService.nativeIsVendorModulesFlagEnabled();
+    }
+
+    private static List<String> extractSupportedOSListFromConfig() {
+        List<String> supportedOsList = new ArrayList<>();
+        File directory = new File("/apex/com.android.virt/etc");
+        File[] files = directory.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                String fileName = file.getName();
+                if (fileName.endsWith(JSON_SUFFIX)) {
+                    supportedOsList.add(
+                            fileName.substring(0, fileName.length() - JSON_SUFFIX.length()));
+                }
+            }
+        }
+        return supportedOsList;
+    }
+
+    /**
+     * Returns a list of supported OS names.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    @NonNull
+    public List<String> getSupportedOSList() throws VirtualMachineException {
+        if (isVendorModuleEnabled()) {
+            return SUPPORTED_OS_LIST_FROM_CFG;
+        } else {
+            return Arrays.asList("microdroid");
+        }
+    }
+
+    /**
+     * Returns {@code true} if given {@code featureName} is enabled.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    @RequiresPermission(VirtualMachine.MANAGE_VIRTUAL_MACHINE_PERMISSION)
+    public boolean isFeatureEnabled(@Features String featureName) throws VirtualMachineException {
+        synchronized (sCreateLock) {
+            VirtualizationService service = VirtualizationService.getInstance();
+            try {
+                return service.getBinder().isFeatureEnabled(featureName);
+            } catch (RemoteException e) {
+                throw e.rethrowAsRuntimeException();
+            }
+        }
+    }
+
+    /**
+     * Returns {@code true} if the pVM remote attestation feature is supported. Remote attestation
+     * allows a protected VM to attest its authenticity to a remote server.
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    @RequiresPermission(VirtualMachine.MANAGE_VIRTUAL_MACHINE_PERMISSION)
+    public boolean isRemoteAttestationSupported() throws VirtualMachineException {
+        synchronized (sCreateLock) {
+            VirtualizationService service = VirtualizationService.getInstance();
+            try {
+                return service.getBinder().isRemoteAttestationSupported();
+            } catch (RemoteException e) {
+                throw e.rethrowAsRuntimeException();
+            }
+        }
+    }
+
+    /**
+     * Returns {@code true} if Updatable VM feature is supported by AVF. Updatable VM allow secrets
+     * and data to be accessible even after updates of boot images and apks. For more info see
+     * packages/modules/Virtualization/docs/updatable_vm.md
+     *
+     * @hide
+     */
+    @TestApi
+    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
+    @RequiresPermission(VirtualMachine.MANAGE_VIRTUAL_MACHINE_PERMISSION)
+    public boolean isUpdatableVmSupported() throws VirtualMachineException {
+        synchronized (sCreateLock) {
+            VirtualizationService service = VirtualizationService.getInstance();
+            try {
+                return service.getBinder().isUpdatableVmSupported();
+            } catch (RemoteException e) {
+                throw e.rethrowAsRuntimeException();
+            }
+        }
     }
 }

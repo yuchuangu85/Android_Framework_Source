@@ -16,6 +16,8 @@
 package android.health.connect.datatypes;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.health.connect.HealthConnectManager;
 import android.health.connect.datatypes.validation.ValidationUtils;
 import android.health.connect.internal.datatypes.StepsCadenceRecordInternal;
 
@@ -29,6 +31,43 @@ import java.util.Set;
 /** Captures the user's steps cadence. */
 @Identifier(recordIdentifier = RecordTypeIdentifier.RECORD_TYPE_STEPS_CADENCE)
 public final class StepsCadenceRecord extends IntervalRecord {
+
+    /**
+     * Metric identifier to retrieve average Steps cadence rate using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Double> STEPS_CADENCE_RATE_AVG =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.STEPS_CADENCE_RECORD_RATE_AVG,
+                    AggregationType.AVG,
+                    RecordTypeIdentifier.RECORD_TYPE_STEPS_CADENCE,
+                    Double.class);
+
+    /**
+     * Metric identifier to retrieve minimum Steps cadence rate using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Double> STEPS_CADENCE_RATE_MIN =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.STEPS_CADENCE_RECORD_RATE_MIN,
+                    AggregationType.MIN,
+                    RecordTypeIdentifier.RECORD_TYPE_STEPS_CADENCE,
+                    Double.class);
+
+    /**
+     * Metric identifier to retrieve maximum Steps cadence rate using aggregate APIs in {@link
+     * HealthConnectManager}
+     */
+    @NonNull
+    public static final AggregationType<Double> STEPS_CADENCE_RATE_MAX =
+            new AggregationType<>(
+                    AggregationType.AggregationTypeIdentifier.STEPS_CADENCE_RECORD_RATE_MAX,
+                    AggregationType.MAX,
+                    RecordTypeIdentifier.RECORD_TYPE_STEPS_CADENCE,
+                    Double.class);
+
     private final List<StepsCadenceRecordSample> mStepsCadenceRecordSamples;
 
     /**
@@ -48,7 +87,14 @@ public final class StepsCadenceRecord extends IntervalRecord {
             @NonNull ZoneOffset endZoneOffset,
             @NonNull List<StepsCadenceRecordSample> stepsCadenceRecordSamples,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         Objects.requireNonNull(stepsCadenceRecordSamples);
         if (!skipValidation) {
             ValidationUtils.validateSampleStartAndEndTime(
@@ -124,7 +170,7 @@ public final class StepsCadenceRecord extends IntervalRecord {
          * @return {@code true} if this object is the same as the obj
          */
         @Override
-        public boolean equals(@NonNull Object object) {
+        public boolean equals(@Nullable Object object) {
             if (super.equals(object) && object instanceof StepsCadenceRecordSample) {
                 StepsCadenceRecordSample other = (StepsCadenceRecordSample) object;
                 return getRate() == other.getRate()
@@ -244,7 +290,7 @@ public final class StepsCadenceRecord extends IntervalRecord {
      * @return {@code true} if this object is the same as the obj
      */
     @Override
-    public boolean equals(@NonNull Object object) {
+    public boolean equals(@Nullable Object object) {
         if (super.equals(object) && object instanceof StepsCadenceRecord) {
             StepsCadenceRecord other = (StepsCadenceRecord) object;
             if (getSamples().size() != other.getSamples().size()) return false;

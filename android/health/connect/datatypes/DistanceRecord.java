@@ -165,7 +165,14 @@ public final class DistanceRecord extends IntervalRecord {
             @NonNull ZoneOffset endZoneOffset,
             @NonNull Length distance,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         Objects.requireNonNull(distance);
         if (!skipValidation) {
             ValidationUtils.requireInRange(
@@ -188,6 +195,7 @@ public final class DistanceRecord extends IntervalRecord {
      * @param o the reference object with which to compare.
      * @return {@code true} if this object is the same as the obj
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

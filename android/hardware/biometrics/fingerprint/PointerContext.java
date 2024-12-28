@@ -1,18 +1,69 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --structured --version 5 --hash notfrozen -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster_interface/4/preprocessed.aidl --previous_api_dir=hardware/interfaces/biometrics/fingerprint/aidl/aidl_api/android.hardware.biometrics.fingerprint/4 --previous_hash 41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen/android/hardware/biometrics/fingerprint/PointerContext.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen -Nhardware/interfaces/biometrics/fingerprint/aidl hardware/interfaces/biometrics/fingerprint/aidl/android/hardware/biometrics/fingerprint/PointerContext.aidl
  */
 package android.hardware.biometrics.fingerprint;
-/** @hide */
+/**
+ * Additional context associated with a pointer event.
+ * @hide
+ */
 public class PointerContext implements android.os.Parcelable
 {
+  /**
+   * Pointer ID obtained from MotionEvent#getPointerId or -1 if the ID cannot be obtained, for
+   * example if this event originated from a low-level wake-up gesture.
+   * 
+   * See android.view.MotionEvent#getPointerId.
+   */
   public int pointerId = -1;
+  /**
+   * The distance in pixels from the left edge of the display.
+   * 
+   * This is obtained from MotionEvent#getRawX and translated relative to Surface#ROTATION_0.
+   * Meaning, this value is always reported as if the device is in its natural (e.g. portrait)
+   * orientation.
+   * 
+   * See android.view.MotionEvent#getRawX.
+   */
   public float x = 0.000000f;
+  /**
+   * The distance in pixels from the top edge of the display.
+   * 
+   * This is obtained from MotionEvent#getRawY and translated relative to Surface#ROTATION_0.
+   * Meaning, this value is always reported as if the device is in its natural (e.g. portrait)
+   * orientation.
+   * 
+   * See android.view.MotionEvent#getRawY.
+   */
   public float y = 0.000000f;
+  /** See android.view.MotionEvent#getTouchMinor. */
   public float minor = 0.000000f;
+  /** See android.view.MotionEvent#getTouchMajor. */
   public float major = 0.000000f;
+  /** See android.view.MotionEvent#getOrientation. */
   public float orientation = 0.000000f;
+  /** Flag indicating that the display is in AOD mode. */
   public boolean isAod = false;
+  /**
+   * The time when this event was created, in milliseconds.
+   * 
+   * This is obtained from MotionEvent#getEventTime, which uses SystemClock.uptimeMillis() as
+   * the clock.
+   * 
+   * See android.view.MotionEvent#getEventTime
+   */
   public long time = 0L;
+  /**
+   * This event is part of some gesture. This is the time when MotionEvent#ACTION_DOWN was
+   * created for that gesture, in milliseconds.
+   * 
+   * If this event is MotionEvent#ACTION_DOWN, then this value is equal to `time`.
+   * 
+   * This is obtained from MotionEvent#getDownTime, which uses SystemClock.uptimeMillis() as
+   * the clock.
+   * 
+   * See android.view.MotionEvent#getDownTime
+   */
   public long gestureStart = 0L;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }

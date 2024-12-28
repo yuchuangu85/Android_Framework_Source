@@ -200,6 +200,12 @@ public final class GsmMmiCode extends Handler implements MmiCode {
          10 = dialing number
 */
 
+    /**
+     * An FAC code is of the following format:
+     * #FAC#MSISDN*
+     */
+    static Pattern sFac = Pattern.compile("^\\#\\d+\\#[^*]+\\*$");
+
     static final int MATCH_GROUP_POUND_STRING = 1;
 
     static final int MATCH_GROUP_ACTION = 2;
@@ -274,7 +280,9 @@ public final class GsmMmiCode extends Handler implements MmiCode {
                 // in India operator(Mumbai MTNL)
                 ret = new GsmMmiCode(phone, app);
                 ret.mPoundString = dialString;
-            } else if (ret.isFacToDial()) {
+            } else if (ret.isFacToDial(dialString)) {
+                // Note: we had to pass in the dial string above because the full dial string is not
+                // in the MmiCode class (or even needed there).
                 // This is a FAC (feature access code) to dial as a normal call.
                 ret = null;
             }
@@ -963,12 +971,28 @@ public final class GsmMmiCode extends Handler implements MmiCode {
     }
 
     /**
+     * Determines if a full dial string matches the general format of a FAC code.
+     * Ie. #FAC#MSIDN*
+     * @param dialString The full dialed number.
+     * @return {@code true} if the dialed number has the general format of a FAC code.
+     */
+    private static boolean isFacFormatNumber(String dialString) {
+        Matcher m = sFac.matcher(dialString);
+        return m.matches();
+    }
+
+    /**
      * Returns true if the Service Code is FAC to dial as a normal call.
      *
      * FAC stands for feature access code and it is special patterns of characters
      * to invoke certain features.
      */
-    private boolean isFacToDial() {
+    private boolean isFacToDial(String dialString) {
+        if (!isFacFormatNumber(dialString)) {
+            // If the full dial string doesn't conform to the required format for a FAC, we will
+            // bail early. It is likely a true USSD which shares the same code as the FAC.
+            return false;
+        }
         CarrierConfigManager configManager = (CarrierConfigManager)
                 mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
         PersistableBundle b = configManager.getConfigForSubId(mPhone.getSubId());

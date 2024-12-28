@@ -27,13 +27,12 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 
 /**
- * @memberDoc For apps targeting {@link Build.VERSION_CODES#S} or or higher,
- *            this requires the {@link Manifest.permission#BLUETOOTH_ADVERTISE}
- *            permission which can be gained with
- *            {@link android.app.Activity#requestPermissions(String[], int)}.
+ * @memberDoc For apps targeting {@link Build.VERSION_CODES#S} or or higher, this requires the
+ *     {@link Manifest.permission#BLUETOOTH_ADVERTISE} permission which can be gained with {@link
+ *     android.app.Activity#requestPermissions(String[], int)}.
  * @hide
  */
 @Retention(SOURCE)
 @Target({METHOD, FIELD})
-public @interface RequiresBluetoothAdvertisePermission {
-}
+@SuppressWarnings("InvalidBlockTag")
+public @interface RequiresBluetoothAdvertisePermission {}

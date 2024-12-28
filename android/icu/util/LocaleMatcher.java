@@ -18,8 +18,8 @@ import java.util.Locale;
 import java.util.Map;
 
 import android.icu.impl.locale.LSR;
+import android.icu.impl.locale.LikelySubtags;
 import android.icu.impl.locale.LocaleDistance;
-import android.icu.impl.locale.XLikelySubtags;
 
 /**
  * Immutable class that picks the best match between a user's desired locales and
@@ -758,7 +758,7 @@ public final class LocaleMatcher {
         if (locale.equals(UND_ULOCALE)) {
             return UND_LSR;
         } else {
-            return XLikelySubtags.INSTANCE.makeMaximizedLsrFrom(locale);
+            return LikelySubtags.INSTANCE.makeMaximizedLsrFrom(locale, false);
         }
     }
 
@@ -766,7 +766,7 @@ public final class LocaleMatcher {
         if (locale.equals(UND_LOCALE) || locale.equals(EMPTY_LOCALE)) {
             return UND_LSR;
         } else {
-            return XLikelySubtags.INSTANCE.makeMaximizedLsrFrom(locale);
+            return LikelySubtags.INSTANCE.makeMaximizedLsrFrom(locale);
         }
     }
 
@@ -1119,7 +1119,7 @@ public final class LocaleMatcher {
      * @return ULocale with remapped subtags.
      */
     public ULocale canonicalize(ULocale locale) {
-        return XLikelySubtags.INSTANCE.canonicalize(locale);
+        return LikelySubtags.INSTANCE.canonicalize(locale);
     }
 
     /**

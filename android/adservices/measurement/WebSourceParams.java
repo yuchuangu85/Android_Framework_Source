@@ -120,9 +120,14 @@ public final class WebSourceParams implements Parcelable {
          *
          * @param registrationUri URI that the Attribution Reporting API sends a request to in order
          *     to obtain source registration parameters.
+         * @throws IllegalArgumentException if the scheme for {@code registrationUri} is not HTTPS
          */
         public Builder(@NonNull Uri registrationUri) {
             Objects.requireNonNull(registrationUri);
+            if (registrationUri.getScheme() == null
+                    || !registrationUri.getScheme().equalsIgnoreCase("https")) {
+                throw new IllegalArgumentException("registrationUri must have an HTTPS scheme");
+            }
             mRegistrationUri = registrationUri;
             mDebugKeyAllowed = false;
         }

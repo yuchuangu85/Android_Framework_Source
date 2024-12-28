@@ -20,10 +20,12 @@ package com.android.internal.telephony;
 
 import static android.Manifest.permission.MODIFY_PHONE_STATE;
 import static android.Manifest.permission.READ_PRIVILEGED_PHONE_STATE;
+import static android.telephony.TelephonyManager.ENABLE_FEATURE_MAPPING;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.AppOpsManager;
+import android.app.compat.CompatChanges;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -31,6 +33,7 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.Build;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 import android.os.TelephonyServiceManager.ServiceRegisterer;
 import android.telephony.ImsiEncryptionInfo;
 import android.telephony.PhoneNumberUtils;
@@ -39,6 +42,8 @@ import android.telephony.TelephonyFrameworkInitializer;
 import android.text.TextUtils;
 import android.util.EventLog;
 
+import com.android.internal.telephony.flags.FeatureFlags;
+import com.android.internal.telephony.flags.FeatureFlagsImpl;
 import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.internal.telephony.uicc.IsimRecords;
@@ -58,8 +63,15 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final Context mContext;
     private AppOpsManager mAppOps;
+    private FeatureFlags mFeatureFlags;
+    private PackageManager mPackageManager;
+    private final int mVendorApiLevel;
 
     public PhoneSubInfoController(Context context) {
+        this(context, new FeatureFlagsImpl());
+    }
+
+    public PhoneSubInfoController(Context context, FeatureFlags featureFlags) {
         ServiceRegisterer phoneSubServiceRegisterer = TelephonyFrameworkInitializer
                 .getTelephonyServiceManager()
                 .getPhoneSubServiceRegisterer();
@@ -68,6 +80,10 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
         }
         mAppOps = context.getSystemService(AppOpsManager.class);
         mContext = context;
+        mPackageManager = context.getPackageManager();
+        mFeatureFlags = featureFlags;
+        mVendorApiLevel = SystemProperties.getInt(
+                "ro.vendor.api_level", Build.VERSION.DEVICE_INITIAL_SDK_INT);
     }
 
     @Deprecated
@@ -89,7 +105,13 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
 
     public String getNaiForSubscriber(int subId, String callingPackage, String callingFeatureId) {
         return callPhoneMethodForSubIdWithReadSubscriberIdentifiersCheck(subId, callingPackage,
-                callingFeatureId, "getNai", (phone)-> phone.getNai());
+                callingFeatureId, "getNai", (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                            "getNaiForSubscriber");
+
+                    return phone.getNai();
+                });
     }
 
     public String getImeiForSubscriber(int subId, String callingPackage,
@@ -102,7 +124,13 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
                                                               String callingPackage) {
         return callPhoneMethodForSubIdWithPrivilegedCheck(subId,
                 "getCarrierInfoForImsiEncryption",
-                (phone)-> phone.getCarrierInfoForImsiEncryption(keyType, true));
+                (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                            "getCarrierInfoForImsiEncryption");
+
+                    return phone.getCarrierInfoForImsiEncryption(keyType, true);
+                });
     }
 
     public void setCarrierInfoForImsiEncryption(int subId, String callingPackage,
@@ -126,6 +154,10 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
         callPhoneMethodForSubIdWithModifyCheck(subId, callingPackage,
                 "resetCarrierKeysForImsiEncryption",
                 (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                            "resetCarrierKeysForImsiEncryption");
+
                     phone.resetCarrierKeysForImsiEncryption();
                     return null;
                 });
@@ -166,12 +198,22 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
         }
         if (isActive) {
             return callPhoneMethodForSubIdWithReadSubscriberIdentifiersCheck(subId, callingPackage,
-                    callingFeatureId, message, (phone) -> phone.getSubscriberId());
+                    callingFeatureId, message, (phone) -> {
+                        enforceTelephonyFeatureWithException(callingPackage,
+                                PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                                "getSubscriberIdForSubscriber");
+
+                        return phone.getSubscriberId();
+                    });
         } else {
             if (!TelephonyPermissions.checkCallingOrSelfReadSubscriberIdentifiers(
                     mContext, subId, callingPackage, callingFeatureId, message)) {
                 return null;
             }
+
+            enforceTelephonyFeatureWithException(callingPackage,
+                    PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getSubscriberIdForSubscriber");
+
             identity = Binder.clearCallingIdentity();
             try {
                 SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
@@ -202,7 +244,13 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getIccSerialNumberForSubscriber(int subId, String callingPackage,
             String callingFeatureId) {
         return callPhoneMethodForSubIdWithReadSubscriberIdentifiersCheck(subId, callingPackage,
-                callingFeatureId, "getIccSerialNumber", (phone) -> phone.getIccSerialNumber());
+                callingFeatureId, "getIccSerialNumber", (phone) -> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                            "getIccSerialNumberForSubscriber");
+
+                    return phone.getIccSerialNumber();
+                });
     }
 
     public String getLine1Number(String callingPackage, String callingFeatureId) {
@@ -216,7 +264,13 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             String callingFeatureId) {
         return callPhoneMethodForSubIdWithReadPhoneNumberCheck(
                 subId, callingPackage, callingFeatureId, "getLine1Number",
-                (phone)-> phone.getLine1Number());
+                (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                            "getLine1NumberForSubscriber");
+
+                    return phone.getLine1Number();
+                });
     }
 
     public String getLine1AlphaTag(String callingPackage, String callingFeatureId) {
@@ -251,6 +305,10 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             String callingFeatureId) {
         return callPhoneMethodForSubIdWithReadCheck(subId, callingPackage, callingFeatureId,
                 "getVoiceMailNumber", (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_CALLING,
+                            "getVoiceMailNumberForSubscriber");
+
                     String number = PhoneNumberUtils.extractNetworkPortion(
                             phone.getVoiceMailNumber());
                     if (VDBG) log("VM: getVoiceMailNUmber: " + number);
@@ -266,7 +324,13 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getVoiceMailAlphaTagForSubscriber(int subId, String callingPackage,
             String callingFeatureId) {
         return callPhoneMethodForSubIdWithReadCheck(subId, callingPackage, callingFeatureId,
-                "getVoiceMailAlphaTag", (phone)-> phone.getVoiceMailAlphaTag());
+                "getVoiceMailAlphaTag", (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_CALLING,
+                            "getVoiceMailAlphaTagForSubscriber");
+
+                    return phone.getVoiceMailAlphaTag();
+                });
     }
 
     /**
@@ -381,6 +445,9 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getIsimDomain(int subId) {
         return callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getIsimDomain",
                 (phone) -> {
+                    enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getIsimDomain");
+
                     IsimRecords isim = phone.getIsimRecords();
                     if (isim != null) {
                         return isim.getIsimDomain();
@@ -422,6 +489,10 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
         if (TelephonyPermissions.
                 checkCallingOrSelfReadPrivilegedPhoneStatePermissionOrReadPhoneNumber(
                 mContext, subId, callingPackage, callingFeatureId, "getImsPublicUserIdentities")) {
+
+            enforceTelephonyFeatureWithException(callingPackage,
+                    PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getImsPublicUserIdentities");
+
             Phone phone = getPhone(subId);
             assert phone != null;
             IsimRecords isimRecords = phone.getIsimRecords();
@@ -447,6 +518,9 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getIsimIst(int subId) throws RemoteException {
         return callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getIsimIst",
                 (phone) -> {
+                    enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getIsimIst");
+
                     IsimRecords isim = phone.getIsimRecords();
                     if (isim != null) {
                         return isim.getIsimIst();
@@ -478,6 +552,9 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getSimServiceTable(int subId, int appType) throws RemoteException {
         return callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getSimServiceTable",
                 (phone) -> {
+                    enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getSimServiceTable");
+
                     UiccPort uiccPort = phone.getUiccPort();
                     if (uiccPort == null || uiccPort.getUiccProfile() == null) {
                         loge("getSimServiceTable(): uiccPort or uiccProfile is null");
@@ -498,6 +575,9 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getIccSimChallengeResponse(int subId, int appType, int authType, String data,
             String callingPackage, String callingFeatureId) throws RemoteException {
         CallPhoneMethodHelper<String> toExecute = (phone)-> {
+            enforceTelephonyFeatureWithException(callingPackage,
+                    PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getIccSimChallengeResponse");
+
             UiccPort uiccPort = phone.getUiccPort();
             if (uiccPort == null) {
                 loge("getIccSimChallengeResponse() uiccPort is null");
@@ -531,7 +611,13 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public String getGroupIdLevel1ForSubscriber(int subId, String callingPackage,
             String callingFeatureId) {
         return callPhoneMethodForSubIdWithReadCheck(subId, callingPackage, callingFeatureId,
-                "getGroupIdLevel1", (phone)-> phone.getGroupIdLevel1());
+                "getGroupIdLevel1", (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                            "getGroupIdLevel1ForSubscriber");
+
+                    return phone.getGroupIdLevel1();
+                });
     }
 
     /** Below are utility methods that abstracts the flow that many public methods use:
@@ -667,6 +753,9 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     public Uri getSmscIdentity(int subId, int appType) throws RemoteException {
         Uri smscIdentityUri = callPhoneMethodForSubIdWithPrivilegedCheck(subId, "getSmscIdentity",
                 (phone) -> {
+                    enforceTelephonyFeatureWithException(getCurrentPackageName(),
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getSmscIdentity");
+
                     try {
                         String smscIdentity = null;
                         UiccPort uiccPort = phone.getUiccPort();
@@ -688,6 +777,44 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
             throw new IllegalStateException("Telephony service error");
         }
         return smscIdentityUri;
+    }
+
+    /**
+     * Get the current calling package name.
+     * @return the current calling package name
+     */
+    @Nullable
+    private String getCurrentPackageName() {
+        if (mPackageManager == null) return null;
+        String[] callingUids = mPackageManager.getPackagesForUid(Binder.getCallingUid());
+        return (callingUids == null) ? null : callingUids[0];
+    }
+
+    /**
+     * Make sure the device has required telephony feature
+     *
+     * @throws UnsupportedOperationException if the device does not have required telephony feature
+     */
+    private void enforceTelephonyFeatureWithException(@Nullable String callingPackage,
+            @NonNull String telephonyFeature, @NonNull String methodName) {
+        if (callingPackage == null || mPackageManager == null) {
+            return;
+        }
+
+        if (!mFeatureFlags.enforceTelephonyFeatureMappingForPublicApis()
+                || !CompatChanges.isChangeEnabled(ENABLE_FEATURE_MAPPING, callingPackage,
+                Binder.getCallingUserHandle())
+                || mVendorApiLevel < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            // Skip to check associated telephony feature,
+            // if compatibility change is not enabled for the current process or
+            // the SDK version of vendor partition is less than Android V.
+            return;
+        }
+
+        if (!mPackageManager.hasSystemFeature(telephonyFeature)) {
+            throw new UnsupportedOperationException(
+                    methodName + " is unsupported without " + telephonyFeature);
+        }
     }
 
     private void log(String s) {

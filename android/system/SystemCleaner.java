@@ -42,6 +42,9 @@ public final class SystemCleaner {
 
     /**
      * Return a single Cleaner that's shared across the entire process. Thread-safe.
+     * Unlike normal Cleaners, uncaught exceptions during cleaning will throw an uncaught
+     * exception from the daemon running the cleaning action. This will normally cause the
+     * process to crash, and thus cause the problem to be reported.
      */
     @NonNull public static Cleaner cleaner() {
         return CleanerFactory.cleaner();

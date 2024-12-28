@@ -53,17 +53,6 @@ public class SmsDomainSelectionConnection extends DomainSelectionConnection {
         if (mCallback != null) mCallback.onSelectionTerminated(cause);
     }
 
-    @Override
-    public void finishSelection() {
-        CompletableFuture<Integer> future = getCompletableFuture();
-
-        if (future != null && !future.isDone()) {
-            cancelSelection();
-        } else {
-            super.finishSelection();
-        }
-    }
-
     /**
      * Requests a domain selection for SMS.
      *

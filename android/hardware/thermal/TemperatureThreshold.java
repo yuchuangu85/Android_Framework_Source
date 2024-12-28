@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash 2f49c78011338b42b43d5d0e250d9b520850cc1f -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen/android/hardware/thermal/TemperatureThreshold.java.d -o out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen -Nhardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2 hardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2/android/hardware/thermal/TemperatureThreshold.aidl
  */
 package android.hardware.thermal;
 /** @hide */
@@ -64,7 +65,7 @@ public class TemperatureThreshold implements android.os.Parcelable
     _aidl_sj.add("name: " + (java.util.Objects.toString(name)));
     _aidl_sj.add("hotThrottlingThresholds: " + (java.util.Arrays.toString(hotThrottlingThresholds)));
     _aidl_sj.add("coldThrottlingThresholds: " + (java.util.Arrays.toString(coldThrottlingThresholds)));
-    return "android.hardware.thermal.TemperatureThreshold" + _aidl_sj.toString()  ;
+    return "TemperatureThreshold" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

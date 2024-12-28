@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/VirtualMachinePayloadConfig.java.d -o out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/virtualizationservice/aidl packages/modules/Virtualization/virtualizationservice/aidl/android/system/virtualizationservice/VirtualMachinePayloadConfig.aidl
  */
 package android.system.virtualizationservice;
 public class VirtualMachinePayloadConfig implements android.os.Parcelable
@@ -10,6 +11,8 @@ public class VirtualMachinePayloadConfig implements android.os.Parcelable
    * function invoked.
    */
   public java.lang.String payloadBinaryName;
+  /** Any extra APKs. */
+  public java.util.List<android.os.ParcelFileDescriptor> extraApks;
   public static final android.os.Parcelable.Creator<VirtualMachinePayloadConfig> CREATOR = new android.os.Parcelable.Creator<VirtualMachinePayloadConfig>() {
     @Override
     public VirtualMachinePayloadConfig createFromParcel(android.os.Parcel _aidl_source) {
@@ -27,6 +30,7 @@ public class VirtualMachinePayloadConfig implements android.os.Parcelable
     int _aidl_start_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.writeInt(0);
     _aidl_parcel.writeString(payloadBinaryName);
+    _aidl_parcel.writeTypedList(extraApks, _aidl_flag);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -40,6 +44,8 @@ public class VirtualMachinePayloadConfig implements android.os.Parcelable
       if (_aidl_parcelable_size < 4) throw new android.os.BadParcelableException("Parcelable too small");;
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       payloadBinaryName = _aidl_parcel.readString();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      extraApks = _aidl_parcel.createTypedArrayList(android.os.ParcelFileDescriptor.CREATOR);
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -50,6 +56,21 @@ public class VirtualMachinePayloadConfig implements android.os.Parcelable
   @Override
   public int describeContents() {
     int _mask = 0;
+    _mask |= describeContents(extraApks);
     return _mask;
+  }
+  private int describeContents(Object _v) {
+    if (_v == null) return 0;
+    if (_v instanceof java.util.Collection) {
+      int _mask = 0;
+      for (Object o : (java.util.Collection) _v) {
+        _mask |= describeContents(o);
+      }
+      return _mask;
+    }
+    if (_v instanceof android.os.Parcelable) {
+      return ((android.os.Parcelable) _v).describeContents();
+    }
+    return 0;
   }
 }

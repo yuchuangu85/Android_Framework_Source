@@ -18,6 +18,7 @@ package android.net.wifi;
 
 import static com.android.internal.util.Preconditions.checkNotNull;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -40,6 +41,7 @@ import android.text.TextUtils;
 import androidx.annotation.RequiresApi;
 
 import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -232,6 +234,11 @@ public final class WifiNetworkSuggestion implements Parcelable {
          */
         private boolean mIsNetworkRestricted;
 
+        /**
+         * Whether enable Wi-Fi 7 for this network
+         */
+        private boolean mIsWifi7Enabled;
+
 
         /**
          * The Subscription group UUID identifies the SIM cards for which this network configuration
@@ -269,6 +276,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
             mIsNetworkRestricted = false;
             mSubscriptionGroup = null;
             mWifiSsid = null;
+            mIsWifi7Enabled = true;
         }
 
         /**
@@ -862,6 +870,17 @@ public final class WifiNetworkSuggestion implements Parcelable {
         }
 
         /**
+         * Sets whether Wi-Fi 7 is enabled for this network.
+         *
+         * @param enabled Enable Wi-Fi 7 if true, otherwise disable Wi-Fi 7
+         * @return Instance of {@link Builder} to enable chaining of the builder method.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        public @NonNull Builder setWifi7Enabled(boolean enabled) {
+            mIsWifi7Enabled = enabled;
+            return this;
+        }
+        /**
          * Specifies whether the system will bring up the network (if selected) as OEM paid. An
          * OEM paid network has {@link NetworkCapabilities#NET_CAPABILITY_OEM_PAID} capability
          * added.
@@ -1080,6 +1099,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
             wifiConfiguration.subscriptionId = mSubscriptionId;
             wifiConfiguration.restricted = mIsNetworkRestricted;
             wifiConfiguration.setSubscriptionGroup(mSubscriptionGroup);
+            wifiConfiguration.setWifi7Enabled(mIsWifi7Enabled);
             return wifiConfiguration;
         }
 
@@ -1119,6 +1139,7 @@ public final class WifiNetworkSuggestion implements Parcelable {
                             : WifiConfiguration.RANDOMIZATION_PERSISTENT;
             wifiConfiguration.restricted = mIsNetworkRestricted;
             wifiConfiguration.setSubscriptionGroup(mSubscriptionGroup);
+            wifiConfiguration.setWifi7Enabled(mIsWifi7Enabled);
             mPasspointConfiguration.setCarrierId(mCarrierId);
             mPasspointConfiguration.setSubscriptionId(mSubscriptionId);
             mPasspointConfiguration.setSubscriptionGroup(mSubscriptionGroup);
@@ -1708,5 +1729,13 @@ public final class WifiNetworkSuggestion implements Parcelable {
             throw new UnsupportedOperationException();
         }
         return wifiConfiguration.getSubscriptionGroup();
+    }
+
+    /**
+     * See {@link Builder#setWifi7Enabled(boolean)}
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public boolean isWifi7Enabled() {
+        return wifiConfiguration.isWifi7Enabled();
     }
 }

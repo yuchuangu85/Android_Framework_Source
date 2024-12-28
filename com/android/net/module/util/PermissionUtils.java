@@ -23,11 +23,14 @@ import static android.content.pm.PackageInfo.REQUESTED_PERMISSION_GRANTED;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 import static android.net.NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK;
 
+import android.annotation.CheckResult;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.os.Binder;
+import android.os.UserHandle;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -43,8 +46,9 @@ public final class PermissionUtils {
     /**
      * Return true if the context has one of given permission.
      */
-    public static boolean checkAnyPermissionOf(@NonNull Context context,
-            @NonNull String... permissions) {
+    @CheckResult
+    public static boolean hasAnyPermissionOf(@NonNull Context context,
+                                             @NonNull String... permissions) {
         for (String permission : permissions) {
             if (context.checkCallingOrSelfPermission(permission) == PERMISSION_GRANTED) {
                 return true;
@@ -54,11 +58,12 @@ public final class PermissionUtils {
     }
 
     /**
-     * Return true if the context has one of give permission that is allowed
+     * Return true if the context has one of given permission that is allowed
      * for a particular process and user ID running in the system.
      */
-    public static boolean checkAnyPermissionOf(@NonNull Context context,
-            int pid, int uid, @NonNull String... permissions) {
+    @CheckResult
+    public static boolean hasAnyPermissionOf(@NonNull Context context,
+                                             int pid, int uid, @NonNull String... permissions) {
         for (String permission : permissions) {
             if (context.checkPermission(permission, pid, uid) == PERMISSION_GRANTED) {
                 return true;
@@ -72,7 +77,7 @@ public final class PermissionUtils {
      */
     public static void enforceAnyPermissionOf(@NonNull Context context,
             @NonNull String... permissions) {
-        if (!checkAnyPermissionOf(context, permissions)) {
+        if (!hasAnyPermissionOf(context, permissions)) {
             throw new SecurityException("Requires one of the following permissions: "
                     + String.join(", ", permissions) + ".");
         }
@@ -131,7 +136,8 @@ public final class PermissionUtils {
     /**
      * Return true if the context has DUMP permission.
      */
-    public static boolean checkDumpPermission(Context context, String tag, PrintWriter pw) {
+    @CheckResult
+    public static boolean hasDumpPermission(Context context, String tag, PrintWriter pw) {
         if (context.checkCallingOrSelfPermission(android.Manifest.permission.DUMP)
                 != PERMISSION_GRANTED) {
             pw.println("Permission Denial: can't dump " + tag + " from from pid="
@@ -182,5 +188,34 @@ public final class PermissionUtils {
             }
         }
         return result;
+    }
+
+    /**
+     * Enforces that the given package name belongs to the given uid.
+     *
+     * @param context {@link android.content.Context} for the process.
+     * @param uid User ID to check the package ownership for.
+     * @param packageName Package name to verify.
+     * @throws SecurityException If the package does not belong to the specified uid.
+     */
+    public static void enforcePackageNameMatchesUid(
+            @NonNull Context context, int uid, @Nullable String packageName) {
+        final UserHandle user = UserHandle.getUserHandleForUid(uid);
+        if (getAppUid(context, packageName, user) != uid) {
+            throw new SecurityException(packageName + " does not belong to uid " + uid);
+        }
+    }
+
+    private static int getAppUid(Context context, final String app, final UserHandle user) {
+        final PackageManager pm =
+                context.createContextAsUser(user, 0 /* flags */).getPackageManager();
+        final long token = Binder.clearCallingIdentity();
+        try {
+            return pm.getPackageUid(app, 0 /* flags */);
+        } catch (PackageManager.NameNotFoundException e) {
+            return -1;
+        } finally {
+            Binder.restoreCallingIdentity(token);
+        }
     }
 }

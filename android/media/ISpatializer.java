@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen/android/media/ISpatializer.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/ISpatializer.aidl
  */
 package android.media;
 /**
@@ -20,7 +21,7 @@ public interface ISpatializer extends android.os.IInterface
     {
     }
     /**
-     * Reports the list of supported spatialization levels (see SpatializationLevel.aidl).
+     * Reports the list of supported spatialization levels.
      * The list should never be empty if an ISpatializer interface was successfully
      * retrieved with IAudioPolicyService.getSpatializer().
      */
@@ -29,15 +30,15 @@ public interface ISpatializer extends android.os.IInterface
       return null;
     }
     /**
-     * Selects the desired spatialization level (see SpatializationLevel.aidl). Selecting a level
-     * different from SpatializationLevel.NONE with create the specialized multichannel output
+     * Selects the desired spatialization level. Selecting a level
+     * different from Spatializer.Level.NONE with create the specialized multichannel output
      * mixer, create and enable the spatializer effect and let the audio policy attach eligible
      * AudioTrack to this output stream.
      */
     @Override public void setLevel(byte level) throws android.os.RemoteException
     {
     }
-    /** Gets the selected spatialization level (see SpatializationLevel.aidl) */
+    /** Gets the selected spatialization level. */
     @Override public byte getLevel() throws android.os.RemoteException
     {
       return 0;
@@ -52,7 +53,7 @@ public interface ISpatializer extends android.os.IInterface
       return false;
     }
     /**
-     * Reports the list of supported head tracking modes (see SpatializerHeadTrackingMode.aidl).
+     * Reports the list of supported head tracking modes.
      * The list always contains SpatializerHeadTrackingMode.DISABLED and can include other modes
      * if the spatializer effect implementation supports head tracking.
      * The result does not depend on currently connected sensors but reflects the capabilities
@@ -62,7 +63,7 @@ public interface ISpatializer extends android.os.IInterface
     {
       return null;
     }
-    /** Selects the desired head tracking mode (see SpatializerHeadTrackingMode.aidl) */
+    /** Selects the desired head tracking mode. */
     @Override public void setDesiredHeadTrackingMode(byte mode) throws android.os.RemoteException
     {
     }
@@ -134,7 +135,7 @@ public interface ISpatializer extends android.os.IInterface
     {
     }
     /**
-     * Reports the list of supported spatialization modess (see SpatializationMode.aidl).
+     * Reports the list of supported spatialization modess.
      * The list should never be empty if an ISpatializer interface was successfully
      * retrieved with IAudioPolicyService.getSpatializer().
      */
@@ -179,6 +180,7 @@ public interface ISpatializer extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.media.ISpatializer
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -208,13 +210,9 @@ public interface ISpatializer extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -421,7 +419,7 @@ public interface ISpatializer extends android.os.IInterface
         }
       }
       /**
-       * Reports the list of supported spatialization levels (see SpatializationLevel.aidl).
+       * Reports the list of supported spatialization levels.
        * The list should never be empty if an ISpatializer interface was successfully
        * retrieved with IAudioPolicyService.getSpatializer().
        */
@@ -443,8 +441,8 @@ public interface ISpatializer extends android.os.IInterface
         return _result;
       }
       /**
-       * Selects the desired spatialization level (see SpatializationLevel.aidl). Selecting a level
-       * different from SpatializationLevel.NONE with create the specialized multichannel output
+       * Selects the desired spatialization level. Selecting a level
+       * different from Spatializer.Level.NONE with create the specialized multichannel output
        * mixer, create and enable the spatializer effect and let the audio policy attach eligible
        * AudioTrack to this output stream.
        */
@@ -463,7 +461,7 @@ public interface ISpatializer extends android.os.IInterface
           _data.recycle();
         }
       }
-      /** Gets the selected spatialization level (see SpatializationLevel.aidl) */
+      /** Gets the selected spatialization level. */
       @Override public byte getLevel() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -504,7 +502,7 @@ public interface ISpatializer extends android.os.IInterface
         return _result;
       }
       /**
-       * Reports the list of supported head tracking modes (see SpatializerHeadTrackingMode.aidl).
+       * Reports the list of supported head tracking modes.
        * The list always contains SpatializerHeadTrackingMode.DISABLED and can include other modes
        * if the spatializer effect implementation supports head tracking.
        * The result does not depend on currently connected sensors but reflects the capabilities
@@ -527,7 +525,7 @@ public interface ISpatializer extends android.os.IInterface
         }
         return _result;
       }
-      /** Selects the desired head tracking mode (see SpatializerHeadTrackingMode.aidl) */
+      /** Selects the desired head tracking mode. */
       @Override public void setDesiredHeadTrackingMode(byte mode) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -707,7 +705,7 @@ public interface ISpatializer extends android.os.IInterface
         }
       }
       /**
-       * Reports the list of supported spatialization modess (see SpatializationMode.aidl).
+       * Reports the list of supported spatialization modess.
        * The list should never be empty if an ISpatializer interface was successfully
        * retrieved with IAudioPolicyService.getSpatializer().
        */
@@ -830,23 +828,24 @@ public interface ISpatializer extends android.os.IInterface
     static final int TRANSACTION_getParameter = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
     static final int TRANSACTION_getOutput = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
   }
-  public static final java.lang.String DESCRIPTOR = "android$media$ISpatializer".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.media.ISpatializer";
   /** Releases a ISpatializer interface previously acquired. */
   public void release() throws android.os.RemoteException;
   /**
-   * Reports the list of supported spatialization levels (see SpatializationLevel.aidl).
+   * Reports the list of supported spatialization levels.
    * The list should never be empty if an ISpatializer interface was successfully
    * retrieved with IAudioPolicyService.getSpatializer().
    */
   public byte[] getSupportedLevels() throws android.os.RemoteException;
   /**
-   * Selects the desired spatialization level (see SpatializationLevel.aidl). Selecting a level
-   * different from SpatializationLevel.NONE with create the specialized multichannel output
+   * Selects the desired spatialization level. Selecting a level
+   * different from Spatializer.Level.NONE with create the specialized multichannel output
    * mixer, create and enable the spatializer effect and let the audio policy attach eligible
    * AudioTrack to this output stream.
    */
   public void setLevel(byte level) throws android.os.RemoteException;
-  /** Gets the selected spatialization level (see SpatializationLevel.aidl) */
+  /** Gets the selected spatialization level. */
   public byte getLevel() throws android.os.RemoteException;
   /**
    * Reports if the spatializer engine supports head tracking or not.
@@ -855,14 +854,14 @@ public interface ISpatializer extends android.os.IInterface
    */
   public boolean isHeadTrackingSupported() throws android.os.RemoteException;
   /**
-   * Reports the list of supported head tracking modes (see SpatializerHeadTrackingMode.aidl).
+   * Reports the list of supported head tracking modes.
    * The list always contains SpatializerHeadTrackingMode.DISABLED and can include other modes
    * if the spatializer effect implementation supports head tracking.
    * The result does not depend on currently connected sensors but reflects the capabilities
    * when sensors are available.
    */
   public byte[] getSupportedHeadTrackingModes() throws android.os.RemoteException;
-  /** Selects the desired head tracking mode (see SpatializerHeadTrackingMode.aidl) */
+  /** Selects the desired head tracking mode. */
   public void setDesiredHeadTrackingMode(byte mode) throws android.os.RemoteException;
   /**
    * Gets the actual head tracking mode. Can be different from the desired mode if conditions to
@@ -915,7 +914,7 @@ public interface ISpatializer extends android.os.IInterface
    */
   public void setFoldState(boolean folded) throws android.os.RemoteException;
   /**
-   * Reports the list of supported spatialization modess (see SpatializationMode.aidl).
+   * Reports the list of supported spatialization modess.
    * The list should never be empty if an ISpatializer interface was successfully
    * retrieved with IAudioPolicyService.getSpatializer().
    */

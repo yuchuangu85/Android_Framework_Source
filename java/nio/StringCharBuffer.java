@@ -35,20 +35,25 @@ class StringCharBuffer                                  // package-private
     CharSequence str;
 
     StringCharBuffer(CharSequence s, int start, int end) { // package-private
+        // Android-removed: Remove unsupported MemorySegmentProxy.
+        // super(-1, start, end, s.length(), null);
         super(-1, start, end, s.length());
         int n = s.length();
-        if ((start < 0) || (start > n) || (end < start) || (end > n))
-            throw new IndexOutOfBoundsException();
+        Objects.checkFromToIndex(start, end, n);
         str = s;
+        this.isReadOnly = true;
     }
 
     public CharBuffer slice() {
+        int pos = this.position();
+        int lim = this.limit();
+        int rem = (pos <= lim ? lim - pos : 0);
         return new StringCharBuffer(str,
                                     -1,
                                     0,
-                                    this.remaining(),
-                                    this.remaining(),
-                                    offset + this.position());
+                                    rem,
+                                    rem,
+                                    offset + pos);
     }
 
     @Override
@@ -68,8 +73,11 @@ class StringCharBuffer                                  // package-private
                              int limit,
                              int cap,
                              int offset) {
+        // Android-removed: Remove unsupported MemorySegmentProxy.
+        // super(mark, pos, limit, cap, null, offset, null);
         super(mark, pos, limit, cap, null, offset);
         str = s;
+        this.isReadOnly = true;
     }
 
     public CharBuffer duplicate() {
@@ -112,7 +120,7 @@ class StringCharBuffer                                  // package-private
     }
 
     final String toString(int start, int end) {
-        return str.toString().substring(start + offset, end + offset);
+        return str.subSequence(start + offset, end + offset).toString();
     }
 
     public final CharBuffer subSequence(int start, int end) {
@@ -148,9 +156,8 @@ class StringCharBuffer                                  // package-private
     public boolean equals(Object ob) {
         if (this == ob)
             return true;
-        if (!(ob instanceof CharBuffer))
+        if (!(ob instanceof CharBuffer that))
             return false;
-        CharBuffer that = (CharBuffer)ob;
         int thisPos = this.position();
         int thisRem = this.limit() - thisPos;
         int thatPos = that.position();

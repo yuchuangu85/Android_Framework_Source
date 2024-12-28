@@ -129,7 +129,7 @@ public abstract class NumberFormatterSettings<T extends NumberFormatterSettings<
      *
      * <p>
      * If the input usage is correctly set the output unit <b>will change</b>
-     * according to `usage`, `locale` and `unit` value.
+     * according to {@code usage}, {@code locale} and {@code unit} value.
      * </p>
      *
      * @param unit
@@ -477,8 +477,8 @@ public abstract class NumberFormatterSettings<T extends NumberFormatterSettings<
      * "road", "rainfall", etc.)
      *
      * <p>
-     * When a `usage` is specified, the output unit will change depending on the
-     * `Locale` and the unit quantity. For example, formatting length
+     * When a {@code usage} is specified, the output unit will change depending on the
+     * {@code Locale} and the unit quantity. For example, formatting length
      * measurements specified in meters:
      *
      * <pre>
@@ -535,8 +535,8 @@ public abstract class NumberFormatterSettings<T extends NumberFormatterSettings<
      * the desired case for a unit formatter's output (e.g. accusative, dative, genitive).
      *
      * @return The fluent chain.
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
     public T displayOptions(DisplayOptions displayOptions) {
         // `displayCase` does not recognise the `undefined`
         if (displayOptions.getGrammaticalCase() == GrammaticalCase.UNDEFINED) {

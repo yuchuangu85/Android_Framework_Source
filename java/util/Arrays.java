@@ -26,6 +26,13 @@
 
 package java.util;
 
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.system.VMRuntime;
+
 import jdk.internal.util.ArraysSupport;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
 
@@ -4164,6 +4171,23 @@ public class Arrays {
     }
 
     /**
+     * Since Android 15 Arrays.asList(...).toArray()'s component type is {@link Object},
+     * not the underlying array's elements type. So the following code will throw
+     * {@link ClassCastException}:
+     * <pre>{@code
+     * String[] elements = (String[]) Arrays.asList("one", "two").toArray();
+     * }</pre>
+     * You can overcome this by using {@link Collection#toArray(Object[])}:
+     * <pre>{@code
+     * String[] elements = Arrays.asList("two", "one").toArray(new String[0]);
+     * }</pre>
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.VANILLA_ICE_CREAM)
+    public static final long DO_NOT_CLONE_IN_ARRAYS_AS_LIST = 202956589L;
+
+    /**
      * @serial include
      */
     private static class ArrayList<E> extends AbstractList<E>
@@ -4186,9 +4210,20 @@ public class Arrays {
         public Object[] toArray() {
             // Android-changed: there are applications which expect this method
             // to return array with component type E, not just Object.
-            // Keeping pre-Java 9 behaviour for compatibility sake.
+            // Keeping pre-Java 9 behaviour for compatibility's sake.
             // See b/204397945.
-            // return Arrays.copyOf(a, a.length, Object[].class);
+            if (VMRuntime.getSdkVersion() >= VersionCodes.VANILLA_ICE_CREAM
+                    && Compatibility.isChangeEnabled(DO_NOT_CLONE_IN_ARRAYS_AS_LIST)) {
+                return toArrayWithoutComponentType();
+            }
+            return toArrayPreserveComponentType();
+        }
+
+        private Object[] toArrayWithoutComponentType() {
+            return Arrays.copyOf(a, a.length, Object[].class);
+        }
+
+        private Object[] toArrayPreserveComponentType() {
             return a.clone();
         }
 

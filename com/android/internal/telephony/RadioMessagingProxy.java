@@ -25,8 +25,8 @@ import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import java.util.ArrayList;
 
 /**
- * A holder for IRadioMessaging. Use getHidl to get IRadio 1.0 and call the HIDL implementations or
- * getAidl to get IRadioMessaging and call the AIDL implementations of the HAL APIs.
+ * A holder for IRadioMessaging.
+ * Use getAidl to get IRadioMessaging and call the AIDL implementations of the HAL APIs.
  */
 public class RadioMessagingProxy extends RadioServiceProxy {
     private static final String TAG = "RadioMessagingProxy";

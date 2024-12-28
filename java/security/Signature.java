@@ -126,6 +126,10 @@ import sun.security.jca.GetInstance.Instance;
  *       <td>ECDSAwithSHA1</td>
  *       <td>11+</td>
  *     </tr>
+ *     <tr>
+ *       <td>Ed25519</td>
+ *       <td>33+</td>
+ *     </tr>
  *     <tr class="deprecated">
  *       <td>MD2withRSA</td>
  *       <td>1-3</td>

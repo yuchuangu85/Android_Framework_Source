@@ -37,7 +37,7 @@ import jdk.internal.vm.annotation.IntrinsicCandidate;
 import static java.lang.String.UTF16;
 import static java.lang.String.LATIN1;
 
-final class StringUTF16 {
+public final class StringUTF16 {
 
     public static byte[] newBytesFor(int len) {
         if (len < 0) {
@@ -61,7 +61,7 @@ final class StringUTF16 {
 
     @HotSpotIntrinsicCandidate
     // intrinsic performs no bounds checks
-    static char getChar(byte[] val, int index) {
+    public static char getChar(byte[] val, int index) {
         assert index >= 0 && index < length(val) : "Trusted caller missed bounds check";
         index <<= 1;
         return (char)(((val[index++] & 0xff) << HI_BYTE_SHIFT) |

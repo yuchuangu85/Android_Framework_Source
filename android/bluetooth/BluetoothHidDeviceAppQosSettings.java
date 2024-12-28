@@ -26,7 +26,7 @@ import android.os.Parcelable;
  * <p>The BluetoothHidDevice framework will update the L2CAP QoS settings for the app during
  * registration.
  *
- * <p>{@see BluetoothHidDevice}
+ * @see BluetoothHidDevice
  */
 public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
 
@@ -45,7 +45,7 @@ public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
 
     /**
      * Create a BluetoothHidDeviceAppQosSettings object for the Bluetooth L2CAP channel. The QoS
-     * Settings is optional. Please refer to Bluetooth HID Specfication v1.1.1 Section 5.2 and
+     * Settings is optional. Please refer to Bluetooth HID Specification v1.1.1 Section 5.2 and
      * Appendix D for parameters.
      *
      * @param serviceType L2CAP service type, default = SERVICE_BEST_EFFORT
@@ -100,23 +100,24 @@ public final class BluetoothHidDeviceAppQosSettings implements Parcelable {
     }
 
     @NonNull
-    public static final Creator<BluetoothHidDeviceAppQosSettings> CREATOR = new Creator<>() {
-        @Override
-        public BluetoothHidDeviceAppQosSettings createFromParcel(Parcel in) {
-            return new BluetoothHidDeviceAppQosSettings(
-                    in.readInt(),
-                    in.readInt(),
-                    in.readInt(),
-                    in.readInt(),
-                    in.readInt(),
-                    in.readInt());
-        }
+    public static final Creator<BluetoothHidDeviceAppQosSettings> CREATOR =
+            new Creator<>() {
+                @Override
+                public BluetoothHidDeviceAppQosSettings createFromParcel(Parcel in) {
+                    return new BluetoothHidDeviceAppQosSettings(
+                            in.readInt(),
+                            in.readInt(),
+                            in.readInt(),
+                            in.readInt(),
+                            in.readInt(),
+                            in.readInt());
+                }
 
-        @Override
-        public BluetoothHidDeviceAppQosSettings[] newArray(int size) {
-            return new BluetoothHidDeviceAppQosSettings[size];
-        }
-    };
+                @Override
+                public BluetoothHidDeviceAppQosSettings[] newArray(int size) {
+                    return new BluetoothHidDeviceAppQosSettings[size];
+                }
+            };
 
     @Override
     public void writeToParcel(Parcel out, int flags) {

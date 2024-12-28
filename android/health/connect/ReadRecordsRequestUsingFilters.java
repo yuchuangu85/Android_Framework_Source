@@ -19,6 +19,7 @@ package android.health.connect;
 import static android.health.connect.Constants.DEFAULT_LONG;
 import static android.health.connect.Constants.DEFAULT_PAGE_SIZE;
 import static android.health.connect.Constants.MAXIMUM_PAGE_SIZE;
+import static android.health.connect.Constants.MINIMUM_PAGE_SIZE;
 
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -61,11 +62,7 @@ public final class ReadRecordsRequestUsingFilters<T extends Record> extends Read
         mTimeRangeFilter = timeRangeFilter;
         mDataOrigins = dataOrigins;
         mPageSize = pageSize;
-        if (pageToken != DEFAULT_LONG) {
-            mAscending = pageToken % 2 == 0 ? true : false;
-        } else {
-            mAscending = ascending;
-        }
+        mAscending = PageTokenWrapper.from(pageToken, ascending).isAscending();
         mPageToken = pageToken;
     }
 
@@ -122,6 +119,7 @@ public final class ReadRecordsRequestUsingFilters<T extends Record> extends Read
         /**
          * @param recordType Class object of {@link Record} type that needs to be read
          */
+        @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
         public Builder(@NonNull Class<T> recordType) {
             Objects.requireNonNull(recordType);
 
@@ -150,6 +148,7 @@ public final class ReadRecordsRequestUsingFilters<T extends Record> extends Read
          *     <p>If not time range filter is present all the records will be read without any time
          *     constraints.
          */
+        @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
         @NonNull
         public Builder<T> setTimeRangeFilter(@Nullable TimeRangeFilter timeRangeFilter) {
             mTimeRangeFilter = timeRangeFilter;
@@ -165,9 +164,11 @@ public final class ReadRecordsRequestUsingFilters<T extends Record> extends Read
          */
         @NonNull
         public Builder<T> setPageSize(@IntRange(from = 1, to = 5000) int pageSize) {
-            if (pageSize > MAXIMUM_PAGE_SIZE) {
+            if (pageSize < MINIMUM_PAGE_SIZE || pageSize > MAXIMUM_PAGE_SIZE) {
                 throw new IllegalArgumentException(
-                        "Maximum allowed pageSize is "
+                        "Valid pageSize range is "
+                                + MINIMUM_PAGE_SIZE
+                                + " - "
                                 + MAXIMUM_PAGE_SIZE
                                 + ", requested "
                                 + pageSize);

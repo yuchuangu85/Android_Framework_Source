@@ -1,8 +1,12 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 8586a5528f0085c15cff4b6628f1b8153aca29ad --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.modem-V3-java-source/gen/android/hardware/radio/modem/NvWriteItem.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.modem-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.modem/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.modem/3/android/hardware/radio/modem/NvWriteItem.aidl
  */
 package android.hardware.radio.modem;
-/** @deprecated NV APIs are deprecated starting from Android U. */
+/**
+ * @hide
+ * @deprecated NV APIs are deprecated starting from Android U.
+ */
 @Deprecated
 public class NvWriteItem implements android.os.Parcelable
 {
@@ -55,7 +59,7 @@ public class NvWriteItem implements android.os.Parcelable
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
     _aidl_sj.add("itemId: " + (android.hardware.radio.modem.NvItem.$.toString(itemId)));
     _aidl_sj.add("value: " + (java.util.Objects.toString(value)));
-    return "android.hardware.radio.modem.NvWriteItem" + _aidl_sj.toString()  ;
+    return "NvWriteItem" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

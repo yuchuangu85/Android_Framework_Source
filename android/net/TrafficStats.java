@@ -19,6 +19,7 @@ package android.net;
 import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
 
 import android.annotation.NonNull;
+import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
@@ -683,33 +684,34 @@ public class TrafficStats {
     /** {@hide} */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static long getMobileTcpRxPackets() {
-        long total = 0;
-        for (String iface : getMobileIfaces()) {
-            long stat = UNSUPPORTED;
-            try {
-                stat = getStatsService().getIfaceStats(iface, TYPE_TCP_RX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-            total += addIfSupported(stat);
-        }
-        return total;
+        return UNSUPPORTED;
     }
 
     /** {@hide} */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static long getMobileTcpTxPackets() {
-        long total = 0;
-        for (String iface : getMobileIfaces()) {
-            long stat = UNSUPPORTED;
-            try {
-                stat = getStatsService().getIfaceStats(iface, TYPE_TCP_TX_PACKETS);
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
-            total += addIfSupported(stat);
+        return UNSUPPORTED;
+    }
+
+    /** Clear TrafficStats rate-limit caches.
+     *
+     * This is mainly for {@link com.android.server.net.NetworkStatsService} to
+     * clear rate-limit cache to avoid caching for TrafficStats API results.
+     * Tests might get stale values after generating network traffic, which
+     * generally need to wait for cache expiry to get updated values.
+     *
+     * @hide
+     */
+    @RequiresPermission(anyOf = {
+            NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK,
+            android.Manifest.permission.NETWORK_STACK,
+            android.Manifest.permission.NETWORK_SETTINGS})
+    public static void clearRateLimitCaches() {
+        try {
+            getStatsService().clearTrafficStatsRateLimitCaches();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
-        return total;
     }
 
     /**
@@ -1141,8 +1143,4 @@ public class TrafficStats {
     public static final int TYPE_TX_BYTES = 2;
     /** {@hide} */
     public static final int TYPE_TX_PACKETS = 3;
-    /** {@hide} */
-    public static final int TYPE_TCP_RX_PACKETS = 4;
-    /** {@hide} */
-    public static final int TYPE_TCP_TX_PACKETS = 5;
 }

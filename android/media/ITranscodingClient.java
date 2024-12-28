@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version 29 --ninja -d out/soong/.intermediates/frameworks/av/media/module/libmediatranscoding/mediatranscoding_aidl_interface-java-source/gen/android/media/ITranscodingClient.java.d -o out/soong/.intermediates/frameworks/av/media/module/libmediatranscoding/mediatranscoding_aidl_interface-java-source/gen -Nframeworks/av/media/module/libmediatranscoding/aidl frameworks/av/media/module/libmediatranscoding/aidl/android/media/ITranscodingClient.aidl
  */
 package android.media;
 /**
@@ -92,6 +93,7 @@ public interface ITranscodingClient extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.media.ITranscodingClient
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -121,13 +123,9 @@ public interface ITranscodingClient extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -377,7 +375,8 @@ public interface ITranscodingClient extends android.os.IInterface
     static final int TRANSACTION_getClientUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
     static final int TRANSACTION_unregister = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
   }
-  public static final java.lang.String DESCRIPTOR = "android$media$ITranscodingClient".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.media.ITranscodingClient";
   /**
    * Submits a transcoding request to MediaTranscodingService.
    * 

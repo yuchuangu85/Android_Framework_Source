@@ -19,6 +19,7 @@ package android.health.connect.datatypes;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_HEART_RATE;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.health.connect.HealthConnectManager;
 import android.health.connect.datatypes.validation.ValidationUtils;
 import android.health.connect.internal.datatypes.HeartRateRecordInternal;
@@ -89,7 +90,14 @@ public final class HeartRateRecord extends IntervalRecord {
             @NonNull ZoneOffset endZoneOffset,
             @NonNull List<HeartRateSample> heartRateSamples,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         Objects.requireNonNull(heartRateSamples);
         if (!skipValidation) {
             ValidationUtils.validateSampleStartAndEndTime(
@@ -115,7 +123,7 @@ public final class HeartRateRecord extends IntervalRecord {
      * @return {@code true} if this object is the same as the obj
      */
     @Override
-    public boolean equals(@NonNull Object object) {
+    public boolean equals(@Nullable Object object) {
         if (super.equals(object) && object instanceof HeartRateRecord) {
             HeartRateRecord other = (HeartRateRecord) object;
             if (getSamples().size() != other.getSamples().size()) return false;
@@ -193,7 +201,7 @@ public final class HeartRateRecord extends IntervalRecord {
          * @return {@code true} if this object is the same as the obj
          */
         @Override
-        public boolean equals(@NonNull Object object) {
+        public boolean equals(@Nullable Object object) {
             if (super.equals(object) && object instanceof HeartRateSample) {
                 HeartRateSample other = (HeartRateSample) object;
                 return getBeatsPerMinute() == other.getBeatsPerMinute()

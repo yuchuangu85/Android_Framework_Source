@@ -16,12 +16,15 @@
 package com.android.internal.net.ipsec.ike;
 
 import static android.net.ipsec.ike.IkeManager.getIkeLog;
+import static android.net.ipsec.ike.IkeManager.getIkeMetrics;
 
-import android.os.Looper;
+import android.net.ipsec.ike.exceptions.IkeException;
 import android.os.Message;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.net.ipsec.ike.net.IkeConnectionController;
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
 import com.android.internal.util.IState;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
@@ -96,13 +99,18 @@ abstract class AbstractSessionStateMachine extends StateMachine {
     // Default delay time for retrying a request
     static final long RETRY_INTERVAL_MS = TimeUnit.SECONDS.toMillis(15L);
 
+    @VisibleForTesting final IkeContext mIkeContext;
+
     protected final Executor mUserCbExecutor;
     private final String mLogTag;
 
     protected volatile boolean mIsClosing = false;
 
-    protected AbstractSessionStateMachine(String name, Looper looper, Executor userCbExecutor) {
-        super(name, looper);
+    protected AbstractSessionStateMachine(
+            String name, IkeContext ikeContext, Executor userCbExecutor) {
+        super(name, ikeContext.getLooper());
+
+        mIkeContext = ikeContext;
         mLogTag = name;
         mUserCbExecutor = userCbExecutor;
     }
@@ -183,6 +191,8 @@ abstract class AbstractSessionStateMachine extends StateMachine {
         protected abstract void cleanUpAndQuit(RuntimeException e);
 
         protected abstract String getCmdString(int cmd);
+
+        protected abstract @IkeMetrics.IkeState int getMetricsStateCode();
     }
 
     protected void executeUserCallback(Runnable r) {
@@ -224,6 +234,48 @@ abstract class AbstractSessionStateMachine extends StateMachine {
 
         return "Null State";
     }
+
+    protected void recordMetricsEvent_sessionTerminated(IkeException exception) {
+        final IState currentState = getCurrentState();
+        final @IkeMetrics.IkeState int stateCode =
+                currentState instanceof ExceptionHandlerBase
+                        ? ((ExceptionHandlerBase) currentState).getMetricsStateCode()
+                        : IkeMetrics.IKE_STATE_UNKNOWN;
+        final @IkeMetrics.IkeError int exceptionCode =
+                exception == null ? IkeMetrics.IKE_ERROR_NONE : exception.getMetricsErrorCode();
+
+        getIkeMetrics()
+                .logSessionTerminated(
+                        mIkeContext.getIkeCaller(),
+                        getMetricsSessionType(),
+                        stateCode,
+                        exceptionCode);
+    }
+
+    protected void recordMetricsEvent_LivenssCheckCompletion(
+            IkeConnectionController connectionController,
+            int elapsedTimeInMillis,
+            int numberOfOnGoing,
+            boolean resultSuccess) {
+        final IState currentState = getCurrentState();
+        final @IkeMetrics.IkeState int stateCode =
+                currentState instanceof ExceptionHandlerBase
+                        ? ((ExceptionHandlerBase) currentState).getMetricsStateCode()
+                        : IkeMetrics.IKE_STATE_UNKNOWN;
+        final @IkeMetrics.IkeUnderlyingNetworkType int underlyingNetworkType =
+                connectionController.getMetricsNetworkType();
+
+        getIkeMetrics()
+                .logLivenessCheckCompleted(
+                        mIkeContext.getIkeCaller(),
+                        stateCode,
+                        underlyingNetworkType,
+                        elapsedTimeInMillis,
+                        numberOfOnGoing,
+                        resultSuccess);
+    }
+
+    protected abstract @IkeMetrics.IkeSessionType int getMetricsSessionType();
 
     @Override
     protected void log(String s) {

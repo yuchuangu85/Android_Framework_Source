@@ -48,7 +48,6 @@ public abstract class NetworkSecurityPolicy {
      * @hide
      */
     @SystemApi(client = MODULE_LIBRARIES)
-    @libcore.api.IntraCoreApi
     public NetworkSecurityPolicy() {
     }
 

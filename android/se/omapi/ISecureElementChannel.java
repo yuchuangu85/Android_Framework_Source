@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 1 --hash 894069bcfe4f35ceb2088278ddf87c83adee8014 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/base/omapi/aidl/android.se.omapi-V1-java-source/gen/android/se/omapi/ISecureElementChannel.java.d -o out/soong/.intermediates/frameworks/base/omapi/aidl/android.se.omapi-V1-java-source/gen -Nframeworks/base/omapi/aidl/aidl_api/android.se.omapi/1 frameworks/base/omapi/aidl/aidl_api/android.se.omapi/1/android/se/omapi/ISecureElementChannel.aidl
  */
 package android.se.omapi;
 /** @hide */
@@ -56,6 +57,7 @@ public interface ISecureElementChannel extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.se.omapi.ISecureElementChannel
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -86,25 +88,19 @@ public interface ISecureElementChannel extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -329,6 +325,7 @@ public interface ISecureElementChannel extends android.os.IInterface
         return mCachedHash;
       }
     }
+    /** @hide */
     public static final java.lang.String DESCRIPTOR = "android$se$omapi$ISecureElementChannel".replace('$', '.');
     static final int TRANSACTION_close = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
     static final int TRANSACTION_isClosed = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);

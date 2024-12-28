@@ -177,7 +177,6 @@ class RBBINode {
     }
 
 
-
     //-------------------------------------------------------------------------
     //
     //       flattenVariables Walk a parse tree, replacing any variable
@@ -196,7 +195,11 @@ class RBBINode {
     //                          nested references are handled by cloneTree(), not here.
     //
     //-------------------------------------------------------------------------
-    RBBINode flattenVariables() {
+    static final private int kRecursiveDepthLimit = 3500;
+    RBBINode flattenVariables(int depth) {
+        if (depth > kRecursiveDepthLimit) {
+            throw new IllegalArgumentException("The input is too long");
+        }
         if (fType == varRef) {
             RBBINode retNode  = fLeftChild.cloneTree();
             retNode.fRuleRoot = this.fRuleRoot;
@@ -205,11 +208,11 @@ class RBBINode {
         }
 
         if (fLeftChild != null) {
-            fLeftChild = fLeftChild.flattenVariables();
+            fLeftChild = fLeftChild.flattenVariables(depth+1);
             fLeftChild.fParent = this;
         }
         if (fRightChild != null) {
-            fRightChild = fRightChild.flattenVariables();
+            fRightChild = fRightChild.flattenVariables(depth+1);
             fRightChild.fParent = this;
         }
         return this;

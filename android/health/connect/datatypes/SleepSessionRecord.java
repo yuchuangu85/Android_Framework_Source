@@ -38,11 +38,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Captures user sleep session. Each session requires start and end time and a list of {@link
- * Stage}.
+ * Captures the user's sleep length and its stages. Each record represents a time interval for a
+ * full sleep session.
  *
- * <p>Each {@link Stage} interval should be between the start time and the end time of the session.
- * Stages within one session must not overlap.
+ * <p>All {@link Stage} time intervals should fall within the sleep session interval. Time intervals
+ * for stages don't need to be continuous but shouldn't overlap.
  */
 @Identifier(recordIdentifier = RecordTypeIdentifier.RECORD_TYPE_SLEEP_SESSION)
 public final class SleepSessionRecord extends IntervalRecord {
@@ -62,6 +62,7 @@ public final class SleepSessionRecord extends IntervalRecord {
     private final List<Stage> mStages;
     private final CharSequence mNotes;
     private final CharSequence mTitle;
+
     /**
      * Builds {@link SleepSessionRecord} instance
      *
@@ -75,7 +76,7 @@ public final class SleepSessionRecord extends IntervalRecord {
      * @param title Title of the session. Optional field.
      * @param skipValidation Boolean flag to skip validation of record values.
      */
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "NullAway"})
     private SleepSessionRecord(
             @NonNull Metadata metadata,
             @NonNull Instant startTime,
@@ -86,7 +87,14 @@ public final class SleepSessionRecord extends IntervalRecord {
             @Nullable CharSequence notes,
             @Nullable CharSequence title,
             boolean skipValidation) {
-        super(metadata, startTime, startZoneOffset, endTime, endZoneOffset, skipValidation);
+        super(
+                metadata,
+                startTime,
+                startZoneOffset,
+                endTime,
+                endZoneOffset,
+                skipValidation,
+                /* enforceFutureTimeRestrictions= */ true);
         Objects.requireNonNull(stages);
         mStages =
                 Collections.unmodifiableList(
@@ -114,6 +122,7 @@ public final class SleepSessionRecord extends IntervalRecord {
         return mStages;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -292,6 +301,7 @@ public final class SleepSessionRecord extends IntervalRecord {
          * @param startTime Start time of this sleep session
          * @param endTime End time of this sleep session
          */
+        @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
         public Builder(
                 @NonNull Metadata metadata, @NonNull Instant startTime, @NonNull Instant endTime) {
             Objects.requireNonNull(metadata);
@@ -341,6 +351,7 @@ public final class SleepSessionRecord extends IntervalRecord {
          *
          * @param notes Additional notes for the session. Optional field.
          */
+        @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
         @NonNull
         public Builder setNotes(@Nullable CharSequence notes) {
             mNotes = notes;
@@ -352,6 +363,7 @@ public final class SleepSessionRecord extends IntervalRecord {
          *
          * @param title Title of the session. Optional field.
          */
+        @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
         @NonNull
         public Builder setTitle(@Nullable CharSequence title) {
             mTitle = title;

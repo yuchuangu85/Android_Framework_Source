@@ -17,6 +17,7 @@
 package android.health.connect.internal.datatypes;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.health.connect.datatypes.Identifier;
 import android.health.connect.datatypes.RecordTypeIdentifier;
 import android.health.connect.datatypes.SpeedRecord;
@@ -37,6 +38,7 @@ import java.util.Set;
 @Identifier(recordIdentifier = RecordTypeIdentifier.RECORD_TYPE_SPEED)
 public class SpeedRecordInternal
         extends SeriesRecordInternal<SpeedRecord, SpeedRecord.SpeedRecordSample> {
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private Set<SpeedRecordSample> mSpeedRecordSamples;
 
     @Override
@@ -115,7 +117,7 @@ public class SpeedRecordInternal
         }
 
         @Override
-        public boolean equals(@NonNull Object object) {
+        public boolean equals(@Nullable Object object) {
             if (super.equals(object) && object instanceof SpeedRecordInternal.SpeedRecordSample) {
                 SpeedRecordInternal.SpeedRecordSample other =
                         (SpeedRecordInternal.SpeedRecordSample) object;

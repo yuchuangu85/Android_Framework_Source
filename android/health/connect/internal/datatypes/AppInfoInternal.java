@@ -34,6 +34,7 @@ public final class AppInfoInternal {
 
     private Set<Integer> mRecordTypesUsed;
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public AppInfoInternal(
             @NonNull long id,
             @NonNull String packageName,
@@ -60,6 +61,7 @@ public final class AppInfoInternal {
     }
 
     /** sets or updates the value of recordTypesUsed for app info. */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public void setRecordTypesUsed(@Nullable Set<Integer> recordTypesUsed) {
         mRecordTypesUsed = recordTypesUsed;
     }

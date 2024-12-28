@@ -222,6 +222,17 @@ public final class CopticCalendar extends CECalendar
     /**
      * {@inheritDoc}
      * @deprecated This API is ICU internal only.
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    @Override
+    @Deprecated
+    protected boolean isEra0CountingBackward() {
+        return true;
+    }
+
+    /**
+     * {@inheritDoc}
+     * @deprecated This API is ICU internal only.
      * @hide original deprecated declaration
      * @hide draft / provisional / internal are hidden on Android
      */
@@ -272,6 +283,7 @@ public final class CopticCalendar extends CECalendar
         internalSet(ERA, era);
         internalSet(YEAR, year);
         internalSet(MONTH, fields[1]);
+        internalSet(ORDINAL_MONTH, fields[1]);
         internalSet(DAY_OF_MONTH, fields[2]);
         internalSet(DAY_OF_YEAR, (30 * fields[1]) + fields[2]);
     }

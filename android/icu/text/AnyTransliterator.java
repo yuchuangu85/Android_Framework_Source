@@ -68,9 +68,13 @@ class AnyTransliterator extends Transliterator {
     private int targetScript;
 
     /**
-     * Special code for handling width characters
+     * Lazily initialize a special Transliterator for handling width characters.
      */
-    private Transliterator widthFix = Transliterator.getInstance("[[:dt=Nar:][:dt=Wide:]] nfkd");
+    private static class WidthFix {
+        private static final String ID = "[[:dt=Nar:][:dt=Wide:]] nfkd";
+
+        static final Transliterator INSTANCE = Transliterator.getInstance(ID);
+    }
 
     /**
      * Implements {@link Transliterator#handleTransliterate}.
@@ -152,7 +156,7 @@ class AnyTransliterator extends Transliterator {
      * @param filter The Unicode filter.
      * @param target2 the target name.
      * @param targetScript2 the script code corresponding to theTarget.
-     * @param widthFix2 The Transliterator width fix.
+     * @param widthFix2 Not used. This parameter is deprecated.
      * @param cache2 The Map object for cache.
      */
     public AnyTransliterator(String id, UnicodeFilter filter, String target2,
@@ -176,11 +180,11 @@ class AnyTransliterator extends Transliterator {
             if (isWide(targetScript)) {
                 return null;
             } else {
-                return widthFix;
+                return WidthFix.INSTANCE;
             }
         }
 
-        Integer key = Integer.valueOf(source);
+        Integer key = source;
         Transliterator t = cache.get(key);
         if (t == null) {
             String sourceName = UScript.getName(source);
@@ -201,7 +205,7 @@ class AnyTransliterator extends Transliterator {
             if (t != null) {
                 if (!isWide(targetScript)) {
                     List<Transliterator> v = new ArrayList<Transliterator>();
-                    v.add(widthFix);
+                    v.add(WidthFix.INSTANCE);
                     v.add(t);
                     t = new CompoundTransliterator(v);
                 }
@@ -210,7 +214,7 @@ class AnyTransliterator extends Transliterator {
                     t = prevCachedT;
                 }
             } else if (!isWide(targetScript)) {
-                return widthFix;
+                return WidthFix.INSTANCE;
             }
         }
 
@@ -408,7 +412,7 @@ class AnyTransliterator extends Transliterator {
         if (filter != null && filter instanceof UnicodeSet) {
             filter = new UnicodeSet((UnicodeSet)filter);
         }
-        return new AnyTransliterator(getID(), filter, target, targetScript, widthFix, cache);
+        return new AnyTransliterator(getID(), filter, target, targetScript, null, cache);
     }
 
     /* (non-Javadoc)

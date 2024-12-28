@@ -133,7 +133,8 @@ public class EuiccPort extends UiccPort {
             UiccCard card, MultipleEnabledProfilesMode supportedMepMode) {
         super(c, ci, ics, phoneId, lock, card);
         // TODO: Set supportExtendedApdu based on ATR.
-        mApduSender = new ApduSender(ci, ISD_R_AID, false /* supportExtendedApdu */);
+        mApduSender = new ApduSender(c, phoneId, ci, ISD_R_AID,
+                              false /* supportExtendedApdu */);
         if (TextUtils.isEmpty(ics.eid)) {
             loge("no eid given in constructor for phone " + phoneId);
         } else {

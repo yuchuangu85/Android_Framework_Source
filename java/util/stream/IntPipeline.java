@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2014, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -178,6 +178,20 @@ public abstract class IntPipeline<E_IN>
         return Nodes.intBuilder(exactSizeIfKnown);
     }
 
+    private <U> Stream<U> mapToObj(IntFunction<? extends U> mapper, int opFlags) {
+        return new ReferencePipeline.StatelessOp<Integer, U>(this, StreamShape.INT_VALUE, opFlags) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<Integer> opWrapSink(int flags, Sink<U> sink) {
+                return new Sink.ChainedInt<U>(sink) {
+                    @Override
+                    public void accept(int t) {
+                        downstream.accept(mapper.apply(t));
+                    }
+                };
+            }
+        };
+    }
 
     // IntStream
 
@@ -195,8 +209,7 @@ public abstract class IntPipeline<E_IN>
 
     @Override
     public final LongStream asLongStream() {
-        return new LongPipeline.StatelessOp<Integer>(this, StreamShape.INT_VALUE,
-                                                     StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
+        return new LongPipeline.StatelessOp<Integer>(this, StreamShape.INT_VALUE, 0) {
             @Override
             public Sink<Integer> opWrapSink(int flags, Sink<Long> sink) {
                 return new Sink.ChainedInt<Long>(sink) {
@@ -211,8 +224,7 @@ public abstract class IntPipeline<E_IN>
 
     @Override
     public final DoubleStream asDoubleStream() {
-        return new DoublePipeline.StatelessOp<Integer>(this, StreamShape.INT_VALUE,
-                                                       StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
+        return new DoublePipeline.StatelessOp<Integer>(this, StreamShape.INT_VALUE, 0) {
             @Override
             // Android-changed: Make public, to match the method it's overriding.
             public Sink<Integer> opWrapSink(int flags, Sink<Double> sink) {
@@ -228,7 +240,7 @@ public abstract class IntPipeline<E_IN>
 
     @Override
     public final Stream<Integer> boxed() {
-        return mapToObj(Integer::valueOf);
+        return mapToObj(Integer::valueOf, 0);
     }
 
     @Override
@@ -252,19 +264,7 @@ public abstract class IntPipeline<E_IN>
     @Override
     public final <U> Stream<U> mapToObj(IntFunction<? extends U> mapper) {
         Objects.requireNonNull(mapper);
-        return new ReferencePipeline.StatelessOp<Integer, U>(this, StreamShape.INT_VALUE,
-                                                             StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT) {
-            @Override
-            // Android-changed: Make public, to match the method it's overriding.
-            public Sink<Integer> opWrapSink(int flags, Sink<U> sink) {
-                return new Sink.ChainedInt<U>(sink) {
-                    @Override
-                    public void accept(int t) {
-                        downstream.accept(mapper.apply(t));
-                    }
-                };
-            }
-        };
+        return mapToObj(mapper, StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT);
     }
 
     @Override
@@ -305,12 +305,19 @@ public abstract class IntPipeline<E_IN>
 
     @Override
     public final IntStream flatMap(IntFunction<? extends IntStream> mapper) {
+        Objects.requireNonNull(mapper);
         return new StatelessOp<Integer>(this, StreamShape.INT_VALUE,
                                         StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
             @Override
             // Android-changed: Make public, to match the method it's overriding.
             public Sink<Integer> opWrapSink(int flags, Sink<Integer> sink) {
                 return new Sink.ChainedInt<Integer>(sink) {
+                    // true if cancellationRequested() has been called
+                    boolean cancellationRequestedCalled;
+
+                    // cache the consumer to avoid creation on every accepted element
+                    IntConsumer downstreamAsInt = downstream::accept;
+
                     @Override
                     public void begin(long size) {
                         downstream.begin(-1);
@@ -319,10 +326,51 @@ public abstract class IntPipeline<E_IN>
                     @Override
                     public void accept(int t) {
                         try (IntStream result = mapper.apply(t)) {
-                            // We can do better that this too; optimize for depth=0 case and just grab spliterator and forEach it
-                            if (result != null)
-                                result.sequential().forEach(i -> downstream.accept(i));
+                            if (result != null) {
+                                if (!cancellationRequestedCalled) {
+                                    result.sequential().forEach(downstreamAsInt);
+                                }
+                                else {
+                                    var s = result.sequential().spliterator();
+                                    do { } while (!downstream.cancellationRequested() && s.tryAdvance(downstreamAsInt));
+                                }
+                            }
                         }
+                    }
+
+                    @Override
+                    public boolean cancellationRequested() {
+                        // If this method is called then an operation within the stream
+                        // pipeline is short-circuiting (see AbstractPipeline.copyInto).
+                        // Note that we cannot differentiate between an upstream or
+                        // downstream operation
+                        cancellationRequestedCalled = true;
+                        return downstream.cancellationRequested();
+                    }
+                };
+            }
+        };
+    }
+
+    @Override
+    public final IntStream mapMulti(IntMapMultiConsumer mapper) {
+        Objects.requireNonNull(mapper);
+        return new StatelessOp<>(this, StreamShape.INT_VALUE,
+                StreamOpFlag.NOT_SORTED | StreamOpFlag.NOT_DISTINCT | StreamOpFlag.NOT_SIZED) {
+            @Override
+            // Android-changed: Make public, to match the method it's overriding.
+            public Sink<Integer> opWrapSink(int flags, Sink<Integer> sink) {
+                return new Sink.ChainedInt<>(sink) {
+
+                    @Override
+                    public void begin(long size) {
+                        downstream.begin(-1);
+                    }
+
+                    @Override
+                    @SuppressWarnings("unchecked")
+                    public void accept(int t) {
+                        mapper.accept(t, (IntConsumer) downstream);
                     }
                 };
             }
@@ -405,6 +453,16 @@ public abstract class IntPipeline<E_IN>
     }
 
     @Override
+    public final IntStream takeWhile(IntPredicate predicate) {
+        return WhileOps.makeTakeWhileInt(this, predicate);
+    }
+
+    @Override
+    public final IntStream dropWhile(IntPredicate predicate) {
+        return WhileOps.makeDropWhileInt(this, predicate);
+    }
+
+    @Override
     public final IntStream sorted() {
         return SortedOps.makeInt(this);
     }
@@ -445,7 +503,7 @@ public abstract class IntPipeline<E_IN>
 
     @Override
     public final long count() {
-        return mapToLong(e -> 1L).sum();
+        return evaluate(ReduceOps.makeIntCounting());
     }
 
     @Override
@@ -484,6 +542,7 @@ public abstract class IntPipeline<E_IN>
     public final <R> R collect(Supplier<R> supplier,
                                ObjIntConsumer<R> accumulator,
                                BiConsumer<R, R> combiner) {
+        Objects.requireNonNull(combiner);
         BinaryOperator<R> operator = (left, right) -> {
             combiner.accept(left, right);
             return left;

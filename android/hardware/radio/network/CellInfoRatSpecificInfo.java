@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/CellInfoRatSpecificInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/CellInfoRatSpecificInfo.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public final class CellInfoRatSpecificInfo implements android.os.Parcelable {
   // tags for union fields
   public final static int gsm = 0;  // android.hardware.radio.network.CellInfoGsm gsm;
@@ -238,12 +240,12 @@ public final class CellInfoRatSpecificInfo implements android.os.Parcelable {
   @Override
   public String toString() {
     switch (_tag) {
-    case gsm: return "android.hardware.radio.network.CellInfoRatSpecificInfo.gsm(" + (java.util.Objects.toString(getGsm())) + ")";
-    case wcdma: return "android.hardware.radio.network.CellInfoRatSpecificInfo.wcdma(" + (java.util.Objects.toString(getWcdma())) + ")";
-    case tdscdma: return "android.hardware.radio.network.CellInfoRatSpecificInfo.tdscdma(" + (java.util.Objects.toString(getTdscdma())) + ")";
-    case lte: return "android.hardware.radio.network.CellInfoRatSpecificInfo.lte(" + (java.util.Objects.toString(getLte())) + ")";
-    case nr: return "android.hardware.radio.network.CellInfoRatSpecificInfo.nr(" + (java.util.Objects.toString(getNr())) + ")";
-    case cdma: return "android.hardware.radio.network.CellInfoRatSpecificInfo.cdma(" + (java.util.Objects.toString(getCdma())) + ")";
+    case gsm: return "CellInfoRatSpecificInfo.gsm(" + (java.util.Objects.toString(getGsm())) + ")";
+    case wcdma: return "CellInfoRatSpecificInfo.wcdma(" + (java.util.Objects.toString(getWcdma())) + ")";
+    case tdscdma: return "CellInfoRatSpecificInfo.tdscdma(" + (java.util.Objects.toString(getTdscdma())) + ")";
+    case lte: return "CellInfoRatSpecificInfo.lte(" + (java.util.Objects.toString(getLte())) + ")";
+    case nr: return "CellInfoRatSpecificInfo.nr(" + (java.util.Objects.toString(getNr())) + ")";
+    case cdma: return "CellInfoRatSpecificInfo.cdma(" + (java.util.Objects.toString(getCdma())) + ")";
     }
     throw new IllegalStateException("unknown field: " + _tag);
   }

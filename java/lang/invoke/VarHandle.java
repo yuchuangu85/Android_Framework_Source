@@ -1885,6 +1885,19 @@ public abstract class VarHandle {
     // END Android-removed: AccessDescriptor not used in Android implementation.
 
     /**
+     * Returns a compact textual description of this {@linkplain VarHandle},
+     * including the type of variable described, and a description of its coordinates.
+     *
+     * @return A compact textual description of this {@linkplain VarHandle}
+     */
+    @Override
+    public final String toString() {
+        return String.format("VarHandle[varType=%s, coord=%s]",
+                varType().getName(),
+                coordinateTypes());
+    }
+
+    /**
      * Returns the variable type of variables referenced by this VarHandle.
      *
      * @return the variable type of variables referenced by this VarHandle

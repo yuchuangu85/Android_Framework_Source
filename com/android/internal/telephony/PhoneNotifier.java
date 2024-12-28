@@ -39,6 +39,7 @@ import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.MediaQualityStatus;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * {@hide}
@@ -149,4 +150,10 @@ public interface PhoneNotifier {
     /** Notify callback mode stopped. */
     void notifyCallbackModeStopped(Phone sender, @EmergencyCallbackModeType int type,
             @EmergencyCallbackModeStopReason int reason);
+
+    /** Notify that simultaneous cellular calling subscriptions have changed */
+    void notifySimultaneousCellularCallingSubscriptionsChanged(Set<Integer> subIds);
+
+    /** Notify carrier roaming non-terrestrial network mode changed. **/
+    void notifyCarrierRoamingNtnModeChanged(Phone sender, boolean active);
 }

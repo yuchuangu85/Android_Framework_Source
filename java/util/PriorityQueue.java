@@ -25,9 +25,16 @@
 
 package java.util;
 
+import android.compat.Compatibility;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
+
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.system.VMRuntime;
+
 import java.util.function.Consumer;
 import java.util.function.Predicate;
-import jdk.internal.misc.SharedSecrets;
+import jdk.internal.access.SharedSecrets;
 import jdk.internal.util.ArraysSupport;
 
 /**
@@ -327,7 +334,18 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         int i = size;
         if (i >= queue.length)
             grow(i + 1);
-        siftUp(i, e);
+        if (i == 0) {
+            // Android-changed: Keep old behavior on Android 13 or below. http://b/289878283
+            boolean usePreAndroidUBehavior = VMRuntime.getSdkVersion() < VersionCodes.UPSIDE_DOWN_CAKE
+                || !Compatibility.isChangeEnabled(PRIORITY_QUEUE_OFFER_NON_COMPARABLE_ONE_ELEMENT);
+            if (usePreAndroidUBehavior) {
+                queue[0] = e;
+            } else {
+                siftUp(i, e);
+            }
+        } else {
+            siftUp(i, e);
+        }
         size = i + 1;
         return true;
     }
@@ -970,4 +988,18 @@ public class PriorityQueue<E> extends AbstractQueue<E>
         if (expectedModCount != modCount)
             throw new ConcurrentModificationException();
     }
+
+    //  Android-added: Backward-compatible flag for offer() API.
+    /**
+     * Since Android 14, {@link PriorityQueue#offer(E)} requires all elements to be comparable if
+     * there was no comparator. Previously, the first element being added did not need to be
+     * comparable.
+     *
+     * This flag is enabled for apps targeting Android 14+.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = VersionCodes.UPSIDE_DOWN_CAKE)
+    public static final long PRIORITY_QUEUE_OFFER_NON_COMPARABLE_ONE_ELEMENT = 289878283L;
 }

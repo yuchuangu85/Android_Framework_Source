@@ -91,7 +91,7 @@ public class ConstantAffixModifier implements Modifier {
     }
 
     @Override
-    public boolean semanticallyEquivalent(Modifier other) {
+    public boolean strictEquals(Modifier other) {
         if (!(other instanceof ConstantAffixModifier)) {
             return false;
         }

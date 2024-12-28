@@ -16,7 +16,6 @@
 package android.adservices.topics;
 
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_TOPICS;
-import static android.adservices.common.AdServicesStatusUtils.ILLEGAL_STATE_EXCEPTION_ERROR_MESSAGE;
 
 import android.adservices.common.AdServicesStatusUtils;
 import android.adservices.common.CallerMetadata;
@@ -28,7 +27,6 @@ import android.annotation.TestApi;
 import android.app.sdksandbox.SandboxedSdkContext;
 import android.content.Context;
 import android.os.Build;
-import android.os.LimitExceededException;
 import android.os.OutcomeReceiver;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -39,6 +37,7 @@ import androidx.annotation.RequiresApi;
 import com.android.adservices.AdServicesCommon;
 import com.android.adservices.LoggerFactory;
 import com.android.adservices.ServiceBinder;
+import com.android.adservices.shared.common.ServiceUnavailableException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +51,6 @@ import java.util.concurrent.Executor;
  * <p>The instance of the {@link TopicsManager} can be obtained using {@link
  * Context#getSystemService} and {@link TopicsManager} class.
  */
-// TODO(b/269798827): Enable for R.
 @RequiresApi(Build.VERSION_CODES.S)
 public final class TopicsManager {
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getTopicsLogger();
@@ -81,9 +79,8 @@ public final class TopicsManager {
      */
     @NonNull
     public static TopicsManager get(@NonNull Context context) {
-        // TODO(b/269798827): Enable for R.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            throw new IllegalStateException(ILLEGAL_STATE_EXCEPTION_ERROR_MESSAGE);
+            throw new ServiceUnavailableException();
         }
         // On TM+, context.getSystemService() does more than just call constructor.
         return (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -97,9 +94,8 @@ public final class TopicsManager {
      * @hide
      */
     public TopicsManager(Context context) {
-        // TODO(b/269798827): Enable for R.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            throw new IllegalStateException(ILLEGAL_STATE_EXCEPTION_ERROR_MESSAGE);
+            throw new ServiceUnavailableException();
         }
         // In case the TopicsManager is initiated from inside a sdk_sandbox process the fields
         // will be immediately rewritten by the initialize method below.
@@ -130,7 +126,7 @@ public final class TopicsManager {
     private ITopicsService getService() {
         ITopicsService service = mServiceBinder.getService();
         if (service == null) {
-            throw new IllegalStateException(ILLEGAL_STATE_EXCEPTION_ERROR_MESSAGE);
+            throw new ServiceUnavailableException();
         }
         return service;
     }
@@ -141,9 +137,7 @@ public final class TopicsManager {
      * @param getTopicsRequest The request for obtaining Topics.
      * @param executor The executor to run callback.
      * @param callback The callback that's called after topics are available or an error occurs.
-     * @throws SecurityException if caller is not authorized to call this API.
      * @throws IllegalStateException if this API is not available.
-     * @throws LimitExceededException if rate limit was reached.
      */
     @NonNull
     @RequiresPermission(ACCESS_ADSERVICES_TOPICS)
@@ -206,10 +200,7 @@ public final class TopicsManager {
                             executor.execute(
                                     () -> {
                                         if (resultParcel.isSuccess()) {
-                                            callback.onResult(
-                                                    new GetTopicsResponse.Builder(
-                                                                    getTopicList(resultParcel))
-                                                            .build());
+                                            callback.onResult(buildGetTopicsResponse(resultParcel));
                                         } else {
                                             // TODO: Errors should be returned in onFailure method.
                                             callback.onError(
@@ -233,6 +224,12 @@ public final class TopicsManager {
         }
     }
 
+    private GetTopicsResponse buildGetTopicsResponse(GetTopicsResult resultParcel) {
+        return new GetTopicsResponse.Builder(
+                        getTopicList(resultParcel), getEncryptedTopicList(resultParcel))
+                .build();
+    }
+
     private List<Topic> getTopicList(GetTopicsResult resultParcel) {
         List<Long> taxonomyVersionsList = resultParcel.getTaxonomyVersions();
         List<Long> modelVersionsList = resultParcel.getModelVersions();
@@ -249,6 +246,22 @@ public final class TopicsManager {
         }
 
         return topicList;
+    }
+
+    private List<EncryptedTopic> getEncryptedTopicList(GetTopicsResult resultParcel) {
+        List<EncryptedTopic> encryptedTopicList = new ArrayList<>();
+        List<byte[]> encryptedTopics = resultParcel.getEncryptedTopics();
+        List<String> encryptionKeys = resultParcel.getEncryptionKeys();
+        List<byte[]> encapsulatedKeys = resultParcel.getEncapsulatedKeys();
+        int size = encryptedTopics.size();
+        for (int i = 0; i < size; i++) {
+            EncryptedTopic encryptedTopic =
+                    new EncryptedTopic(
+                            encryptedTopics.get(i), encryptionKeys.get(i), encapsulatedKeys.get(i));
+            encryptedTopicList.add(encryptedTopic);
+        }
+
+        return encryptedTopicList;
     }
 
     /**

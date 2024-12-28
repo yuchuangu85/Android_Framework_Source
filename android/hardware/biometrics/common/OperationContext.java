@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 8a6cd86630181a4df6f20056259ec200ffe39209 -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common-V4-java-source/gen/android/hardware/biometrics/common/OperationContext.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common-V4-java-source/gen -Nhardware/interfaces/biometrics/common/aidl/aidl_api/android.hardware.biometrics.common/4 hardware/interfaces/biometrics/common/aidl/aidl_api/android.hardware.biometrics.common/4/android/hardware/biometrics/common/OperationContext.aidl
  */
 package android.hardware.biometrics.common;
 /** @hide */
@@ -14,6 +15,8 @@ public class OperationContext implements android.os.Parcelable
   public int wakeReason = android.hardware.biometrics.common.WakeReason.UNKNOWN;
   public int displayState = android.hardware.biometrics.common.DisplayState.UNKNOWN;
   public android.hardware.biometrics.common.AuthenticateReason authenticateReason;
+  public int foldState = android.hardware.biometrics.common.FoldState.UNKNOWN;
+  public android.hardware.biometrics.common.OperationState operationState;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
   public static final android.os.Parcelable.Creator<OperationContext> CREATOR = new android.os.Parcelable.Creator<OperationContext>() {
@@ -39,6 +42,8 @@ public class OperationContext implements android.os.Parcelable
     _aidl_parcel.writeInt(wakeReason);
     _aidl_parcel.writeInt(displayState);
     _aidl_parcel.writeTypedObject(authenticateReason, _aidl_flag);
+    _aidl_parcel.writeInt(foldState);
+    _aidl_parcel.writeTypedObject(operationState, _aidl_flag);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -64,6 +69,10 @@ public class OperationContext implements android.os.Parcelable
       displayState = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       authenticateReason = _aidl_parcel.readTypedObject(android.hardware.biometrics.common.AuthenticateReason.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      foldState = _aidl_parcel.readInt();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      operationState = _aidl_parcel.readTypedObject(android.hardware.biometrics.common.OperationState.CREATOR);
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -75,6 +84,7 @@ public class OperationContext implements android.os.Parcelable
   public int describeContents() {
     int _mask = 0;
     _mask |= describeContents(authenticateReason);
+    _mask |= describeContents(operationState);
     return _mask;
   }
   private int describeContents(Object _v) {

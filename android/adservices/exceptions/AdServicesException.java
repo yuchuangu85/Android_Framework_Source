@@ -25,4 +25,9 @@ public class AdServicesException extends Exception {
     public AdServicesException(@Nullable String message) {
         super(message);
     }
+
+    /** @hide */
+    public AdServicesException() {
+        super();
+    }
 }

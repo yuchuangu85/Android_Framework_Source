@@ -48,6 +48,7 @@ import android.util.LocalLog;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.util.function.TriConsumer;
 import com.android.telephony.Rlog;
@@ -274,7 +275,25 @@ public class SubscriptionDatabaseManager extends Handler {
                     SubscriptionInfoInternal::getUserId),
             new AbstractMap.SimpleImmutableEntry<>(
                     SimInfo.COLUMN_SATELLITE_ENABLED,
-                    SubscriptionInfoInternal::getSatelliteEnabled)
+                    SubscriptionInfoInternal::getSatelliteEnabled),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ATTACH_ENABLED_FOR_CARRIER,
+                    SubscriptionInfoInternal::getSatelliteAttachEnabledForCarrier),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_IS_NTN,
+                    SubscriptionInfoInternal::getOnlyNonTerrestrialNetwork),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SERVICE_CAPABILITIES,
+                    SubscriptionInfoInternal::getServiceCapabilities),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_TRANSFER_STATUS,
+                    SubscriptionInfoInternal::getTransferStatus),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ENTITLEMENT_STATUS,
+                    SubscriptionInfoInternal::getSatelliteEntitlementStatus),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ENTITLEMENT_PLMNS,
+                    SubscriptionInfoInternal::getSatelliteEntitlementPlmns)
     );
 
     /**
@@ -399,7 +418,22 @@ public class SubscriptionDatabaseManager extends Handler {
                     SubscriptionDatabaseManager::setUserId),
             new AbstractMap.SimpleImmutableEntry<>(
                     SimInfo.COLUMN_SATELLITE_ENABLED,
-                    SubscriptionDatabaseManager::setSatelliteEnabled)
+                    SubscriptionDatabaseManager::setSatelliteEnabled),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ATTACH_ENABLED_FOR_CARRIER,
+                    SubscriptionDatabaseManager::setSatelliteAttachEnabledForCarrier),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_IS_NTN,
+                    SubscriptionDatabaseManager::setNtn),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SERVICE_CAPABILITIES,
+                    SubscriptionDatabaseManager::setServiceCapabilities),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_TRANSFER_STATUS,
+                    SubscriptionDatabaseManager::setTransferStatus),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ENTITLEMENT_STATUS,
+                    SubscriptionDatabaseManager::setSatelliteEntitlementStatus)
     );
 
     /**
@@ -461,7 +495,10 @@ public class SubscriptionDatabaseManager extends Handler {
                     SubscriptionDatabaseManager::setNumberFromCarrier),
             new AbstractMap.SimpleImmutableEntry<>(
                     SimInfo.COLUMN_PHONE_NUMBER_SOURCE_IMS,
-                    SubscriptionDatabaseManager::setNumberFromIms)
+                    SubscriptionDatabaseManager::setNumberFromIms),
+            new AbstractMap.SimpleImmutableEntry<>(
+                    SimInfo.COLUMN_SATELLITE_ENTITLEMENT_PLMNS,
+                    SubscriptionDatabaseManager::setSatelliteEntitlementPlmns)
     );
 
     /**
@@ -508,7 +545,9 @@ public class SubscriptionDatabaseManager extends Handler {
             SimInfo.COLUMN_VOIMS_OPT_IN_STATUS,
             SimInfo.COLUMN_D2D_STATUS_SHARING_SELECTED_CONTACTS,
             SimInfo.COLUMN_NR_ADVANCED_CALLING_ENABLED,
-            SimInfo.COLUMN_USER_HANDLE
+            SimInfo.COLUMN_USER_HANDLE,
+            SimInfo.COLUMN_SATELLITE_ENABLED,
+            SimInfo.COLUMN_SATELLITE_ATTACH_ENABLED_FOR_CARRIER
     );
 
     /**
@@ -528,6 +567,10 @@ public class SubscriptionDatabaseManager extends Handler {
     /** The context */
     @NonNull
     private final Context mContext;
+
+    /** The feature flags */
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
 
     /** The callback used for passing events back to {@link SubscriptionManagerService}. */
     @NonNull
@@ -619,9 +662,11 @@ public class SubscriptionDatabaseManager extends Handler {
      *
      * @param context The context.
      * @param looper Looper for the handler.
+     * @param featureFlags The feature flags.
      * @param callback Subscription database callback.
      */
     public SubscriptionDatabaseManager(@NonNull Context context, @NonNull Looper looper,
+            @NonNull FeatureFlags featureFlags,
             @NonNull SubscriptionDatabaseManagerCallback callback) {
         super(looper);
         log("Created SubscriptionDatabaseManager.");
@@ -630,6 +675,7 @@ public class SubscriptionDatabaseManager extends Handler {
         mUiccController = UiccController.getInstance();
         mAsyncMode = mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_subscription_database_async_update);
+        mFeatureFlags = featureFlags;
         initializeDatabase();
     }
 
@@ -1988,6 +2034,40 @@ public class SubscriptionDatabaseManager extends Handler {
     }
 
     /**
+     * Set whether satellite attach for carrier is enabled or disabled by user.
+     *
+     * @param subId Subscription id.
+     * @param isSatelliteAttachEnabledForCarrier Whether satellite attach for carrier is enabled or
+     * disabled.
+     *
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setSatelliteAttachEnabledForCarrier(int subId,
+            int isSatelliteAttachEnabledForCarrier) {
+        writeDatabaseAndCacheHelper(subId,
+                SimInfo.COLUMN_SATELLITE_ATTACH_ENABLED_FOR_CARRIER,
+                isSatelliteAttachEnabledForCarrier,
+                SubscriptionInfoInternal.Builder::setSatelliteAttachEnabledForCarrier);
+    }
+
+    /**
+     * Set whether the subscription is exclusively used for non-terrestrial networks or not.
+     *
+     * @param subId Subscription ID.
+     * @param isNtn {@code 1} if it is a non-terrestrial network subscription.
+     * {@code 0} otherwise.
+     *
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setNtn(int subId, int isNtn) {
+        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
+            return;
+        }
+        writeDatabaseAndCacheHelper(subId, SimInfo.COLUMN_IS_NTN, isNtn,
+                SubscriptionInfoInternal.Builder::setOnlyNonTerrestrialNetwork);
+    }
+
+    /**
      * Set whether group of the subscription is disabled. This is only useful if it's a grouped
      * opportunistic subscription. In this case, if all primary (non-opportunistic)
      * subscriptions in the group are deactivated (unplugged pSIM or deactivated eSIM profile),
@@ -2000,7 +2080,7 @@ public class SubscriptionDatabaseManager extends Handler {
      */
     public void setGroupDisabled(int subId, boolean isGroupDisabled) {
         // group disabled does not have a corresponding SimInfo column. So we only update the cache.
-
+        boolean isChanged = false;
         // Grab the write lock so no other threads can read or write the cache.
         mReadWriteLock.writeLock().lock();
         try {
@@ -2009,30 +2089,94 @@ public class SubscriptionDatabaseManager extends Handler {
                 throw new IllegalArgumentException("setGroupDisabled: Subscription doesn't exist. "
                         + "subId=" + subId);
             }
+            isChanged = subInfoCache.isGroupDisabled() != isGroupDisabled;
             mAllSubscriptionInfoInternalCache.put(subId,
                     new SubscriptionInfoInternal.Builder(subInfoCache)
                             .setGroupDisabled(isGroupDisabled).build());
         } finally {
             mReadWriteLock.writeLock().unlock();
         }
+
+        if (isChanged) {
+            log("setGroupDisabled value changed, firing the callback");
+            mCallback.invokeFromExecutor(() -> mCallback.onSubscriptionChanged(subId));
+        }
     }
 
     /**
-     * Reload the database from content provider to the cache.
+     * Set service capabilities the subscription support.
+     * @param subId Subscription id.
+     * @param capabilities Service capabilities bitmasks
      */
-    public void reloadDatabase() {
-        if (mAsyncMode) {
-            post(this::loadDatabaseInternal);
-        } else {
-            loadDatabaseInternal();
+    public void setServiceCapabilities(int subId, int capabilities) {
+        if (!mFeatureFlags.dataOnlyCellularService()) {
+            return;
         }
+        writeDatabaseAndCacheHelper(subId, SimInfo.COLUMN_SERVICE_CAPABILITIES,
+                capabilities, SubscriptionInfoInternal.Builder::setServiceCapabilities);
+    }
+
+    /**
+     * Set whether satellite entitlement status is enabled by entitlement query result.
+     *
+     * @param subId Subscription id.
+     * @param isSatelliteEntitlementStatus Whether satellite entitlement status is enabled or
+     * disabled.
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setSatelliteEntitlementStatus(int subId,
+            int isSatelliteEntitlementStatus) {
+        writeDatabaseAndCacheHelper(subId,
+                SimInfo.COLUMN_SATELLITE_ENTITLEMENT_STATUS,
+                isSatelliteEntitlementStatus,
+                SubscriptionInfoInternal.Builder::setSatelliteEntitlementStatus);
+    }
+
+    /**
+     * Set satellite entitlement plmns by entitlement query result.
+     *
+     * @param subId Subscription id.
+     * @param satelliteEntitlementPlmns Satellite entitlement plmns
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setSatelliteEntitlementPlmns(int subId,
+            @NonNull String satelliteEntitlementPlmns) {
+        writeDatabaseAndCacheHelper(subId,
+                SimInfo.COLUMN_SATELLITE_ENTITLEMENT_PLMNS,
+                satelliteEntitlementPlmns,
+                SubscriptionInfoInternal.Builder::setSatelliteEntitlementPlmns);
+    }
+
+    /**
+     * Set satellite entitlement plmn list by entitlement query result.
+     *
+     * @param subId Subscription id.
+     * @param satelliteEntitlementPlmnList Satellite entitlement plmn list
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setSatelliteEntitlementPlmnList(int subId,
+            @NonNull List<String> satelliteEntitlementPlmnList) {
+        String satelliteEntitlementPlmns = satelliteEntitlementPlmnList.stream().collect(
+                Collectors.joining(","));
+        setSatelliteEntitlementPlmns(subId, satelliteEntitlementPlmns);
+    }
+
+    /**
+     * Reload the database from content provider to the cache. This must be a synchronous operation
+     * to prevent cache/database out-of-sync. Callers should be cautious to call this method because
+     * it might take longer time to complete.
+     */
+    public void reloadDatabaseSync() {
+        logl("reloadDatabaseSync");
+        // Synchronously load the database into the cache.
+        loadDatabaseInternal();
     }
 
     /**
      * Load the database from content provider to the cache.
      */
     private void loadDatabaseInternal() {
-        log("loadDatabaseInternal");
+        logl("loadDatabaseInternal");
         try (Cursor cursor = mContext.getContentResolver().query(
                 SimInfo.CONTENT_URI, null, null, null, null)) {
             mReadWriteLock.writeLock().lock();
@@ -2243,7 +2387,27 @@ public class SubscriptionDatabaseManager extends Handler {
                 .setUserId(cursor.getInt(cursor.getColumnIndexOrThrow(
                         SimInfo.COLUMN_USER_HANDLE)))
                 .setSatelliteEnabled(cursor.getInt(cursor.getColumnIndexOrThrow(
-                        SimInfo.COLUMN_SATELLITE_ENABLED)));
+                        SimInfo.COLUMN_SATELLITE_ENABLED)))
+                .setSatelliteAttachEnabledForCarrier(cursor.getInt(
+                        cursor.getColumnIndexOrThrow(
+                                SimInfo.COLUMN_SATELLITE_ATTACH_ENABLED_FOR_CARRIER)))
+                .setServiceCapabilities(cursor.getInt(
+                        cursor.getColumnIndexOrThrow(
+                                SimInfo.COLUMN_SERVICE_CAPABILITIES)))
+                .setSatelliteEntitlementStatus(cursor.getInt(
+                        cursor.getColumnIndexOrThrow(
+                                SimInfo.COLUMN_SATELLITE_ENTITLEMENT_STATUS)))
+                .setSatelliteEntitlementPlmns(cursor.getString(
+                        cursor.getColumnIndexOrThrow(
+                                SimInfo.COLUMN_SATELLITE_ENTITLEMENT_PLMNS)));
+        if (mFeatureFlags.oemEnabledSatelliteFlag()) {
+            builder.setOnlyNonTerrestrialNetwork(cursor.getInt(cursor.getColumnIndexOrThrow(
+                    SimInfo.COLUMN_IS_NTN)));
+        }
+        if (mFeatureFlags.supportPsimToEsimConversion()) {
+            builder.setTransferStatus(cursor.getInt(cursor.getColumnIndexOrThrow(
+                    SimInfo.COLUMN_TRANSFER_STATUS)));
+        }
         return builder.build();
     }
 
@@ -2315,6 +2479,25 @@ public class SubscriptionDatabaseManager extends Handler {
         } finally {
             mReadWriteLock.readLock().unlock();
         }
+    }
+
+    /**
+     * Set the transfer status of the subscriptionInfo that corresponds to subId.
+     *
+     * @param subId Subscription ID.
+     * @param status The transfer status to change.
+     *
+     * @throws IllegalArgumentException if the subscription does not exist.
+     */
+    public void setTransferStatus(int subId, int status) {
+        if (!mFeatureFlags.supportPsimToEsimConversion()) {
+            log("SubscriptionDatabaseManager:supportPsimToEsimConversion is false");
+            return;
+        }
+
+        writeDatabaseAndCacheHelper(subId, SimInfo.COLUMN_TRANSFER_STATUS,
+                status,
+                SubscriptionInfoInternal.Builder::setTransferStatus);
     }
 
     /**

@@ -26,6 +26,8 @@ import android.telephony.CellBroadcastIdRange;
 import android.telephony.SmsCbMessage;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.util.IndentingPrintWriter;
+import android.util.LocalLog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
@@ -33,6 +35,8 @@ import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
 
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -50,6 +54,8 @@ public final class CellBroadcastConfigTracker extends StateMachine {
     private static final int EVENT_ACTIVATION_DONE = 3;
     private static final int EVENT_RADIO_OFF = 4;
     private static final int EVENT_SUBSCRIPTION_CHANGED = 5;
+    @VisibleForTesting
+    public static final int EVENT_RADIO_RESET = 6;
 
     private static final int SMS_CB_CODE_SCHEME_MIN = 0;
     private static final int SMS_CB_CODE_SCHEME_MAX = 255;
@@ -59,6 +65,7 @@ public final class CellBroadcastConfigTracker extends StateMachine {
     // Cache of current cell broadcast id ranges of 3gpp2
     private List<CellBroadcastIdRange> mCbRanges3gpp2 = new CopyOnWriteArrayList<>();
     private Phone mPhone;
+    private final LocalLog mLocalLog = new LocalLog(128);
     @VisibleForTesting
     public int mSubId;
     @VisibleForTesting
@@ -106,8 +113,7 @@ public final class CellBroadcastConfigTracker extends StateMachine {
         @Override
         public String toString() {
             return "Request[mCbRangesRequest3gpp = " + mCbRangesRequest3gpp + ", "
-                    + "mCbRangesRequest3gpp2 = " + mCbRangesRequest3gpp2 + ", "
-                    + "mCallback = " + mCallback + "]";
+                    + "mCbRangesRequest3gpp2 = " + mCbRangesRequest3gpp2 + "]";
         }
     }
 
@@ -118,6 +124,7 @@ public final class CellBroadcastConfigTracker extends StateMachine {
         @Override
         public void enter() {
             mPhone.registerForRadioOffOrNotAvailable(getHandler(), EVENT_RADIO_OFF, null);
+            mPhone.mCi.registerForModemReset(getHandler(), EVENT_RADIO_RESET, null);
             mPhone.getContext().getSystemService(SubscriptionManager.class)
                     .addOnSubscriptionsChangedListener(new HandlerExecutor(getHandler()),
                             mSubChangedListener);
@@ -126,6 +133,7 @@ public final class CellBroadcastConfigTracker extends StateMachine {
         @Override
         public void exit() {
             mPhone.unregisterForRadioOffOrNotAvailable(getHandler());
+            mPhone.mCi.unregisterForModemReset(getHandler());
             mPhone.getContext().getSystemService(SubscriptionManager.class)
                     .removeOnSubscriptionsChangedListener(mSubChangedListener);
         }
@@ -138,6 +146,7 @@ public final class CellBroadcastConfigTracker extends StateMachine {
             }
             switch (msg.what) {
                 case EVENT_RADIO_OFF:
+                case EVENT_RADIO_RESET:
                     resetConfig();
                     break;
                 case EVENT_SUBSCRIPTION_CHANGED:
@@ -175,6 +184,9 @@ public final class CellBroadcastConfigTracker extends StateMachine {
                     Request request = (Request) msg.obj;
                     if (DBG) {
                         logd("IdleState handle EVENT_REQUEST with request:" + request);
+                        mLocalLog.log("IdleState handle EVENT_REQUEST with request:" + request
+                                + ", mCbRanges3gpp:" + mCbRanges3gpp
+                                + ", mCbRanges3gpp2:" + mCbRanges3gpp2);
                     }
                     if (!mCbRanges3gpp.equals(request.get3gppRanges())) {
                         // set gsm config if the config is changed
@@ -229,6 +241,7 @@ public final class CellBroadcastConfigTracker extends StateMachine {
                         transitionTo(mGsmActivatingState);
                     } else {
                         logd("Failed to set gsm config");
+                        mLocalLog.log("GsmConfiguringState Failed to set gsm config:" + request);
                         request.getCallback().accept(
                                 TelephonyManager.CELL_BROADCAST_RESULT_FAIL_CONFIG);
                         // transit to idle state on the failure case
@@ -265,6 +278,8 @@ public final class CellBroadcastConfigTracker extends StateMachine {
                     if (DBG) {
                         logd("GsmActivatingState handle EVENT_ACTIVATION_DONE with request:"
                                 + request);
+                        mLocalLog.log("GsmActivatingState EVENT_ACTIVATION_DONE, exception:"
+                                + ar.exception + ", request:" + request);
                     }
                     if (ar.exception == null) {
                         mCbRanges3gpp = request.get3gppRanges();
@@ -326,6 +341,7 @@ public final class CellBroadcastConfigTracker extends StateMachine {
                         transitionTo(mCdmaActivatingState);
                     } else {
                         logd("Failed to set cdma config");
+                        mLocalLog.log("CdmaConfiguringState Failed to set cdma config:" + request);
                         request.getCallback().accept(
                                 TelephonyManager.CELL_BROADCAST_RESULT_FAIL_CONFIG);
                         // transit to idle state on the failure case
@@ -362,6 +378,8 @@ public final class CellBroadcastConfigTracker extends StateMachine {
                     if (DBG) {
                         logd("CdmaActivatingState handle EVENT_ACTIVATION_DONE with request:"
                                 + request);
+                        mLocalLog.log("CdmaActivatingState EVENT_ACTIVATION_DONE, exception:"
+                                + ar.exception + ", request:" + request);
                     }
                     if (ar.exception == null) {
                         mCbRanges3gpp2 = request.get3gpp2Ranges();
@@ -530,5 +548,27 @@ public final class CellBroadcastConfigTracker extends StateMachine {
         } else if (type == SmsCbMessage.MESSAGE_FORMAT_3GPP2) {
             mPhone.mCi.setCdmaBroadcastActivation(activate, response);
         }
+    }
+
+    /**
+     * Dump the state of CellBroadcastConfigTracker
+     *
+     * @param fd File descriptor
+     * @param printWriter Print writer
+     * @param args Arguments
+     */
+    public void dump(FileDescriptor fd, PrintWriter printWriter, String[] args) {
+        IndentingPrintWriter pw = new IndentingPrintWriter(printWriter, "  ");
+        pw.println(CellBroadcastConfigTracker.class.getSimpleName()
+                + "-" + mPhone.getPhoneId() + ":");
+        pw.increaseIndent();
+        pw.println("Current mCbRanges3gpp:" + mCbRanges3gpp);
+        pw.println("Current mCbRanges3gpp2:" + mCbRanges3gpp2);
+        pw.decreaseIndent();
+
+        pw.println("Local logs:");
+        pw.increaseIndent();
+        mLocalLog.dump(fd, pw, args);
+        pw.decreaseIndent();
     }
 }

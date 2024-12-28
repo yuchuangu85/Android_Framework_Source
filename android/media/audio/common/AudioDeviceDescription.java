@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 0c86a38729dd5d560fe3a0eca6aa9d8cf83efb00 --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen/android/media/audio/common/AudioDeviceDescription.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3/android/media/audio/common/AudioDeviceDescription.aidl
  */
 package android.media.audio.common;
 /** @hide */
@@ -53,6 +54,8 @@ public class AudioDeviceDescription implements android.os.Parcelable
   public static final String CONNECTION_BT_A2DP = "bt-a2dp";
   public static final String CONNECTION_BT_LE = "bt-le";
   public static final String CONNECTION_BT_SCO = "bt-sco";
+  /** @deprecated Bus devices are attached, and must be represented using `{IN|OUT}_BUS` type + empty connection. Bus connection. Mostly used in automotive scenarios. */
+  @Deprecated
   public static final String CONNECTION_BUS = "bus";
   public static final String CONNECTION_HDMI = "hdmi";
   public static final String CONNECTION_HDMI_ARC = "hdmi-arc";
@@ -67,7 +70,7 @@ public class AudioDeviceDescription implements android.os.Parcelable
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
     _aidl_sj.add("type: " + (type));
     _aidl_sj.add("connection: " + (java.util.Objects.toString(connection)));
-    return "android.media.audio.common.AudioDeviceDescription" + _aidl_sj.toString()  ;
+    return "AudioDeviceDescription" + _aidl_sj.toString()  ;
   }
   @Override
   public boolean equals(Object other) {

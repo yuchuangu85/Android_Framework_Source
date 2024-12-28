@@ -42,14 +42,13 @@ public interface ECPrivateKey extends PrivateKey, ECKey {
    /**
     * The class fingerprint that is set to indicate
     * serialization compatibility.
+    *
+    * @deprecated A {@code serialVersionUID} field in an interface is
+    * ineffectual. Do not use; no replacement.
     */
-    // Android-removed: (b/260847206) revert once aosp/master is marked as V.
-    // * @deprecated A {@code serialVersionUID} field in an interface is
-    // * ineffectual. Do not use; no replacement.
-    // */
-    // @Deprecated
-    // @SuppressWarnings("serial")
-    // @java.io.Serial
+    @Deprecated
+    @SuppressWarnings("serial")
+    @java.io.Serial
     static final long serialVersionUID = -7896394956925609184L;
 
     /**

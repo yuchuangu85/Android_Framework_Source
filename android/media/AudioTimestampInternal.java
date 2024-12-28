@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl-java-source/gen/android/media/AudioTimestampInternal.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/AudioTimestampInternal.aidl
  */
 package android.media;
 /**
@@ -9,8 +10,11 @@ package android.media;
  */
 public class AudioTimestampInternal implements android.os.Parcelable
 {
-  /** A frame position in AudioTrack::getPosition() units. */
-  public int position = 0;
+  /**
+   * A frame position in AudioTrack::getPosition() units. Use 'long' to accommodate
+   * all values from 'uint32_t'.
+   */
+  public long position = 0L;
   /** corresponding CLOCK_MONOTONIC when frame is expected to present. */
   public long sec = 0L;
   public int nsec = 0;
@@ -30,7 +34,7 @@ public class AudioTimestampInternal implements android.os.Parcelable
   {
     int _aidl_start_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.writeInt(0);
-    _aidl_parcel.writeInt(position);
+    _aidl_parcel.writeLong(position);
     _aidl_parcel.writeLong(sec);
     _aidl_parcel.writeInt(nsec);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
@@ -45,7 +49,7 @@ public class AudioTimestampInternal implements android.os.Parcelable
     try {
       if (_aidl_parcelable_size < 4) throw new android.os.BadParcelableException("Parcelable too small");;
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
-      position = _aidl_parcel.readInt();
+      position = _aidl_parcel.readLong();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       sec = _aidl_parcel.readLong();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;

@@ -28,7 +28,10 @@ import android.telephony.data.ApnSetting;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.data.AccessNetworksManager;
+import com.android.internal.telephony.data.AccessNetworksManager.QualifiedNetworks;
 import com.android.internal.telephony.emergency.EmergencyStateTracker;
+
+import java.util.List;
 
 /**
  * Manages the information of request and the callback binder for an emergency SMS.
@@ -139,14 +142,14 @@ public class EmergencySmsDomainSelectionConnection extends SmsDomainSelectionCon
     }
 
     @Override
-    protected void onQualifiedNetworksChanged() {
-        AccessNetworksManager anm = mPhone.getAccessNetworksManager();
-        int preferredTransportType = anm.getPreferredTransport(ApnSetting.TYPE_EMERGENCY);
+    protected void onQualifiedNetworksChanged(List<QualifiedNetworks> networksList) {
+        int preferredTransportType = getPreferredTransport(ApnSetting.TYPE_EMERGENCY, networksList);
 
         synchronized (mLock) {
             if (preferredTransportType == mPreferredTransportType) {
                 mPreferredTransportType = AccessNetworkConstants.TRANSPORT_TYPE_INVALID;
                 super.onDomainSelected(NetworkRegistrationInfo.DOMAIN_PS, true);
+                AccessNetworksManager anm = mPhone.getAccessNetworksManager();
                 anm.unregisterForQualifiedNetworksChanged(mHandler);
             }
         }

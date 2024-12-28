@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 1 --hash ae4cfe565d66acc7d816aabd0dfab991e64031ab --min_sdk_version 30 --ninja -d out/soong/.intermediates/packages/modules/Connectivity/staticlibs/netd/mdns_aidl_interface-V1-java-source/gen/android/net/mdns/aidl/IMDns.java.d -o out/soong/.intermediates/packages/modules/Connectivity/staticlibs/netd/mdns_aidl_interface-V1-java-source/gen -Npackages/modules/Connectivity/staticlibs/netd/aidl_api/mdns_aidl_interface/1 packages/modules/Connectivity/staticlibs/netd/aidl_api/mdns_aidl_interface/1/android/net/mdns/aidl/IMDns.aidl
  */
 package android.net.mdns.aidl;
 /** @hide */
@@ -60,6 +61,7 @@ public interface IMDns extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.net.mdns.aidl.IMDns
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -89,25 +91,19 @@ public interface IMDns extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -410,6 +406,7 @@ public interface IMDns extends android.os.IInterface
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$net$mdns$aidl$IMDns".replace('$', '.');
   public void startDaemon() throws android.os.RemoteException;
   public void stopDaemon() throws android.os.RemoteException;

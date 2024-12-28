@@ -24,7 +24,7 @@ import java.io.OutputStream;
 /**
  * BluetoothOutputStream.
  *
- * Used to read from a Bluetooth socket.
+ * <p>Used to read from a Bluetooth socket.
  *
  * @hide
  */
@@ -36,16 +36,14 @@ import java.io.OutputStream;
         mSocket = s;
     }
 
-    /**
-     * Close this output stream and the socket associated with it.
-     */
+    /** Close this output stream and the socket associated with it. */
     public void close() throws IOException {
         mSocket.close();
     }
 
     /**
-     * Writes a single byte to this stream. Only the least significant byte of
-     * the integer {@code oneByte} is written to the stream.
+     * Writes a single byte to this stream. Only the least significant byte of the integer {@code
+     * oneByte} is written to the stream.
      *
      * @param oneByte the byte to be written.
      * @throws IOException if an error occurs while writing to this stream.
@@ -58,15 +56,15 @@ import java.io.OutputStream;
     }
 
     /**
-     * Writes {@code count} bytes from the byte array {@code buffer} starting
-     * at position {@code offset} to this stream.
+     * Writes {@code count} bytes from the byte array {@code buffer} starting at position {@code
+     * offset} to this stream.
      *
      * @param b the buffer to be written.
      * @param offset the start position in {@code buffer} from where to get bytes.
      * @param count the number of bytes from {@code buffer} to write to this stream.
      * @throws IOException if an error occurs while writing to this stream.
      * @throws IndexOutOfBoundsException if {@code offset < 0} or {@code count < 0}, or if {@code
-     * offset + count} is bigger than the length of {@code buffer}.
+     *     offset + count} is bigger than the length of {@code buffer}.
      * @since Android 1.0
      */
     public void write(byte[] b, int offset, int count) throws IOException {

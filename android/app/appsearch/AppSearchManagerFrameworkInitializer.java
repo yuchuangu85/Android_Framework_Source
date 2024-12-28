@@ -33,12 +33,13 @@ public class AppSearchManagerFrameworkInitializer {
      * Called by {@link SystemServiceRegistry}'s static initializer and registers all AppSearch
      * services to {@link Context}, so that {@link Context#getSystemService} can return them.
      *
-     * @throws IllegalStateException if this is called from anywhere besides
-     *     {@link SystemServiceRegistry}
+     * @throws IllegalStateException if this is called from anywhere besides {@link
+     *     SystemServiceRegistry}
      */
     public static void initialize() {
         SystemServiceRegistry.registerContextAwareService(
-                Context.APP_SEARCH_SERVICE, AppSearchManager.class,
+                Context.APP_SEARCH_SERVICE,
+                AppSearchManager.class,
                 (context, service) ->
                         new AppSearchManager(context, IAppSearchManager.Stub.asInterface(service)));
     }

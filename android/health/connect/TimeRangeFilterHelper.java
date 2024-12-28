@@ -17,6 +17,7 @@
 package android.health.connect;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -37,8 +38,9 @@ public final class TimeRangeFilterHelper {
 
     /**
      * @return start time epoch milliseconds for Instant time filter and epoch milliseconds using
-     *     system zoneOffset for LocalTime filter
+     *     UTC zoneOffset for LocalTime filter
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public static long getFilterStartTimeMillis(@NonNull TimeRangeFilter timeRangeFilter) {
         if (isLocalTimeFilter(timeRangeFilter)) {
             return getMillisOfLocalTime(((LocalTimeRangeFilter) timeRangeFilter).getStartTime());
@@ -52,9 +54,10 @@ public final class TimeRangeFilterHelper {
     }
 
     /**
-     * @return end time epoch milliseconds for Instant time filter and epoch milliseconds using
-     *     system zoneOffset for LocalTime filter
+     * @return end time epoch milliseconds for Instant time filter and epoch milliseconds using UTC
+     *     zoneOffset for LocalTime filter
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public static long getFilterEndTimeMillis(@NonNull TimeRangeFilter timeRangeFilter) {
         if (isLocalTimeFilter(timeRangeFilter)) {
             return getMillisOfLocalTime(((LocalTimeRangeFilter) timeRangeFilter).getEndTime());
@@ -74,5 +77,16 @@ public final class TimeRangeFilterHelper {
 
     public static long getMillisOfLocalTime(LocalDateTime time) {
         return time.toInstant(LOCAL_TIME_ZERO_OFFSET).toEpochMilli();
+    }
+
+    /**
+     * Converts the provided {@link LocalDateTime} to {@link Instant} using the provided {@link
+     * ZoneOffset} if it's not null, or using the system default zone offset otherwise.
+     */
+    public static Instant getInstantFromLocalTime(
+            @NonNull LocalDateTime time, @Nullable ZoneOffset zoneOffset) {
+        return zoneOffset != null
+                ? time.toInstant(zoneOffset)
+                : time.toInstant(ZoneOffset.systemDefault().getRules().getOffset(time));
     }
 }

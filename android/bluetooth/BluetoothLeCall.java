@@ -36,18 +36,19 @@ import java.util.UUID;
 public final class BluetoothLeCall implements Parcelable {
 
     /** @hide */
-    @IntDef(prefix = "STATE_", value = {
-            STATE_INCOMING,
-            STATE_DIALING,
-            STATE_ALERTING,
-            STATE_ACTIVE,
-            STATE_LOCALLY_HELD,
-            STATE_REMOTELY_HELD,
-            STATE_LOCALLY_AND_REMOTELY_HELD
-    })
+    @IntDef(
+            prefix = "STATE_",
+            value = {
+                STATE_INCOMING,
+                STATE_DIALING,
+                STATE_ALERTING,
+                STATE_ACTIVE,
+                STATE_LOCALLY_HELD,
+                STATE_REMOTELY_HELD,
+                STATE_LOCALLY_AND_REMOTELY_HELD
+            })
     @Retention(RetentionPolicy.SOURCE)
-    public @interface State {
-    }
+    public @interface State {}
 
     /**
      * A remote party is calling (incoming call).
@@ -57,8 +58,8 @@ public final class BluetoothLeCall implements Parcelable {
     public static final int STATE_INCOMING = 0x00;
 
     /**
-     * The process to call the remote party has started but the remote party is not
-     * being alerted (outgoing call).
+     * The process to call the remote party has started but the remote party is not being alerted
+     * (outgoing call).
      *
      * @hide
      */
@@ -79,16 +80,16 @@ public final class BluetoothLeCall implements Parcelable {
     public static final int STATE_ACTIVE = 0x03;
 
     /**
-     * The call is connected but held locally. “Locally Held” implies that either
-     * the server or the client can affect the state.
+     * The call is connected but held locally. “Locally Held” implies that either the server or the
+     * client can affect the state.
      *
      * @hide
      */
     public static final int STATE_LOCALLY_HELD = 0x04;
 
     /**
-     * The call is connected but held remotely. “Remotely Held” means that the state
-     * is controlled by the remote party of a call.
+     * The call is connected but held remotely. “Remotely Held” means that the state is controlled
+     * by the remote party of a call.
      *
      * @hide
      */
@@ -139,8 +140,10 @@ public final class BluetoothLeCall implements Parcelable {
 
     /** @hide */
     public BluetoothLeCall(@NonNull BluetoothLeCall that) {
-        mUuid = new UUID(that.getUuid().getMostSignificantBits(),
-                that.getUuid().getLeastSignificantBits());
+        mUuid =
+                new UUID(
+                        that.getUuid().getMostSignificantBits(),
+                        that.getUuid().getLeastSignificantBits());
         mUri = that.mUri;
         mFriendlyName = that.mFriendlyName;
         mState = that.mState;
@@ -148,8 +151,12 @@ public final class BluetoothLeCall implements Parcelable {
     }
 
     /** @hide */
-    public BluetoothLeCall(@NonNull UUID uuid, @NonNull String uri, @NonNull String friendlyName,
-            @State int state, int callFlags) {
+    public BluetoothLeCall(
+            @NonNull UUID uuid,
+            @NonNull String uri,
+            @NonNull String friendlyName,
+            @State int state,
+            int callFlags) {
         mUuid = uuid;
         mUri = uri;
         mFriendlyName = friendlyName;
@@ -165,8 +172,10 @@ public final class BluetoothLeCall implements Parcelable {
         if (o == null || getClass() != o.getClass()) return false;
 
         BluetoothLeCall that = (BluetoothLeCall) o;
-        return mUuid.equals(that.mUuid) && mUri.equals(that.mUri)
-                && mFriendlyName.equals(that.mFriendlyName) && mState == that.mState
+        return mUuid.equals(that.mUuid)
+                && mUri.equals(that.mUri)
+                && mFriendlyName.equals(that.mFriendlyName)
+                && mState == that.mState
                 && mCallFlags == that.mCallFlags;
     }
 
@@ -178,8 +187,7 @@ public final class BluetoothLeCall implements Parcelable {
     /**
      * Returns a string representation of this BluetoothLeCall.
      *
-     * <p>
-     * Currently this is the UUID.
+     * <p>Currently this is the UUID.
      *
      * @return string representation of this BluetoothLeCall
      */
@@ -202,15 +210,16 @@ public final class BluetoothLeCall implements Parcelable {
         out.writeInt(mCallFlags);
     }
 
-    public static final @NonNull Creator<BluetoothLeCall> CREATOR = new Creator<>() {
-        public BluetoothLeCall createFromParcel(Parcel in) {
-            return new BluetoothLeCall(in);
-        }
+    public static final @NonNull Creator<BluetoothLeCall> CREATOR =
+            new Creator<>() {
+                public BluetoothLeCall createFromParcel(Parcel in) {
+                    return new BluetoothLeCall(in);
+                }
 
-        public BluetoothLeCall[] newArray(int size) {
-            return new BluetoothLeCall[size];
-        }
-    };
+                public BluetoothLeCall[] newArray(int size) {
+                    return new BluetoothLeCall[size];
+                }
+            };
 
     private BluetoothLeCall(Parcel in) {
         mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
@@ -223,8 +232,7 @@ public final class BluetoothLeCall implements Parcelable {
     /**
      * Returns an UUID of this BluetoothLeCall.
      *
-     * <p>
-     * An UUID is unique identifier of a BluetoothLeCall.
+     * <p>An UUID is unique identifier of a BluetoothLeCall.
      *
      * @return UUID of this BluetoothLeCall
      * @hide

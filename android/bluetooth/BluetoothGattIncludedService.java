@@ -29,24 +29,16 @@ import java.util.UUID;
  */
 public class BluetoothGattIncludedService implements Parcelable {
 
-    /**
-     * The UUID of this service.
-     */
+    /** The UUID of this service. */
     protected UUID mUuid;
 
-    /**
-     * Instance ID for this service.
-     */
+    /** Instance ID for this service. */
     protected int mInstanceId;
 
-    /**
-     * Service type (Primary/Secondary).
-     */
+    /** Service type (Primary/Secondary). */
     protected int mServiceType;
 
-    /**
-     * Create a new BluetoothGattIncludedService
-     */
+    /** Create a new BluetoothGattIncludedService */
     public BluetoothGattIncludedService(UUID uuid, int instanceId, int serviceType) {
         mUuid = uuid;
         mInstanceId = instanceId;
@@ -65,15 +57,16 @@ public class BluetoothGattIncludedService implements Parcelable {
         out.writeInt(mServiceType);
     }
 
-    public static final @NonNull Creator<BluetoothGattIncludedService> CREATOR = new Creator<>() {
-        public BluetoothGattIncludedService createFromParcel(Parcel in) {
-            return new BluetoothGattIncludedService(in);
-        }
+    public static final @NonNull Creator<BluetoothGattIncludedService> CREATOR =
+            new Creator<>() {
+                public BluetoothGattIncludedService createFromParcel(Parcel in) {
+                    return new BluetoothGattIncludedService(in);
+                }
 
-        public BluetoothGattIncludedService[] newArray(int size) {
-            return new BluetoothGattIncludedService[size];
-        }
-    };
+                public BluetoothGattIncludedService[] newArray(int size) {
+                    return new BluetoothGattIncludedService[size];
+                }
+            };
 
     private BluetoothGattIncludedService(Parcel in) {
         mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
@@ -93,9 +86,8 @@ public class BluetoothGattIncludedService implements Parcelable {
     /**
      * Returns the instance ID for this service
      *
-     * <p>If a remote device offers multiple services with the same UUID
-     * (ex. multiple battery services for different batteries), the instance
-     * ID is used to distuinguish services.
+     * <p>If a remote device offers multiple services with the same UUID (ex. multiple battery
+     * services for different batteries), the instance ID is used to distuinguish services.
      *
      * @return Instance ID of this service
      */
@@ -103,9 +95,7 @@ public class BluetoothGattIncludedService implements Parcelable {
         return mInstanceId;
     }
 
-    /**
-     * Get the type of this service (primary/secondary)
-     */
+    /** Get the type of this service (primary/secondary) */
     public int getType() {
         return mServiceType;
     }

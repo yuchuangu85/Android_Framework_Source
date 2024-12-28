@@ -38,8 +38,10 @@ public abstract class ShimUtils {
     private static final ShimUtils INSTANCE;
 
     static {
-        if (SdkLevel.isAtLeastU()) {
-            INSTANCE = new ShimUtilsMinU();
+        if (SdkLevel.isAtLeastV()) {
+            INSTANCE = new ShimUtilsMinV();
+        } else if (SdkLevel.isAtLeastU()) {
+            INSTANCE = new ShimUtilsU();
         } else if (SdkLevel.isAtLeastT()) {
             INSTANCE = new ShimUtilsT();
         } else {

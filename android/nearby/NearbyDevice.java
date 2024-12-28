@@ -25,6 +25,8 @@ import android.util.ArraySet;
 
 import com.android.internal.util.Preconditions;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -149,6 +151,7 @@ public abstract class NearbyDevice {
      * @hide
      */
     @IntDef({Medium.BLE, Medium.BLUETOOTH})
+    @Retention(RetentionPolicy.SOURCE)
     public @interface Medium {
         int BLE = 1;
         int BLUETOOTH = 2;

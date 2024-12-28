@@ -35,7 +35,7 @@ public class AppSearchException extends Exception {
      * @param resultCode One of the constants documented in {@link AppSearchResult#getResultCode}.
      */
     public AppSearchException(@AppSearchResult.ResultCode int resultCode) {
-        this(resultCode, /*message=*/ null);
+        this(resultCode, /* message= */ null);
     }
 
     /**
@@ -47,7 +47,7 @@ public class AppSearchException extends Exception {
      */
     public AppSearchException(
             @AppSearchResult.ResultCode int resultCode, @Nullable String message) {
-        this(resultCode, message, /*cause=*/ null);
+        this(resultCode, message, /* cause= */ null);
     }
 
     /**

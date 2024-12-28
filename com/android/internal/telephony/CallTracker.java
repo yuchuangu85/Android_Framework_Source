@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
@@ -25,7 +26,10 @@ import android.os.Message;
 import android.os.PersistableBundle;
 import android.telephony.CarrierConfigManager;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+
+import com.android.internal.telephony.flags.FeatureFlags;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -55,6 +59,9 @@ public abstract class CallTracker extends Handler {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     protected boolean mNumberConverted = false;
+
+    protected final @NonNull FeatureFlags mFeatureFlags;
+
     private final int VALID_COMPARE_LENGTH   = 3;
 
     //***** Events
@@ -77,7 +84,8 @@ public abstract class CallTracker extends Handler {
     protected static final int EVENT_THREE_WAY_DIAL_BLANK_FLASH    = 20;
 
     @UnsupportedAppUsage
-    public CallTracker() {
+    public CallTracker(FeatureFlags featureFlags) {
+        mFeatureFlags = featureFlags;
     }
 
     protected void pollCallsWhenSafe() {
@@ -91,6 +99,14 @@ public abstract class CallTracker extends Handler {
 
     protected void
     pollCallsAfterDelay() {
+        if (mFeatureFlags.preventInvocationRepeatOfRilCallWhenDeviceDoesNotSupportVoice()) {
+            if (!mCi.getHalVersion(TelephonyManager.HAL_SERVICE_VOICE)
+                    .greaterOrEqual(RIL.RADIO_HAL_VERSION_1_4)) {
+                log("Skip polling because HAL_SERVICE_VOICE < RADIO_HAL_VERSION_1.4");
+                return;
+            }
+        }
+
         Message msg = obtainMessage();
 
         msg.what = EVENT_REPOLL_AFTER_DELAY;

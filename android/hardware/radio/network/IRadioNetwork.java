@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/IRadioNetwork.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/IRadioNetwork.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public interface IRadioNetwork extends android.os.IInterface
 {
   /**
@@ -10,8 +12,8 @@ public interface IRadioNetwork extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "1b6608f238bd0b1c642df315621a7b605eafc883";
+  public static final int VERSION = 3;
+  public static final String HASH = "c45c122528c07c449ea08f6eacaace17bb7abc38";
   /** Default implementation for IRadioNetwork. */
   public static class Default implements android.hardware.radio.network.IRadioNetwork
   {
@@ -148,6 +150,18 @@ public interface IRadioNetwork extends android.os.IInterface
     @Override public void setN1ModeEnabled(int serial, boolean enable) throws android.os.RemoteException
     {
     }
+    @Override public void isCellularIdentifierTransparencyEnabled(int serial) throws android.os.RemoteException
+    {
+    }
+    @Override public void setCellularIdentifierTransparencyEnabled(int serial, boolean enabled) throws android.os.RemoteException
+    {
+    }
+    @Override public void setSecurityAlgorithmsUpdatedEnabled(int serial, boolean enable) throws android.os.RemoteException
+    {
+    }
+    @Override public void isSecurityAlgorithmsUpdatedEnabled(int serial) throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -165,6 +179,7 @@ public interface IRadioNetwork extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.network.IRadioNetwork
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -195,25 +210,19 @@ public interface IRadioNetwork extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -626,6 +635,42 @@ public interface IRadioNetwork extends android.os.IInterface
           _arg1 = data.readBoolean();
           data.enforceNoDataAvail();
           this.setN1ModeEnabled(_arg0, _arg1);
+          break;
+        }
+        case TRANSACTION_isCellularIdentifierTransparencyEnabled:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          data.enforceNoDataAvail();
+          this.isCellularIdentifierTransparencyEnabled(_arg0);
+          break;
+        }
+        case TRANSACTION_setCellularIdentifierTransparencyEnabled:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          boolean _arg1;
+          _arg1 = data.readBoolean();
+          data.enforceNoDataAvail();
+          this.setCellularIdentifierTransparencyEnabled(_arg0, _arg1);
+          break;
+        }
+        case TRANSACTION_setSecurityAlgorithmsUpdatedEnabled:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          boolean _arg1;
+          _arg1 = data.readBoolean();
+          data.enforceNoDataAvail();
+          this.setSecurityAlgorithmsUpdatedEnabled(_arg0, _arg1);
+          break;
+        }
+        case TRANSACTION_isSecurityAlgorithmsUpdatedEnabled:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          data.enforceNoDataAvail();
+          this.isSecurityAlgorithmsUpdatedEnabled(_arg0);
           break;
         }
         default:
@@ -1343,6 +1388,68 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void isCellularIdentifierTransparencyEnabled(int serial) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(serial);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_isCellularIdentifierTransparencyEnabled, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method isCellularIdentifierTransparencyEnabled is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void setCellularIdentifierTransparencyEnabled(int serial, boolean enabled) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(serial);
+          _data.writeBoolean(enabled);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setCellularIdentifierTransparencyEnabled, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method setCellularIdentifierTransparencyEnabled is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void setSecurityAlgorithmsUpdatedEnabled(int serial, boolean enable) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(serial);
+          _data.writeBoolean(enable);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setSecurityAlgorithmsUpdatedEnabled, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method setSecurityAlgorithmsUpdatedEnabled is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void isSecurityAlgorithmsUpdatedEnabled(int serial) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(serial);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_isSecurityAlgorithmsUpdatedEnabled, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method isSecurityAlgorithmsUpdatedEnabled is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -1422,9 +1529,14 @@ public interface IRadioNetwork extends android.os.IInterface
     static final int TRANSACTION_isNullCipherAndIntegrityEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 41);
     static final int TRANSACTION_isN1ModeEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 42);
     static final int TRANSACTION_setN1ModeEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 43);
+    static final int TRANSACTION_isCellularIdentifierTransparencyEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 44);
+    static final int TRANSACTION_setCellularIdentifierTransparencyEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 45);
+    static final int TRANSACTION_setSecurityAlgorithmsUpdatedEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 46);
+    static final int TRANSACTION_isSecurityAlgorithmsUpdatedEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 47);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$network$IRadioNetwork".replace('$', '.');
   public void getAllowedNetworkTypesBitmap(int serial) throws android.os.RemoteException;
   public void getAvailableBandModes(int serial) throws android.os.RemoteException;
@@ -1472,6 +1584,10 @@ public interface IRadioNetwork extends android.os.IInterface
   public void isNullCipherAndIntegrityEnabled(int serial) throws android.os.RemoteException;
   public void isN1ModeEnabled(int serial) throws android.os.RemoteException;
   public void setN1ModeEnabled(int serial, boolean enable) throws android.os.RemoteException;
+  public void isCellularIdentifierTransparencyEnabled(int serial) throws android.os.RemoteException;
+  public void setCellularIdentifierTransparencyEnabled(int serial, boolean enabled) throws android.os.RemoteException;
+  public void setSecurityAlgorithmsUpdatedEnabled(int serial, boolean enable) throws android.os.RemoteException;
+  public void isSecurityAlgorithmsUpdatedEnabled(int serial) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

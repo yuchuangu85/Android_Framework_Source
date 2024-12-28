@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash ea7be3035be8d4869237a6478d2e0bb0efcc1e87 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen/android/hardware/radio/sim/ImsiEncryptionInfo.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3/android/hardware/radio/sim/ImsiEncryptionInfo.aidl
  */
 package android.hardware.radio.sim;
+/** @hide */
 public class ImsiEncryptionInfo implements android.os.Parcelable
 {
   public java.lang.String mcc;
@@ -75,7 +77,7 @@ public class ImsiEncryptionInfo implements android.os.Parcelable
     _aidl_sj.add("keyIdentifier: " + (java.util.Objects.toString(keyIdentifier)));
     _aidl_sj.add("expirationTime: " + (expirationTime));
     _aidl_sj.add("keyType: " + (keyType));
-    return "android.hardware.radio.sim.ImsiEncryptionInfo" + _aidl_sj.toString()  ;
+    return "ImsiEncryptionInfo" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

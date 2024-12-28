@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 0c86a38729dd5d560fe3a0eca6aa9d8cf83efb00 --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen/android/media/audio/common/AudioDeviceAddress.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3/android/media/audio/common/AudioDeviceAddress.aidl
  */
 package android.media.audio.common;
 /** @hide */
@@ -190,11 +191,11 @@ public final class AudioDeviceAddress implements android.os.Parcelable {
   @Override
   public String toString() {
     switch (_tag) {
-    case id: return "android.media.audio.common.AudioDeviceAddress.id(" + (java.util.Objects.toString(getId())) + ")";
-    case mac: return "android.media.audio.common.AudioDeviceAddress.mac(" + (java.util.Arrays.toString(getMac())) + ")";
-    case ipv4: return "android.media.audio.common.AudioDeviceAddress.ipv4(" + (java.util.Arrays.toString(getIpv4())) + ")";
-    case ipv6: return "android.media.audio.common.AudioDeviceAddress.ipv6(" + (java.util.Arrays.toString(getIpv6())) + ")";
-    case alsa: return "android.media.audio.common.AudioDeviceAddress.alsa(" + (java.util.Arrays.toString(getAlsa())) + ")";
+    case id: return "AudioDeviceAddress.id(" + (java.util.Objects.toString(getId())) + ")";
+    case mac: return "AudioDeviceAddress.mac(" + (java.util.Arrays.toString(getMac())) + ")";
+    case ipv4: return "AudioDeviceAddress.ipv4(" + (java.util.Arrays.toString(getIpv4())) + ")";
+    case ipv6: return "AudioDeviceAddress.ipv6(" + (java.util.Arrays.toString(getIpv6())) + ")";
+    case alsa: return "AudioDeviceAddress.alsa(" + (java.util.Arrays.toString(getAlsa())) + ")";
     }
     throw new IllegalStateException("unknown field: " + _tag);
   }

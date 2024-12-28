@@ -129,6 +129,10 @@ import sun.security.jca.GetInstance.Instance;
  *       <td>RSA</td>
  *       <td>1+</td>
  *     </tr>
+ *     <tr>
+ *       <td>XDH</td>
+ *       <td>33+</td>
+ *     </tr>
  *   </tbody>
  * </table>
  *

@@ -26,8 +26,6 @@ import java.util.Objects;
 
 /**
  * A {@link NetworkSpecifier} used to identify ethernet interfaces.
- *
- * @see EthernetManager
  */
 public final class EthernetNetworkSpecifier extends NetworkSpecifier implements Parcelable {
 

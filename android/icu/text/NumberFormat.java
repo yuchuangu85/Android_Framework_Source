@@ -1867,8 +1867,8 @@ public abstract class NumberFormat extends UFormat {
 
         /**
          * Approximately sign. In ICU 70, this was categorized under the generic SIGN field.
-         * @hide draft / provisional / internal are hidden on Android
          */
+        @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
         public static final Field APPROXIMATELY_SIGN = new Field("approximately sign");
 
         /**

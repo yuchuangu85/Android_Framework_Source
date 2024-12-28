@@ -2425,7 +2425,10 @@ class Thread implements Runnable {
     int threadLocalRandomSecondarySeed;
 
     /* Some private helper methods */
-    private native void setPriority0(int newPriority);
+    /**
+     * Android-changed: Make accessible to Daemons.java for internal use.
+     */
+    native void setPriority0(int newPriority);
 
     // BEGIN Android-removed: Native methods that are unused on Android.
     /*

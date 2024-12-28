@@ -18,6 +18,7 @@ package android.health.connect.aidl;
 
 import static android.health.connect.Constants.DEFAULT_INT;
 import static android.health.connect.Constants.DEFAULT_LONG;
+import static android.health.connect.TimeRangeFilterHelper.getInstantFromLocalTime;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -65,10 +66,12 @@ public class AggregateDataResponseParcel implements Parcelable {
     private Period mPeriod;
     private TimeRangeFilter mTimeRangeFilter;
 
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     public AggregateDataResponseParcel(List<AggregateRecordsResponse<?>> aggregateRecordsResponse) {
         mAggregateRecordsResponses = aggregateRecordsResponse;
     }
 
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     protected AggregateDataResponseParcel(Parcel in) {
         final int size = in.readInt();
         mAggregateRecordsResponses = new ArrayList<>(size);
@@ -95,9 +98,11 @@ public class AggregateDataResponseParcel implements Parcelable {
             mAggregateRecordsResponses.add(new AggregateRecordsResponse<>(result));
         }
 
-        int period = in.readInt();
-        if (period != DEFAULT_INT) {
-            mPeriod = Period.ofDays(period);
+        int periodDays = in.readInt();
+        if (periodDays != DEFAULT_INT) {
+            int periodMonths = in.readInt();
+            int periodYears = in.readInt();
+            mPeriod = Period.of(periodYears, periodMonths, periodDays);
         }
 
         long duration = in.readLong();
@@ -126,6 +131,7 @@ public class AggregateDataResponseParcel implements Parcelable {
         }
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public AggregateDataResponseParcel setDuration(
             @Nullable Duration duration, @Nullable TimeRangeFilter timeRangeFilter) {
         mDuration = duration;
@@ -134,6 +140,7 @@ public class AggregateDataResponseParcel implements Parcelable {
         return this;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public AggregateDataResponseParcel setPeriod(
             @Nullable Period period, @Nullable TimeRangeFilter timeRangeFilter) {
         mPeriod = period;
@@ -153,30 +160,80 @@ public class AggregateDataResponseParcel implements Parcelable {
      * @return responses from {@code mAggregateRecordsResponses} grouped as per the {@code
      *     mDuration}
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public List<AggregateRecordsGroupedByDurationResponse<?>>
             getAggregateDataResponseGroupedByDuration() {
         Objects.requireNonNull(mDuration);
 
-        List<AggregateRecordsGroupedByDurationResponse<?>>
-                aggregateRecordsGroupedByDurationResponse = new ArrayList<>();
-        long mStartTime = TimeRangeFilterHelper.getFilterStartTimeMillis(mTimeRangeFilter);
-        long mEndTime = TimeRangeFilterHelper.getFilterEndTimeMillis(mTimeRangeFilter);
-        long mDelta = getDurationDelta(mDuration);
-        for (AggregateRecordsResponse<?> aggregateRecordsResponse : mAggregateRecordsResponses) {
-            aggregateRecordsGroupedByDurationResponse.add(
-                    new AggregateRecordsGroupedByDurationResponse<>(
-                            getDurationInstant(mStartTime),
-                            getDurationInstant(Math.min(mStartTime + mDelta, mEndTime)),
-                            aggregateRecordsResponse.getAggregateResults()));
-            mStartTime += mDelta;
+        if (mAggregateRecordsResponses.isEmpty()) {
+            return List.of();
         }
 
-        return aggregateRecordsGroupedByDurationResponse;
+        if (mTimeRangeFilter instanceof LocalTimeRangeFilter timeFilter) {
+            return getAggregateDataResponseForLocalTimeGroupedByDuration(
+                    timeFilter.getStartTime(), timeFilter.getEndTime());
+        }
+
+        if (mTimeRangeFilter instanceof TimeInstantRangeFilter timeFilter) {
+            return getAggregateDataResponseForInstantTimeGroupedByDuration(
+                    timeFilter.getStartTime(), timeFilter.getEndTime());
+        }
+
+        throw new IllegalArgumentException(
+                "Invalid time filter object. Object should be either TimeInstantRangeFilter or "
+                        + "LocalTimeRangeFilter.");
+    }
+
+    private List<AggregateRecordsGroupedByDurationResponse<?>>
+            getAggregateDataResponseForLocalTimeGroupedByDuration(
+                    LocalDateTime startTime, LocalDateTime endTime) {
+        List<AggregateRecordsGroupedByDurationResponse<?>> responses = new ArrayList<>();
+        Duration bucketStartTimeOffset = Duration.ZERO;
+        for (AggregateRecordsResponse<?> response : mAggregateRecordsResponses) {
+            ZoneOffset zoneOffset = response.getFirstZoneOffset();
+            Instant endTimeInstant = getInstantFromLocalTime(endTime, zoneOffset);
+            Instant bucketStartTime =
+                    getInstantFromLocalTime(startTime, zoneOffset).plus(bucketStartTimeOffset);
+            Instant bucketEndTime = bucketStartTime.plus(mDuration);
+            if (bucketEndTime.isAfter(endTimeInstant)) {
+                bucketEndTime = endTimeInstant;
+            }
+
+            responses.add(
+                    new AggregateRecordsGroupedByDurationResponse<>(
+                            bucketStartTime, bucketEndTime, response.getAggregateResults()));
+            bucketStartTimeOffset = bucketStartTimeOffset.plus(mDuration);
+        }
+
+        return responses;
+    }
+
+    private List<AggregateRecordsGroupedByDurationResponse<?>>
+            getAggregateDataResponseForInstantTimeGroupedByDuration(
+                    Instant startTime, Instant endTime) {
+        List<AggregateRecordsGroupedByDurationResponse<?>> responses = new ArrayList<>();
+        Duration offsetDuration = Duration.ZERO;
+        for (AggregateRecordsResponse<?> response : mAggregateRecordsResponses) {
+            Instant buckedStartTime = startTime.plus(offsetDuration);
+            Instant buckedEndTime = buckedStartTime.plus(mDuration);
+            if (buckedEndTime.isAfter(endTime)) {
+                buckedEndTime = endTime;
+            }
+
+            responses.add(
+                    new AggregateRecordsGroupedByDurationResponse<>(
+                            buckedStartTime, buckedEndTime, response.getAggregateResults()));
+
+            offsetDuration = offsetDuration.plus(mDuration);
+        }
+
+        return responses;
     }
 
     /**
      * @return responses from {@code mAggregateRecordsResponses} grouped as per the {@code mPeriod}
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public List<AggregateRecordsGroupedByPeriodResponse<?>>
             getAggregateDataResponseGroupedByPeriod() {
         Objects.requireNonNull(mPeriod);
@@ -185,14 +242,13 @@ public class AggregateDataResponseParcel implements Parcelable {
                 new ArrayList<>();
 
         LocalDateTime groupBoundary = ((LocalTimeRangeFilter) mTimeRangeFilter).getStartTime();
-        long mDelta = getPeriodDeltaInDays(mPeriod);
         for (AggregateRecordsResponse<?> aggregateRecordsResponse : mAggregateRecordsResponses) {
             aggregateRecordsGroupedByPeriodResponses.add(
                     new AggregateRecordsGroupedByPeriodResponse<>(
                             groupBoundary,
-                            groupBoundary.plusDays(mDelta),
+                            groupBoundary.plus(mPeriod),
                             aggregateRecordsResponse.getAggregateResults()));
-            groupBoundary = groupBoundary.plusDays(mDelta);
+            groupBoundary = groupBoundary.plus(mPeriod);
         }
 
         if (!aggregateRecordsGroupedByPeriodResponses.isEmpty()) {
@@ -241,6 +297,8 @@ public class AggregateDataResponseParcel implements Parcelable {
 
         if (mPeriod != null) {
             dest.writeInt(mPeriod.getDays());
+            dest.writeInt(mPeriod.getMonths());
+            dest.writeInt(mPeriod.getYears());
         } else {
             dest.writeInt(DEFAULT_INT);
         }
@@ -262,6 +320,7 @@ public class AggregateDataResponseParcel implements Parcelable {
         }
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private ZoneOffset parseZoneOffset(Parcel in) {
         int zoneOffsetInSecs = in.readInt();
         ZoneOffset zoneOffset = null;
@@ -272,6 +331,7 @@ public class AggregateDataResponseParcel implements Parcelable {
         return zoneOffset;
     }
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private LocalDateTime getPeriodEndLocalDateTime(TimeRangeFilter timeRangeFilter) {
         if (timeRangeFilter instanceof TimeInstantRangeFilter) {
             return LocalDateTime.ofInstant(

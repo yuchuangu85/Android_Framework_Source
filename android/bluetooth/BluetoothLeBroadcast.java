@@ -16,8 +16,6 @@
 
 package android.bluetooth;
 
-import static android.bluetooth.BluetoothUtils.getSyncTimeout;
-
 import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -33,8 +31,6 @@ import android.os.RemoteException;
 import android.util.CloseGuard;
 import android.util.Log;
 
-import com.android.modules.utils.SynchronousResultReceiver;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Collections;
@@ -43,7 +39,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeoutException;
 
 /**
  * This class provides the public APIs to control the BAP Broadcast Source profile.
@@ -64,180 +59,139 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
 
     private final BluetoothAdapter mAdapter;
     private final AttributionSource mAttributionSource;
-    private final BluetoothProfileConnector<IBluetoothLeAudio> mProfileConnector =
-            new BluetoothProfileConnector(this, BluetoothProfile.LE_AUDIO_BROADCAST,
-                    "BluetoothLeAudioBroadcast", IBluetoothLeAudio.class.getName()) {
-                @Override
-                public IBluetoothLeAudio getServiceInterface(IBinder service) {
-                    return IBluetoothLeAudio.Stub.asInterface(service);
-                }
-            };
+
+    private IBluetoothLeAudio mService;
 
     private final Map<Callback, Executor> mCallbackExecutorMap = new HashMap<>();
 
     @SuppressLint("AndroidFrameworkBluetoothPermission")
     private final IBluetoothLeBroadcastCallback mCallback =
             new IBluetoothLeBroadcastCallback.Stub() {
-        @Override
-        public void onBroadcastStarted(int reason, int broadcastId) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onBroadcastStarted(reason, broadcastId));
-            }
-        }
-
-        @Override
-        public void onBroadcastStartFailed(int reason) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onBroadcastStartFailed(reason));
-            }
-        }
-
-        @Override
-        public void onBroadcastStopped(int reason, int broadcastId) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onBroadcastStopped(reason, broadcastId));
-            }
-        }
-
-        @Override
-        public void onBroadcastStopFailed(int reason) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onBroadcastStopFailed(reason));
-            }
-        }
-
-        @Override
-        public void onPlaybackStarted(int reason, int broadcastId) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onPlaybackStarted(reason, broadcastId));
-            }
-        }
-
-        @Override
-        public void onPlaybackStopped(int reason, int broadcastId) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onPlaybackStopped(reason, broadcastId));
-            }
-        }
-
-        @Override
-        public void onBroadcastUpdated(int reason, int broadcastId) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onBroadcastUpdated(reason, broadcastId));
-            }
-        }
-
-        @Override
-        public void onBroadcastUpdateFailed(int reason, int broadcastId) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onBroadcastUpdateFailed(reason, broadcastId));
-            }
-        }
-
-        @Override
-        public void onBroadcastMetadataChanged(int broadcastId,
-                BluetoothLeBroadcastMetadata metadata) {
-            for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry:
-                    mCallbackExecutorMap.entrySet()) {
-                BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
-                Executor executor = callbackExecutorEntry.getValue();
-                executor.execute(() -> callback.onBroadcastMetadataChanged(broadcastId, metadata));
-            }
-        }
-    };
-
-    private final class BluetoothLeBroadcastServiceListener extends ForwardingServiceListener {
-        BluetoothLeBroadcastServiceListener(ServiceListener listener) {
-            super(listener);
-        }
-
-        @Override
-        public void onServiceConnected(int profile, BluetoothProfile proxy) {
-            try {
-                if (profile == LE_AUDIO_BROADCAST) {
-                    // re-register the service-to-app callback
-                    synchronized (mCallbackExecutorMap) {
-                        if (mCallbackExecutorMap.isEmpty()) {
-                            return;
-                        }
-                        try {
-                            final IBluetoothLeAudio service = getService();
-                            if (service != null) {
-                                final SynchronousResultReceiver<Integer> recv =
-                                        SynchronousResultReceiver.get();
-                                service.registerLeBroadcastCallback(mCallback,
-                                        mAttributionSource, recv);
-                                recv.awaitResultNoInterrupt(getSyncTimeout())
-                                        .getValue(null);
-                            }
-                        } catch (TimeoutException e) {
-                            Log.e(TAG, "onBluetoothServiceUp: Failed to register "
-                                    + "Le Broadcaster callback", e);
-                        } catch (RemoteException e) {
-                            throw e.rethrowFromSystemServer();
-                        }
+                @Override
+                public void onBroadcastStarted(int reason, int broadcastId) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(() -> callback.onBroadcastStarted(reason, broadcastId));
                     }
                 }
-            } finally {
-                super.onServiceConnected(profile, proxy);
-            }
-        }
-    }
+
+                @Override
+                public void onBroadcastStartFailed(int reason) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(() -> callback.onBroadcastStartFailed(reason));
+                    }
+                }
+
+                @Override
+                public void onBroadcastStopped(int reason, int broadcastId) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(() -> callback.onBroadcastStopped(reason, broadcastId));
+                    }
+                }
+
+                @Override
+                public void onBroadcastStopFailed(int reason) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(() -> callback.onBroadcastStopFailed(reason));
+                    }
+                }
+
+                @Override
+                public void onPlaybackStarted(int reason, int broadcastId) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(() -> callback.onPlaybackStarted(reason, broadcastId));
+                    }
+                }
+
+                @Override
+                public void onPlaybackStopped(int reason, int broadcastId) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(() -> callback.onPlaybackStopped(reason, broadcastId));
+                    }
+                }
+
+                @Override
+                public void onBroadcastUpdated(int reason, int broadcastId) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(() -> callback.onBroadcastUpdated(reason, broadcastId));
+                    }
+                }
+
+                @Override
+                public void onBroadcastUpdateFailed(int reason, int broadcastId) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(
+                                () -> callback.onBroadcastUpdateFailed(reason, broadcastId));
+                    }
+                }
+
+                @Override
+                public void onBroadcastMetadataChanged(
+                        int broadcastId, BluetoothLeBroadcastMetadata metadata) {
+                    for (Map.Entry<BluetoothLeBroadcast.Callback, Executor> callbackExecutorEntry :
+                            mCallbackExecutorMap.entrySet()) {
+                        BluetoothLeBroadcast.Callback callback = callbackExecutorEntry.getKey();
+                        Executor executor = callbackExecutorEntry.getValue();
+                        executor.execute(
+                                () -> callback.onBroadcastMetadataChanged(broadcastId, metadata));
+                    }
+                }
+            };
 
     /**
      * Interface for receiving events related to Broadcast Source
+     *
      * @hide
      */
     @SystemApi
     public interface Callback {
         /** @hide */
         @Retention(RetentionPolicy.SOURCE)
-        @IntDef(value = {
-                BluetoothStatusCodes.ERROR_UNKNOWN,
-                BluetoothStatusCodes.REASON_LOCAL_APP_REQUEST,
-                BluetoothStatusCodes.REASON_LOCAL_STACK_REQUEST,
-                BluetoothStatusCodes.REASON_SYSTEM_POLICY,
-                BluetoothStatusCodes.ERROR_HARDWARE_GENERIC,
-                BluetoothStatusCodes.ERROR_BAD_PARAMETERS,
-                BluetoothStatusCodes.ERROR_LOCAL_NOT_ENOUGH_RESOURCES,
-                BluetoothStatusCodes.ERROR_LE_BROADCAST_INVALID_CODE,
-                BluetoothStatusCodes.ERROR_LE_BROADCAST_INVALID_BROADCAST_ID,
-                BluetoothStatusCodes.ERROR_LE_CONTENT_METADATA_INVALID_PROGRAM_INFO,
-                BluetoothStatusCodes.ERROR_LE_CONTENT_METADATA_INVALID_LANGUAGE,
-                BluetoothStatusCodes.ERROR_LE_CONTENT_METADATA_INVALID_OTHER,
-        })
+        @IntDef(
+                value = {
+                    BluetoothStatusCodes.ERROR_UNKNOWN,
+                    BluetoothStatusCodes.REASON_LOCAL_APP_REQUEST,
+                    BluetoothStatusCodes.REASON_LOCAL_STACK_REQUEST,
+                    BluetoothStatusCodes.REASON_SYSTEM_POLICY,
+                    BluetoothStatusCodes.ERROR_HARDWARE_GENERIC,
+                    BluetoothStatusCodes.ERROR_BAD_PARAMETERS,
+                    BluetoothStatusCodes.ERROR_LOCAL_NOT_ENOUGH_RESOURCES,
+                    BluetoothStatusCodes.ERROR_LE_BROADCAST_INVALID_CODE,
+                    BluetoothStatusCodes.ERROR_LE_BROADCAST_INVALID_BROADCAST_ID,
+                    BluetoothStatusCodes.ERROR_LE_CONTENT_METADATA_INVALID_PROGRAM_INFO,
+                    BluetoothStatusCodes.ERROR_LE_CONTENT_METADATA_INVALID_LANGUAGE,
+                    BluetoothStatusCodes.ERROR_LE_CONTENT_METADATA_INVALID_OTHER,
+                })
         @interface Reason {}
 
         /**
          * Callback invoked when broadcast is started, but audio may not be playing.
          *
-         * Caller should wait for
-         * {@link #onBroadcastMetadataChanged(int, BluetoothLeBroadcastMetadata)}
-         * for the updated metadata
+         * <p>Caller should wait for {@link #onBroadcastMetadataChanged(int,
+         * BluetoothLeBroadcastMetadata)} for the updated metadata
          *
          * @param reason for broadcast start
          * @param broadcastId as defined by the Basic Audio Profile
@@ -321,30 +275,28 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
          * @hide
          */
         @SystemApi
-        void onBroadcastMetadataChanged(int broadcastId,
-                @NonNull BluetoothLeBroadcastMetadata metadata);
+        void onBroadcastMetadataChanged(
+                int broadcastId, @NonNull BluetoothLeBroadcastMetadata metadata);
     }
 
     /**
      * Create a BluetoothLeBroadcast proxy object for interacting with the local LE Audio Broadcast
      * Source service.
      *
-     * @param context  for to operate this API class
-     * @param listener listens for service callbacks across binder
+     * @param context for to operate this API class
      * @hide
      */
-    /*package*/ BluetoothLeBroadcast(Context context, BluetoothProfile.ServiceListener listener) {
-        mAdapter = BluetoothAdapter.getDefaultAdapter();
+    /*package*/ BluetoothLeBroadcast(Context context, BluetoothAdapter adapter) {
+        mAdapter = adapter;
         mAttributionSource = mAdapter.getAttributionSource();
-        mProfileConnector.connect(context, new BluetoothLeBroadcastServiceListener(listener));
+        mService = null;
 
         mCloseGuard = new CloseGuard();
         mCloseGuard.open("close");
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
+    @SuppressWarnings("Finalize") // TODO(b/314811467)
     protected void finalize() {
         if (mCloseGuard != null) {
             mCloseGuard.warnIfOpen();
@@ -359,10 +311,11 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @Override
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public int getConnectionState(@NonNull BluetoothDevice device) {
         throw new UnsupportedOperationException("LE Audio Broadcasts are not connection-oriented.");
     }
@@ -374,13 +327,13 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @Override
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     @NonNull
-    public List<BluetoothDevice> getDevicesMatchingConnectionStates(
-            @NonNull int[] states) {
+    public List<BluetoothDevice> getDevicesMatchingConnectionStates(@NonNull int[] states) {
         throw new UnsupportedOperationException("LE Audio Broadcasts are not connection-oriented.");
     }
 
@@ -391,10 +344,11 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @Override
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @NonNull List<BluetoothDevice> getConnectedDevices() {
         throw new UnsupportedOperationException("LE Audio Broadcasts are not connection-oriented.");
     }
@@ -402,26 +356,26 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
     /**
      * Register a {@link Callback} that will be invoked during the operation of this profile.
      *
-     * Repeated registration of the same <var>callback</var> object after the first call to this
+     * <p>Repeated registration of the same <var>callback</var> object after the first call to this
      * method will result with IllegalArgumentException being thrown, even when the
-     * <var>executor</var> is different. API caller would have to call
-     * {@link #unregisterCallback(Callback)} with the same callback object before registering it
-     * again.
+     * <var>executor</var> is different. API caller would have to call {@link
+     * #unregisterCallback(Callback)} with the same callback object before registering it again.
      *
      * @param executor an {@link Executor} to execute given callback
      * @param callback user implementation of the {@link Callback}
      * @throws NullPointerException if a null executor, or callback is given, or
-     *  IllegalArgumentException if the same <var>callback<var> is already registered.
+     *     IllegalArgumentException if the same <var>callback<var> is already registered.
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
-    public void registerCallback(@NonNull @CallbackExecutor Executor executor,
-            @NonNull Callback callback) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
+    public void registerCallback(
+            @NonNull @CallbackExecutor Executor executor, @NonNull Callback callback) {
         Objects.requireNonNull(executor, "executor cannot be null");
         Objects.requireNonNull(callback, "callback cannot be null");
 
@@ -440,15 +394,10 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
                 try {
                     final IBluetoothLeAudio service = getService();
                     if (service != null) {
-                        final SynchronousResultReceiver<Integer> recv =
-                                SynchronousResultReceiver.get();
-                        service.registerLeBroadcastCallback(mCallback, mAttributionSource, recv);
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+                        service.registerLeBroadcastCallback(mCallback, mAttributionSource);
                     }
-                } catch (TimeoutException e) {
-                    Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
                 } catch (RemoteException e) {
-                    throw e.rethrowFromSystemServer();
+                    throw e.rethrowAsRuntimeException();
                 }
             }
 
@@ -462,22 +411,24 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
 
     /**
      * Unregister the specified {@link Callback}
-     * <p>The same {@link Callback} object used when calling
-     * {@link #registerCallback(Executor, Callback)} must be used.
+     *
+     * <p>The same {@link Callback} object used when calling {@link #registerCallback(Executor,
+     * Callback)} must be used.
      *
      * <p>Callbacks are automatically unregistered when application process goes away
      *
      * @param callback user implementation of the {@link Callback}
      * @throws NullPointerException when callback is null or IllegalArgumentException when no
-     *  callback is registered
+     *     callback is registered
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public void unregisterCallback(@NonNull Callback callback) {
         Objects.requireNonNull(callback, "callback cannot be null");
 
@@ -494,14 +445,12 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             try {
                 final IBluetoothLeAudio service = getService();
                 if (service != null) {
-                    final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                    service.unregisterLeBroadcastCallback(mCallback, mAttributionSource, recv);
-                    recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+                    service.unregisterLeBroadcastCallback(mCallback, mAttributionSource);
                 }
-            } catch (TimeoutException | IllegalStateException e) {
+            } catch (IllegalStateException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
     }
@@ -510,34 +459,34 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * Start broadcasting to nearby devices using <var>broadcastCode</var> and
      * <var>contentMetadata</var>
      *
-     * Encryption will be enabled when <var>broadcastCode</var> is not null.
+     * <p>Encryption will be enabled when <var>broadcastCode</var> is not null.
      *
      * <p>As defined in Volume 3, Part C, Section 3.2.6 of Bluetooth Core Specification, Version
      * 5.3, Broadcast Code is used to encrypt a broadcast audio stream.
+     *
      * <p>It must be a UTF-8 string that has at least 4 octets and should not exceed 16 octets.
      *
-     * If the provided <var>broadcastCode</var> is non-null and does not meet the above
-     * requirements, encryption will fail to enable with reason code
-     * {@link BluetoothStatusCodes#ERROR_LE_BROADCAST_INVALID_CODE}
+     * <p>If the provided <var>broadcastCode</var> is non-null and does not meet the above
+     * requirements, encryption will fail to enable with reason code {@link
+     * BluetoothStatusCodes#ERROR_LE_BROADCAST_INVALID_CODE}
      *
-     * Caller can set content metadata such as program information string in
+     * <p>Caller can set content metadata such as program information string in
      * <var>contentMetadata</var>
      *
-     * On success, {@link Callback#onBroadcastStarted(int, int)} will be invoked with
-     * {@link BluetoothStatusCodes#REASON_LOCAL_APP_REQUEST} reason code.
-     * On failure, {@link Callback#onBroadcastStartFailed(int)} will be invoked  with reason code.
+     * <p>On success, {@link Callback#onBroadcastStarted(int, int)} will be invoked with {@link
+     * BluetoothStatusCodes#REASON_LOCAL_APP_REQUEST} reason code. On failure, {@link
+     * Callback#onBroadcastStartFailed(int)} will be invoked with reason code.
      *
-     * In particular, when the number of Broadcast Sources reaches
-     * {@link #getMaximumNumberOfBroadcast()}, this method will fail with
-     * {@link BluetoothStatusCodes#ERROR_LOCAL_NOT_ENOUGH_RESOURCES}
+     * <p>In particular, when the number of Broadcast Sources reaches {@link
+     * #getMaximumNumberOfBroadcast()}, this method will fail with {@link
+     * BluetoothStatusCodes#ERROR_LOCAL_NOT_ENOUGH_RESOURCES}
      *
-     * After broadcast is started,
-     * {@link Callback#onBroadcastMetadataChanged(int, BluetoothLeBroadcastMetadata)}
-     * will be invoked to expose the latest Broadcast Group metadata that can be shared out of band
-     * to set up Broadcast Sink without scanning.
+     * <p>After broadcast is started, {@link Callback#onBroadcastMetadataChanged(int,
+     * BluetoothLeBroadcastMetadata)} will be invoked to expose the latest Broadcast Group metadata
+     * that can be shared out of band to set up Broadcast Sink without scanning.
      *
-     * Alternatively, one can also get the latest Broadcast Source meta via
-     * {@link #getAllBroadcastMetadata()}
+     * <p>Alternatively, one can also get the latest Broadcast Source meta via {@link
+     * #getAllBroadcastMetadata()}
      *
      * @param contentMetadata metadata for the default Broadcast subgroup
      * @param broadcastCode Encryption will be enabled when <var>broadcastCode</var> is not null
@@ -547,11 +496,13 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
-    public void startBroadcast(@NonNull BluetoothLeAudioContentMetadata contentMetadata,
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
+    public void startBroadcast(
+            @NonNull BluetoothLeAudioContentMetadata contentMetadata,
             @Nullable byte[] broadcastCode) {
         Objects.requireNonNull(contentMetadata, "contentMetadata cannot be null");
         if (mCallbackExecutorMap.isEmpty()) {
@@ -565,17 +516,11 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
                 service.startBroadcast(
                         buildBroadcastSettingsFromMetadata(contentMetadata, broadcastCode),
-                        mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                        mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            } catch (SecurityException e) {
-                throw e;
+                throw e.rethrowAsRuntimeException();
             }
         }
     }
@@ -607,15 +552,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.startBroadcast(broadcastSettings, mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                service.startBroadcast(broadcastSettings, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            } catch (SecurityException e) {
-                throw e;
+                throw e.rethrowAsRuntimeException();
             }
         }
     }
@@ -623,10 +562,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
     /**
      * Update the broadcast with <var>broadcastId</var> with new <var>contentMetadata</var>
      *
-     * On success, {@link Callback#onBroadcastUpdated(int, int)} will be invoked with reason code
-     * {@link BluetoothStatusCodes#REASON_LOCAL_APP_REQUEST}.
-     * On failure, {@link Callback#onBroadcastUpdateFailed(int, int)} will be invoked with reason
-     * code
+     * <p>On success, {@link Callback#onBroadcastUpdated(int, int)} will be invoked with reason code
+     * {@link BluetoothStatusCodes#REASON_LOCAL_APP_REQUEST}. On failure, {@link
+     * Callback#onBroadcastUpdateFailed(int, int)} will be invoked with reason code
      *
      * @param broadcastId broadcastId as defined by the Basic Audio Profile
      * @param contentMetadata updated metadata for the default Broadcast subgroup
@@ -636,12 +574,13 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
-    public void updateBroadcast(int broadcastId,
-            @NonNull BluetoothLeAudioContentMetadata contentMetadata) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
+    public void updateBroadcast(
+            int broadcastId, @NonNull BluetoothLeAudioContentMetadata contentMetadata) {
         Objects.requireNonNull(contentMetadata, "contentMetadata cannot be null");
         if (mCallbackExecutorMap.isEmpty()) {
             throw new IllegalStateException("No callback was ever registered");
@@ -654,17 +593,12 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.updateBroadcast(broadcastId,
+                service.updateBroadcast(
+                        broadcastId,
                         buildBroadcastSettingsFromMetadata(contentMetadata, null),
-                        mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                        mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            } catch (SecurityException e) {
-                throw e;
+                throw e.rethrowAsRuntimeException();
             }
         }
     }
@@ -702,15 +636,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.updateBroadcast(broadcastId, broadcastSettings, mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                service.updateBroadcast(broadcastId, broadcastSettings, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            } catch (SecurityException e) {
-                throw e;
+                throw e.rethrowAsRuntimeException();
             }
         }
     }
@@ -718,9 +646,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
     /**
      * Stop broadcasting.
      *
-     * On success, {@link Callback#onBroadcastStopped(int, int)} will be invoked with reason code
-     * {@link BluetoothStatusCodes#REASON_LOCAL_APP_REQUEST} and the <var>broadcastId</var>
-     * On failure, {@link Callback#onBroadcastStopFailed(int)} will be invoked with reason code
+     * <p>On success, {@link Callback#onBroadcastStopped(int, int)} will be invoked with reason code
+     * {@link BluetoothStatusCodes#REASON_LOCAL_APP_REQUEST} and the <var>broadcastId</var> On
+     * failure, {@link Callback#onBroadcastStopFailed(int)} will be invoked with reason code
      *
      * @param broadcastId as defined by the Basic Audio Profile
      * @throws IllegalStateException if callback was not registered
@@ -728,10 +656,11 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public void stopBroadcast(int broadcastId) {
         if (mCallbackExecutorMap.isEmpty()) {
             throw new IllegalStateException("No callback was ever registered");
@@ -744,15 +673,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.stopBroadcast(broadcastId, mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                service.stopBroadcast(broadcastId, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            } catch (SecurityException e) {
-                throw e;
+                throw e.rethrowAsRuntimeException();
             }
         }
     }
@@ -767,62 +690,53 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean isPlaying(int broadcastId) {
         final IBluetoothLeAudio service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.isPlaying(broadcastId, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                return service.isPlaying(broadcastId, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
-     * Get {@link BluetoothLeBroadcastMetadata} for all Broadcast Groups currently running on
-     * this device
+     * Get {@link BluetoothLeBroadcastMetadata} for all Broadcast Groups currently running on this
+     * device
      *
      * @return list of {@link BluetoothLeBroadcastMetadata}
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @NonNull List<BluetoothLeBroadcastMetadata> getAllBroadcastMetadata() {
         final IBluetoothLeAudio service = getService();
-        final List<BluetoothLeBroadcastMetadata> defaultValue = Collections.emptyList();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothLeBroadcastMetadata>> recv =
-                        SynchronousResultReceiver.get();
-                service.getAllBroadcastMetadata(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                return service.getAllBroadcastMetadata(mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
     /**
@@ -835,27 +749,21 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public int getMaximumNumberOfBroadcasts() {
         final IBluetoothLeAudio service = getService();
-        final int defaultValue = 1;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getMaximumNumberOfBroadcasts(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                return service.getMaximumNumberOfBroadcasts(mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
-        return defaultValue;
+        return 1;
     }
 
     /**
-     * Get the maximum number of streams per broadcast
-     * Single stream means single Audio PCM stream
+     * Get the maximum number of streams per broadcast Single stream means single Audio PCM stream
      *
      * @return maximum number of broadcast streams per broadcast group
      * @hide
@@ -864,29 +772,23 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public int getMaximumStreamsPerBroadcast() {
         final IBluetoothLeAudio service = getService();
-        final int defaultValue = 1;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getMaximumStreamsPerBroadcast(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                return service.getMaximumStreamsPerBroadcast(mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
-        return defaultValue;
+        return 1;
     }
 
     /**
-     * Get the maximum number of subgroups per broadcast
-     * Single stream means single Audio PCM stream, one stream could support
-     * single or multiple subgroups based on language and audio configuration.
-     * e.g. Stream 1 -> 2 subgroups with English and Spanish, Stream 2 -> 1 subgroups
+     * Get the maximum number of subgroups per broadcast Single stream means single Audio PCM
+     * stream, one stream could support single or multiple subgroups based on language and audio
+     * configuration. e.g. Stream 1 -> 2 subgroups with English and Spanish, Stream 2 -> 1 subgroups
      * with English, Stream 3 -> 2 subgroups with hearing Aids Standard and High Quality
      *
      * @return maximum number of broadcast subgroups per broadcast group
@@ -896,43 +798,39 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public int getMaximumSubgroupsPerBroadcast() {
         final IBluetoothLeAudio service = getService();
-        final int defaultValue = 1;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getMaximumSubgroupsPerBroadcast(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                return service.getMaximumSubgroupsPerBroadcast(mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
-        return defaultValue;
+        return 1;
     }
 
     /**
      * {@inheritDoc}
+     *
      * @hide
      */
     @Override
     public void close() {
         if (VDBG) log("close()");
 
-        mProfileConnector.disconnect();
+        mAdapter.closeProfileProxy(this);
     }
 
     private BluetoothLeBroadcastSettings buildBroadcastSettingsFromMetadata(
-            BluetoothLeAudioContentMetadata contentMetadata,
-            @Nullable byte[] broadcastCode) {
+            BluetoothLeAudioContentMetadata contentMetadata, @Nullable byte[] broadcastCode) {
         BluetoothLeBroadcastSubgroupSettings.Builder subgroupBuilder =
                 new BluetoothLeBroadcastSubgroupSettings.Builder()
-                .setContentMetadata(contentMetadata);
+                        .setContentMetadata(contentMetadata);
 
-        BluetoothLeBroadcastSettings.Builder builder = new BluetoothLeBroadcastSettings.Builder()
+        BluetoothLeBroadcastSettings.Builder builder =
+                new BluetoothLeBroadcastSettings.Builder()
                         .setPublicBroadcast(false)
                         .setBroadcastCode(broadcastCode);
         // builder expect at least one subgroup setting
@@ -945,8 +843,42 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
         return false;
     }
 
+    /** @hide */
+    @Override
+    public void onServiceConnected(IBinder service) {
+        mService = IBluetoothLeAudio.Stub.asInterface(service);
+        // re-register the service-to-app callback
+        synchronized (mCallbackExecutorMap) {
+            if (mCallbackExecutorMap.isEmpty()) {
+                return;
+            }
+            try {
+                if (service != null) {
+                    mService.registerLeBroadcastCallback(mCallback, mAttributionSource);
+                }
+            } catch (RemoteException e) {
+                Log.e(
+                        TAG,
+                        "onServiceConnected: Failed to register " + "Le Broadcaster callback",
+                        e);
+            }
+        }
+    }
+
+    /** @hide */
+    @Override
+    public void onServiceDisconnected() {
+        mService = null;
+    }
+
     private IBluetoothLeAudio getService() {
-        return mProfileConnector.getService();
+        return mService;
+    }
+
+    /** @hide */
+    @Override
+    public BluetoothAdapter getAdapter() {
+        return mAdapter;
     }
 
     private static void log(String msg) {

@@ -280,7 +280,7 @@ public interface UProperty
     /**
      * <p>Binary property Case_Sensitive.
      * <p>Either the source of a case
-     * mapping or _in_ the target of a case mapping. Not the same as
+     * mapping or <i>in</i> the target of a case mapping. Not the same as
      * the general category Cased_Letter.
      */
     public static final int CASE_SENSITIVE = 34;
@@ -529,12 +529,36 @@ public interface UProperty
     public static final int RGI_EMOJI=71;
 
     /**
+     * Binary property IDS_Unary_Operator.
+     * For programmatic determination of Ideographic Description Sequences.
+     *
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final int IDS_UNARY_OPERATOR = 72;
+
+    /**
+     * Binary property ID_Compat_Math_Start.
+     * <p>Used in mathematical identifier profile in UAX #31.
+     *
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final int ID_COMPAT_MATH_START = 73;
+
+    /**
+     * Binary property ID_Compat_Math_Continue.
+     * <p>Used in mathematical identifier profile in UAX #31.
+     *
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final int ID_COMPAT_MATH_CONTINUE = 74;
+
+    /**
      * One more than the last constant for binary Unicode properties.
      * @deprecated ICU 58 The numeric value may change over time, see ICU ticket #12420.
      * @hide unsupported on Android
      */
     @Deprecated
-    public static final int BINARY_LIMIT = 72;
+    public static final int BINARY_LIMIT = 75;
 
     /**
      * Enumerated property Bidi_Class.
@@ -714,12 +738,20 @@ public interface UProperty
     public static final int VERTICAL_ORIENTATION = 0x1018;
 
     /**
+     * Enumerated property Identifier_Status.
+     * Used for UTS #39 General Security Profile for Identifiers
+     * (https://www.unicode.org/reports/tr39/#General_Security_Profile).
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final int IDENTIFIER_STATUS = 0x1019;
+
+    /**
      * One more than the last constant for enumerated/integer Unicode properties.
      * @deprecated ICU 58 The numeric value may change over time, see ICU ticket #12420.
      * @hide unsupported on Android
      */
     @Deprecated
-    public static final int INT_LIMIT = 0x1019;
+    public static final int INT_LIMIT = 0x101A;
 
     /**
      * Bitmask property General_Category_Mask.
@@ -880,12 +912,27 @@ public interface UProperty
      */
     public static final int OTHER_PROPERTY_START=SCRIPT_EXTENSIONS;
     /**
+     * Miscellaneous property Identifier_Type.
+     * Used for UTS #39 General Security Profile for Identifiers
+     * (https://www.unicode.org/reports/tr39/#General_Security_Profile).
+     *
+     * <p>Corresponds to {@link UCharacter#hasIdentifierType(int, UCharacter.IdentifierType)} and
+     * {@link UCharacter#getIdentifierTypes(int, java.util.EnumSet)}.
+     *
+     * <p>Each code point maps to a <i>set</i> of IdentifierType values.
+     *
+     * @see UCharacter#hasIdentifierType(int, UCharacter.IdentifierType)
+     * @see UCharacter#getIdentifierTypes(int, java.util.EnumSet)
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final int IDENTIFIER_TYPE = 0x7001;
+    /**
      * One more than the last constant for Unicode properties with unusual value types.
      * @deprecated ICU 58 The numeric value may change over time, see ICU ticket #12420.
      * @hide unsupported on Android
      */
     @Deprecated
-    public static final int OTHER_PROPERTY_LIMIT=0x7001;
+    public static final int OTHER_PROPERTY_LIMIT = 0x7002;
 
     /**
      * Selector constants for UCharacter.getPropertyName() and

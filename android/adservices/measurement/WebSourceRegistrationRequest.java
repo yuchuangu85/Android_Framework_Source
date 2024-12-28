@@ -31,7 +31,7 @@ import java.util.Objects;
 /** Class to hold input to measurement source registration calls from web context. */
 public final class WebSourceRegistrationRequest implements Parcelable {
     private static final String ANDROID_APP_SCHEME = "android-app";
-    private static final int WEB_SOURCE_PARAMS_MAX_COUNT = 20;
+    private static final int WEB_SOURCE_PARAMS_MAX_COUNT = 80;
 
     /** Creator for Paracelable (via reflection). */
     @NonNull
@@ -61,13 +61,17 @@ public final class WebSourceRegistrationRequest implements Parcelable {
 
     /**
      * App destination of the source. It is the android app {@link Uri} where corresponding
-     * conversion is expected. At least one of app destination or web destination is required.
+     * conversion is expected. This field is compared with the corresponding field in Source
+     * Registration Response, if matching fails the registration is rejected. If null is provided,
+     * no destination matching will be performed.
      */
     @Nullable private final Uri mAppDestination;
 
     /**
      * Web destination of the source. It is the website {@link Uri} where corresponding conversion
-     * is expected. At least one of app destination or web destination is required.
+     * is expected. This field is compared with the corresponding field in Source Registration
+     * Response, if matching fails the registration is rejected. If null is provided, no destination
+     * matching will be performed.
      */
     @Nullable private final Uri mWebDestination;
 

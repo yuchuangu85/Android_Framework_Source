@@ -41,9 +41,11 @@ import android.telephony.ims.ImsCallSession;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.MediaQualityStatus;
 
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.telephony.Rlog;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * broadcast intents
@@ -55,10 +57,15 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
 
     private TelephonyRegistryManager mTelephonyRegistryMgr;
 
+    /** Feature flags */
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
 
-    public DefaultPhoneNotifier(Context context) {
+
+    public DefaultPhoneNotifier(Context context, @NonNull FeatureFlags featureFlags) {
         mTelephonyRegistryMgr = (TelephonyRegistryManager) context.getSystemService(
             Context.TELEPHONY_REGISTRY_SERVICE);
+        mFeatureFlags = featureFlags;
     }
 
     @Override
@@ -125,8 +132,16 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
 
     @Override
     public void notifyDataActivity(Phone sender) {
+
         int subId = sender.getSubId();
-        mTelephonyRegistryMgr.notifyDataActivityChanged(subId, sender.getDataActivityState());
+
+        if (mFeatureFlags.notifyDataActivityChangedWithSlot()) {
+            int phoneId = sender.getPhoneId();
+            mTelephonyRegistryMgr.notifyDataActivityChanged(phoneId, subId,
+                    sender.getDataActivityState());
+        } else {
+            mTelephonyRegistryMgr.notifyDataActivityChanged(subId, sender.getDataActivityState());
+        }
     }
 
     @Override
@@ -287,6 +302,11 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
+    public void notifySimultaneousCellularCallingSubscriptionsChanged(Set<Integer> subIds) {
+        mTelephonyRegistryMgr.notifySimultaneousCellularCallingSubscriptionsChanged(subIds);
+    }
+
+    @Override
     public void notifyCallbackModeStarted(Phone sender, @EmergencyCallbackModeType int type) {
         mTelephonyRegistryMgr.notifyCallBackModeStarted(sender.getPhoneId(),
                 sender.getSubId(), type);
@@ -298,6 +318,12 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
         mTelephonyRegistryMgr.notifyCallbackModeStopped(sender.getPhoneId(),
                 sender.getSubId(), type, reason);
     }
+
+    @Override
+    public void notifyCarrierRoamingNtnModeChanged(Phone sender, boolean active) {
+        mTelephonyRegistryMgr.notifyCarrierRoamingNtnModeChanged(sender.getSubId(), active);
+    }
+
     /**
      * Convert the {@link Call.State} enum into the PreciseCallState.PRECISE_CALL_STATE_* constants
      * for the public API.

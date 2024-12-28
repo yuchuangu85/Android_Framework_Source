@@ -24,7 +24,6 @@ import android.os.Parcelable;
  * Describes the way to store scan result.
  *
  * @deprecated this is not used anywhere
- *
  * @hide
  */
 @Deprecated
@@ -81,16 +80,17 @@ public final class ResultStorageDescriptor implements Parcelable {
         mLength = in.readInt();
     }
 
-    public static final @android.annotation.NonNull Parcelable.Creator<ResultStorageDescriptor> CREATOR =
-            new Creator<ResultStorageDescriptor>() {
-        @Override
-        public ResultStorageDescriptor createFromParcel(Parcel source) {
-            return new ResultStorageDescriptor(source);
-        }
+    public static final @android.annotation.NonNull Parcelable.Creator<ResultStorageDescriptor>
+            CREATOR =
+                    new Creator<ResultStorageDescriptor>() {
+                        @Override
+                        public ResultStorageDescriptor createFromParcel(Parcel source) {
+                            return new ResultStorageDescriptor(source);
+                        }
 
-        @Override
-        public ResultStorageDescriptor[] newArray(int size) {
-            return new ResultStorageDescriptor[size];
-        }
-    };
+                        @Override
+                        public ResultStorageDescriptor[] newArray(int size) {
+                            return new ResultStorageDescriptor[size];
+                        }
+                    };
 }

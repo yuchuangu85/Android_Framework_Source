@@ -51,6 +51,7 @@ public final class AppInfoMigrationPayload extends MigrationPayload implements P
     private final String mAppName;
     private final byte[] mAppIcon;
 
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     private AppInfoMigrationPayload(
             @NonNull String packageName, @NonNull String appName, @Nullable byte[] appIcon) {
         mPackageName = packageName;
@@ -105,6 +106,7 @@ public final class AppInfoMigrationPayload extends MigrationPayload implements P
         private String mAppName;
         private byte[] mAppIcon;
 
+        @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
         public Builder(@NonNull String packageName, @NonNull String appName) {
             requireNonNull(packageName);
             requireNonNull(appName);
@@ -130,6 +132,7 @@ public final class AppInfoMigrationPayload extends MigrationPayload implements P
         }
 
         /** Sets the value for {@link AppInfoMigrationPayload#getAppIcon()}. */
+        @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
         @NonNull
         public Builder setAppIcon(@Nullable byte[] appIcon) {
             mAppIcon = appIcon;

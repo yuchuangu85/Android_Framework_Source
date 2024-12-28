@@ -19,11 +19,13 @@ package com.android.internal.telephony.metrics;
 import static com.android.internal.telephony.TelephonyStatsLog.DATA_CALL_SESSION__IP_TYPE__APN_PROTOCOL_IPV4;
 
 import android.annotation.Nullable;
+import android.net.NetworkCapabilities;
 import android.os.SystemClock;
 import android.telephony.Annotation.ApnType;
 import android.telephony.Annotation.DataFailureCause;
 import android.telephony.Annotation.NetworkType;
 import android.telephony.DataFailCause;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.ServiceState;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
@@ -39,6 +41,7 @@ import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.ServiceStateTracker;
 import com.android.internal.telephony.data.DataNetwork;
 import com.android.internal.telephony.nano.PersistAtomsProto.DataCallSession;
+import com.android.internal.telephony.satellite.SatelliteController;
 import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
 import com.android.telephony.Rlog;
@@ -61,13 +64,24 @@ public class DataCallSessionStats {
 
     public static final int SIZE_LIMIT_HANDOVER_FAILURES = 15;
 
+    private final DefaultNetworkMonitor mDefaultNetworkMonitor;
+    private final SatelliteController mSatelliteController;
+
     public DataCallSessionStats(Phone phone) {
         mPhone = phone;
+        mDefaultNetworkMonitor = PhoneFactory.getMetricsCollector().getDefaultNetworkMonitor();
+        mSatelliteController = SatelliteController.getInstance();
+    }
+
+    private boolean isSystemDefaultNetworkMobile() {
+        NetworkCapabilities nc = mDefaultNetworkMonitor.getNetworkCapabilities();
+        return nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR);
     }
 
     /** Creates a new ongoing atom when data call is set up. */
-    public synchronized void onSetupDataCall(@ApnType int apnTypeBitMask) {
-        mDataCallSession = getDefaultProto(apnTypeBitMask);
+    public synchronized void onSetupDataCall(@ApnType int apnTypeBitMask,
+            boolean isSatellite) {
+        mDataCallSession = getDefaultProto(apnTypeBitMask, isSatellite);
         mStartTime = getTimeMillis();
         PhoneFactory.getMetricsCollector().registerOngoingDataCallStat(this);
     }
@@ -100,6 +114,9 @@ public class DataCallSessionStats {
                     (currentRat == TelephonyManager.NETWORK_TYPE_IWLAN)
                             ? 0
                             : ServiceStateStats.getBand(mPhone);
+            // Limitation: Will not capture IKE mobility between Backup Calling <-> WiFi Calling.
+            mDataCallSession.isIwlanCrossSim = currentRat == TelephonyManager.NETWORK_TYPE_IWLAN
+                    && isSystemDefaultNetworkMobile();
         }
 
         // only set if apn hasn't been set during setup
@@ -198,6 +215,8 @@ public class DataCallSessionStats {
             if (mDataCallSession.ratAtEnd != currentRat) {
                 mDataCallSession.ratSwitchCount++;
                 mDataCallSession.ratAtEnd = currentRat;
+                mDataCallSession.isIwlanCrossSim = currentRat == TelephonyManager.NETWORK_TYPE_IWLAN
+                        && isSystemDefaultNetworkMobile();
             }
             // band may have changed even if RAT was the same
             mDataCallSession.bandAtEnd =
@@ -287,11 +306,15 @@ public class DataCallSessionStats {
         copy.handoverFailureRat = Arrays.copyOf(call.handoverFailureRat,
                 call.handoverFailureRat.length);
         copy.isNonDds = call.isNonDds;
+        copy.isIwlanCrossSim = call.isIwlanCrossSim;
+        copy.isNtn = call.isNtn;
+        copy.isSatelliteTransport = call.isSatelliteTransport;
         return copy;
     }
 
     /** Creates a proto for a normal {@code DataCallSession} with default values. */
-    private DataCallSession getDefaultProto(@ApnType int apnTypeBitmask) {
+    private DataCallSession getDefaultProto(@ApnType int apnTypeBitmask,
+            boolean isSatellite) {
         DataCallSession proto = new DataCallSession();
         proto.dimension = RANDOM.nextInt();
         proto.isMultiSim = SimSlotState.isMultiSim();
@@ -312,6 +335,10 @@ public class DataCallSessionStats {
         proto.handoverFailureCauses = new int[0];
         proto.handoverFailureRat = new int[0];
         proto.isNonDds = false;
+        proto.isIwlanCrossSim = false;
+        proto.isNtn = mSatelliteController != null
+                ? mSatelliteController.isInSatelliteModeForCarrierRoaming(mPhone) : false;
+        proto.isSatelliteTransport = isSatellite;
         return proto;
     }
 
@@ -319,7 +346,7 @@ public class DataCallSessionStats {
         ServiceStateTracker serviceStateTracker = mPhone.getServiceStateTracker();
         ServiceState serviceState =
                 serviceStateTracker != null ? serviceStateTracker.getServiceState() : null;
-        return serviceState != null && serviceState.getRoaming();
+        return ServiceStateStats.isNetworkRoaming(serviceState, NetworkRegistrationInfo.DOMAIN_PS);
     }
 
     private boolean getIsOpportunistic() {

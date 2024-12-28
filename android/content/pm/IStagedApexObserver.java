@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen/android/content/pm/IStagedApexObserver.java.d -o out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen -Nframeworks/native/libs/binder/aidl frameworks/native/libs/binder/aidl/android/content/pm/IStagedApexObserver.aidl
  */
 package android.content.pm;
 /**
@@ -24,6 +25,7 @@ public interface IStagedApexObserver extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.content.pm.IStagedApexObserver
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -53,13 +55,9 @@ public interface IStagedApexObserver extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -108,6 +106,7 @@ public interface IStagedApexObserver extends android.os.IInterface
     }
     static final int TRANSACTION_onApexStaged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
   }
-  public static final java.lang.String DESCRIPTOR = "android$content$pm$IStagedApexObserver".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.content.pm.IStagedApexObserver";
   public void onApexStaged(android.content.pm.ApexStagedEvent event) throws android.os.RemoteException;
 }

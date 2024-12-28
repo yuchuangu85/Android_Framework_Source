@@ -30,7 +30,7 @@ public class TimeUnitAmount extends Measure {
      * Create from a number and unit.
      */
     public TimeUnitAmount(double number, TimeUnit unit) {
-        super(new Double(number), unit);
+        super(number, unit);
     }
 
     /**

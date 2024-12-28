@@ -19,42 +19,21 @@ package android.bluetooth;
 import android.os.UserHandle;
 import android.util.Log;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * {@hide}
- */
+/** @hide */
 public final class BluetoothUtils {
     private static final String TAG = "BluetoothUtils";
 
-    /**
-     * This utility class cannot be instantiated
-     */
+    /** This utility class cannot be instantiated */
     private BluetoothUtils() {}
 
-    /**
-     * Timeout value for synchronous binder call
-     */
-    private static final Duration SYNC_CALLS_TIMEOUT = Duration.ofSeconds(5);
-
-    /**
-     * @return timeout value for synchronous binder call
-     */
-    static Duration getSyncTimeout() {
-        return SYNC_CALLS_TIMEOUT;
-    }
-
-    /**
-     * Match with UserHandl.NULL but accessible inside bluetooth package
-     */
+    /** Match with UserHandl.NULL but accessible inside bluetooth package */
     public static final UserHandle USER_HANDLE_NULL = UserHandle.of(-10000);
 
-    /**
-     * Class for Length-Value-Entry array parsing
-     */
+    /** Class for Length-Value-Entry array parsing */
     public static class TypeValueEntry {
         private final int mType;
         private final byte[] mValue;
@@ -77,9 +56,16 @@ public final class BluetoothUtils {
     private static byte[] extractBytes(byte[] rawBytes, int start, int length) {
         int remainingLength = rawBytes.length - start;
         if (remainingLength < length) {
-            Log.w(TAG, "extractBytes() remaining length " + remainingLength
-                    + " is less than copying length " + length + ", array length is "
-                    + rawBytes.length + " start is " + start);
+            Log.w(
+                    TAG,
+                    "extractBytes() remaining length "
+                            + remainingLength
+                            + " is less than copying length "
+                            + length
+                            + ", array length is "
+                            + rawBytes.length
+                            + " start is "
+                            + start);
             return null;
         }
         byte[] bytes = new byte[length];
@@ -90,11 +76,12 @@ public final class BluetoothUtils {
     /**
      * Parse Length Value Entry from raw bytes
      *
-     * The format is defined in Bluetooth 4.1 specification, Volume 3, Part C, Section 11 and 18.
+     * <p>The format is defined in Bluetooth 4.1 specification, Volume 3, Part C, Section 11 and 18.
      *
      * @param rawBytes raw bytes of Length-Value-Entry array
      * @hide
      */
+    @SuppressWarnings("MixedMutabilityReturnType") // TODO(b/314811467)
     public static List<TypeValueEntry> parseLengthTypeValueBytes(byte[] rawBytes) {
         if (rawBytes == null) {
             return Collections.emptyList();
@@ -113,8 +100,12 @@ public final class BluetoothUtils {
             }
             currentPos++;
             if (currentPos >= rawBytes.length) {
-                Log.w(TAG, "parseLtv() no type and value after length, rawBytes length = "
-                        + rawBytes.length + ", currentPost = " + currentPos);
+                Log.w(
+                        TAG,
+                        "parseLtv() no type and value after length, rawBytes length = "
+                                + rawBytes.length
+                                + ", currentPost = "
+                                + currentPos);
                 break;
             }
             // Note the length includes the length of the field type itself.
@@ -123,8 +114,12 @@ public final class BluetoothUtils {
             int type = rawBytes[currentPos] & 0xFF;
             currentPos++;
             if (currentPos >= rawBytes.length) {
-                Log.w(TAG, "parseLtv() no value after length, rawBytes length = "
-                        + rawBytes.length + ", currentPost = " + currentPos);
+                Log.w(
+                        TAG,
+                        "parseLtv() no value after length, rawBytes length = "
+                                + rawBytes.length
+                                + ", currentPost = "
+                                + currentPos);
                 break;
             }
             byte[] value = extractBytes(rawBytes, currentPos, dataLength);
@@ -140,6 +135,7 @@ public final class BluetoothUtils {
 
     /**
      * Serialize type value entries to bytes
+     *
      * @param typeValueEntries type value entries
      * @return serialized type value entries on success, null on failure
      */
@@ -150,8 +146,11 @@ public final class BluetoothUtils {
             // 1 for length and 1 for type
             length += 2;
             if ((entry.getType() - (entry.getType() & 0xFF)) != 0) {
-                Log.w(TAG, "serializeTypeValue() type " + entry.getType()
-                        + " is out of range of 0-0xFF");
+                Log.w(
+                        TAG,
+                        "serializeTypeValue() type "
+                                + entry.getType()
+                                + " is out of range of 0-0xFF");
                 return null;
             }
             if (entry.getValue() == null) {
@@ -160,8 +159,11 @@ public final class BluetoothUtils {
             }
             int lengthValue = entry.getValue().length + 1;
             if ((lengthValue - (lengthValue & 0xFF)) != 0) {
-                Log.w(TAG, "serializeTypeValue() entry length "  + entry.getValue().length
-                        + " is not in range of 0 to 254");
+                Log.w(
+                        TAG,
+                        "serializeTypeValue() entry length "
+                                + entry.getValue().length
+                                + " is not in range of 0 to 254");
                 return null;
             }
             length += entry.getValue().length;
@@ -181,6 +183,7 @@ public final class BluetoothUtils {
 
     /**
      * Convert an address to an obfuscate one for logging purpose
+     *
      * @param address Mac address to be log
      * @return Loggable mac address
      */

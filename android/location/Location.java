@@ -712,8 +712,6 @@ public class Location implements Parcelable {
      * <p>This is only valid if {@link #hasMslAltitude()} is true.
      */
     public @FloatRange double getMslAltitudeMeters() {
-        Preconditions.checkState(hasMslAltitude(),
-                "The Mean Sea Level altitude of this location is not set.");
         return mMslAltitudeMeters;
     }
 
@@ -747,8 +745,6 @@ public class Location implements Parcelable {
      * <p>This is only valid if {@link #hasMslAltitudeAccuracy()} is true.
      */
     public @FloatRange(from = 0.0) float getMslAltitudeAccuracyMeters() {
-        Preconditions.checkState(hasMslAltitudeAccuracy(),
-                "The Mean Sea Level altitude accuracy of this location is not set.");
         return mMslAltitudeAccuracyMeters;
     }
 

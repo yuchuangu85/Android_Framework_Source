@@ -20,8 +20,8 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
- * The {@link PeriodicAdvertisingParameters} provide a way to adjust periodic
- * advertising preferences for each Bluetooth LE advertising set. Use {@link
+ * The {@link PeriodicAdvertisingParameters} provide a way to adjust periodic advertising
+ * preferences for each Bluetooth LE advertising set. Use {@link
  * PeriodicAdvertisingParameters.Builder} to create an instance of this class.
  */
 public final class PeriodicAdvertisingParameters implements Parcelable {
@@ -42,16 +42,14 @@ public final class PeriodicAdvertisingParameters implements Parcelable {
         mInterval = in.readInt();
     }
 
-    /**
-     * Returns whether the TX Power will be included.
-     */
+    /** Returns whether the TX Power will be included. */
     public boolean getIncludeTxPower() {
         return mIncludeTxPower;
     }
 
     /**
-     * Returns the periodic advertising interval, in 1.25ms unit.
-     * Valid values are from 80 (100ms) to 65519 (81.89875s).
+     * Returns the periodic advertising interval, in 1.25ms unit. Valid values are from 80 (100ms)
+     * to 65519 (81.89875s).
      */
     public int getInterval() {
         return mInterval;
@@ -68,8 +66,7 @@ public final class PeriodicAdvertisingParameters implements Parcelable {
         dest.writeInt(mInterval);
     }
 
-    public static final Parcelable
-            .Creator<PeriodicAdvertisingParameters> CREATOR =
+    public static final Parcelable.Creator<PeriodicAdvertisingParameters> CREATOR =
             new Creator<PeriodicAdvertisingParameters>() {
                 @Override
                 public PeriodicAdvertisingParameters[] newArray(int size) {
@@ -86,34 +83,29 @@ public final class PeriodicAdvertisingParameters implements Parcelable {
         private boolean mIncludeTxPower = false;
         private int mInterval = INTERVAL_MAX;
 
-        /**
-         * Whether the transmission power level should be included in the periodic
-         * packet.
-         */
+        /** Whether the transmission power level should be included in the periodic packet. */
         public Builder setIncludeTxPower(boolean includeTxPower) {
             mIncludeTxPower = includeTxPower;
             return this;
         }
 
         /**
-         * Set advertising interval for periodic advertising, in 1.25ms unit.
-         * Valid values are from 80 (100ms) to 65519 (81.89875s).
-         * Value from range [interval, interval+20ms] will be picked as the actual value.
+         * Set advertising interval for periodic advertising, in 1.25ms unit. Valid values are from
+         * 80 (100ms) to 65519 (81.89875s). Value from range [interval, interval+20ms] will be
+         * picked as the actual value.
          *
          * @throws IllegalArgumentException If the interval is invalid.
          */
         public Builder setInterval(int interval) {
             if (interval < INTERVAL_MIN || interval > INTERVAL_MAX) {
-                throw new IllegalArgumentException("Invalid interval (must be " + INTERVAL_MIN
-                        + "-" + INTERVAL_MAX + ")");
+                throw new IllegalArgumentException(
+                        "Invalid interval (must be " + INTERVAL_MIN + "-" + INTERVAL_MAX + ")");
             }
             mInterval = interval;
             return this;
         }
 
-        /**
-         * Build the {@link AdvertisingSetParameters} object.
-         */
+        /** Build the {@link AdvertisingSetParameters} object. */
         public PeriodicAdvertisingParameters build() {
             return new PeriodicAdvertisingParameters(mIncludeTxPower, mInterval);
         }

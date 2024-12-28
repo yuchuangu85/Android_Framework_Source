@@ -179,7 +179,8 @@ public final class IkeNotifyPayload extends IkeInformationalPayload {
     public static final int NOTIFY_TYPE_SIGNATURE_HASH_ALGORITHMS = 16431;
 
     private static final int NOTIFY_HEADER_LEN = 4;
-    private static final int ERROR_NOTIFY_TYPE_MAX = 16383;
+    /** @hide */
+    public static final int ERROR_NOTIFY_TYPE_MAX = 16383;
 
     private static final String NAT_DETECTION_DIGEST_ALGORITHM = "SHA-1";
 
@@ -252,6 +253,8 @@ public final class IkeNotifyPayload extends IkeInformationalPayload {
         NOTIFY_TYPE_TO_STRING.put(NOTIFY_TYPE_MOBIKE_SUPPORTED, "MOBIKE supported");
         NOTIFY_TYPE_TO_STRING.put(NOTIFY_TYPE_UPDATE_SA_ADDRESSES, "UPDATE_SA_ADDRESSES");
         NOTIFY_TYPE_TO_STRING.put(NOTIFY_TYPE_COOKIE2, "COOKIE2");
+        NOTIFY_TYPE_TO_STRING.put(
+                NOTIFY_TYPE_EAP_ONLY_AUTHENTICATION, "EAP-only Authentication");
         NOTIFY_TYPE_TO_STRING.put(
                 NOTIFY_TYPE_IKEV2_FRAGMENTATION_SUPPORTED, "Fragmentation supported");
         NOTIFY_TYPE_TO_STRING.put(

@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 1 --hash cb628c69682659911bca5c1d04042adba7f0de4b --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/usb/gadget/aidl/android.hardware.usb.gadget-V1-java-source/gen/android/hardware/usb/gadget/IUsbGadget.java.d -o out/soong/.intermediates/hardware/interfaces/usb/gadget/aidl/android.hardware.usb.gadget-V1-java-source/gen -Nhardware/interfaces/usb/gadget/aidl/aidl_api/android.hardware.usb.gadget/1 hardware/interfaces/usb/gadget/aidl/aidl_api/android.hardware.usb.gadget/1/android/hardware/usb/gadget/IUsbGadget.aidl
  */
 package android.hardware.usb.gadget;
 public interface IUsbGadget extends android.os.IInterface
@@ -44,6 +45,7 @@ public interface IUsbGadget extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.usb.gadget.IUsbGadget
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -74,25 +76,19 @@ public interface IUsbGadget extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -272,6 +268,7 @@ public interface IUsbGadget extends android.os.IInterface
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$usb$gadget$IUsbGadget".replace('$', '.');
   public void setCurrentUsbFunctions(long functions, android.hardware.usb.gadget.IUsbGadgetCallback callback, long timeoutMs, long transactionId) throws android.os.RemoteException;
   public void getCurrentUsbFunctions(android.hardware.usb.gadget.IUsbGadgetCallback callback, long transactionId) throws android.os.RemoteException;

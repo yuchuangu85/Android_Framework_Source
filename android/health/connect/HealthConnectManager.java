@@ -17,11 +17,16 @@
 package android.health.connect;
 
 import static android.health.connect.Constants.DEFAULT_LONG;
+import static android.health.connect.Constants.MAXIMUM_PAGE_SIZE;
 import static android.health.connect.HealthPermissions.MANAGE_HEALTH_DATA_PERMISSION;
 import static android.health.connect.HealthPermissions.MANAGE_HEALTH_PERMISSIONS;
 
+import static com.android.healthfitness.flags.Flags.FLAG_EXPORT_IMPORT;
+import static com.android.healthfitness.flags.Flags.FLAG_PERSONAL_HEALTH_RECORD;
+
 import android.Manifest;
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -32,6 +37,7 @@ import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
 import android.annotation.UserHandleAware;
+import android.annotation.WorkerThread;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -75,7 +81,13 @@ import android.health.connect.changelog.ChangeLogsRequest;
 import android.health.connect.changelog.ChangeLogsResponse;
 import android.health.connect.datatypes.AggregationType;
 import android.health.connect.datatypes.DataOrigin;
+import android.health.connect.datatypes.MedicalResource;
 import android.health.connect.datatypes.Record;
+import android.health.connect.exportimport.ExportImportDocumentProvider;
+import android.health.connect.exportimport.IQueryDocumentProvidersCallback;
+import android.health.connect.exportimport.IScheduledExportStatusCallback;
+import android.health.connect.exportimport.ScheduledExportSettings;
+import android.health.connect.exportimport.ScheduledExportStatus;
 import android.health.connect.internal.datatypes.RecordInternal;
 import android.health.connect.internal.datatypes.utils.InternalExternalRecordConverter;
 import android.health.connect.migration.HealthConnectMigrationUiState;
@@ -88,6 +100,7 @@ import android.os.Binder;
 import android.os.OutcomeReceiver;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.util.Log;
 
 import java.lang.annotation.Retention;
@@ -250,6 +263,7 @@ public class HealthConnectManager {
     @SystemApi
     public static final String ACTION_HEALTH_CONNECT_MIGRATION_READY =
             "android.health.connect.action.HEALTH_CONNECT_MIGRATION_READY";
+
     /**
      * Unknown download state considered to be the default download state.
      *
@@ -258,6 +272,7 @@ public class HealthConnectManager {
      * @hide
      */
     @SystemApi public static final int DATA_DOWNLOAD_STATE_UNKNOWN = 0;
+
     /**
      * Indicates that the download has started.
      *
@@ -266,6 +281,7 @@ public class HealthConnectManager {
      * @hide
      */
     @SystemApi public static final int DATA_DOWNLOAD_STARTED = 1;
+
     /**
      * Indicates that the download is being retried.
      *
@@ -274,6 +290,7 @@ public class HealthConnectManager {
      * @hide
      */
     @SystemApi public static final int DATA_DOWNLOAD_RETRY = 2;
+
     /**
      * Indicates that the download has failed.
      *
@@ -282,6 +299,7 @@ public class HealthConnectManager {
      * @hide
      */
     @SystemApi public static final int DATA_DOWNLOAD_FAILED = 3;
+
     /**
      * Indicates that the download has completed.
      *
@@ -291,9 +309,54 @@ public class HealthConnectManager {
      */
     @SystemApi public static final int DATA_DOWNLOAD_COMPLETE = 4;
 
+    /**
+     * Unknown error during the last data export.
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_EXPORT_IMPORT)
+    public static final int DATA_EXPORT_ERROR_UNKNOWN = 0;
+
+    /**
+     * No error during the last data export.
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_EXPORT_IMPORT)
+    public static final int DATA_EXPORT_ERROR_NONE = 1;
+
+    /**
+     * Indicates that the last export failed because we lost access to the export file location.
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_EXPORT_IMPORT)
+    public static final int DATA_EXPORT_LOST_FILE_ACCESS = 2;
+
+    /**
+     * Activity action: Launch activity exported by client application that handles onboarding to
+     * Health Connect.
+     *
+     * <p>Health Connect will invoke this intent whenever the user attempts to connect an app that
+     * has exported an activity that responds to this intent. The launched activity is responsible
+     * for making permission requests and any other prerequisites for connecting to Health Connect.
+     *
+     * <p class="note">Applications exporting an activity that is launched by this intent must also
+     * guard it with {@link HealthPermissions#START_ONBOARDING} so that only the system can launch
+     * it.
+     *
+     * @hide
+     */
+    @SdkConstant(SdkConstant.SdkConstantType.ACTIVITY_INTENT_ACTION)
+    public static final String ACTION_SHOW_ONBOARDING =
+            "android.health.connect.action.SHOW_ONBOARDING";
+
     private static final String TAG = "HealthConnectManager";
     private static final String HEALTH_PERMISSION_PREFIX = "android.permission.health.";
+
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private static volatile Set<String> sHealthPermissions;
+
     private final Context mContext;
     private final IHealthConnectService mService;
     private final InternalExternalRecordConverter mInternalExternalRecordConverter;
@@ -310,6 +373,8 @@ public class HealthConnectManager {
      * permission must have been requested by the application. If the application is not allowed to
      * hold the permission, a {@link java.lang.SecurityException} is thrown. If the package or
      * permission is invalid, a {@link java.lang.IllegalArgumentException} is thrown.
+     *
+     * <p><b>Note:</b> This API sets {@code PackageManager.FLAG_PERMISSION_USER_SET}.
      *
      * @hide
      */
@@ -330,8 +395,13 @@ public class HealthConnectManager {
      * java.lang.SecurityException} is thrown. If the package or permission is invalid, a {@link
      * java.lang.IllegalArgumentException} is thrown.
      *
+     * <p><b>Note:</b> This API sets {@code PackageManager.FLAG_PERMISSION_USER_SET} or {@code
+     * PackageManager.FLAG_PERMISSION_USER_FIXED} based on the number of revocations of a particular
+     * permission for a package.
+     *
      * @hide
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @RequiresPermission(MANAGE_HEALTH_PERMISSIONS)
     @UserHandleAware
     public void revokeHealthPermission(
@@ -351,6 +421,7 @@ public class HealthConnectManager {
      *
      * @hide
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @RequiresPermission(MANAGE_HEALTH_PERMISSIONS)
     @UserHandleAware
     public void revokeAllHealthPermissions(@NonNull String packageName, @Nullable String reason) {
@@ -372,6 +443,59 @@ public class HealthConnectManager {
     public List<String> getGrantedHealthPermissions(@NonNull String packageName) {
         try {
             return mService.getGrantedHealthPermissions(packageName, mContext.getUser());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns permission flags for the given package name and Health permissions.
+     *
+     * <p>This is equivalent to calling {@link PackageManager#getPermissionFlags(String, String,
+     * UserHandle)} for each provided permission except it throws an exception for non-Health or
+     * undeclared permissions. Flag masks listed in {@link PackageManager#MASK_PERMISSION_FLAGS_ALL}
+     * can be used to check the flag values.
+     *
+     * <p>Returned flags for invalid, non-Health or undeclared permissions are equal to zero.
+     *
+     * @return a map which contains all requested permissions as keys and corresponding flags as
+     *     values.
+     * @throws IllegalArgumentException if the package doesn't exist, any of the permissions are not
+     *     Health permissions or not declared by the app.
+     * @throws NullPointerException if any of the arguments is {@code null}.
+     * @throws SecurityException if the caller doesn't possess {@code
+     *     android.permission.MANAGE_HEALTH_PERMISSIONS}.
+     * @hide
+     */
+    @RequiresPermission(MANAGE_HEALTH_PERMISSIONS)
+    @UserHandleAware
+    public Map<String, Integer> getHealthPermissionsFlags(
+            @NonNull String packageName, @NonNull List<String> permissions) {
+        try {
+            return mService.getHealthPermissionsFlags(packageName, mContext.getUser(), permissions);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Sets/clears {@link PackageManager#FLAG_PERMISSION_USER_FIXED} for given health permissions.
+     *
+     * @param value whether to set or clear the flag, {@code true} means set, {@code false} - clear.
+     * @throws IllegalArgumentException if the package doesn't exist, any of the permissions are not
+     *     Health permissions or not declared by the app.
+     * @throws NullPointerException if any of the arguments is {@code null}.
+     * @throws SecurityException if the caller doesn't possess {@code
+     *     android.permission.MANAGE_HEALTH_PERMISSIONS}.
+     * @hide
+     */
+    @RequiresPermission(MANAGE_HEALTH_PERMISSIONS)
+    @UserHandleAware
+    public void setHealthPermissionsUserFixedFlagValue(
+            @NonNull String packageName, @NonNull List<String> permissions, boolean value) {
+        try {
+            mService.setHealthPermissionsUserFixedFlagValue(
+                    packageName, mContext.getUser(), permissions, value);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -425,7 +549,12 @@ public class HealthConnectManager {
             // illegal argument exception.
             records.forEach((record) -> record.getMetadata().setId(""));
             List<RecordInternal<?>> recordInternals =
-                    records.stream().map(Record::toRecordInternal).collect(Collectors.toList());
+                    records.stream()
+                            .map(
+                                    record ->
+                                            record.toRecordInternal()
+                                                    .setPackageName(mContext.getPackageName()))
+                            .collect(Collectors.toList());
             mService.insertRecords(
                     mContext.getAttributionSource(),
                     new RecordsParcel(recordInternals),
@@ -437,8 +566,9 @@ public class HealthConnectManager {
                                     () ->
                                             callback.onResult(
                                                     new InsertRecordsResponse(
-                                                            getRecordsWithUids(
-                                                                    records, parcel.getUids()))));
+                                                            toExternalRecordsWithUuids(
+                                                                    recordInternals,
+                                                                    parcel.getUids()))));
                         }
 
                         @Override
@@ -538,6 +668,9 @@ public class HealthConnectManager {
                             callback) {
         Objects.requireNonNull(request);
         Objects.requireNonNull(duration);
+        if (duration.toMillis() < 1) {
+            throw new IllegalArgumentException("Duration should be at least 1 millisecond");
+        }
         Objects.requireNonNull(executor);
         Objects.requireNonNull(callback);
         try {
@@ -605,6 +738,9 @@ public class HealthConnectManager {
                             callback) {
         Objects.requireNonNull(request);
         Objects.requireNonNull(period);
+        if (period == Period.ZERO) {
+            throw new IllegalArgumentException("Period duration should be at least a day");
+        }
         Objects.requireNonNull(executor);
         Objects.requireNonNull(callback);
         try {
@@ -1604,6 +1740,123 @@ public class HealthConnectManager {
         }
     }
 
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef({DATA_EXPORT_ERROR_UNKNOWN, DATA_EXPORT_ERROR_NONE, DATA_EXPORT_LOST_FILE_ACCESS})
+    public @interface DataExportError {}
+
+    /**
+     * Configures the settings for the scheduled export of Health Connect data.
+     *
+     * @param settings Settings to use for the scheduled export. Use null to clear the settings.
+     * @throws RuntimeException for internal errors
+     * @hide
+     */
+    @SuppressWarnings("NullAway") // TODO: b/178748627 - fix this suppression.
+    @WorkerThread
+    @RequiresPermission(MANAGE_HEALTH_DATA_PERMISSION)
+    public void configureScheduledExport(@Nullable ScheduledExportSettings settings) {
+        try {
+            mService.configureScheduledExport(settings, mContext.getUser());
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Queries the document providers available to be used for export/import.
+     *
+     * @throws RuntimeException for internal errors
+     * @hide
+     */
+    @FlaggedApi(FLAG_EXPORT_IMPORT)
+    @WorkerThread
+    @RequiresPermission(MANAGE_HEALTH_DATA_PERMISSION)
+    public void getScheduledExportStatus(
+            @NonNull Executor executor,
+            @NonNull OutcomeReceiver<ScheduledExportStatus, HealthConnectException> callback) {
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        try {
+            mService.getScheduledExportStatus(
+                    mContext.getUser(),
+                    new IScheduledExportStatusCallback.Stub() {
+                        @Override
+                        public void onResult(ScheduledExportStatus status) {
+                            Binder.clearCallingIdentity();
+                            executor.execute(() -> callback.onResult(status));
+                        }
+
+                        @Override
+                        public void onError(HealthConnectExceptionParcel exception) {
+                            returnError(executor, exception, callback);
+                        }
+                    });
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns currently set period between scheduled exports for this user.
+     *
+     * <p>If you are calling this function for the first time after a user unlock, this might take
+     * some time so consider calling this on a thread.
+     *
+     * @return Period between scheduled exports in days, 0 is returned if period between scheduled
+     *     exports is not set.
+     * @throws RuntimeException for internal errors
+     * @hide
+     */
+    @WorkerThread
+    @RequiresPermission(MANAGE_HEALTH_DATA_PERMISSION)
+    @IntRange(from = 0, to = 30)
+    public int getScheduledExportPeriodInDays() {
+        try {
+            return mService.getScheduledExportPeriodInDays(mContext.getUser());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Queries the document providers available to be used for export/import.
+     *
+     * @throws RuntimeException for internal errors
+     * @hide
+     */
+    @FlaggedApi(FLAG_EXPORT_IMPORT)
+    @WorkerThread
+    @RequiresPermission(MANAGE_HEALTH_DATA_PERMISSION)
+    public void queryDocumentProviders(
+            @NonNull Executor executor,
+            @NonNull
+                    OutcomeReceiver<List<ExportImportDocumentProvider>, HealthConnectException>
+                            callback) {
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        try {
+            mService.queryDocumentProviders(
+                    mContext.getUser(),
+                    new IQueryDocumentProvidersCallback.Stub() {
+                        @Override
+                        public void onResult(List<ExportImportDocumentProvider> providers) {
+                            Binder.clearCallingIdentity();
+                            executor.execute(() -> callback.onResult(providers));
+                        }
+
+                        @Override
+                        public void onError(HealthConnectExceptionParcel exception) {
+                            returnError(executor, exception, callback);
+                        }
+                    });
+        } catch (RemoteException e) {
+            e.rethrowFromSystemServer();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private <T extends Record> IReadRecordsResponseCallback.Stub getReadCallback(
             @NonNull Executor executor,
@@ -1641,10 +1894,14 @@ public class HealthConnectManager {
         };
     }
 
-    private List<Record> getRecordsWithUids(List<Record> records, List<String> uids) {
+    private List<Record> toExternalRecordsWithUuids(
+            List<RecordInternal<?>> recordInternals, List<String> uuids) {
         int i = 0;
-        for (Record record : records) {
-            record.getMetadata().setId(uids.get(i++));
+        List<Record> records = new ArrayList<>();
+
+        for (RecordInternal recordInternal : recordInternals) {
+            recordInternal.setUuid(uuids.get(i++));
+            records.add(recordInternal.toExternalRecord());
         }
 
         return records;
@@ -1744,5 +2001,48 @@ public class HealthConnectManager {
                 executor.execute(() -> callback.onError(exception));
             }
         };
+    }
+
+    /**
+     * Reads {@link MedicalResource}s based on a list of {@link MedicalIdFilter}s.
+     *
+     * <p>Number of resources returned by this API will depend based on below factors:
+     *
+     * <ul>
+     *   <li>When an app with read permissions allowed for the requested IDs calls the API from
+     *       background then it will be able to read only its own inserted medical resources and
+     *       will not get medical resources inserted by other apps. This may be less than the
+     *       requested size.
+     *   <li>When an app with all read permissions allowed for the requested IDs calls the API from
+     *       foreground then it will be able to read all the corresponding medical resources.
+     *   <li>When an app with less read permissions allowed to cover all the requested IDs calls the
+     *       API from foreground then it will be able to read only the medical resources it has read
+     *       permissions for. This may be less than the requested size.
+     *   <li>App with only write permission but no read permission allowed will be able to read only
+     *       its own inserted medical resources both when in foreground or background. This may be
+     *       less than the requested size.
+     *   <li>An app without both read and write permissions will not be able to read any medical
+     *       resources and the API will throw Security Exception.
+     * </ul>
+     *
+     * @param ids Identifiers on which to perform read operation.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive result of performing this operation.
+     * @throws IllegalArgumentException if {@code ids} is empty or its size is more than 5000.
+     */
+    @FlaggedApi(FLAG_PERSONAL_HEALTH_RECORD)
+    public void readMedicalResources(
+            @NonNull List<MedicalIdFilter> ids,
+            @NonNull Executor executor,
+            @NonNull OutcomeReceiver<List<MedicalResource>, HealthConnectException> callback) {
+        Objects.requireNonNull(ids);
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        if (ids.size() >= MAXIMUM_PAGE_SIZE) {
+            throw new IllegalArgumentException("Maximum allowed pageSize is " + MAXIMUM_PAGE_SIZE);
+        }
+
+        throw new UnsupportedOperationException("Not implemented");
     }
 }

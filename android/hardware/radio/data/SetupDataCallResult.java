@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash cd8913a3f9d39f1cc0a5fcf9e90257be94ec38df --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen/android/hardware/radio/data/SetupDataCallResult.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3/android/hardware/radio/data/SetupDataCallResult.aidl
  */
 package android.hardware.radio.data;
+/** @hide */
 public class SetupDataCallResult implements android.os.Parcelable
 {
   public int cause;
@@ -140,7 +142,7 @@ public class SetupDataCallResult implements android.os.Parcelable
     _aidl_sj.add("pduSessionId: " + (pduSessionId));
     _aidl_sj.add("sliceInfo: " + (java.util.Objects.toString(sliceInfo)));
     _aidl_sj.add("trafficDescriptors: " + (java.util.Arrays.toString(trafficDescriptors)));
-    return "android.hardware.radio.data.SetupDataCallResult" + _aidl_sj.toString()  ;
+    return "SetupDataCallResult" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

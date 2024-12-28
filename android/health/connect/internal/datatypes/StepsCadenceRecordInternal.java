@@ -17,6 +17,7 @@
 package android.health.connect.internal.datatypes;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.health.connect.datatypes.Identifier;
 import android.health.connect.datatypes.RecordTypeIdentifier;
 import android.health.connect.datatypes.StepsCadenceRecord;
@@ -37,6 +38,7 @@ import java.util.Set;
 public class StepsCadenceRecordInternal
         extends SeriesRecordInternal<
                 StepsCadenceRecord, StepsCadenceRecord.StepsCadenceRecordSample> {
+    @SuppressWarnings("NullAway.Init") // TODO(b/317029272): fix this suppression
     private Set<StepsCadenceRecordSample> mStepsCadenceRecordSamples;
 
     @Override
@@ -116,7 +118,7 @@ public class StepsCadenceRecordInternal
         }
 
         @Override
-        public boolean equals(@NonNull Object object) {
+        public boolean equals(@Nullable Object object) {
             if (super.equals(object)
                     && object instanceof StepsCadenceRecordInternal.StepsCadenceRecordSample) {
                 StepsCadenceRecordInternal.StepsCadenceRecordSample other =

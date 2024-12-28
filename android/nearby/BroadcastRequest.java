@@ -88,6 +88,7 @@ public abstract class BroadcastRequest {
      * @hide
      */
     @IntDef({MEDIUM_BLE})
+    @Retention(RetentionPolicy.SOURCE)
     public @interface Medium {}
 
     /**

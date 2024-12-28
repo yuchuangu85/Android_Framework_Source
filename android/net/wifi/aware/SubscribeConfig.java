@@ -18,11 +18,15 @@ package android.net.wifi.aware;
 
 import static android.Manifest.permission.MANAGE_WIFI_NETWORK_SELECTION;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.net.wifi.OuiKeyedData;
+import android.net.wifi.ParcelUtil;
+import android.net.wifi.ScanResult;
 import android.net.wifi.WifiScanner;
 import android.net.wifi.util.HexEncoding;
 import android.os.Build;
@@ -32,11 +36,13 @@ import android.os.Parcelable;
 import androidx.annotation.RequiresApi;
 
 import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -107,13 +113,15 @@ public final class SubscribeConfig implements Parcelable {
     private final AwarePairingConfig mPairingConfig;
 
     private final boolean mIsSuspendable;
+    private final List<OuiKeyedData> mVendorData;
 
     /** @hide */
     public SubscribeConfig(byte[] serviceName, byte[] serviceSpecificInfo, byte[] matchFilter,
             int subscribeType, int ttlSec, boolean enableTerminateNotification,
             boolean minDistanceMmSet, int minDistanceMm, boolean maxDistanceMmSet,
             int maxDistanceMm, boolean enableInstantMode, @WifiScanner.WifiBand int band,
-            AwarePairingConfig pairingConfig, boolean isSuspendable) {
+            AwarePairingConfig pairingConfig, boolean isSuspendable,
+            @NonNull List<OuiKeyedData> vendorData) {
         mServiceName = serviceName;
         mServiceSpecificInfo = serviceSpecificInfo;
         mMatchFilter = matchFilter;
@@ -128,6 +136,7 @@ public final class SubscribeConfig implements Parcelable {
         mBand = band;
         mPairingConfig = pairingConfig;
         mIsSuspendable = isSuspendable;
+        mVendorData = vendorData;
     }
 
     @Override
@@ -150,7 +159,8 @@ public final class SubscribeConfig implements Parcelable {
                 + ", mEnableInstantMode=" + mEnableInstantMode
                 + ", mBand=" + mBand
                 + ", mPairingConfig" + mPairingConfig
-                + ", mIsSuspendable=" + mIsSuspendable;
+                + ", mIsSuspendable=" + mIsSuspendable
+                + ", mVendorData=" + mVendorData + "]";
     }
 
     @Override
@@ -174,6 +184,7 @@ public final class SubscribeConfig implements Parcelable {
         dest.writeInt(mBand);
         dest.writeParcelable(mPairingConfig, flags);
         dest.writeBoolean(mIsSuspendable);
+        dest.writeList(mVendorData);
     }
 
     @NonNull
@@ -200,10 +211,12 @@ public final class SubscribeConfig implements Parcelable {
             AwarePairingConfig pairingConfig = in.readParcelable(
                     AwarePairingConfig.class.getClassLoader());
             boolean isSuspendable = in.readBoolean();
+            List<OuiKeyedData> vendorData = ParcelUtil.readOuiKeyedDataList(in);
 
             return new SubscribeConfig(serviceName, ssi, matchFilter, subscribeType, ttlSec,
                     enableTerminateNotification, minDistanceMmSet, minDistanceMm, maxDistanceMmSet,
-                    maxDistanceMm, enableInstantMode, band, pairingConfig, isSuspendable);
+                    maxDistanceMm, enableInstantMode, band, pairingConfig, isSuspendable,
+                    vendorData);
         }
     };
 
@@ -227,7 +240,8 @@ public final class SubscribeConfig implements Parcelable {
                 && mMaxDistanceMmSet == lhs.mMaxDistanceMmSet
                 && mEnableInstantMode == lhs.mEnableInstantMode
                 && mBand == lhs.mBand
-                && mIsSuspendable == lhs.mIsSuspendable)) {
+                && mIsSuspendable == lhs.mIsSuspendable
+                && Objects.equals(mVendorData, lhs.mVendorData))) {
             return false;
         }
 
@@ -247,7 +261,7 @@ public final class SubscribeConfig implements Parcelable {
         int result = Objects.hash(Arrays.hashCode(mServiceName),
                 Arrays.hashCode(mServiceSpecificInfo), Arrays.hashCode(mMatchFilter),
                 mSubscribeType, mTtlSec, mEnableTerminateNotification, mMinDistanceMmSet,
-                mMaxDistanceMmSet, mEnableInstantMode, mBand, mIsSuspendable);
+                mMaxDistanceMmSet, mEnableInstantMode, mBand, mIsSuspendable, mVendorData);
 
         if (mMinDistanceMmSet) {
             result = Objects.hash(result, mMinDistanceMm);
@@ -341,12 +355,12 @@ public final class SubscribeConfig implements Parcelable {
 
     /**
      * Check if enable instant mode on 5G for this subscribe session
+     *
      * @see Builder#setInstantCommunicationModeEnabled(boolean, int)
-     * @return The Wi-Fi band, one of the {@link WifiScanner#WIFI_BAND_24_GHZ}
-     * or {@link WifiScanner#WIFI_BAND_5_GHZ}. If instant communication mode is not enabled will
-     * return {@link WifiScanner#WIFI_BAND_24_GHZ} as default.
+     * @return If instant communication mode is not enabled will return {@link
+     *     ScanResult#WIFI_BAND_24_GHZ} as default.
      */
-    @WifiScanner.WifiBand
+    @WifiAwareManager.InstantModeBand
     public int getInstantCommunicationBand() {
         return mBand;
     }
@@ -377,6 +391,24 @@ public final class SubscribeConfig implements Parcelable {
     }
 
     /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * Builder#setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @NonNull
+    @SystemApi
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData != null ? mVendorData : Collections.emptyList();
+    }
+
+    /**
      * Builder used to build {@link SubscribeConfig} objects.
      */
     public static final class Builder {
@@ -394,6 +426,7 @@ public final class SubscribeConfig implements Parcelable {
         private int mBand = WifiScanner.WIFI_BAND_24_GHZ;
         private AwarePairingConfig mPairingConfig;
         private boolean mIsSuspendable = false;
+        private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
 
         /**
          * Specify the service name of the subscribe session. The actual on-air
@@ -594,25 +627,23 @@ public final class SubscribeConfig implements Parcelable {
          * this session. Use {@link Characteristics#isInstantCommunicationModeSupported()} to check
          * if the device supports this feature.
          *
-         * Note: due to increased power requirements of this mode - it will only remain enabled for
-         * 30 seconds from the time the discovery session is started.
+         * <p>Note: due to increased power requirements of this mode - it will only remain enabled
+         * for 30 seconds from the time the discovery session is started.
          *
          * @param enabled true for enable instant communication mode, default is false.
-         * @param band Either {@link WifiScanner#WIFI_BAND_24_GHZ}
-         *             or {@link WifiScanner#WIFI_BAND_5_GHZ}. When setting to
-         *             {@link WifiScanner#WIFI_BAND_5_GHZ}, device will try to enable instant
-         *             communication mode on 5Ghz, but may fall back to 2.4Ghz due to regulatory
-         *             requirements.
+         * @param band When setting to {@link ScanResult#WIFI_BAND_5_GHZ}, device will try to enable
+         *     instant communication mode on 5Ghz, but may fall back to 2.4Ghz due to regulatory
+         *     requirements.
          * @return the current {@link Builder} builder, enabling chaining of builder methods.
          */
         @RequiresApi(Build.VERSION_CODES.TIRAMISU)
         @NonNull
-        public Builder setInstantCommunicationModeEnabled(boolean enabled,
-                @WifiScanner.WifiBand int band) {
+        public Builder setInstantCommunicationModeEnabled(
+                boolean enabled, @WifiAwareManager.InstantModeBand int band) {
             if (!SdkLevel.isAtLeastT()) {
                 throw new UnsupportedOperationException();
             }
-            if (band != WifiScanner.WIFI_BAND_24_GHZ && band != WifiScanner.WIFI_BAND_5_GHZ) {
+            if (band != ScanResult.WIFI_BAND_24_GHZ && band != ScanResult.WIFI_BAND_5_GHZ) {
                 throw new IllegalArgumentException();
             }
             mBand = band;
@@ -670,6 +701,29 @@ public final class SubscribeConfig implements Parcelable {
         }
 
         /**
+         * Set additional vendor-provided configuration data.
+         *
+         * @param vendorData List of {@link OuiKeyedData} containing the vendor-provided
+         *     configuration data. Note that multiple elements with the same OUI are allowed.
+         * @return Builder for chaining.
+         * @hide
+         */
+        @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        @SystemApi
+        public Builder setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+            if (!SdkLevel.isAtLeastV()) {
+                throw new UnsupportedOperationException();
+            }
+            if (vendorData == null) {
+                throw new IllegalArgumentException("setVendorData received a null value");
+            }
+            mVendorData = vendorData;
+            return this;
+        }
+
+        /**
          * Build {@link SubscribeConfig} given the current requests made on the
          * builder.
          */
@@ -677,7 +731,7 @@ public final class SubscribeConfig implements Parcelable {
             return new SubscribeConfig(mServiceName, mServiceSpecificInfo, mMatchFilter,
                     mSubscribeType, mTtlSec, mEnableTerminateNotification,
                     mMinDistanceMmSet, mMinDistanceMm, mMaxDistanceMmSet, mMaxDistanceMm,
-                    mEnableInstantMode, mBand, mPairingConfig, mIsSuspendable);
+                    mEnableInstantMode, mBand, mPairingConfig, mIsSuspendable, mVendorData);
         }
     }
 }

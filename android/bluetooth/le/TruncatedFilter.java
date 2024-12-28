@@ -25,7 +25,6 @@ import java.util.List;
  * A special scan filter that lets the client decide how the scan record should be stored.
  *
  * @deprecated this is not used anywhere
- *
  * @hide
  */
 @Deprecated
@@ -46,19 +45,13 @@ public final class TruncatedFilter {
         mStorageDescriptors = storageDescriptors;
     }
 
-    /**
-     * Returns the scan filter.
-     */
+    /** Returns the scan filter. */
     public ScanFilter getFilter() {
         return mFilter;
     }
 
-    /**
-     * Returns a list of descriptor for scan result storage.
-     */
+    /** Returns a list of descriptor for scan result storage. */
     public List<ResultStorageDescriptor> getStorageDescriptors() {
         return mStorageDescriptors;
     }
-
-
 }

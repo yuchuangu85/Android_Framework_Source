@@ -16,12 +16,16 @@
 
 package com.android.ims.rcs.uce.request;
 
+import static com.android.ims.rcs.uce.request.UceRequest.REQUEST_TYPE_CAPABILITY;
+
 import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.PersistableBundle;
 import android.os.RemoteException;
+import android.telephony.CarrierConfigManager;
 import android.telephony.TelephonyManager;
 import android.telephony.ims.RcsContactUceCapability;
 import android.telephony.ims.RcsContactUceCapability.CapabilityMechanism;
@@ -46,6 +50,7 @@ import com.android.ims.rcs.uce.request.UceRequestCoordinator.UceRequestUpdate;
 import com.android.ims.rcs.uce.util.UceUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
+import com.android.internal.telephony.flags.FeatureFlags;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -107,6 +112,11 @@ public class UceRequestManager {
          * @return true if the given phone number is blocked by the network.
          */
         boolean isNumberBlocked(Context context, String phoneNumber);
+
+        /**
+         * @return subscribe retry duration in milliseconds.
+         */
+        long getSubscribeRetryDuration(Context context, int subId);
     }
 
     private static UceUtilsProxy sUceUtilsProxy = new UceUtilsProxy() {
@@ -139,11 +149,20 @@ public class UceRequestManager {
         public boolean isNumberBlocked(Context context, String phoneNumber) {
             return UceUtils.isNumberBlocked(context, phoneNumber);
         }
+
+        @Override
+        public long getSubscribeRetryDuration(Context context, int subId) {
+            return UceUtils.getSubscribeRetryInterval(context, subId);
+        }
     };
 
     @VisibleForTesting
     public void setsUceUtilsProxy(UceUtilsProxy uceUtilsProxy) {
         sUceUtilsProxy = uceUtilsProxy;
+
+        // Update values for testing
+        mRetryDuration = sUceUtilsProxy.getSubscribeRetryDuration(mContext, mSubId);
+        mRetryEnabled = mRetryDuration >= 0L;
     }
 
     /**
@@ -277,6 +296,11 @@ public class UceRequestManager {
          * is inconclusive.
          */
         void addToThrottlingList(List<Uri> uriList, int sipCode);
+
+        /**
+         * Send subscribe request to retry.
+         */
+        void sendSubscribeRetryRequest(UceRequest request);
     }
 
     private RequestManagerCallback mRequestMgrCallback = new RequestManagerCallback() {
@@ -406,6 +430,11 @@ public class UceRequestManager {
         public void addToThrottlingList(List<Uri> uriList, int sipCode) {
             mThrottlingList.addToThrottlingList(uriList, sipCode);
         }
+
+        @Override
+        public void sendSubscribeRetryRequest(UceRequest request) {
+            UceRequestManager.this.sendSubscribeRetryRequest(request);
+        }
     };
 
     private final int mSubId;
@@ -413,31 +442,39 @@ public class UceRequestManager {
     private final UceRequestHandler mHandler;
     private final UceRequestRepository mRequestRepository;
     private final ContactThrottlingList mThrottlingList;
+    private final FeatureFlags mFeatureFlags;
     private volatile boolean mIsDestroyed;
 
     private OptionsController mOptionsCtrl;
     private SubscribeController mSubscribeCtrl;
     private UceControllerCallback mControllerCallback;
+    private boolean mRetryEnabled;
+    private long mRetryDuration;
 
-    public UceRequestManager(Context context, int subId, Looper looper, UceControllerCallback c) {
+    public UceRequestManager(Context context, int subId, Looper looper, UceControllerCallback c,
+            FeatureFlags featureFlags) {
         mSubId = subId;
         mContext = context;
         mControllerCallback = c;
         mHandler = new UceRequestHandler(this, looper);
         mThrottlingList = new ContactThrottlingList(mSubId);
         mRequestRepository = new UceRequestRepository(subId, mRequestMgrCallback);
+        mRetryDuration = sUceUtilsProxy.getSubscribeRetryDuration(mContext, mSubId);
+        mRetryEnabled = mRetryDuration >= 0L;
+        mFeatureFlags = featureFlags;
         logi("create");
     }
 
     @VisibleForTesting
     public UceRequestManager(Context context, int subId, Looper looper, UceControllerCallback c,
-            UceRequestRepository requestRepository) {
+            UceRequestRepository requestRepository, FeatureFlags featureFlags) {
         mSubId = subId;
         mContext = context;
         mControllerCallback = c;
         mHandler = new UceRequestHandler(this, looper);
         mRequestRepository = requestRepository;
         mThrottlingList = new ContactThrottlingList(mSubId);
+        mFeatureFlags = featureFlags;
     }
 
     /**
@@ -473,6 +510,16 @@ public class UceRequestManager {
     }
 
     /**
+     * Notify carrier config changed and update cached value.
+     */
+    public void onCarrierConfigChanged() {
+        mRetryDuration = sUceUtilsProxy.getSubscribeRetryDuration(mContext, mSubId);
+        mRetryEnabled = mRetryDuration >= 0L;
+
+        logd("carrier config changed : retry duration = " + mRetryDuration);
+    }
+
+    /**
      * Send a new capability request. It is called by UceController.
      */
     public void sendCapabilityRequest(List<Uri> uriList, boolean skipFromCache,
@@ -481,7 +528,7 @@ public class UceRequestManager {
             callback.onError(RcsUceAdapter.ERROR_GENERIC_FAILURE, 0L, null);
             return;
         }
-        sendRequestInternal(UceRequest.REQUEST_TYPE_CAPABILITY, uriList, skipFromCache, callback);
+        sendRequestInternal(REQUEST_TYPE_CAPABILITY, uriList, skipFromCache, callback);
     }
 
     /**
@@ -495,6 +542,35 @@ public class UceRequestManager {
         }
         sendRequestInternal(UceRequest.REQUEST_TYPE_AVAILABILITY,
                 Collections.singletonList(uri), false /* skipFromCache */, callback);
+    }
+
+    private void sendSubscribeRetryRequest(UceRequest request) {
+        if (!mFeatureFlags.enableSipSubscribeRetry()) {
+            logw("Retry subscribe is not allowed");
+            return;
+        }
+
+        if (request == null || !SubscribeRequest.class.isInstance(request)) {
+            logw("parameter is not available for retry");
+            return;
+        }
+
+        // Handle subscribe retry in background, don't need to consider the cached capabilities
+        // and the callback to notify the result of operation.
+        UceRequestCoordinator requestCoordinator =
+                createSubscribeRequestCoordinatorForRetry(request);
+
+        if (requestCoordinator == null) {
+            logw("createSubscribeRequestCoordinator failed for retry");
+            return;
+        }
+        addRequestCoordinator(requestCoordinator);
+
+        // Send delay message to retry.
+        Long coordinatorId = requestCoordinator.getCoordinatorId();
+        Long taskId = request.getTaskId();
+        mHandler.sendRequestMessage(coordinatorId, taskId, mRetryDuration);
+        logd("sent message for retry " + coordinatorId + " " + taskId + " " + mRetryDuration);
     }
 
     private void sendRequestInternal(@UceRequestType int type, List<Uri> uriList,
@@ -538,7 +614,7 @@ public class UceRequestManager {
         logd(builder.toString());
 
         // Add this RequestCoordinator to the UceRequestRepository.
-        addRequestCoordinator(requestCoordinator);
+        addRequestCoordinatorAndDispatch(requestCoordinator);
     }
 
     /**
@@ -584,7 +660,7 @@ public class UceRequestManager {
     private List<RcsContactUceCapability> getCapabilitiesFromCache(int requestType,
             List<Uri> uriList) {
         List<EabCapabilityResult> resultList = Collections.emptyList();
-        if (requestType == UceRequest.REQUEST_TYPE_CAPABILITY) {
+        if (requestType == REQUEST_TYPE_CAPABILITY) {
             resultList = mRequestMgrCallback.getCapabilitiesFromCache(uriList);
         } else if (requestType == UceRequest.REQUEST_TYPE_AVAILABILITY) {
             // Always get the first element if the request type is availability.
@@ -602,7 +678,6 @@ public class UceRequestManager {
     private UceRequestCoordinator createSubscribeRequestCoordinator(final @UceRequestType int type,
             final List<Uri> uriList, boolean skipFromCache, IRcsUceControllerCallback callback) {
         SubscribeRequestCoordinator.Builder builder;
-
         if (!sUceUtilsProxy.isPresenceGroupSubscribeEnabled(mContext, mSubId)) {
             // When the group subscribe is disabled, each contact is required to be encapsulated
             // into individual UceRequest.
@@ -628,7 +703,10 @@ public class UceRequestManager {
                         individualUri = Collections.singletonList(getSipUriFromUri(uri));
                     }
                 }
+
                 UceRequest request = createSubscribeRequest(type, individualUri, skipFromCache);
+                // Set whether retry is allowed
+                request.setRetryEnabled(mRetryEnabled);
                 requestList.add(request);
             });
             builder = new SubscribeRequestCoordinator.Builder(mSubId, requestList,
@@ -645,19 +723,38 @@ public class UceRequestManager {
                 for (int index = 0; index < rclMaxNumber; index++) {
                     subUriList.add(uriList.get(count * rclMaxNumber + index));
                 }
-                requestList.add(createSubscribeRequest(type, subUriList, skipFromCache));
+
+                UceRequest request = createSubscribeRequest(type, subUriList, skipFromCache);
+                // Set whether retry is allowed
+                request.setRetryEnabled(mRetryEnabled);
+                requestList.add(request);
             }
 
             List<Uri> subUriList = new ArrayList<>();
             for (int i = numRequestCoordinators * rclMaxNumber; i < uriList.size(); i++) {
                 subUriList.add(uriList.get(i));
             }
-            requestList.add(createSubscribeRequest(type, subUriList, skipFromCache));
+
+            UceRequest request = createSubscribeRequest(type, subUriList, skipFromCache);
+            // Set whether retry is allowed
+            request.setRetryEnabled(mRetryEnabled);
+            requestList.add(request);
 
             builder = new SubscribeRequestCoordinator.Builder(mSubId, requestList,
                     mRequestMgrCallback);
             builder.setCapabilitiesCallback(callback);
         }
+        return builder.build();
+    }
+
+    private UceRequestCoordinator createSubscribeRequestCoordinatorForRetry(UceRequest request) {
+        SubscribeRequestCoordinator.Builder builder;
+
+        List<UceRequest> requestList = new ArrayList<>();
+        requestList.add(request);
+        builder = new SubscribeRequestCoordinator.Builder(mSubId, requestList,
+                mRequestMgrCallback);
+        builder.setCapabilitiesCallback(null);
         return builder.build();
     }
 
@@ -678,7 +775,7 @@ public class UceRequestManager {
     private CapabilityRequest createSubscribeRequest(int type, List<Uri> uriList,
             boolean skipFromCache) {
         CapabilityRequest request = new SubscribeRequest(mSubId, type, mRequestMgrCallback,
-                mSubscribeCtrl);
+                mSubscribeCtrl, mFeatureFlags);
         request.setContactUri(uriList);
         request.setSkipGettingFromCache(skipFromCache);
         return request;
@@ -723,7 +820,7 @@ public class UceRequestManager {
         logd(builder.toString());
 
         // Add this RequestCoordinator to the UceRequestRepository.
-        addRequestCoordinator(requestCoordinator);
+        addRequestCoordinatorAndDispatch(requestCoordinator);
     }
 
     private static class UceRequestHandler extends Handler {
@@ -732,7 +829,6 @@ public class UceRequestManager {
         private static final int EVENT_REQUEST_TIMEOUT = 3;
         private static final int EVENT_REQUEST_FINISHED = 4;
         private static final int EVENT_COORDINATOR_FINISHED = 5;
-
         private final Map<Long, SomeArgs> mRequestTimeoutTimers;
         private final WeakReference<UceRequestManager> mUceRequestMgrRef;
 
@@ -926,12 +1022,16 @@ public class UceRequestManager {
         }
     }
 
-    private void addRequestCoordinator(UceRequestCoordinator coordinator) {
-        mRequestRepository.addRequestCoordinator(coordinator);
+    private void addRequestCoordinatorAndDispatch(UceRequestCoordinator coordinator) {
+        mRequestRepository.addRequestCoordinatorAndDispatch(coordinator);
     }
 
     private UceRequestCoordinator removeRequestCoordinator(Long coordinatorId) {
         return mRequestRepository.removeRequestCoordinator(coordinatorId);
+    }
+
+    private void addRequestCoordinator(UceRequestCoordinator coordinator) {
+        mRequestRepository.addRequestCoordinator(coordinator);
     }
 
     private UceRequestCoordinator getRequestCoordinator(Long coordinatorId) {

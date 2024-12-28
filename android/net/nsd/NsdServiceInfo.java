@@ -16,6 +16,9 @@
 
 package android.net.nsd;
 
+import static com.android.net.module.util.HexDump.toHexString;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.compat.annotation.UnsupportedAppUsage;
@@ -24,6 +27,7 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
 import android.util.ArrayMap;
+import android.util.ArraySet;
 import android.util.Log;
 
 import com.android.net.module.util.InetAddressUtils;
@@ -31,10 +35,14 @@ import com.android.net.module.util.InetAddressUtils;
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.StringJoiner;
 
 /**
  * A class representing service information for network service discovery
@@ -44,28 +52,65 @@ public final class NsdServiceInfo implements Parcelable {
 
     private static final String TAG = "NsdServiceInfo";
 
+    @Nullable
     private String mServiceName;
 
+    @Nullable
     private String mServiceType;
 
-    private final ArrayMap<String, byte[]> mTxtRecord = new ArrayMap<>();
+    private final Set<String> mSubtypes;
 
-    private final List<InetAddress> mHostAddresses = new ArrayList<>();
+    private final ArrayMap<String, byte[]> mTxtRecord;
+
+    private final List<InetAddress> mHostAddresses;
+
+    @Nullable
+    private String mHostname;
 
     private int mPort;
+
+    @Nullable
+    private byte[] mPublicKey;
 
     @Nullable
     private Network mNetwork;
 
     private int mInterfaceIndex;
 
+    // The timestamp that one or more resource records associated with this service are considered
+    // invalid.
+    @Nullable
+    private Instant mExpirationTime;
+
     public NsdServiceInfo() {
+        mSubtypes = new ArraySet<>();
+        mTxtRecord = new ArrayMap<>();
+        mHostAddresses = new ArrayList<>();
     }
 
     /** @hide */
     public NsdServiceInfo(String sn, String rt) {
+        this();
         mServiceName = sn;
         mServiceType = rt;
+    }
+
+    /**
+     * Creates a copy of {@code other}.
+     *
+     * @hide
+     */
+    public NsdServiceInfo(@NonNull NsdServiceInfo other) {
+        mServiceName = other.getServiceName();
+        mServiceType = other.getServiceType();
+        mSubtypes = new ArraySet<>(other.getSubtypes());
+        mTxtRecord = new ArrayMap<>(other.mTxtRecord);
+        mHostAddresses = new ArrayList<>(other.getHostAddresses());
+        mHostname = other.getHostname();
+        mPort = other.getPort();
+        mNetwork = other.getNetwork();
+        mInterfaceIndex = other.getInterfaceIndex();
+        mExpirationTime = other.getExpirationTime();
     }
 
     /** Get the service name */
@@ -139,6 +184,77 @@ public final class NsdServiceInfo implements Parcelable {
     public void setHostAddresses(@NonNull List<InetAddress> addresses) {
         mHostAddresses.clear();
         mHostAddresses.addAll(addresses);
+    }
+
+    /**
+     * Get the hostname.
+     *
+     * <p>When a service is resolved, it returns the hostname of the resolved service . The top
+     * level domain ".local." is omitted.
+     *
+     * <p>For example, it returns "MyHost" when the service's hostname is "MyHost.local.".
+     *
+     * @hide
+     */
+//    @FlaggedApi(NsdManager.Flags.NSD_CUSTOM_HOSTNAME_ENABLED)
+    @Nullable
+    public String getHostname() {
+        return mHostname;
+    }
+
+    /**
+     * Set a custom hostname for this service instance for registration.
+     *
+     * <p>A hostname must be in ".local." domain. The ".local." must be omitted when calling this
+     * method.
+     *
+     * <p>For example, you should call setHostname("MyHost") to use the hostname "MyHost.local.".
+     *
+     * <p>If a hostname is set with this method, the addresses set with {@link #setHostAddresses}
+     * will be registered with the hostname.
+     *
+     * <p>If the hostname is null (which is the default for a new {@link NsdServiceInfo}), a random
+     * hostname is used and the addresses of this device will be registered.
+     *
+     * @hide
+     */
+//    @FlaggedApi(NsdManager.Flags.NSD_CUSTOM_HOSTNAME_ENABLED)
+    public void setHostname(@Nullable String hostname) {
+        mHostname = hostname;
+    }
+
+    /**
+     * Set the public key RDATA to be advertised in a KEY RR (RFC 2535).
+     *
+     * <p>This is the public key of the key pair used for signing a DNS message (e.g. SRP). Clients
+     * typically don't need this information, but the KEY RR is usually published to claim the use
+     * of the DNS name so that another mDNS advertiser can't take over the ownership during a
+     * temporary power down of the original host device.
+     *
+     * <p>When the public key is set to non-null, exactly one KEY RR will be advertised for each of
+     * the service and host name if they are not null.
+     *
+     * @hide // For Thread only
+     */
+    public void setPublicKey(@Nullable byte[] publicKey) {
+        if (publicKey == null) {
+            mPublicKey = null;
+            return;
+        }
+        mPublicKey = Arrays.copyOf(publicKey, publicKey.length);
+    }
+
+    /**
+     * Get the public key RDATA in the KEY RR (RFC 2535) or {@code null} if no KEY RR exists.
+     *
+     * @hide // For Thread only
+     */
+    @Nullable
+    public byte[] getPublicKey() {
+        if (mPublicKey == null) {
+            return null;
+        }
+        return Arrays.copyOf(mPublicKey, mPublicKey.length);
     }
 
     /**
@@ -391,18 +507,123 @@ public final class NsdServiceInfo implements Parcelable {
         mInterfaceIndex = interfaceIndex;
     }
 
+    /**
+     * Sets the subtypes to be advertised for this service instance.
+     *
+     * The elements in {@code subtypes} should be the subtype identifiers which have the trailing
+     * "._sub" removed. For example, the subtype should be "_printer" for
+     * "_printer._sub._http._tcp.local".
+     *
+     * Only one subtype will be registered if multiple elements of {@code subtypes} have the same
+     * case-insensitive value.
+     */
+    @FlaggedApi(NsdManager.Flags.NSD_SUBTYPES_SUPPORT_ENABLED)
+    public void setSubtypes(@NonNull Set<String> subtypes) {
+        mSubtypes.clear();
+        mSubtypes.addAll(subtypes);
+    }
+
+    /**
+     * Returns subtypes of this service instance.
+     *
+     * When this object is returned by the service discovery/browse APIs (etc. {@link
+     * NsdManager.DiscoveryListener}), the return value may or may not include the subtypes of this
+     * service.
+     */
+    @FlaggedApi(NsdManager.Flags.NSD_SUBTYPES_SUPPORT_ENABLED)
+    @NonNull
+    public Set<String> getSubtypes() {
+        return Collections.unmodifiableSet(mSubtypes);
+    }
+
+    /**
+     * Sets the timestamp after when this service is expired.
+     *
+     * Note: the value after the decimal point (in unit of seconds) will be discarded. For
+     * example, {@code 30} seconds will be used when {@code Duration.ofSeconds(30L, 50_000L)}
+     * is provided.
+     *
+     * @hide
+     */
+    public void setExpirationTime(@Nullable Instant expirationTime) {
+        if (expirationTime == null) {
+            mExpirationTime = null;
+        } else {
+            mExpirationTime = Instant.ofEpochSecond(expirationTime.getEpochSecond());
+        }
+    }
+
+    /**
+     * Returns the timestamp after when this service is expired or {@code null} if it's unknown.
+     *
+     * A service is considered expired if any of its DNS record is expired.
+     *
+     * Clients that are depending on the refreshness of the service information should not continue
+     * use this service after the returned timestamp. Instead, clients may re-send queries for the
+     * service to get updated the service information.
+     *
+     * @hide
+     */
+    // @FlaggedApi(NsdManager.Flags.NSD_CUSTOM_TTL_ENABLED)
+    @Nullable
+    public Instant getExpirationTime() {
+        return mExpirationTime;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(mServiceName)
                 .append(", type: ").append(mServiceType)
+                .append(", subtypes: ").append(TextUtils.join(", ", mSubtypes))
                 .append(", hostAddresses: ").append(TextUtils.join(", ", mHostAddresses))
+                .append(", hostname: ").append(mHostname)
                 .append(", port: ").append(mPort)
-                .append(", network: ").append(mNetwork);
+                .append(", network: ").append(mNetwork)
+                .append(", expirationTime: ").append(mExpirationTime);
 
-        byte[] txtRecord = getTxtRecord();
-        sb.append(", txtRecord: ").append(new String(txtRecord, StandardCharsets.UTF_8));
+        final StringJoiner txtJoiner =
+                new StringJoiner(", " /* delimiter */, "{" /* prefix */, "}" /* suffix */);
+
+        sb.append(", txtRecord: ");
+        for (int i = 0; i < mTxtRecord.size(); i++) {
+            txtJoiner.add(mTxtRecord.keyAt(i) + "=" + getPrintableTxtValue(mTxtRecord.valueAt(i)));
+        }
+        sb.append(txtJoiner.toString());
         return sb.toString();
+    }
+
+    /**
+     * Returns printable string for {@code txtValue}.
+     *
+     * If {@code txtValue} contains non-printable ASCII characters, a HEX string with prefix "0x"
+     * will be returned. Otherwise, the ASCII string of {@code txtValue} is returned.
+     *
+     */
+    private static String getPrintableTxtValue(@Nullable byte[] txtValue) {
+        if (txtValue == null) {
+            return "(null)";
+        }
+
+        if (containsNonPrintableChars(txtValue)) {
+            return "0x" + toHexString(txtValue);
+        }
+
+        return new String(txtValue, StandardCharsets.US_ASCII);
+    }
+
+    /**
+     * Returns {@code true} if {@code txtValue} contains non-printable ASCII characters.
+     *
+     * The printable characters are in range of [32, 126].
+     */
+    private static boolean containsNonPrintableChars(byte[] txtValue) {
+        for (int i = 0; i < txtValue.length; i++) {
+            if (txtValue[i] < 32 || txtValue[i] > 126) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Implement the Parcelable interface */
@@ -414,6 +635,7 @@ public final class NsdServiceInfo implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(mServiceName);
         dest.writeString(mServiceType);
+        dest.writeStringList(new ArrayList<>(mSubtypes));
         dest.writeInt(mPort);
 
         // TXT record key/value pairs.
@@ -436,6 +658,9 @@ public final class NsdServiceInfo implements Parcelable {
         for (InetAddress address : mHostAddresses) {
             InetAddressUtils.parcelInetAddress(dest, address, flags);
         }
+        dest.writeString(mHostname);
+        dest.writeLong(mExpirationTime != null ? mExpirationTime.getEpochSecond() : -1);
+        dest.writeByteArray(mPublicKey);
     }
 
     /** Implement the Parcelable interface */
@@ -445,6 +670,7 @@ public final class NsdServiceInfo implements Parcelable {
                 NsdServiceInfo info = new NsdServiceInfo();
                 info.mServiceName = in.readString();
                 info.mServiceType = in.readString();
+                info.setSubtypes(new ArraySet<>(in.createStringArrayList()));
                 info.mPort = in.readInt();
 
                 // TXT record key/value pairs.
@@ -464,6 +690,10 @@ public final class NsdServiceInfo implements Parcelable {
                 for (int i = 0; i < size; i++) {
                     info.mHostAddresses.add(InetAddressUtils.unparcelInetAddress(in));
                 }
+                info.mHostname = in.readString();
+                final long seconds = in.readLong();
+                info.setExpirationTime(seconds < 0 ? null : Instant.ofEpochSecond(seconds));
+                info.mPublicKey = in.createByteArray();
                 return info;
             }
 

@@ -18,6 +18,7 @@ package android.health.connect.changelog;
 
 import android.annotation.NonNull;
 import android.health.connect.HealthConnectManager;
+import android.health.connect.aidl.DeletedLogsParcel;
 import android.health.connect.aidl.RecordsParcel;
 import android.health.connect.datatypes.Record;
 import android.health.connect.internal.datatypes.RecordInternal;
@@ -70,14 +71,9 @@ public final class ChangeLogsResponse implements Parcelable {
                                                 RecordsParcel.class.getClassLoader(),
                                                 RecordsParcel.class)
                                         .getRecords());
-        int size = in.readInt();
-        List<DeletedLog> deletedLogs = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            String id = in.readString();
-            long time = in.readLong();
-            deletedLogs.add(new DeletedLog(id, time));
-        }
-        mDeletedLogs = deletedLogs;
+        mDeletedLogs =
+                in.readParcelable(DeletedLogsParcel.class.getClassLoader(), DeletedLogsParcel.class)
+                        .getDeletedLogs();
         mNextChangesToken = in.readString();
         mHasMorePages = in.readBoolean();
     }
@@ -142,11 +138,7 @@ public final class ChangeLogsResponse implements Parcelable {
             recordInternal.add(record.toRecordInternal());
         }
         dest.writeParcelable(new RecordsParcel(recordInternal), 0);
-        dest.writeInt(mDeletedLogs.size());
-        for (DeletedLog deletedLog : mDeletedLogs) {
-            dest.writeString(deletedLog.getDeletedRecordId());
-            dest.writeLong(deletedLog.getDeletedTime().toEpochMilli());
-        }
+        dest.writeParcelable(new DeletedLogsParcel(mDeletedLogs), 0);
         dest.writeString(mNextChangesToken);
         dest.writeBoolean(mHasMorePages);
     }

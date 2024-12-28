@@ -50,7 +50,6 @@ public interface RSAKey {
      */
     public BigInteger getModulus();
 
-    // Android-removed: (b/260847206) remove @hide once aosp/master is marked as V.
     /**
      * Returns the parameters associated with this key.
      * The parameters are optional and may be either
@@ -62,7 +61,6 @@ public interface RSAKey {
      *
      * @return the associated parameters, may be null
      * @since 11
-     * @hide
      */
     default AlgorithmParameterSpec getParams() {
         return null;

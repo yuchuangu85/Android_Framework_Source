@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 package android.bluetooth;
 
 import android.annotation.NonNull;
@@ -22,21 +21,22 @@ import android.os.Parcel;
 import android.os.Parcelable;
 
 /**
- * The Bluetooth Health Application Configuration that is used in conjunction with
- * the {@link BluetoothHealth} class. This class represents an application configuration
- * that the Bluetooth Health third party application will register to communicate with the
- * remote Bluetooth health device.
+ * The Bluetooth Health Application Configuration that is used in conjunction with the {@link
+ * BluetoothHealth} class. This class represents an application configuration that the Bluetooth
+ * Health third party application will register to communicate with the remote Bluetooth health
+ * device.
  *
- * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New
- * apps should use Bluetooth Low Energy based solutions such as {@link BluetoothGatt},
- * {@link BluetoothAdapter#listenUsingL2capChannel()(int)}, or
- * {@link BluetoothDevice#createL2capChannel(int)}
+ * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New apps should use
+ *     Bluetooth Low Energy based solutions such as {@link BluetoothGatt}, {@link
+ *     BluetoothAdapter#listenUsingL2capChannel()}, or {@link
+ *     BluetoothDevice#createL2capChannel(int)}
  */
 @Deprecated
 public final class BluetoothHealthAppConfiguration implements Parcelable {
 
     /**
      * Hide auto-created default constructor
+     *
      * @hide
      */
     BluetoothHealthAppConfiguration() {}
@@ -50,11 +50,10 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
      * Return the data type associated with this application configuration.
      *
      * @return dataType
-     *
-     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New
-     * apps should use Bluetooth Low Energy based solutions such as {@link BluetoothGatt},
-     * {@link BluetoothAdapter#listenUsingL2capChannel()(int)}, or
-     * {@link BluetoothDevice#createL2capChannel(int)}
+     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New apps should
+     *     use Bluetooth Low Energy based solutions such as {@link BluetoothGatt}, {@link
+     *     BluetoothAdapter#listenUsingL2capChannel()}, or {@link
+     *     BluetoothDevice#createL2capChannel(int)}
      */
     @Deprecated
     public int getDataType() {
@@ -65,11 +64,10 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
      * Return the name of the application configuration.
      *
      * @return String name
-     *
-     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New
-     * apps should use Bluetooth Low Energy based solutions such as {@link BluetoothGatt},
-     * {@link BluetoothAdapter#listenUsingL2capChannel()(int)}, or
-     * {@link BluetoothDevice#createL2capChannel(int)}
+     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New apps should
+     *     use Bluetooth Low Energy based solutions such as {@link BluetoothGatt}, {@link
+     *     BluetoothAdapter#listenUsingL2capChannel()}, or {@link
+     *     BluetoothDevice#createL2capChannel(int)}
      */
     @Deprecated
     public String getName() {
@@ -80,11 +78,10 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
      * Return the role associated with this application configuration.
      *
      * @return One of {@link BluetoothHealth#SOURCE_ROLE} or {@link BluetoothHealth#SINK_ROLE}
-     *
-     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New
-     * apps should use Bluetooth Low Energy based solutions such as {@link BluetoothGatt},
-     * {@link BluetoothAdapter#listenUsingL2capChannel()(int)}, or
-     * {@link BluetoothDevice#createL2capChannel(int)}
+     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New apps should
+     *     use Bluetooth Low Energy based solutions such as {@link BluetoothGatt}, {@link
+     *     BluetoothAdapter#listenUsingL2capChannel()}, or {@link
+     *     BluetoothDevice#createL2capChannel(int)}
      */
     @Deprecated
     public int getRole() {
@@ -92,24 +89,24 @@ public final class BluetoothHealthAppConfiguration implements Parcelable {
     }
 
     /**
-     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New
-     * apps should use Bluetooth Low Energy based solutions such as {@link BluetoothGatt},
-     * {@link BluetoothAdapter#listenUsingL2capChannel()(int)}, or
-     * {@link BluetoothDevice#createL2capChannel(int)}
+     * @deprecated Health Device Profile (HDP) and MCAP protocol are no longer used. New apps should
+     *     use Bluetooth Low Energy based solutions such as {@link BluetoothGatt}, {@link
+     *     BluetoothAdapter#listenUsingL2capChannel()}, or {@link
+     *     BluetoothDevice#createL2capChannel(int)}
      */
-    @Deprecated
-    @NonNull
-    public static final Creator<BluetoothHealthAppConfiguration> CREATOR = new Creator<>() {
-        @Override
-        public BluetoothHealthAppConfiguration createFromParcel(Parcel in) {
-            return new BluetoothHealthAppConfiguration();
-        }
+    @Deprecated @NonNull
+    public static final Creator<BluetoothHealthAppConfiguration> CREATOR =
+            new Creator<>() {
+                @Override
+                public BluetoothHealthAppConfiguration createFromParcel(Parcel in) {
+                    return new BluetoothHealthAppConfiguration();
+                }
 
-        @Override
-        public BluetoothHealthAppConfiguration[] newArray(int size) {
-            return new BluetoothHealthAppConfiguration[size];
-        }
-    };
+                @Override
+                public BluetoothHealthAppConfiguration[] newArray(int size) {
+                    return new BluetoothHealthAppConfiguration[size];
+                }
+            };
 
     @Override
     public void writeToParcel(Parcel out, int flags) {}

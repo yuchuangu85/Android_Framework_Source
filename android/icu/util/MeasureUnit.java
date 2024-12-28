@@ -111,6 +111,20 @@ public class MeasureUnit implements Serializable {
     public enum MeasurePrefix {
 
         /**
+         * SI prefix: quetta, 10^30.
+         *
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        QUETTA(30, "quetta", 10),
+
+        /**
+         * SI prefix: ronna, 10^27.
+         *
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        RONNA(27, "ronna", 10),
+
+        /**
          * SI prefix: yotta, 10^24.
          */
         YOTTA(24, "yotta", 10),
@@ -214,6 +228,20 @@ public class MeasureUnit implements Serializable {
          * SI prefix: yocto, 10^-24.
          */
         YOCTO(-24, "yocto", 10),
+
+        /**
+         * SI prefix: ronto, 10^-27.
+         *
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        RONTO(-27, "ronto", 10),
+
+        /**
+         * SI prefix: quecto, 10^-30.
+         *
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        QUECTO(-30, "quecto", 10),
 
         /**
          * IEC binary prefix: kibi, 1024^1.
@@ -393,12 +421,12 @@ public class MeasureUnit implements Serializable {
     /**
      * Creates a MeasureUnit which is this SINGLE unit augmented with the specified prefix.
      * For example, MeasurePrefix.KILO for "kilo", or MeasurePrefix.KIBI for "kibi".
-     * May return `this` if this unit already has that prefix.
+     * May return {@code this} if this unit already has that prefix.
      * <p>
      * There is sufficient locale data to format all standard prefixes.
      * <p>
      * NOTE: Only works on SINGLE units. If this is a COMPOUND or MIXED unit, an error will
-     * occur. For more information, see `Complexity`.
+     * occur. For more information, {@link Complexity}.
      *
      * @param prefix The prefix, from MeasurePrefix.
      * @return A new SINGLE unit.
@@ -415,7 +443,7 @@ public class MeasureUnit implements Serializable {
      * if the unit has the prefix "kilo", then MeasurePrefix.KILO is returned.
      * <p>
      * NOTE: Only works on SINGLE units. If this is a COMPOUND or MIXED unit, an
-     * error will occur. For more information, see `Complexity`.
+     * error will occur. For more information, {@link Complexity}.
      *
      * @return The prefix of this SINGLE unit, from MeasurePrefix.
      * @throws UnsupportedOperationException if the unit is COMPOUND or MIXED.
@@ -429,7 +457,7 @@ public class MeasureUnit implements Serializable {
      * then 2 is returned.
      * <p>
      * NOTE: Only works on SINGLE units. If this is a COMPOUND or MIXED unit, an exception will be thrown.
-     * For more information, see `Complexity`.
+     * For more information, {@link Complexity}.
      *
      * @return The dimensionality (power) of this simple unit.
      * @throws UnsupportedOperationException if the unit is COMPOUND or MIXED.
@@ -443,7 +471,7 @@ public class MeasureUnit implements Serializable {
      * (power). For example, if dimensionality is 2, the unit will be squared.
      * <p>
      * NOTE: Only works on SINGLE units. If this is a COMPOUND or MIXED unit, an exception is thrown.
-     * For more information, see `Complexity`.
+     * For more information, {@link Complexity}.
      *
      * @param dimensionality The dimensionality (power).
      * @return A new SINGLE unit.
@@ -461,7 +489,7 @@ public class MeasureUnit implements Serializable {
      * For example, if the receiver is "meter-per-second", the unit "second-per-meter" is returned.
      * <p>
      * NOTE: Only works on SINGLE and COMPOUND units. If this is a MIXED unit, an error will
-     * occur. For more information, see `Complexity`.
+     * occur. For more information, {@link Complexity}.
      *
      * @return The reciprocal of the target unit.
      * @throws UnsupportedOperationException if the unit is MIXED.
@@ -482,7 +510,7 @@ public class MeasureUnit implements Serializable {
      * unit "kilowatt-hour-per-day" is returned.
      * <p>
      * NOTE: Only works on SINGLE and COMPOUND units. If either unit (receivee and argument) is a
-     * MIXED unit, an error will occur. For more information, see `Complexity`.
+     * MIXED unit, an error will occur. For more information, {@link Complexity}.
      *
      * @param other The MeasureUnit to multiply with the target.
      * @return The product of the target unit with the provided unit.
@@ -1073,8 +1101,8 @@ public class MeasureUnit implements Serializable {
 
     /**
      * Constant for unit of duration: quarter
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
     public static final MeasureUnit QUARTER = MeasureUnit.internalGetInstance("duration", "quarter");
 
     /**
@@ -1465,8 +1493,8 @@ public class MeasureUnit implements Serializable {
 
     /**
      * Constant for unit of mass: tonne
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
     public static final MeasureUnit TONNE = MeasureUnit.internalGetInstance("mass", "tonne");
 
     /**
@@ -1511,6 +1539,12 @@ public class MeasureUnit implements Serializable {
     public static final MeasureUnit BAR = MeasureUnit.internalGetInstance("pressure", "bar");
 
     /**
+     * Constant for unit of pressure: gasoline-energy-density
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    public static final MeasureUnit GASOLINE_ENERGY_DENSITY = MeasureUnit.internalGetInstance("pressure", "gasoline-energy-density");
+
+    /**
      * Constant for unit of pressure: hectopascal
      */
     public static final MeasureUnit HECTOPASCAL = MeasureUnit.internalGetInstance("pressure", "hectopascal");
@@ -1552,6 +1586,12 @@ public class MeasureUnit implements Serializable {
      * Constant for unit of pressure: pound-force-per-square-inch
      */
     public static final MeasureUnit POUND_PER_SQUARE_INCH = MeasureUnit.internalGetInstance("pressure", "pound-force-per-square-inch");
+
+    /**
+     * Constant for unit of speed: beaufort
+     * @hide unsupported on Android
+     */
+    public static final MeasureUnit BEAUFORT = MeasureUnit.internalGetInstance("speed", "beaufort");
 
     /**
      * Constant for unit of speed: kilometer-per-hour

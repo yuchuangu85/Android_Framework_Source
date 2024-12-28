@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash 2f49c78011338b42b43d5d0e250d9b520850cc1f -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen/android/hardware/thermal/CoolingDevice.java.d -o out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen -Nhardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2 hardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2/android/hardware/thermal/CoolingDevice.aidl
  */
 package android.hardware.thermal;
 /** @hide */
@@ -8,6 +9,9 @@ public class CoolingDevice implements android.os.Parcelable
   public int type;
   public java.lang.String name;
   public long value = 0L;
+  public long powerLimitMw = 0L;
+  public long powerMw = 0L;
+  public long timeWindowMs = 0L;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
   public static final android.os.Parcelable.Creator<CoolingDevice> CREATOR = new android.os.Parcelable.Creator<CoolingDevice>() {
@@ -29,6 +33,9 @@ public class CoolingDevice implements android.os.Parcelable
     _aidl_parcel.writeInt(type);
     _aidl_parcel.writeString(name);
     _aidl_parcel.writeLong(value);
+    _aidl_parcel.writeLong(powerLimitMw);
+    _aidl_parcel.writeLong(powerMw);
+    _aidl_parcel.writeLong(timeWindowMs);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -46,6 +53,12 @@ public class CoolingDevice implements android.os.Parcelable
       name = _aidl_parcel.readString();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       value = _aidl_parcel.readLong();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      powerLimitMw = _aidl_parcel.readLong();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      powerMw = _aidl_parcel.readLong();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      timeWindowMs = _aidl_parcel.readLong();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -59,7 +72,10 @@ public class CoolingDevice implements android.os.Parcelable
     _aidl_sj.add("type: " + (type));
     _aidl_sj.add("name: " + (java.util.Objects.toString(name)));
     _aidl_sj.add("value: " + (value));
-    return "android.hardware.thermal.CoolingDevice" + _aidl_sj.toString()  ;
+    _aidl_sj.add("powerLimitMw: " + (powerLimitMw));
+    _aidl_sj.add("powerMw: " + (powerMw));
+    _aidl_sj.add("timeWindowMs: " + (timeWindowMs));
+    return "CoolingDevice" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

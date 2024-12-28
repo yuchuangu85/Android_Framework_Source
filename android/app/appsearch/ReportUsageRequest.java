@@ -17,8 +17,14 @@
 package android.app.appsearch;
 
 import android.annotation.CurrentTimeMillisLong;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
+import android.app.appsearch.flags.Flags;
+import android.app.appsearch.safeparcel.AbstractSafeParcelable;
+import android.app.appsearch.safeparcel.SafeParcelable;
+import android.os.Parcel;
+import android.os.Parcelable;
 
 import java.util.Objects;
 
@@ -29,13 +35,31 @@ import java.util.Objects;
  *
  * @see AppSearchSession#reportUsage
  */
-public final class ReportUsageRequest {
+@SuppressWarnings("HiddenSuperclass")
+@SafeParcelable.Class(creator = "ReportUsageRequestCreator")
+public final class ReportUsageRequest extends AbstractSafeParcelable {
+
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @NonNull
+    public static final Parcelable.Creator<ReportUsageRequest> CREATOR =
+            new ReportUsageRequestCreator();
+
+    @NonNull
+    @Field(id = 1, getter = "getNamespace")
     private final String mNamespace;
+
+    @NonNull
+    @Field(id = 2, getter = "getDocumentId")
     private final String mDocumentId;
+
+    @Field(id = 3, getter = "getUsageTimestampMillis")
     private final long mUsageTimestampMillis;
 
+    @Constructor
     ReportUsageRequest(
-            @NonNull String namespace, @NonNull String documentId, long usageTimestampMillis) {
+            @Param(id = 1) @NonNull String namespace,
+            @Param(id = 2) @NonNull String documentId,
+            @Param(id = 3) long usageTimestampMillis) {
         mNamespace = Objects.requireNonNull(namespace);
         mDocumentId = Objects.requireNonNull(documentId);
         mUsageTimestampMillis = usageTimestampMillis;
@@ -64,6 +88,12 @@ public final class ReportUsageRequest {
         return mUsageTimestampMillis;
     }
 
+    @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        ReportUsageRequestCreator.writeToParcel(this, dest, flags);
+    }
+
     /** Builder for {@link ReportUsageRequest} objects. */
     public static final class Builder {
         private final String mNamespace;
@@ -73,9 +103,9 @@ public final class ReportUsageRequest {
         /**
          * Creates a new {@link ReportUsageRequest.Builder} instance.
          *
-         * @param namespace The namespace of the document that was used (e.g. from {@link
+         * @param namespace The namespace of the document that was used (such as from {@link
          *     GenericDocument#getNamespace}.
-         * @param documentId The ID of document that was used (e.g. from {@link
+         * @param documentId The ID of document that was used (such as from {@link
          *     GenericDocument#getId}.
          */
         public Builder(@NonNull String namespace, @NonNull String documentId) {

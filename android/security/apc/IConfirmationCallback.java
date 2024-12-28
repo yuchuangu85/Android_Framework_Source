@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen/android/security/apc/IConfirmationCallback.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/apc/IConfirmationCallback.aidl
  */
 package android.security.apc;
 /**
@@ -15,6 +16,10 @@ public interface IConfirmationCallback extends android.os.IInterface
     /**
      * This callback gets called by the implementing service when a pending confirmation prompt
      * gets finalized.
+     * @deprecated Android Protected Confirmation had a low adoption rate among Android device
+     *             makers and developers alike. Given the lack of devices supporting the feature,
+     *             it is deprecated. Developers can use auth-bound Keystore keys as a partial
+     *             replacement.
      * 
      * @param result
      *  - ResponseCode.OK On success. In this case dataConfirmed must be non null.
@@ -41,6 +46,7 @@ public interface IConfirmationCallback extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.security.apc.IConfirmationCallback
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -70,13 +76,9 @@ public interface IConfirmationCallback extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -115,6 +117,10 @@ public interface IConfirmationCallback extends android.os.IInterface
       /**
        * This callback gets called by the implementing service when a pending confirmation prompt
        * gets finalized.
+       * @deprecated Android Protected Confirmation had a low adoption rate among Android device
+       *             makers and developers alike. Given the lack of devices supporting the feature,
+       *             it is deprecated. Developers can use auth-bound Keystore keys as a partial
+       *             replacement.
        * 
        * @param result
        *  - ResponseCode.OK On success. In this case dataConfirmed must be non null.
@@ -145,10 +151,15 @@ public interface IConfirmationCallback extends android.os.IInterface
     }
     static final int TRANSACTION_onCompleted = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
   }
-  public static final java.lang.String DESCRIPTOR = "android$security$apc$IConfirmationCallback".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.security.apc.IConfirmationCallback";
   /**
    * This callback gets called by the implementing service when a pending confirmation prompt
    * gets finalized.
+   * @deprecated Android Protected Confirmation had a low adoption rate among Android device
+   *             makers and developers alike. Given the lack of devices supporting the feature,
+   *             it is deprecated. Developers can use auth-bound Keystore keys as a partial
+   *             replacement.
    * 
    * @param result
    *  - ResponseCode.OK On success. In this case dataConfirmed must be non null.
@@ -163,5 +174,6 @@ public interface IConfirmationCallback extends android.os.IInterface
    *           message with a confirmation bound key will succeed. The message is a CBOR map
    *           including the prompt text and the extra data.
    */
+  @Deprecated
   public void onCompleted(int result, byte[] dataConfirmed) throws android.os.RemoteException;
 }

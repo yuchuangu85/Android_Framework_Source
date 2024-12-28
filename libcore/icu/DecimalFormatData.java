@@ -44,7 +44,7 @@ public class DecimalFormatData {
     private final char patternSeparator;
     private final String percent;
     private final String perMill;
-    private final String monetarySeparator;
+    private final String monetaryDecimalSeparator;
     private final String monetaryGroupSeparator;
     private final String minusSign;
     private final String exponentSeparator;
@@ -62,7 +62,7 @@ public class DecimalFormatData {
         groupingSeparator = dfs.getGroupingSeparator();
         percent = dfs.getPercentString();
         perMill = dfs.getPerMillString();
-        monetarySeparator = dfs.getDecimalSeparatorString();
+        monetaryDecimalSeparator = dfs.getMonetaryDecimalSeparatorString();
         monetaryGroupSeparator = dfs.getMonetaryGroupingSeparatorString();
         minusSign = dfs.getMinusSignString();
         exponentSeparator = dfs.getExponentSeparator();
@@ -147,8 +147,8 @@ public class DecimalFormatData {
         return perMill;
     }
 
-    public String getMonetarySeparator() {
-        return monetarySeparator;
+    public String getMonetaryDecimalSeparator() {
+        return monetaryDecimalSeparator;
     }
 
     public String getMonetaryGroupSeparator() {

@@ -16,14 +16,19 @@
 
 package android.ondevicepersonalization;
 
-import static android.app.ondevicepersonalization.OnDevicePersonalizationSystemServiceManager.ON_DEVICE_PERSONALIZATION_SYSTEM_SERVICE;
-import static android.ondevicepersonalization.OnDevicePersonalizationManager.ON_DEVICE_PERSONALIZATION_SERVICE;
-import static android.ondevicepersonalization.OnDevicePersonalizationPrivacyStatusManager.ON_DEVICE_PERSONALIZATION_PRIVACY_STATUS_SERVICE;
+import static android.adservices.ondevicepersonalization.OnDevicePersonalizationConfigManager.ON_DEVICE_PERSONALIZATION_CONFIG_SERVICE;
+import static android.adservices.ondevicepersonalization.OnDevicePersonalizationManager.ON_DEVICE_PERSONALIZATION_SERVICE;
+import static android.adservices.ondevicepersonalization.OnDevicePersonalizationSystemEventManager.ON_DEVICE_PERSONALIZATION_SYSTEM_EVENT_SERVICE;
+import static android.federatedcompute.FederatedComputeManager.FEDERATED_COMPUTE_SERVICE;
+import static android.ondevicepersonalization.OnDevicePersonalizationSystemServiceManager.ON_DEVICE_PERSONALIZATION_SYSTEM_SERVICE;
 
+import android.adservices.ondevicepersonalization.OnDevicePersonalizationConfigManager;
+import android.adservices.ondevicepersonalization.OnDevicePersonalizationManager;
+import android.adservices.ondevicepersonalization.OnDevicePersonalizationSystemEventManager;
 import android.annotation.SystemApi;
 import android.app.SystemServiceRegistry;
-import android.app.ondevicepersonalization.OnDevicePersonalizationSystemServiceManager;
 import android.content.Context;
+import android.federatedcompute.FederatedComputeManager;
 
 import com.android.modules.utils.build.SdkLevel;
 
@@ -50,10 +55,16 @@ public class OnDevicePersonalizationFrameworkInitializer {
                 ON_DEVICE_PERSONALIZATION_SERVICE, OnDevicePersonalizationManager.class,
                 (c) -> new OnDevicePersonalizationManager(c));
         SystemServiceRegistry.registerContextAwareService(
-                ON_DEVICE_PERSONALIZATION_PRIVACY_STATUS_SERVICE,
-                OnDevicePersonalizationPrivacyStatusManager.class,
-                (c) -> new OnDevicePersonalizationPrivacyStatusManager(c));
-
+                ON_DEVICE_PERSONALIZATION_CONFIG_SERVICE,
+                OnDevicePersonalizationConfigManager.class,
+                (c) -> new OnDevicePersonalizationConfigManager(c));
+        SystemServiceRegistry.registerContextAwareService(
+                FEDERATED_COMPUTE_SERVICE, FederatedComputeManager.class,
+                (c) -> new FederatedComputeManager(c));
+        SystemServiceRegistry.registerContextAwareService(
+                ON_DEVICE_PERSONALIZATION_SYSTEM_EVENT_SERVICE,
+                OnDevicePersonalizationSystemEventManager.class,
+                (c) -> new OnDevicePersonalizationSystemEventManager(c));
         if (SdkLevel.isAtLeastU()) {
             SystemServiceRegistry.registerStaticService(
                     ON_DEVICE_PERSONALIZATION_SYSTEM_SERVICE,

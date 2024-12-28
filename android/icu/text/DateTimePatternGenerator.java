@@ -264,7 +264,7 @@ public class DateTimePatternGenerator implements Freezable<DateTimePatternGenera
                 // Add pattern with its associated skeleton. Override any duplicate derived from std patterns,
                 // but not a previous availableFormats entry:
                 String formatValue = value.toString();
-                addPatternWithSkeleton(formatValue, formatKey, !isRoot, returnInfo);
+                addPatternWithSkeleton(formatValue, formatKey, true, returnInfo);
             }
         }
     }
@@ -353,7 +353,7 @@ public class DateTimePatternGenerator implements Freezable<DateTimePatternGenera
         //        }
 
         String language = uLocale.getLanguage();
-        String country = uLocale.getCountry();
+        String country = ULocale.getRegionForSupplementalData(uLocale, false);
         
         if (language.isEmpty() || country.isEmpty()) {
             // Note: addLikelySubtags is documented not to throw in Java,
@@ -363,15 +363,6 @@ public class DateTimePatternGenerator implements Freezable<DateTimePatternGenera
             country = max.getCountry();
         }
 
-        String regionOverride = uLocale.getKeywordValue("rg");
-        if (regionOverride != null && !regionOverride.isEmpty()) {
-            // chop off any subdivision codes that may have been included
-            if (regionOverride.length() > 2) {
-                regionOverride = regionOverride.substring(0, 2);
-            }
-            country = regionOverride;
-        }
-        
         if (language.isEmpty()) {
             // Unexpected, but fail gracefully
             language = "und";
@@ -1089,8 +1080,8 @@ public class DateTimePatternGenerator implements Freezable<DateTimePatternGenera
      *              be thrown if out of range.
      * @param dateTimeFormat
      *              the new dateTimeFormat to set for the specified style
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
     public void setDateTimeFormat(int style, String dateTimeFormat) {
         if (style < DateFormat.FULL || style > DateFormat.SHORT) {
             throw new IllegalArgumentException("Illegal style here: " + style);
@@ -1107,8 +1098,8 @@ public class DateTimePatternGenerator implements Freezable<DateTimePatternGenera
      *              be thrown if out of range.
      * @return
      *              the current dateTimeFormat for the specified style.
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
     public String getDateTimeFormat(int style) {
         if (style < DateFormat.FULL || style > DateFormat.SHORT) {
             throw new IllegalArgumentException("Illegal style here: " + style);

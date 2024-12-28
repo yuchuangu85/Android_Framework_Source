@@ -578,8 +578,10 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
      */
     private void triggerCapabilitiesReceivedCallback(List<RcsContactUceCapability> capList) {
         try {
-            logd("triggerCapabilitiesCallback: size=" + capList.size());
-            mCapabilitiesCallback.onCapabilitiesReceived(capList);
+            if (mCapabilitiesCallback != null) {
+                logd("triggerCapabilitiesCallback: size=" + capList.size());
+                mCapabilitiesCallback.onCapabilitiesReceived(capList);
+            }
         } catch (RemoteException e) {
             logw("triggerCapabilitiesCallback exception: " + e);
         } finally {
@@ -592,8 +594,10 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
      */
     private void triggerCompletedCallback(@Nullable SipDetails details) {
         try {
-            logd("triggerCompletedCallback");
-            mCapabilitiesCallback.onComplete(details);
+            if (mCapabilitiesCallback != null) {
+                logd("triggerCompletedCallback");
+                mCapabilitiesCallback.onComplete(details);
+            }
         } catch (RemoteException e) {
             logw("triggerCompletedCallback exception: " + e);
         } finally {
@@ -607,8 +611,11 @@ public class SubscribeRequestCoordinator extends UceRequestCoordinator {
     private void triggerErrorCallback(int errorCode, long retryAfterMillis,
             @Nullable SipDetails details) {
         try {
-            logd("triggerErrorCallback: errorCode=" + errorCode + ", retry=" + retryAfterMillis);
-            mCapabilitiesCallback.onError(errorCode, retryAfterMillis, details);
+            if (mCapabilitiesCallback != null) {
+                logd("triggerErrorCallback: errorCode=" + errorCode
+                        + ", retry=" + retryAfterMillis);
+                mCapabilitiesCallback.onError(errorCode, retryAfterMillis, details);
+            }
         } catch (RemoteException e) {
             logw("triggerErrorCallback exception: " + e);
         } finally {

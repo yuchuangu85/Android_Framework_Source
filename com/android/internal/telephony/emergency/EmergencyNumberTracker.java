@@ -16,10 +16,12 @@
 
 package com.android.internal.telephony.emergency;
 
+import android.annotation.NonNull;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.AsyncResult;
 import android.os.Environment;
@@ -48,6 +50,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.EmergencyNumberStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.PersistAtomsProto;
@@ -102,6 +105,7 @@ public class EmergencyNumberTracker extends Handler {
 
     private final CommandsInterface mCi;
     private final Phone mPhone;
+    private final @NonNull FeatureFlags mFeatureFlags;
     private int mPhoneId;
     private String mCountryIso;
     private String mLastKnownEmergencyCountryIso = "";
@@ -173,10 +177,20 @@ public class EmergencyNumberTracker extends Handler {
         }
     };
 
-    public EmergencyNumberTracker(Phone phone, CommandsInterface ci) {
+    public EmergencyNumberTracker(Phone phone, CommandsInterface ci,
+            @NonNull FeatureFlags featureFlags) {
+        Context ctx = phone.getContext();
+
         mPhone = phone;
         mCi = ci;
-        mResources = mPhone.getContext().getResources();
+        mFeatureFlags = featureFlags;
+        mResources = ctx.getResources();
+
+        if (mFeatureFlags.minimalTelephonyCdmCheck()
+                && !ctx.getPackageManager().hasSystemFeature(
+                    PackageManager.FEATURE_TELEPHONY_CALLING)) {
+            throw new UnsupportedOperationException("EmergencyNumberTracker requires calling");
+        }
 
         if (mPhone != null) {
             mPhoneId = phone.getPhoneId();
@@ -932,6 +946,23 @@ public class EmergencyNumberTracker extends Handler {
             }
         }
         return null;
+    }
+
+    /**
+     * Get a list of the {@link EmergencyNumber}s that have the corresponding emergency number.
+     * Note: {@link #getEmergencyNumber(String)} assumes there is ONLY one record for a phone number
+     * when in reality there CAN be multiple instances if the same number is reported by the radio
+     * for a specific mcc and the emergency number database specifies the number without an mcc
+     * specified.
+     *
+     * @param emergencyNumber the emergency number to find.
+     * @return the list of emergency numbers matching.
+     */
+    public List<EmergencyNumber> getEmergencyNumbers(String emergencyNumber) {
+        final String toFind = PhoneNumberUtils.stripSeparators(emergencyNumber);
+        return getEmergencyNumberList().stream()
+                .filter(num -> num.getNumber().equals(toFind))
+                .toList();
     }
 
     /**

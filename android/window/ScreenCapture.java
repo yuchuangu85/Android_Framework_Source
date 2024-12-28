@@ -23,18 +23,20 @@ import android.graphics.ColorSpace;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
+import android.os.Build;
 import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
-import android.util.Pair;
 import android.view.SurfaceControl;
+
+import com.android.window.flags.Flags;
 
 import libcore.util.NativeAllocationRegistry;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Consumer;
+import java.util.function.ObjIntConsumer;
 
 /**
  * Handles display and layer captures for the system.
@@ -43,14 +45,14 @@ import java.util.function.Consumer;
  */
 public class ScreenCapture {
     private static final String TAG = "ScreenCapture";
-    private static final int SCREENSHOT_WAIT_TIME_S = 1;
+    private static final int SCREENSHOT_WAIT_TIME_S = 4 * Build.HW_TIMEOUT_MULTIPLIER;
 
     private static native int nativeCaptureDisplay(DisplayCaptureArgs captureArgs,
             long captureListener);
     private static native int nativeCaptureLayers(LayerCaptureArgs captureArgs,
-            long captureListener);
+            long captureListener, boolean sync);
     private static native long nativeCreateScreenCaptureListener(
-            Consumer<ScreenshotHardwareBuffer> consumer);
+            ObjIntConsumer<ScreenshotHardwareBuffer> consumer);
     private static native void nativeWriteListenerToParcel(long nativeObject, Parcel out);
     private static native long nativeReadListenerFromParcel(Parcel in);
     private static native long getNativeListenerFinalizer();
@@ -73,14 +75,14 @@ public class ScreenCapture {
      */
     public static ScreenshotHardwareBuffer captureDisplay(
             DisplayCaptureArgs captureArgs) {
-        Pair<ScreenCaptureListener, ScreenshotSync> syncScreenCapture = createSyncCaptureListener();
-        int status = captureDisplay(captureArgs, syncScreenCapture.first);
+        SynchronousScreenCaptureListener syncScreenCapture = createSyncCaptureListener();
+        int status = captureDisplay(captureArgs, syncScreenCapture);
         if (status != 0) {
             return null;
         }
 
         try {
-            return syncScreenCapture.second.get();
+            return syncScreenCapture.getBuffer();
         } catch (Exception e) {
             return null;
         }
@@ -133,14 +135,15 @@ public class ScreenCapture {
      * @hide
      */
     public static ScreenshotHardwareBuffer captureLayers(LayerCaptureArgs captureArgs) {
-        Pair<ScreenCaptureListener, ScreenshotSync> syncScreenCapture = createSyncCaptureListener();
-        int status = captureLayers(captureArgs, syncScreenCapture.first);
+        SynchronousScreenCaptureListener syncScreenCapture = createSyncCaptureListener();
+        int status = nativeCaptureLayers(captureArgs, syncScreenCapture.mNativeObject,
+                Flags.syncScreenCapture());
         if (status != 0) {
             return null;
         }
 
         try {
-            return syncScreenCapture.second.get();
+            return syncScreenCapture.getBuffer();
         } catch (Exception e) {
             return null;
         }
@@ -171,7 +174,7 @@ public class ScreenCapture {
      */
     public static int captureLayers(@NonNull LayerCaptureArgs captureArgs,
             @NonNull ScreenCaptureListener captureListener) {
-        return nativeCaptureLayers(captureArgs, captureListener.mNativeObject);
+        return nativeCaptureLayers(captureArgs, captureListener.mNativeObject, false /* sync */);
     }
 
     /**
@@ -528,14 +531,12 @@ public class ScreenCapture {
         private final IBinder mDisplayToken;
         private final int mWidth;
         private final int mHeight;
-        private final boolean mUseIdentityTransform;
 
         private DisplayCaptureArgs(Builder builder) {
             super(builder);
             mDisplayToken = builder.mDisplayToken;
             mWidth = builder.mWidth;
             mHeight = builder.mHeight;
-            mUseIdentityTransform = builder.mUseIdentityTransform;
         }
 
         /**
@@ -545,7 +546,6 @@ public class ScreenCapture {
             private IBinder mDisplayToken;
             private int mWidth;
             private int mHeight;
-            private boolean mUseIdentityTransform;
 
             /**
              * Construct a new {@link LayerCaptureArgs} with the set parameters. The builder
@@ -583,17 +583,6 @@ public class ScreenCapture {
             public Builder setSize(int width, int height) {
                 mWidth = width;
                 mHeight = height;
-                return this;
-            }
-
-            /**
-             * Replace the rotation transform of the display with the identity transformation while
-             * taking the screenshot. This ensures the screenshot is taken in the ROTATION_0
-             * orientation. Set this value to false if the screenshot should be taken in the
-             * current screen orientation.
-             */
-            public Builder setUseIdentityTransform(boolean useIdentityTransform) {
-                mUseIdentityTransform = useIdentityTransform;
                 return this;
             }
 
@@ -688,7 +677,7 @@ public class ScreenCapture {
      * This listener can only be used for a single call to capture content call.
      */
     public static class ScreenCaptureListener implements Parcelable {
-        private final long mNativeObject;
+        final long mNativeObject;
         private static final NativeAllocationRegistry sRegistry =
                 NativeAllocationRegistry.createMalloced(
                         ScreenCaptureListener.class.getClassLoader(), getNativeListenerFinalizer());
@@ -696,7 +685,7 @@ public class ScreenCapture {
         /**
          * @param consumer The callback invoked when the screen capture is complete.
          */
-        public ScreenCaptureListener(Consumer<ScreenshotHardwareBuffer> consumer) {
+        public ScreenCaptureListener(ObjIntConsumer<ScreenshotHardwareBuffer> consumer) {
             mNativeObject = nativeCreateScreenCaptureListener(consumer);
             sRegistry.registerNativeAllocation(this, mNativeObject);
         }
@@ -743,14 +732,43 @@ public class ScreenCapture {
      * A helper method to handle the async screencapture callbacks synchronously. This should only
      * be used if the screencapture caller doesn't care that it blocks waiting for a screenshot.
      *
-     * @return a Pair that holds the {@link ScreenCaptureListener} that should be used for capture
-     * calls into SurfaceFlinger and a {@link ScreenshotSync} object to retrieve the results.
+     * @return a {@link SynchronousScreenCaptureListener} that should be used for capture
+     * calls into SurfaceFlinger.
      */
-    public static Pair<ScreenCaptureListener, ScreenshotSync> createSyncCaptureListener() {
-        final ScreenshotSync screenshotSync = new ScreenshotSync();
-        final ScreenCaptureListener screenCaptureListener = new ScreenCaptureListener(
-                screenshotSync::setScreenshotHardwareBuffer);
-        return new Pair<>(screenCaptureListener, screenshotSync);
+    public static SynchronousScreenCaptureListener createSyncCaptureListener() {
+        ScreenshotHardwareBuffer[] bufferRef = new ScreenshotHardwareBuffer[1];
+        CountDownLatch latch = new CountDownLatch(1);
+        ObjIntConsumer<ScreenshotHardwareBuffer> consumer = (buffer, status) -> {
+            if (status != 0) {
+                bufferRef[0] = null;
+                Log.e(TAG, "Failed to generate screen capture. Error code: " + status);
+            } else {
+                bufferRef[0] = buffer;
+            }
+            latch.countDown();
+        };
+
+        return new SynchronousScreenCaptureListener(consumer) {
+            // In order to avoid requiring two GC cycles to clean up the consumer and the buffer
+            // it references, the underlying JNI listener holds a weak reference to the consumer.
+            // This property exists to ensure the consumer stays alive during the listener's
+            // lifetime.
+            private ObjIntConsumer<ScreenshotHardwareBuffer> mConsumer = consumer;
+
+            @Override
+            public ScreenshotHardwareBuffer getBuffer() {
+                try {
+                    if (!latch.await(SCREENSHOT_WAIT_TIME_S, TimeUnit.SECONDS)) {
+                        Log.e(TAG, "Timed out waiting for screenshot results");
+                        return null;
+                    }
+                    return bufferRef[0];
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to wait for screen capture result", e);
+                    return null;
+                }
+            }
+        };
     }
 
     /**
@@ -758,28 +776,16 @@ public class ScreenCapture {
      * {@link #captureLayers(LayerCaptureArgs, ScreenCaptureListener)} or
      * {@link #captureDisplay(DisplayCaptureArgs, ScreenCaptureListener)}
      */
-    public static class ScreenshotSync {
-        private final CountDownLatch mCountDownLatch = new CountDownLatch(1);
-        private ScreenshotHardwareBuffer mScreenshotHardwareBuffer;
-
-        private void setScreenshotHardwareBuffer(
-                ScreenshotHardwareBuffer screenshotHardwareBuffer) {
-            mScreenshotHardwareBuffer = screenshotHardwareBuffer;
-            mCountDownLatch.countDown();
+    public abstract static class SynchronousScreenCaptureListener extends ScreenCaptureListener {
+        SynchronousScreenCaptureListener(ObjIntConsumer<ScreenshotHardwareBuffer> consumer) {
+            super(consumer);
         }
 
         /**
          * Get the {@link ScreenshotHardwareBuffer} synchronously. This can be null if the
          * screenshot failed or if there was no callback in {@link #SCREENSHOT_WAIT_TIME_S} seconds.
          */
-        public ScreenshotHardwareBuffer get() {
-            try {
-                mCountDownLatch.await(SCREENSHOT_WAIT_TIME_S, TimeUnit.SECONDS);
-                return mScreenshotHardwareBuffer;
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to wait for screen capture result", e);
-                return null;
-            }
-        }
+        @Nullable
+        public abstract ScreenshotHardwareBuffer getBuffer();
     }
 }

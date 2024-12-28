@@ -21,6 +21,8 @@ import android.annotation.SuppressLint;
 import android.net.ipsec.ike.ChildSessionCallback;
 import android.net.ipsec.ike.IkeSessionCallback;
 
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
+
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.Objects;
@@ -61,5 +63,21 @@ public final class IkeIOException extends IkeNonProtocolException {
     @Override
     public synchronized Throwable initCause(Throwable cause) {
         throw new UnsupportedOperationException("It is not allowed to set cause with this method");
+    }
+
+    /**
+     * Returns the error code for metrics
+     *
+     * @hide
+     */
+    @Override
+    public int getMetricsErrorCode() {
+        if (getCause() instanceof UnknownHostException) {
+            return IkeMetrics.IKE_ERROR_IO_DNS_FAILURE;
+        } else if (getCause() instanceof IkeTimeoutException) {
+            return IkeMetrics.IKE_ERROR_IO_TIMEOUT;
+        } else {
+            return IkeMetrics.IKE_ERROR_IO_GENERAL;
+        }
     }
 }

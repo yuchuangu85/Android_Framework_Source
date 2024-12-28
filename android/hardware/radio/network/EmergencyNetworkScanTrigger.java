@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/EmergencyNetworkScanTrigger.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/EmergencyNetworkScanTrigger.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public class EmergencyNetworkScanTrigger implements android.os.Parcelable
 {
   public int[] accessNetwork;
@@ -53,7 +55,7 @@ public class EmergencyNetworkScanTrigger implements android.os.Parcelable
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
     _aidl_sj.add("accessNetwork: " + (android.hardware.radio.AccessNetwork.$.arrayToString(accessNetwork)));
     _aidl_sj.add("scanType: " + (android.hardware.radio.network.EmergencyScanType.$.toString(scanType)));
-    return "android.hardware.radio.network.EmergencyNetworkScanTrigger" + _aidl_sj.toString()  ;
+    return "EmergencyNetworkScanTrigger" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

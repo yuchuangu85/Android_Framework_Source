@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 58d15e9e2c355be7b3dda6d4d34effd672bfd1cb --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen/android/hardware/radio/RadioResponseInfoModem.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3/android/hardware/radio/RadioResponseInfoModem.aidl
  */
 package android.hardware.radio;
+/** @hide */
 public class RadioResponseInfoModem implements android.os.Parcelable
 {
   public int type;
@@ -63,7 +65,7 @@ public class RadioResponseInfoModem implements android.os.Parcelable
     _aidl_sj.add("serial: " + (serial));
     _aidl_sj.add("error: " + (android.hardware.radio.RadioError.$.toString(error)));
     _aidl_sj.add("isEnabled: " + (isEnabled));
-    return "android.hardware.radio.RadioResponseInfoModem" + _aidl_sj.toString()  ;
+    return "RadioResponseInfoModem" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

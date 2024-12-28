@@ -107,8 +107,11 @@ public abstract class SandboxedSdkProvider {
      * @param width The view returned will be laid as if in a window of this width, in pixels.
      * @param height The view returned will be laid as if in a window of this height, in pixels.
      * @return a {@link View} which SDK sandbox pass to the client application requesting the view
+     * @deprecated This method will no longer be supported as it is being used by {@link
+     *     SdkSandboxManager#requestSurfacePackage} which is getting deprecated.
      */
     @NonNull
+    @Deprecated
     public abstract View getView(
             @NonNull Context windowContext, @NonNull Bundle params, int width, int height);
 }

@@ -16,15 +16,22 @@
 
 package android.net.wifi;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.net.DscpPolicy;
+import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
+
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -229,10 +236,14 @@ public final class QosPolicyParams implements Parcelable {
     // Flow label. Only applicable to downlink requests using IPv6.
     private final @Nullable byte[] mFlowLabel;
 
+    // QoS characteristics. Mandatory for uplink requests.
+    private final @Nullable QosCharacteristics mQosCharacteristics;
+
     private QosPolicyParams(int policyId, int dscp, @UserPriority int userPriority,
             @Nullable InetAddress srcIp, @Nullable InetAddress dstIp, int srcPort,
             @Protocol int protocol, @Nullable int[] dstPortRange, @Direction int direction,
-            @IpVersion int ipVersion, int dstPort, @Nullable byte[] flowLabel) {
+            @IpVersion int ipVersion, int dstPort, @Nullable byte[] flowLabel,
+            @Nullable QosCharacteristics qosCharacteristics) {
         this.mPolicyId = policyId;
         this.mDscp = dscp;
         this.mUserPriority = userPriority;
@@ -245,6 +256,7 @@ public final class QosPolicyParams implements Parcelable {
         this.mDirection = direction;
         this.mIpVersion = ipVersion;
         this.mFlowLabel = flowLabel;
+        this.mQosCharacteristics = qosCharacteristics;
     }
 
     /**
@@ -309,11 +321,15 @@ public final class QosPolicyParams implements Parcelable {
                 return false;
             }
         }
+        if (mQosCharacteristics != null && !mQosCharacteristics.validate()) {
+            Log.e(TAG, "Invalid QoS characteristics provided");
+            return false;
+        }
 
         // Check required parameters based on direction.
         if (mDirection == DIRECTION_UPLINK) {
-            if (mDscp == DSCP_ANY) {
-                Log.e(TAG, "DSCP must be provided for uplink requests");
+            if (mQosCharacteristics == null) {
+                Log.e(TAG, "QoS characteristics must be provided for uplink requests");
                 return false;
             }
             if (mIpVersion != IP_VERSION_ANY) {
@@ -509,6 +525,22 @@ public final class QosPolicyParams implements Parcelable {
         return mFlowLabel;
     }
 
+    /**
+     * Get the QoS characteristics for this policy.
+     *
+     * See {@link Builder#setQosCharacteristics(QosCharacteristics)} for more information.
+     *
+     * @return QoS characteristics object, or null if not assigned.
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public @Nullable QosCharacteristics getQosCharacteristics() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mQosCharacteristics;
+    }
+
     @Override
     public boolean equals(@Nullable Object o) {
         if (this == o) return true;
@@ -525,14 +557,15 @@ public final class QosPolicyParams implements Parcelable {
                 && Arrays.equals(mDstPortRange, that.mDstPortRange)
                 && mDirection == that.mDirection
                 && mIpVersion == that.mIpVersion
-                && mFlowLabel == that.mFlowLabel;
+                && mFlowLabel == that.mFlowLabel
+                && Objects.equals(mQosCharacteristics, that.mQosCharacteristics);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(mPolicyId, mDscp, mUserPriority, mSrcIp, mDstIp, mSrcPort,
                 mProtocol, Arrays.hashCode(mDstPortRange), mDirection, mIpVersion, mDstPort,
-                Arrays.hashCode(mFlowLabel));
+                Arrays.hashCode(mFlowLabel), mQosCharacteristics);
     }
 
     @Override
@@ -548,7 +581,8 @@ public final class QosPolicyParams implements Parcelable {
                 + "dstPortRange=" + Arrays.toString(mDstPortRange) + ", "
                 + "direction=" + mDirection + ", "
                 + "ipVersion=" + mIpVersion + ", "
-                + "flowLabel=" + Arrays.toString(mFlowLabel) + "}";
+                + "flowLabel=" + Arrays.toString(mFlowLabel) + ", "
+                + "qosCharacteristics=" + mQosCharacteristics + "}";
     }
 
     /** @hide */
@@ -581,6 +615,9 @@ public final class QosPolicyParams implements Parcelable {
         dest.writeInt(mDirection);
         dest.writeInt(mIpVersion);
         dest.writeByteArray(mFlowLabel);
+        if (SdkLevel.isAtLeastV()) {
+            dest.writeParcelable(mQosCharacteristics, 0);
+        }
     }
 
     /** @hide */
@@ -597,6 +634,12 @@ public final class QosPolicyParams implements Parcelable {
         this.mDirection = in.readInt();
         this.mIpVersion = in.readInt();
         this.mFlowLabel = in.createByteArray();
+        if (SdkLevel.isAtLeastV()) {
+            this.mQosCharacteristics = in.readParcelable(
+                    QosCharacteristics.class.getClassLoader(), QosCharacteristics.class);
+        } else {
+            this.mQosCharacteristics = null;
+        }
     }
 
     public static final @NonNull Parcelable.Creator<QosPolicyParams> CREATOR =
@@ -628,6 +671,7 @@ public final class QosPolicyParams implements Parcelable {
         private @Nullable int[] mDstPortRange;
         private @IpVersion int mIpVersion = IP_VERSION_ANY;
         private byte[] mFlowLabel;
+        private @Nullable QosCharacteristics mQosCharacteristics;
 
         /**
          * Constructor for {@link Builder}.
@@ -737,12 +781,27 @@ public final class QosPolicyParams implements Parcelable {
         }
 
         /**
+         * Specifies traffic flow parameters to use for this policy request.
+         * This argument is mandatory for uplink requests, but optional for downlink requests.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+        public @NonNull Builder setQosCharacteristics(
+                @Nullable QosCharacteristics qosCharacteristics) {
+            if (!SdkLevel.isAtLeastV()) {
+                throw new UnsupportedOperationException();
+            }
+            mQosCharacteristics = qosCharacteristics;
+            return this;
+        }
+
+        /**
          * Construct a QosPolicyParams object with the specified parameters.
          */
         public @NonNull QosPolicyParams build() {
             QosPolicyParams params = new QosPolicyParams(mPolicyId, mDscp, mUserPriority, mSrcIp,
                     mDstIp, mSrcPort, mProtocol, mDstPortRange, mDirection, mIpVersion, mDstPort,
-                    mFlowLabel);
+                    mFlowLabel, mQosCharacteristics);
             if (!params.validate()) {
                 throw new IllegalArgumentException("Provided parameters are invalid");
             }

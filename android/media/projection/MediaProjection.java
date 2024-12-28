@@ -83,6 +83,7 @@ public final class MediaProjection {
         try {
             mImpl.start(new MediaProjectionCallback());
         } catch (RemoteException e) {
+            Log.e(TAG, "Content Recording: Failed to start media projection", e);
             throw new RuntimeException("Failed to start media projection", e);
         }
         mDisplayManager = displayManager;
@@ -105,11 +106,18 @@ public final class MediaProjection {
      * @see #unregisterCallback
      */
     public void registerCallback(@NonNull Callback callback, @Nullable Handler handler) {
-        final Callback c = Objects.requireNonNull(callback);
-        if (handler == null) {
-            handler = new Handler();
+        try {
+            final Callback c = Objects.requireNonNull(callback);
+            if (handler == null) {
+                handler = new Handler();
+            }
+            mCallbacks.put(c, new CallbackRecord(c, handler));
+        } catch (NullPointerException e) {
+            Log.e(TAG, "Content Recording: cannot register null Callback", e);
+            throw e;
+        } catch (RuntimeException e) {
+            Log.e(TAG, "Content Recording: failed to create new Handler to register Callback", e);
         }
-        mCallbacks.put(c, new CallbackRecord(c, handler));
     }
 
     /**
@@ -120,8 +128,13 @@ public final class MediaProjection {
      * @see #registerCallback
      */
     public void unregisterCallback(@NonNull Callback callback) {
-        final Callback c = Objects.requireNonNull(callback);
-        mCallbacks.remove(c);
+        try {
+            final Callback c = Objects.requireNonNull(callback);
+            mCallbacks.remove(c);
+        } catch (NullPointerException e) {
+            Log.d(TAG, "Content Recording: cannot unregister null Callback", e);
+            throw e;
+        }
     }
 
     /**
@@ -159,30 +172,42 @@ public final class MediaProjection {
      * @param surface  The surface to which the content of the virtual display should be rendered,
      *                 or null if there is none initially.
      * @param flags    A combination of virtual display flags. See {@link DisplayManager} for the
-     *                 full list of flags.
+     *                 full list of flags. Note that
+     *                 {@link DisplayManager#VIRTUAL_DISPLAY_FLAG_PRESENTATION}
+     *                 is always enabled. The following flags may be overridden, depending on how
+     *                 the component with {android.Manifest.permission.MANAGE_MEDIA_PROJECTION}
+     *                 handles the user's consent:
+     *                 {@link DisplayManager#VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY},
+     *                 {@link DisplayManager#VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR},
+     *                 {@link DisplayManager#VIRTUAL_DISPLAY_FLAG_PUBLIC}.
      * @param callback Callback invoked when the virtual display's state changes, or null.
      * @param handler  The {@link android.os.Handler} on which the callback should be invoked, or
      *                 null if the callback should be invoked on the calling thread's main
      *                 {@link android.os.Looper}.
-     * @throws IllegalStateException In the following scenarios, if the target SDK is {@link
-     *                               android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE U} and up:
+     * @throws IllegalStateException If the target SDK is {@link
+     *                               android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE U} and up, and
+     *                               if no {@link Callback} is registered.
+     * @throws SecurityException In any of the following scenarios:
      *                               <ol>
-     *                                 <li>If no {@link Callback} is registered.</li>
-     *                                 <li>If {@link MediaProjectionManager#getMediaProjection}
+     *                                 <li>If attempting to create a new virtual display
+     *                                 associated with this MediaProjection instance after it has
+     *                                 been stopped by invoking {@link #stop()}.
+     *                                 <li>If the target SDK is {@link
+     *                                 android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE U} and up,
+     *                                 and if this instance has already taken a recording through
+     *                                 {@code #createVirtualDisplay}, but {@link #stop()} wasn't
+     *                                 invoked to end the recording.
+     *                                 <li>If the target SDK is {@link
+     *                                 android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE U} and up,
+     *                                 and if {@link MediaProjectionManager#getMediaProjection}
      *                                 was invoked more than once to get this
      *                                 {@code MediaProjection} instance.
-     *                                 <li>If this instance has already taken a recording through
-     *                                 {@code #createVirtualDisplay}.
      *                               </ol>
-     *                               However, if the target SDK is less than
-     *                               {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE U}, no
-     *                               exception is thrown. In case 1, recording begins even without
-     *                               the callback. In case 2 & 3, recording doesn't begin
-     *                               until the user re-grants consent in the dialog.
-     * @throws SecurityException If attempting to create a new virtual display associated with this
-     *                           MediaProjection instance after it has been stopped by invoking
-     *                           {@link #stop()}.
-     *
+     *                               In cases 2 & 3, no exception is thrown if the target SDK is
+     *                               less than
+     *                               {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE U}.
+     *                               Instead, recording doesn't begin until the user re-grants
+     *                               consent in the dialog.
      * @see VirtualDisplay
      * @see VirtualDisplay.Callback
      */
@@ -191,9 +216,11 @@ public final class MediaProjection {
             @Nullable VirtualDisplay.Callback callback, @Nullable Handler handler) {
         if (shouldMediaProjectionRequireCallback()) {
             if (mCallbacks.isEmpty()) {
-                throw new IllegalStateException(
+                final IllegalStateException e = new IllegalStateException(
                         "Must register a callback before starting capture, to manage resources in"
                                 + " response to MediaProjection states.");
+                Log.e(TAG, "Content Recording: no callback registered for virtual display", e);
+                throw e;
             }
         }
         final VirtualDisplayConfig.Builder builder = new VirtualDisplayConfig.Builder(name, width,
@@ -260,6 +287,7 @@ public final class MediaProjection {
      */
     public void stop() {
         try {
+            Log.d(TAG, "Content Recording: stopping projection");
             mImpl.stop();
         } catch (RemoteException e) {
             Log.e(TAG, "Unable to stop projection", e);

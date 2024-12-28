@@ -29,9 +29,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Record of energy and activity information from controller and
- * underlying bt stack state.Timestamp the record with system
- * time.
+ * Record of energy and activity information from controller and underlying bt stack state.Timestamp
+ * the record with system time.
  *
  * @hide
  */
@@ -46,12 +45,14 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
     private List<UidTraffic> mUidTraffic;
 
     /** @hide */
-    @IntDef(prefix = { "BT_STACK_STATE_" }, value = {
-            BT_STACK_STATE_INVALID,
-            BT_STACK_STATE_STATE_ACTIVE,
-            BT_STACK_STATE_STATE_SCANNING,
-            BT_STACK_STATE_STATE_IDLE
-    })
+    @IntDef(
+            prefix = {"BT_STACK_STATE_"},
+            value = {
+                BT_STACK_STATE_INVALID,
+                BT_STACK_STATE_STATE_ACTIVE,
+                BT_STACK_STATE_STATE_SCANNING,
+                BT_STACK_STATE_STATE_IDLE
+            })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BluetoothStackState {}
 
@@ -61,8 +62,13 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
     public static final int BT_STACK_STATE_STATE_IDLE = 3;
 
     /** @hide */
-    public BluetoothActivityEnergyInfo(long timestamp, int stackState,
-            long txTime, long rxTime, long idleTime, long energyUsed) {
+    public BluetoothActivityEnergyInfo(
+            long timestamp,
+            int stackState,
+            long txTime,
+            long rxTime,
+            long idleTime,
+            long energyUsed) {
         mTimestamp = timestamp;
         mBluetoothStackState = stackState;
         mControllerTxTimeMs = txTime;
@@ -86,13 +92,20 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
     @Override
     public String toString() {
         return "BluetoothActivityEnergyInfo{"
-                + " mTimestamp=" + mTimestamp
-                + " mBluetoothStackState=" + mBluetoothStackState
-                + " mControllerTxTimeMs=" + mControllerTxTimeMs
-                + " mControllerRxTimeMs=" + mControllerRxTimeMs
-                + " mControllerIdleTimeMs=" + mControllerIdleTimeMs
-                + " mControllerEnergyUsed=" + mControllerEnergyUsed
-                + " mUidTraffic=" + mUidTraffic
+                + " mTimestamp="
+                + mTimestamp
+                + " mBluetoothStackState="
+                + mBluetoothStackState
+                + " mControllerTxTimeMs="
+                + mControllerTxTimeMs
+                + " mControllerRxTimeMs="
+                + mControllerRxTimeMs
+                + " mControllerIdleTimeMs="
+                + mControllerIdleTimeMs
+                + " mControllerEnergyUsed="
+                + mControllerEnergyUsed
+                + " mUidTraffic="
+                + mUidTraffic
                 + " }";
     }
 
@@ -193,7 +206,8 @@ public final class BluetoothActivityEnergyInfo implements Parcelable {
      * @return true if the record Tx time, Rx time, and Idle time are more than 0.
      */
     public boolean isValid() {
-        return ((mControllerTxTimeMs >= 0) && (mControllerRxTimeMs >= 0)
+        return ((mControllerTxTimeMs >= 0)
+                && (mControllerRxTimeMs >= 0)
                 && (mControllerIdleTimeMs >= 0));
     }
 }

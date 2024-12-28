@@ -30,6 +30,7 @@ import static com.android.internal.net.ipsec.ike.IkeSessionStateMachine.CMD_LOCA
 import static com.android.internal.net.ipsec.ike.IkeSessionStateMachine.CMD_LOCAL_REQUEST_DPD;
 import static com.android.internal.net.ipsec.ike.IkeSessionStateMachine.CMD_LOCAL_REQUEST_INFO;
 import static com.android.internal.net.ipsec.ike.IkeSessionStateMachine.CMD_LOCAL_REQUEST_MOBIKE;
+import static com.android.internal.net.ipsec.ike.IkeSessionStateMachine.CMD_LOCAL_REQUEST_ON_DEMAND_DPD;
 import static com.android.internal.net.ipsec.ike.IkeSessionStateMachine.CMD_LOCAL_REQUEST_REKEY_IKE;
 
 import android.annotation.IntDef;
@@ -231,7 +232,9 @@ public final class IkeLocalRequestScheduler {
 
         @Override
         protected void validateTypeOrThrow(int type) {
-            if (type >= CMD_LOCAL_REQUEST_CREATE_IKE && type <= CMD_LOCAL_REQUEST_MOBIKE) return;
+            if (type >= CMD_LOCAL_REQUEST_CREATE_IKE && type <= CMD_LOCAL_REQUEST_ON_DEMAND_DPD) {
+                return;
+            }
             throw new IllegalArgumentException("Invalid IKE procedure type: " + type);
         }
 
@@ -337,6 +340,7 @@ public final class IkeLocalRequestScheduler {
                 case CMD_LOCAL_REQUEST_REKEY_IKE: // Fallthrough
                 case CMD_LOCAL_REQUEST_INFO: // Fallthrough
                 case CMD_LOCAL_REQUEST_DPD: // Fallthrough
+                case CMD_LOCAL_REQUEST_ON_DEMAND_DPD: // Fallthrough
                 case CMD_LOCAL_REQUEST_CREATE_CHILD: // Fallthrough
                 case CMD_LOCAL_REQUEST_DELETE_CHILD: // Fallthrough
                 case CMD_LOCAL_REQUEST_REKEY_CHILD:

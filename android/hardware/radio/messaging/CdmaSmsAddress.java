@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 30b0bc0e84679bc3b5ccb3a52da34c47cda6b7eb --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V3-java-source/gen/android/hardware/radio/messaging/CdmaSmsAddress.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/3/android/hardware/radio/messaging/CdmaSmsAddress.aidl
  */
 package android.hardware.radio.messaging;
+/** @hide */
 public class CdmaSmsAddress implements android.os.Parcelable
 {
   public int digitMode = 0;
@@ -94,7 +96,7 @@ public class CdmaSmsAddress implements android.os.Parcelable
     _aidl_sj.add("numberType: " + (numberType));
     _aidl_sj.add("numberPlan: " + (numberPlan));
     _aidl_sj.add("digits: " + (java.util.Arrays.toString(digits)));
-    return "android.hardware.radio.messaging.CdmaSmsAddress" + _aidl_sj.toString()  ;
+    return "CdmaSmsAddress" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

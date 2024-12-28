@@ -59,6 +59,47 @@ public class NetworkRequestsStats {
             networkRequestsTemplate.capability = NetworkRequestsV2.NetworkCapability.ENTERPRISE;
             storage.addNetworkRequestsV2(networkRequestsTemplate);
         }
+
+        if (networkRequest.hasTransport(NetworkCapabilities.TRANSPORT_SATELLITE)
+                && !networkRequest.hasCapability(
+                        NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) {
+
+            if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                networkRequestsTemplate.capability =
+                        NetworkRequestsV2.NetworkCapability.SATELLITE_INTERNET_RESTRICTED;
+                storage.addNetworkRequestsV2(networkRequestsTemplate);
+            }
+
+            if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_MMS)) {
+                networkRequestsTemplate.capability =
+                        NetworkRequestsV2.NetworkCapability.SATELLITE_MMS_RESTRICTED;
+                storage.addNetworkRequestsV2(networkRequestsTemplate);
+            }
+
+            if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_IMS)) {
+                networkRequestsTemplate.capability =
+                        NetworkRequestsV2.NetworkCapability.SATELLITE_IMS_RESTRICTED;
+                storage.addNetworkRequestsV2(networkRequestsTemplate);
+            }
+
+            if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_XCAP)) {
+                networkRequestsTemplate.capability =
+                        NetworkRequestsV2.NetworkCapability.SATELLITE_XCAP_RESTRICTED;
+                storage.addNetworkRequestsV2(networkRequestsTemplate);
+            }
+
+            if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_EIMS)) {
+                networkRequestsTemplate.capability =
+                        NetworkRequestsV2.NetworkCapability.SATELLITE_EIMS_RESTRICTED;
+                storage.addNetworkRequestsV2(networkRequestsTemplate);
+            }
+
+            if (networkRequest.hasCapability(NetworkCapabilities.NET_CAPABILITY_SUPL)) {
+                networkRequestsTemplate.capability =
+                        NetworkRequestsV2.NetworkCapability.SATELLITE_SUPL_RESTRICTED;
+                storage.addNetworkRequestsV2(networkRequestsTemplate);
+            }
+        }
     }
 
     /** Returns the carrier ID of the given subscription id. */

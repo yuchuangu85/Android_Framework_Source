@@ -60,6 +60,7 @@ import com.android.ims.internal.IImsServiceFeatureCallback;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.SomeArgs;
 import com.android.internal.telephony.PhoneConfigurationManager;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.util.IndentingPrintWriter;
 
 import java.io.FileDescriptor;
@@ -139,11 +140,12 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
      * Create the ImsResolver Service singleton instance.
      */
     public static void make(Context context, String defaultMmTelPackageName,
-            String defaultRcsPackageName, int numSlots, ImsFeatureBinderRepository repo) {
+            String defaultRcsPackageName, int numSlots, ImsFeatureBinderRepository repo,
+            FeatureFlags featureFlags) {
         if (sInstance == null) {
             sHandlerThread.start();
             sInstance = new ImsResolver(context, defaultMmTelPackageName, defaultRcsPackageName,
-                    numSlots, repo, sHandlerThread.getLooper());
+                    numSlots, repo, sHandlerThread.getLooper(), featureFlags);
         }
     }
 
@@ -372,7 +374,7 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
          */
         ImsServiceController create(Context context, ComponentName componentName,
                 ImsServiceController.ImsServiceControllerCallbacks callbacks,
-                ImsFeatureBinderRepository repo);
+                ImsFeatureBinderRepository repo, FeatureFlags featureFlags);
     }
 
     private ImsServiceControllerFactory mImsServiceControllerFactory =
@@ -386,8 +388,9 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
         @Override
         public ImsServiceController create(Context context, ComponentName componentName,
                 ImsServiceController.ImsServiceControllerCallbacks callbacks,
-                ImsFeatureBinderRepository repo) {
-            return new ImsServiceController(context, componentName, callbacks, repo);
+                ImsFeatureBinderRepository repo, FeatureFlags featureFlags) {
+                    return new ImsServiceController(context, componentName, callbacks, repo,
+                            featureFlags);
         }
     };
 
@@ -410,7 +413,7 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
                 @Override
                 public ImsServiceController create(Context context, ComponentName componentName,
                         ImsServiceController.ImsServiceControllerCallbacks callbacks,
-                        ImsFeatureBinderRepository repo) {
+                        ImsFeatureBinderRepository repo, FeatureFlags featureFlags) {
                     return new ImsServiceControllerCompat(context, componentName, callbacks, repo);
                 }
             };
@@ -445,6 +448,9 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
     // Synchronize all events on a handler to ensure that the cache includes the most recent
     // version of the installed ImsServices.
     private final Handler mHandler;
+
+    private final FeatureFlags mFeatureFlags;
+
     private class ResolverHandler extends Handler {
 
         ResolverHandler(Looper looper) {
@@ -581,7 +587,7 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
 
     public ImsResolver(Context context, String defaultMmTelPackageName,
             String defaultRcsPackageName, int numSlots, ImsFeatureBinderRepository repo,
-            Looper looper) {
+            Looper looper, FeatureFlags featureFlags) {
         Log.i(TAG, "device MMTEL package: " + defaultMmTelPackageName + ", device RCS package:"
                 + defaultRcsPackageName);
         mContext = context;
@@ -591,6 +597,7 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
 
         mHandler = new ResolverHandler(looper);
         mRunnableExecutor = new HandlerExecutor(mHandler);
+        mFeatureFlags = featureFlags;
         mCarrierServices = new SparseArray<>(mNumSlots);
         setDeviceConfiguration(defaultMmTelPackageName, ImsFeature.FEATURE_EMERGENCY_MMTEL);
         setDeviceConfiguration(defaultMmTelPackageName, ImsFeature.FEATURE_MMTEL);
@@ -1233,7 +1240,8 @@ public class ImsResolver implements ImsServiceController.ImsServiceControllerCal
                     Log.w(TAG, "bindImsService: error=" + e.getMessage());
                 }
             } else {
-                controller = info.controllerFactory.create(mContext, info.name, this, mRepo);
+                controller = info.controllerFactory.create(mContext, info.name, this, mRepo,
+                        mFeatureFlags);
                 Log.i(TAG, "Binding ImsService: " + controller.getComponentName()
                         + " with features: " + features);
                 controller.bind(features, slotIdToSubIdMap);

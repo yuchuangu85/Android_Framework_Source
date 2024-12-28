@@ -21,8 +21,6 @@ import java.util.TreeSet;
 
 import android.icu.impl.Assert;
 import android.icu.impl.RBBIDataWrapper;
-import android.icu.lang.UCharacter;
-import android.icu.lang.UProperty;
 import android.icu.text.RBBIRuleBuilder.IntPair;
 
 /**
@@ -119,7 +117,7 @@ class RBBITableBuilder {
            // Walk through the tree, replacing any references to $variables with a copy of the
            //   parse tree for the substitution expression.
            //
-           fRB.fTreeRoots[fRootIx] = fRB.fTreeRoots[fRootIx].flattenVariables();
+           fRB.fTreeRoots[fRootIx] = fRB.fTreeRoots[fRootIx].flattenVariables(0);
            if (fRB.fDebugEnv!=null && fRB.fDebugEnv.indexOf("ftree")>=0) {
                System.out.println("Parse tree after flattening variable references.");
                fRB.fTreeRoots[fRootIx].printTree(true);
@@ -442,22 +440,6 @@ class RBBITableBuilder {
 
                // We've got a node that can end a match.
 
-               // !!LBCMNoChain implementation:  If this node's val correspond to
-               // the Line Break $CM char class, don't chain from it.
-               // TODO:  Remove this. !!LBCMNoChain is deprecated, and is not used
-               //             by any of the standard ICU rules.
-               if (fRB.fLBCMNoChain) {
-                   int c = this.fRB.fSetBuilder.getFirstChar(endNode.fVal);
-                   if (c != -1) {
-                       // c == -1 occurs with sets containing only the {eof} marker string.
-                       int cLBProp = UCharacter.getIntPropertyValue(c, UProperty.LINE_BREAK);
-                       if (cLBProp == UCharacter.LineBreak.COMBINING_MARK) {
-                           continue;
-                       }
-                   }
-               }
-
-
                // Now iterate over the nodes that can start a match, looking for ones
                //   with the same char class as our ending node.
                for (RBBINode startNode : matchStartNodes) {
@@ -770,7 +752,7 @@ class RBBITableBuilder {
                for (n=0; n<fDStates.size(); n++) {              //    For each state  s (row in the state table)
                    RBBIStateDescriptor sd = fDStates.get(n);
                    if (sd.fPositions.contains(tagNode)) {       //       if  s include the tag node t
-                       sd.fTagVals.add(Integer.valueOf(tagNode.fVal));
+                       sd.fTagVals.add(tagNode.fVal);
                    }
                }
            }
@@ -818,15 +800,15 @@ class RBBITableBuilder {
            //   We will need this as a default, for rule sets with no explicit tagging,
            //   or with explicit tagging of {0}.
            if (fRB.fRuleStatusVals.size() == 0) {
-               fRB.fRuleStatusVals.add(Integer.valueOf(1));    // Num of statuses in group
-               fRB.fRuleStatusVals.add(Integer.valueOf(0));    //   and our single status of zero
+               fRB.fRuleStatusVals.add(1);    // Num of statuses in group
+               fRB.fRuleStatusVals.add(0);    //   and our single status of zero
 
                SortedSet<Integer> s0 = new TreeSet<>();        // mapping for rules with no explicit tagging
-               fRB.fStatusSets.put(s0, Integer.valueOf(0));    //   (key is an empty set).
+               fRB.fStatusSets.put(s0, 0);    //   (key is an empty set).
 
                SortedSet<Integer> s1 = new TreeSet<>();        // mapping for rules with explicit tagging of {0}
-               s1.add(Integer.valueOf(0));
-               fRB.fStatusSets.put(s1, Integer.valueOf(0));
+               s1.add(0);
+               fRB.fStatusSets.put(s1, 0);
            }
 
            //    For each state, check whether the state's status tag values are
@@ -840,12 +822,12 @@ class RBBITableBuilder {
                    //   Add them to the statusSets map, This map associates
                    //   the set of status values with an index in the runtime status
                    //   values array.
-                   arrayIndexI = Integer.valueOf(fRB.fRuleStatusVals.size());
+                   arrayIndexI = fRB.fRuleStatusVals.size();
                    fRB.fStatusSets.put(statusVals, arrayIndexI);
 
                    // Add the new set of status values to the vector of values that
                    //   will eventually become the array used by the runtime engine.
-                   fRB.fRuleStatusVals.add(Integer.valueOf(statusVals.size()));
+                   fRB.fRuleStatusVals.add(statusVals.size());
                    fRB.fRuleStatusVals.addAll(statusVals);
                }
 

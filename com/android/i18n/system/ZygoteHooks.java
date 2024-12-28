@@ -19,6 +19,7 @@ package com.android.i18n.system;
 import android.compat.Compatibility;
 import android.compat.annotation.ChangeId;
 import android.compat.annotation.EnabledAfter;
+import android.icu.impl.ZoneMeta;
 import android.icu.platform.AndroidDataFiles;
 import android.icu.impl.CacheValue;
 import android.icu.text.DateFormatSymbols;
@@ -63,6 +64,9 @@ public final class ZygoteHooks {
         // Framework's LocalLog is used during app start-up. It indirectly uses the current ICU time
         // zone. Pre-loading the current time zone in ICU improves app startup time. b/150605074
         TimeZone.getDefault();
+
+        // Preload the String[] ZoneMeta#ZONEIDS. See http://b/73282298
+        ZoneMeta.getAvailableIDs(TimeZone.SystemTimeZoneType.ANY, null, null);
     }
 
     /**

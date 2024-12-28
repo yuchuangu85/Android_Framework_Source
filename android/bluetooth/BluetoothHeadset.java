@@ -16,7 +16,6 @@
 
 package android.bluetooth;
 
-import static android.bluetooth.BluetoothUtils.getSyncTimeout;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -37,28 +36,23 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
 
-import com.android.modules.utils.SynchronousResultReceiver;
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.TimeoutException;
 
 /**
- * Public API for controlling the Bluetooth Headset Service. This includes both
- * Bluetooth Headset and Handsfree (v1.5) profiles.
+ * Public API for controlling the Bluetooth Headset Service. This includes both Bluetooth Headset
+ * and Handsfree (v1.5) profiles.
  *
- * <p>BluetoothHeadset is a proxy object for controlling the Bluetooth Headset
- * Service via IPC.
+ * <p>BluetoothHeadset is a proxy object for controlling the Bluetooth Headset Service via IPC.
  *
- * <p> Use {@link BluetoothAdapter#getProfileProxy} to get
- * the BluetoothHeadset proxy object. Use
+ * <p>Use {@link BluetoothAdapter#getProfileProxy} to get the BluetoothHeadset proxy object. Use
  * {@link BluetoothAdapter#closeProfileProxy} to close the service connection.
  *
- * <p> Android only supports one connected Bluetooth Headset at a time.
- * Each method is protected with its appropriate permission.
+ * <p>Android only supports one connected Bluetooth Headset at a time. Each method is protected with
+ * its appropriate permission.
  */
 public final class BluetoothHeadset implements BluetoothProfile {
     private static final String TAG = "BluetoothHeadset";
@@ -66,18 +60,19 @@ public final class BluetoothHeadset implements BluetoothProfile {
     private static final boolean VDBG = false;
 
     /**
-     * Intent used to broadcast the change in connection state of the Headset
-     * profile.
+     * Intent used to broadcast the change in connection state of the Headset profile.
      *
      * <p>This intent will have 3 extras:
+     *
      * <ul>
-     * <li> {@link #EXTRA_STATE} - The current state of the profile. </li>
-     * <li> {@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile. </li>
-     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device. </li>
+     *   <li>{@link #EXTRA_STATE} - The current state of the profile.
+     *   <li>{@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.
+     *   <li>{@link BluetoothDevice#EXTRA_DEVICE} - The remote device.
      * </ul>
-     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of
-     * {@link #STATE_DISCONNECTED}, {@link #STATE_CONNECTING},
-     * {@link #STATE_CONNECTED}, {@link #STATE_DISCONNECTING}.
+     *
+     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of {@link
+     * #STATE_DISCONNECTED}, {@link #STATE_CONNECTING}, {@link #STATE_CONNECTED}, {@link
+     * #STATE_DISCONNECTING}.
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
@@ -87,17 +82,18 @@ public final class BluetoothHeadset implements BluetoothProfile {
             "android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED";
 
     /**
-     * Intent used to broadcast the change in the Audio Connection state of the
-     * HFP profile.
+     * Intent used to broadcast the change in the Audio Connection state of the HFP profile.
      *
      * <p>This intent will have 3 extras:
+     *
      * <ul>
-     * <li> {@link #EXTRA_STATE} - The current state of the profile. </li>
-     * <li> {@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile. </li>
-     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device. </li>
+     *   <li>{@link #EXTRA_STATE} - The current state of the profile.
+     *   <li>{@link #EXTRA_PREVIOUS_STATE}- The previous state of the profile.
+     *   <li>{@link BluetoothDevice#EXTRA_DEVICE} - The remote device.
      * </ul>
-     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of
-     * {@link #STATE_AUDIO_CONNECTED}, {@link #STATE_AUDIO_DISCONNECTED},
+     *
+     * <p>{@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} can be any of {@link
+     * #STATE_AUDIO_CONNECTED}, {@link #STATE_AUDIO_DISCONNECTED},
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
@@ -110,9 +106,10 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * Intent used to broadcast the selection of a connected device as active.
      *
      * <p>This intent will have one extra:
+     *
      * <ul>
-     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote device. It can
-     * be null if no device is active. </li>
+     *   <li>{@link BluetoothDevice#EXTRA_DEVICE} - The remote device. It can be null if no device
+     *       is active.
      * </ul>
      *
      * @hide
@@ -127,34 +124,31 @@ public final class BluetoothHeadset implements BluetoothProfile {
             "android.bluetooth.headset.profile.action.ACTIVE_DEVICE_CHANGED";
 
     /**
-     * Intent used to broadcast that the headset has posted a
-     * vendor-specific event.
+     * Intent used to broadcast that the headset has posted a vendor-specific event.
      *
      * <p>This intent will have 4 extras and 1 category.
+     *
      * <ul>
-     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - The remote Bluetooth Device
-     * </li>
-     * <li> {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD} - The vendor
-     * specific command </li>
-     * <li> {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE} - The AT
-     * command type which can be one of  {@link #AT_CMD_TYPE_READ},
-     * {@link #AT_CMD_TYPE_TEST}, or {@link #AT_CMD_TYPE_SET},
-     * {@link #AT_CMD_TYPE_BASIC},{@link #AT_CMD_TYPE_ACTION}. </li>
-     * <li> {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_ARGS} - Command
-     * arguments. </li>
+     *   <li>{@link BluetoothDevice#EXTRA_DEVICE} - The remote Bluetooth Device
+     *   <li>{@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD} - The vendor specific command
+     *   <li>{@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE} - The AT command type which can
+     *       be one of {@link #AT_CMD_TYPE_READ}, {@link #AT_CMD_TYPE_TEST}, or {@link
+     *       #AT_CMD_TYPE_SET}, {@link #AT_CMD_TYPE_BASIC},{@link #AT_CMD_TYPE_ACTION}.
+     *   <li>{@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_ARGS} - Command arguments.
      * </ul>
      *
-     * <p> The category is the Company ID of the vendor defining the
-     * vendor-specific command. {@link BluetoothAssignedNumbers}
+     * <p>The category is the Company ID of the vendor defining the vendor-specific command. {@link
+     * BluetoothAssignedNumbers}
      *
-     * For example, for Plantronics specific events
-     * Category will be {@link #VENDOR_SPECIFIC_HEADSET_EVENT_COMPANY_ID_CATEGORY}.55
+     * <p>For example, for Plantronics specific events Category will be {@link
+     * #VENDOR_SPECIFIC_HEADSET_EVENT_COMPANY_ID_CATEGORY}.55
      *
-     * <p> For example, an AT+XEVENT=foo,3 will get translated into
+     * <p>For example, an AT+XEVENT=foo,3 will get translated into
+     *
      * <ul>
-     * <li> EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD = +XEVENT </li>
-     * <li> EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE = AT_CMD_TYPE_SET </li>
-     * <li> EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_ARGS = foo, 3 </li>
+     *   <li>EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD = +XEVENT
+     *   <li>EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE = AT_CMD_TYPE_SET
+     *   <li>EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_ARGS = foo, 3
      * </ul>
      */
     @RequiresLegacyBluetoothPermission
@@ -165,73 +159,64 @@ public final class BluetoothHeadset implements BluetoothProfile {
             "android.bluetooth.headset.action.VENDOR_SPECIFIC_HEADSET_EVENT";
 
     /**
-     * A String extra field in {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT}
-     * intents that contains the name of the vendor-specific command.
+     * A String extra field in {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT} intents that contains
+     * the name of the vendor-specific command.
      */
     public static final String EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD =
             "android.bluetooth.headset.extra.VENDOR_SPECIFIC_HEADSET_EVENT_CMD";
 
     /**
-     * An int extra field in {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT}
-     * intents that contains the AT command type of the vendor-specific command.
+     * An int extra field in {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT} intents that contains the
+     * AT command type of the vendor-specific command.
      */
     public static final String EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE =
             "android.bluetooth.headset.extra.VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE";
 
     /**
-     * AT command type READ used with
-     * {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE}
-     * For example, AT+VGM?. There are no arguments for this command type.
+     * AT command type READ used with {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE} For
+     * example, AT+VGM?. There are no arguments for this command type.
      */
     public static final int AT_CMD_TYPE_READ = 0;
 
     /**
-     * AT command type TEST used with
-     * {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE}
-     * For example, AT+VGM=?. There are no arguments for this command type.
+     * AT command type TEST used with {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE} For
+     * example, AT+VGM=?. There are no arguments for this command type.
      */
     public static final int AT_CMD_TYPE_TEST = 1;
 
     /**
-     * AT command type SET used with
-     * {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE}
-     * For example, AT+VGM=<args>.
+     * AT command type SET used with {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE} For
+     * example, AT+VGM=<args>.
      */
     public static final int AT_CMD_TYPE_SET = 2;
 
     /**
-     * AT command type BASIC used with
-     * {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE}
-     * For example, ATD. Single character commands and everything following the
-     * character are arguments.
+     * AT command type BASIC used with {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE} For
+     * example, ATD. Single character commands and everything following the character are arguments.
      */
     public static final int AT_CMD_TYPE_BASIC = 3;
 
     /**
-     * AT command type ACTION used with
-     * {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE}
-     * For example, AT+CHUP. There are no arguments for action commands.
+     * AT command type ACTION used with {@link #EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_CMD_TYPE} For
+     * example, AT+CHUP. There are no arguments for action commands.
      */
     public static final int AT_CMD_TYPE_ACTION = 4;
 
     /**
-     * A Parcelable String array extra field in
-     * {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT} intents that contains
-     * the arguments to the vendor-specific command.
+     * A Parcelable String array extra field in {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT}
+     * intents that contains the arguments to the vendor-specific command.
      */
     public static final String EXTRA_VENDOR_SPECIFIC_HEADSET_EVENT_ARGS =
             "android.bluetooth.headset.extra.VENDOR_SPECIFIC_HEADSET_EVENT_ARGS";
 
     /**
-     * The intent category to be used with {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT}
-     * for the companyId
+     * The intent category to be used with {@link #ACTION_VENDOR_SPECIFIC_HEADSET_EVENT} for the
+     * companyId
      */
     public static final String VENDOR_SPECIFIC_HEADSET_EVENT_COMPANY_ID_CATEGORY =
             "android.bluetooth.headset.intent.category.companyid";
 
-    /**
-     * A vendor-specific command for unsolicited result code.
-     */
+    /** A vendor-specific command for unsolicited result code. */
     public static final String VENDOR_RESULT_CODE_COMMAND_ANDROID = "+ANDROID";
 
     /**
@@ -249,8 +234,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public static final String VENDOR_SPECIFIC_HEADSET_EVENT_IPHONEACCEV = "+IPHONEACCEV";
 
     /**
-     * Battery level indicator associated with
-     * {@link #VENDOR_SPECIFIC_HEADSET_EVENT_IPHONEACCEV}
+     * Battery level indicator associated with {@link #VENDOR_SPECIFIC_HEADSET_EVENT_IPHONEACCEV}
      *
      * @hide
      */
@@ -271,26 +255,49 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public static final String VENDOR_SPECIFIC_HEADSET_EVENT_XEVENT_BATTERY_LEVEL = "BATTERY";
 
     /**
-     * Headset state when SCO audio is not connected.
-     * This state can be one of
-     * {@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} of
-     * {@link #ACTION_AUDIO_STATE_CHANGED} intent.
+     * A vendor-specific AT command that asks for the information about device manufacturer.
+     *
+     * @hide
+     */
+    public static final String VENDOR_SPECIFIC_HEADSET_EVENT_CGMI = "+CGMI";
+
+    /**
+     * A vendor-specific AT command that asks for the information about the model of the device.
+     *
+     * @hide
+     */
+    public static final String VENDOR_SPECIFIC_HEADSET_EVENT_CGMM = "+CGMM";
+
+    /**
+     * A vendor-specific AT command that asks for the revision information, for Android we will
+     * return the OS version and build number.
+     *
+     * @hide
+     */
+    public static final String VENDOR_SPECIFIC_HEADSET_EVENT_CGMR = "+CGMR";
+
+    /**
+     * A vendor-specific AT command that asks for the device's serial number.
+     *
+     * @hide
+     */
+    public static final String VENDOR_SPECIFIC_HEADSET_EVENT_CGSN = "+CGSN";
+
+    /**
+     * Headset state when SCO audio is not connected. This state can be one of {@link #EXTRA_STATE}
+     * or {@link #EXTRA_PREVIOUS_STATE} of {@link #ACTION_AUDIO_STATE_CHANGED} intent.
      */
     public static final int STATE_AUDIO_DISCONNECTED = 10;
 
     /**
-     * Headset state when SCO audio is connecting.
-     * This state can be one of
-     * {@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} of
-     * {@link #ACTION_AUDIO_STATE_CHANGED} intent.
+     * Headset state when SCO audio is connecting. This state can be one of {@link #EXTRA_STATE} or
+     * {@link #EXTRA_PREVIOUS_STATE} of {@link #ACTION_AUDIO_STATE_CHANGED} intent.
      */
     public static final int STATE_AUDIO_CONNECTING = 11;
 
     /**
-     * Headset state when SCO audio is connected.
-     * This state can be one of
-     * {@link #EXTRA_STATE} or {@link #EXTRA_PREVIOUS_STATE} of
-     * {@link #ACTION_AUDIO_STATE_CHANGED} intent.
+     * Headset state when SCO audio is connected. This state can be one of {@link #EXTRA_STATE} or
+     * {@link #EXTRA_PREVIOUS_STATE} of {@link #ACTION_AUDIO_STATE_CHANGED} intent.
      */
     public static final int STATE_AUDIO_CONNECTED = 12;
 
@@ -298,17 +305,19 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * Intent used to broadcast the headset's indicator status
      *
      * <p>This intent will have 3 extras:
+     *
      * <ul>
-     * <li> {@link #EXTRA_HF_INDICATORS_IND_ID} - The Assigned number of headset Indicator which
-     * is supported by the headset ( as indicated by AT+BIND command in the SLC
-     * sequence) or whose value is changed (indicated by AT+BIEV command) </li>
-     * <li> {@link #EXTRA_HF_INDICATORS_IND_VALUE} - Updated value of headset indicator. </li>
-     * <li> {@link BluetoothDevice#EXTRA_DEVICE} - Remote device. </li>
+     *   <li>{@link #EXTRA_HF_INDICATORS_IND_ID} - The Assigned number of headset Indicator which is
+     *       supported by the headset ( as indicated by AT+BIND command in the SLC sequence) or
+     *       whose value is changed (indicated by AT+BIEV command)
+     *   <li>{@link #EXTRA_HF_INDICATORS_IND_VALUE} - Updated value of headset indicator.
+     *   <li>{@link BluetoothDevice#EXTRA_DEVICE} - Remote device.
      * </ul>
+     *
      * <p>{@link #EXTRA_HF_INDICATORS_IND_ID} is defined by Bluetooth SIG and each of the indicators
-     * are given an assigned number. Below shows the assigned number of Indicator added so far
-     * - Enhanced Safety - 1, Valid Values: 0 - Disabled, 1 - Enabled
-     * - Battery Level - 2, Valid Values: 0~100 - Remaining level of Battery
+     * are given an assigned number. Below shows the assigned number of Indicator added so far -
+     * Enhanced Safety - 1, Valid Values: 0 - Disabled, 1 - Enabled - Battery Level - 2, Valid
+     * Values: 0~100 - Remaining level of Battery
      *
      * @hide
      */
@@ -320,9 +329,9 @@ public final class BluetoothHeadset implements BluetoothProfile {
             "android.bluetooth.headset.action.HF_INDICATORS_VALUE_CHANGED";
 
     /**
-     * A int extra field in {@link #ACTION_HF_INDICATORS_VALUE_CHANGED}
-     * intents that contains the assigned number of the headset indicator as defined by
-     * Bluetooth SIG that is being sent. Value range is 0-65535 as defined in HFP 1.7
+     * A int extra field in {@link #ACTION_HF_INDICATORS_VALUE_CHANGED} intents that contains the
+     * assigned number of the headset indicator as defined by Bluetooth SIG that is being sent.
+     * Value range is 0-65535 as defined in HFP 1.7
      *
      * @hide
      */
@@ -330,8 +339,8 @@ public final class BluetoothHeadset implements BluetoothProfile {
             "android.bluetooth.headset.extra.HF_INDICATORS_IND_ID";
 
     /**
-     * A int extra field in {@link #ACTION_HF_INDICATORS_VALUE_CHANGED}
-     * intents that contains the value of the Headset indicator that is being sent.
+     * A int extra field in {@link #ACTION_HF_INDICATORS_VALUE_CHANGED} intents that contains the
+     * value of the Headset indicator that is being sent.
      *
      * @hide
      */
@@ -340,23 +349,14 @@ public final class BluetoothHeadset implements BluetoothProfile {
 
     private final BluetoothAdapter mAdapter;
     private final AttributionSource mAttributionSource;
-    private final BluetoothProfileConnector<IBluetoothHeadset> mProfileConnector =
-            new BluetoothProfileConnector(this, BluetoothProfile.HEADSET, "BluetoothHeadset",
-                    IBluetoothHeadset.class.getName()) {
-                @Override
-                public IBluetoothHeadset getServiceInterface(IBinder service) {
-                    return IBluetoothHeadset.Stub.asInterface(service);
-                }
-    };
 
-    /**
-     * Create a BluetoothHeadset proxy object.
-     */
-    /* package */ BluetoothHeadset(Context context, ServiceListener listener,
-            BluetoothAdapter adapter) {
+    private IBluetoothHeadset mService;
+
+    /** Create a BluetoothHeadset proxy object. */
+    /* package */ BluetoothHeadset(Context context, BluetoothAdapter adapter) {
         mAdapter = adapter;
         mAttributionSource = adapter.getAttributionSource();
-        mProfileConnector.connect(context, listener);
+        mService = null;
     }
 
     /**
@@ -368,15 +368,34 @@ public final class BluetoothHeadset implements BluetoothProfile {
      */
     @UnsupportedAppUsage
     public void close() {
-        mProfileConnector.disconnect();
+        mAdapter.closeProfileProxy(this);
+    }
+
+    /** @hide */
+    @Override
+    public void onServiceConnected(IBinder service) {
+        mService = IBluetoothHeadset.Stub.asInterface(service);
+    }
+
+    /** @hide */
+    @Override
+    public void onServiceDisconnected() {
+        mService = null;
     }
 
     private IBluetoothHeadset getService() {
-        return mProfileConnector.getService();
+        return mService;
     }
 
-    /** {@hide} */
+    /** @hide */
     @Override
+    public BluetoothAdapter getAdapter() {
+        return mAdapter;
+    }
+
+    /** @hide */
+    @Override
+    @SuppressWarnings("Finalize") // empty finalize for api signature
     protected void finalize() throws Throwable {
         // The empty finalize needs to be kept or the
         // cts signature tests would fail.
@@ -385,16 +404,13 @@ public final class BluetoothHeadset implements BluetoothProfile {
     /**
      * Initiate connection to a profile of the remote bluetooth device.
      *
-     * <p> Currently, the system supports only 1 connection to the
-     * headset/handsfree profile. The API will automatically disconnect connected
-     * devices before connecting.
+     * <p>Currently, the system supports only 1 connection to the headset/handsfree profile. The API
+     * will automatically disconnect connected devices before connecting.
      *
-     * <p> This API returns false in scenarios like the profile on the
-     * device is already connected or Bluetooth is not turned on.
-     * When this API returns true, it is guaranteed that
-     * connection state intent for the profile will be broadcasted with
-     * the state. Users can get the connection state of the profile
-     * from this intent.
+     * <p>This API returns false in scenarios like the profile on the device is already connected or
+     * Bluetooth is not turned on. When this API returns true, it is guaranteed that connection
+     * state intent for the profile will be broadcasted with the state. Users can get the connection
+     * state of the profile from this intent.
      *
      * @param device Remote Bluetooth Device
      * @return false on immediate error, true otherwise
@@ -403,46 +419,40 @@ public final class BluetoothHeadset implements BluetoothProfile {
     @SystemApi
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+            })
     public boolean connect(BluetoothDevice device) {
         if (DBG) log("connect(" + device + ")");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.connect(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.connect(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Initiate disconnection from a profile
      *
-     * <p> This API will return false in scenarios like the profile on the
-     * Bluetooth device is not in connected state etc. When this API returns,
-     * true, it is guaranteed that the connection state change
-     * intent will be broadcasted with the state. Users can get the
-     * disconnection state of the profile from this intent.
+     * <p>This API will return false in scenarios like the profile on the Bluetooth device is not in
+     * connected state etc. When this API returns, true, it is guaranteed that the connection state
+     * change intent will be broadcasted with the state. Users can get the disconnection state of
+     * the profile from this intent.
      *
-     * <p> If the disconnection is initiated by a remote device, the state
-     * will transition from {@link #STATE_CONNECTED} to
-     * {@link #STATE_DISCONNECTED}. If the disconnect is initiated by the
-     * host (local) device the state will transition from
-     * {@link #STATE_CONNECTED} to state {@link #STATE_DISCONNECTING} to
-     * state {@link #STATE_DISCONNECTED}. The transition to
-     * {@link #STATE_DISCONNECTING} can be used to distinguish between the
-     * two scenarios.
+     * <p>If the disconnection is initiated by a remote device, the state will transition from
+     * {@link #STATE_CONNECTED} to {@link #STATE_DISCONNECTED}. If the disconnect is initiated by
+     * the host (local) device the state will transition from {@link #STATE_CONNECTED} to state
+     * {@link #STATE_DISCONNECTING} to state {@link #STATE_DISCONNECTED}. The transition to {@link
+     * #STATE_DISCONNECTING} can be used to distinguish between the two scenarios.
      *
      * @param device Remote Bluetooth Device
      * @return false on immediate error, true otherwise
@@ -455,109 +465,88 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public boolean disconnect(BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.disconnect(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.disconnect(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /** {@inheritDoc} */
     @Override
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public List<BluetoothDevice> getConnectedDevices() {
         if (VDBG) log("getConnectedDevices()");
         final IBluetoothHeadset service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getConnectedDevices(mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
-                        mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+                        service.getConnectedDevices(mAttributionSource), mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /** {@inheritDoc} */
     @Override
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         if (VDBG) log("getDevicesMatchingStates()");
         final IBluetoothHeadset service = getService();
-        final List<BluetoothDevice> defaultValue = new ArrayList<BluetoothDevice>();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<List<BluetoothDevice>> recv =
-                        SynchronousResultReceiver.get();
-                service.getDevicesMatchingConnectionStates(states, mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
+                        service.getDevicesMatchingConnectionStates(states, mAttributionSource),
                         mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return Collections.emptyList();
     }
 
-    /**
-     * {@inheritDoc}
-     */
+    /** {@inheritDoc} */
     @Override
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
     public int getConnectionState(BluetoothDevice device) {
         if (VDBG) log("getConnectionState(" + device + ")");
         final IBluetoothHeadset service = getService();
-        final int defaultValue = BluetoothProfile.STATE_DISCONNECTED;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionState(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getConnectionState(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothProfile.STATE_DISCONNECTED;
     }
 
     /**
      * Set connection policy of the profile
      *
-     * <p> The device should already be paired.
-     * Connection policy can be one of {@link #CONNECTION_POLICY_ALLOWED},
-     * {@link #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The device should already be paired. Connection policy can be one of {@link
+     * #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN}, {@link
+     * #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Paired bluetooth device
      * @param connectionPolicy is the connection policy to set to for this profile
@@ -566,39 +555,37 @@ public final class BluetoothHeadset implements BluetoothProfile {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-    })
-    public boolean setConnectionPolicy(@NonNull BluetoothDevice device,
-            @ConnectionPolicy int connectionPolicy) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+            })
+    public boolean setConnectionPolicy(
+            @NonNull BluetoothDevice device, @ConnectionPolicy int connectionPolicy) {
         if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
-        } else if (isEnabled() && isValidDevice(device)
+        } else if (isEnabled()
+                && isValidDevice(device)
                 && (connectionPolicy == BluetoothProfile.CONNECTION_POLICY_FORBIDDEN
-                    || connectionPolicy == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
+                        || connectionPolicy == BluetoothProfile.CONNECTION_POLICY_ALLOWED)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setConnectionPolicy(device, connectionPolicy, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setConnectionPolicy(device, connectionPolicy, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Get the priority of the profile.
      *
-     * <p> The priority can be any of:
-     * {@link #PRIORITY_AUTO_CONNECT}, {@link #PRIORITY_OFF},
-     * {@link #PRIORITY_ON}, {@link #PRIORITY_UNDEFINED}
+     * <p>The priority can be any of: {@link #PRIORITY_AUTO_CONNECT}, {@link #PRIORITY_OFF}, {@link
+     * #PRIORITY_ON}, {@link #PRIORITY_UNDEFINED}
      *
      * @param device Bluetooth device
      * @return priority of the device
@@ -616,9 +603,8 @@ public final class BluetoothHeadset implements BluetoothProfile {
     /**
      * Get the connection policy of the profile.
      *
-     * <p> The connection policy can be any of:
-     * {@link #CONNECTION_POLICY_ALLOWED}, {@link #CONNECTION_POLICY_FORBIDDEN},
-     * {@link #CONNECTION_POLICY_UNKNOWN}
+     * <p>The connection policy can be any of: {@link #CONNECTION_POLICY_ALLOWED}, {@link
+     * #CONNECTION_POLICY_FORBIDDEN}, {@link #CONNECTION_POLICY_UNKNOWN}
      *
      * @param device Bluetooth device
      * @return connection policy of the device
@@ -626,27 +612,25 @@ public final class BluetoothHeadset implements BluetoothProfile {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @ConnectionPolicy int getConnectionPolicy(@NonNull BluetoothDevice device) {
         if (VDBG) log("getConnectionPolicy(" + device + ")");
         final IBluetoothHeadset service = getService();
-        final int defaultValue = BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getConnectionPolicy(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.getConnectionPolicy(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;
     }
 
     /**
@@ -661,20 +645,17 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public boolean isNoiseReductionSupported(@NonNull BluetoothDevice device) {
         if (DBG) log("isNoiseReductionSupported()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.isNoiseReductionSupported(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.isNoiseReductionSupported(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -689,77 +670,69 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public boolean isVoiceRecognitionSupported(@NonNull BluetoothDevice device) {
         if (DBG) log("isVoiceRecognitionSupported()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.isVoiceRecognitionSupported(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.isVoiceRecognitionSupported(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
-     * Start Bluetooth voice recognition. This methods sends the voice
-     * recognition AT command to the headset and establishes the
-     * audio connection.
+     * Start Bluetooth voice recognition. This methods sends the voice recognition AT command to the
+     * headset and establishes the audio connection.
      *
-     * <p> Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}.
-     * If this function returns true, this intent will be broadcasted with
-     * {@link #EXTRA_STATE} set to {@link #STATE_AUDIO_CONNECTING}.
+     * <p>Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}. If this function returns true,
+     * this intent will be broadcasted with {@link #EXTRA_STATE} set to {@link
+     * #STATE_AUDIO_CONNECTING}.
      *
-     * <p> {@link #EXTRA_STATE} will transition from
-     * {@link #STATE_AUDIO_CONNECTING} to {@link #STATE_AUDIO_CONNECTED} when
-     * audio connection is established and to {@link #STATE_AUDIO_DISCONNECTED}
-     * in case of failure to establish the audio connection.
+     * <p>{@link #EXTRA_STATE} will transition from {@link #STATE_AUDIO_CONNECTING} to {@link
+     * #STATE_AUDIO_CONNECTED} when audio connection is established and to {@link
+     * #STATE_AUDIO_DISCONNECTED} in case of failure to establish the audio connection.
      *
      * @param device Bluetooth headset
      * @return false if there is no headset connected, or the connected headset doesn't support
-     * voice recognition, or voice recognition is already started, or audio channel is occupied,
-     * or on error, true otherwise
+     *     voice recognition, or voice recognition is already started, or audio channel is occupied,
+     *     or on error, true otherwise
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+            })
     public boolean startVoiceRecognition(BluetoothDevice device) {
         if (DBG) log("startVoiceRecognition()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.startVoiceRecognition(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.startVoiceRecognition(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
-     * Stop Bluetooth Voice Recognition mode, and shut down the
-     * Bluetooth audio path.
+     * Stop Bluetooth Voice Recognition mode, and shut down the Bluetooth audio path.
      *
-     * <p> Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}.
-     * If this function returns true, this intent will be broadcasted with
-     * {@link #EXTRA_STATE} set to {@link #STATE_AUDIO_DISCONNECTED}.
+     * <p>Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}. If this function returns true,
+     * this intent will be broadcasted with {@link #EXTRA_STATE} set to {@link
+     * #STATE_AUDIO_DISCONNECTED}.
      *
      * @param device Bluetooth headset
-     * @return false if there is no headset connected, or voice recognition has not started,
-     * or voice recognition has ended on this headset, or on error, true otherwise
+     * @return false if there is no headset connected, or voice recognition has not started, or
+     *     voice recognition has ended on this headset, or on error, true otherwise
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
@@ -767,20 +740,17 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public boolean stopVoiceRecognition(BluetoothDevice device) {
         if (DBG) log("stopVoiceRecognition()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.stopVoiceRecognition(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.stopVoiceRecognition(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
@@ -795,31 +765,28 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public boolean isAudioConnected(BluetoothDevice device) {
         if (VDBG) log("isAudioConnected()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.isAudioConnected(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.isAudioConnected(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
-
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(value = {
-            BluetoothHeadset.STATE_AUDIO_DISCONNECTED,
-            BluetoothHeadset.STATE_AUDIO_CONNECTING,
-            BluetoothHeadset.STATE_AUDIO_CONNECTED,
-            BluetoothStatusCodes.ERROR_TIMEOUT
-    })
+    @IntDef(
+            value = {
+                BluetoothHeadset.STATE_AUDIO_DISCONNECTED,
+                BluetoothHeadset.STATE_AUDIO_CONNECTING,
+                BluetoothHeadset.STATE_AUDIO_CONNECTED,
+                BluetoothStatusCodes.ERROR_TIMEOUT
+            })
     public @interface GetAudioStateReturnValues {}
 
     /**
@@ -828,79 +795,73 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @param device is the Bluetooth device for which the audio state is being queried
      * @return the audio state of the device or an error code
      * @throws NullPointerException if the device is null
-     *
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @GetAudioStateReturnValues int getAudioState(@NonNull BluetoothDevice device) {
         if (VDBG) log("getAudioState");
         Objects.requireNonNull(device);
         final IBluetoothHeadset service = getService();
-        final int defaultValue = BluetoothHeadset.STATE_AUDIO_DISCONNECTED;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (!isDisabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.getAudioState(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+                return service.getAudioState(device, mAttributionSource);
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                throw e.rethrowFromSystemServer();
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                return BluetoothStatusCodes.ERROR_TIMEOUT;
+                throw e.rethrowAsRuntimeException();
             }
         }
-        return defaultValue;
+        return BluetoothHeadset.STATE_AUDIO_DISCONNECTED;
     }
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(value = {
-            BluetoothStatusCodes.SUCCESS,
-            BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
-            BluetoothStatusCodes.ERROR_TIMEOUT,
-            BluetoothStatusCodes.ERROR_UNKNOWN,
-    })
+    @IntDef(
+            value = {
+                BluetoothStatusCodes.SUCCESS,
+                BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
+                BluetoothStatusCodes.ERROR_TIMEOUT,
+                BluetoothStatusCodes.ERROR_UNKNOWN,
+            })
     public @interface SetAudioRouteAllowedReturnValues {}
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(value = {
-            BluetoothStatusCodes.ALLOWED,
-            BluetoothStatusCodes.NOT_ALLOWED,
-            BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
-            BluetoothStatusCodes.ERROR_TIMEOUT,
-            BluetoothStatusCodes.ERROR_UNKNOWN,
-    })
+    @IntDef(
+            value = {
+                BluetoothStatusCodes.ALLOWED,
+                BluetoothStatusCodes.NOT_ALLOWED,
+                BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
+                BluetoothStatusCodes.ERROR_TIMEOUT,
+                BluetoothStatusCodes.ERROR_UNKNOWN,
+            })
     public @interface GetAudioRouteAllowedReturnValues {}
 
     /**
-     * Sets whether audio routing is allowed. When set to {@code false}, the AG
-     * will not route any audio to the HF unless explicitly told to. This method
-     * should be used in cases where the SCO channel is shared between multiple
-     * profiles and must be delegated by a source knowledgeable.
+     * Sets whether audio routing is allowed. When set to {@code false}, the AG will not route any
+     * audio to the HF unless explicitly told to. This method should be used in cases where the SCO
+     * channel is shared between multiple profiles and must be delegated by a source knowledgeable.
      *
-     * @param allowed {@code true} if the profile can reroute audio,
-     * {@code false} otherwise.
-     * @return {@link BluetoothStatusCodes#SUCCESS} upon successful setting,
-     * otherwise an error code.
-     *
+     * @param allowed {@code true} if the profile can reroute audio, {@code false} otherwise.
+     * @return {@link BluetoothStatusCodes#SUCCESS} upon successful setting, otherwise an error
+     *     code.
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @SetAudioRouteAllowedReturnValues int setAudioRouteAllowed(boolean allowed) {
         if (VDBG) log("setAudioRouteAllowed");
         final IBluetoothHeadset service = getService();
@@ -910,16 +871,11 @@ public final class BluetoothHeadset implements BluetoothProfile {
             return BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND;
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
-                service.setAudioRouteAllowed(allowed, mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
+                service.setAudioRouteAllowed(allowed, mAttributionSource);
                 return BluetoothStatusCodes.SUCCESS;
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                return BluetoothStatusCodes.ERROR_TIMEOUT;
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
 
@@ -928,19 +884,18 @@ public final class BluetoothHeadset implements BluetoothProfile {
     }
 
     /**
-     * @return {@link BluetoothStatusCodes#ALLOWED} if audio routing is allowed,
-     * {@link BluetoothStatusCodes#NOT_ALLOWED} if audio routing is not allowed, or
-     * an error code if an error occurs.
-     * see {@link #setAudioRouteAllowed(boolean)}.
-     *
+     * @return {@link BluetoothStatusCodes#ALLOWED} if audio routing is allowed, {@link
+     *     BluetoothStatusCodes#NOT_ALLOWED} if audio routing is not allowed, or an error code if an
+     *     error occurs. see {@link #setAudioRouteAllowed(boolean)}.
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @GetAudioRouteAllowedReturnValues int getAudioRouteAllowed() {
         if (VDBG) log("getAudioRouteAllowed");
         final IBluetoothHeadset service = getService();
@@ -950,16 +905,12 @@ public final class BluetoothHeadset implements BluetoothProfile {
             return BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND;
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.getAudioRouteAllowed(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(false)
-                        ? BluetoothStatusCodes.ALLOWED : BluetoothStatusCodes.NOT_ALLOWED;
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                return BluetoothStatusCodes.ERROR_TIMEOUT;
+                return service.getAudioRouteAllowed(mAttributionSource)
+                        ? BluetoothStatusCodes.ALLOWED
+                        : BluetoothStatusCodes.NOT_ALLOWED;
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                e.rethrowFromSystemServer();
+                throw e.rethrowAsRuntimeException();
             }
         }
 
@@ -971,7 +922,7 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * Force SCO audio to be opened regardless any other restrictions
      *
      * @param forced Whether or not SCO audio connection should be forced: True to force SCO audio
-     * False to use SCO audio in normal manner
+     *     False to use SCO audio in normal manner
      * @hide
      */
     @RequiresBluetoothConnectPermission
@@ -984,10 +935,8 @@ public final class BluetoothHeadset implements BluetoothProfile {
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
-                service.setForceScoAudio(forced, mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
-            } catch (RemoteException | TimeoutException e) {
+                service.setForceScoAudio(forced, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
@@ -995,233 +944,217 @@ public final class BluetoothHeadset implements BluetoothProfile {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(value = {
-            BluetoothStatusCodes.SUCCESS,
-            BluetoothStatusCodes.ERROR_UNKNOWN,
-            BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
-            BluetoothStatusCodes.ERROR_TIMEOUT,
-            BluetoothStatusCodes.ERROR_AUDIO_DEVICE_ALREADY_CONNECTED,
-            BluetoothStatusCodes.ERROR_NO_ACTIVE_DEVICES,
-            BluetoothStatusCodes.ERROR_NOT_ACTIVE_DEVICE,
-            BluetoothStatusCodes.ERROR_AUDIO_ROUTE_BLOCKED,
-            BluetoothStatusCodes.ERROR_CALL_ACTIVE,
-            BluetoothStatusCodes.ERROR_PROFILE_NOT_CONNECTED
-    })
+    @IntDef(
+            value = {
+                BluetoothStatusCodes.SUCCESS,
+                BluetoothStatusCodes.ERROR_UNKNOWN,
+                BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
+                BluetoothStatusCodes.ERROR_TIMEOUT,
+                BluetoothStatusCodes.ERROR_AUDIO_DEVICE_ALREADY_CONNECTED,
+                BluetoothStatusCodes.ERROR_NO_ACTIVE_DEVICES,
+                BluetoothStatusCodes.ERROR_NOT_ACTIVE_DEVICE,
+                BluetoothStatusCodes.ERROR_AUDIO_ROUTE_BLOCKED,
+                BluetoothStatusCodes.ERROR_CALL_ACTIVE,
+                BluetoothStatusCodes.ERROR_PROFILE_NOT_CONNECTED
+            })
     public @interface ConnectAudioReturnValues {}
 
     /**
      * Initiates a connection of SCO audio to the current active HFP device. The active HFP device
      * can be identified with {@link BluetoothAdapter#getActiveDevices(int)}.
-     * <p>
-     * If this function returns {@link BluetoothStatusCodes#SUCCESS}, the intent
-     * {@link #ACTION_AUDIO_STATE_CHANGED} will be broadcasted twice. First with
-     * {@link #EXTRA_STATE} set to {@link #STATE_AUDIO_CONNECTING}. This will be followed by a
-     * broadcast with {@link #EXTRA_STATE} set to either {@link #STATE_AUDIO_CONNECTED} if the audio
-     * connection is established or {@link #STATE_AUDIO_DISCONNECTED} if there was a failure in
-     * establishing the audio connection.
+     *
+     * <p>If this function returns {@link BluetoothStatusCodes#SUCCESS}, the intent {@link
+     * #ACTION_AUDIO_STATE_CHANGED} will be broadcasted twice. First with {@link #EXTRA_STATE} set
+     * to {@link #STATE_AUDIO_CONNECTING}. This will be followed by a broadcast with {@link
+     * #EXTRA_STATE} set to either {@link #STATE_AUDIO_CONNECTED} if the audio connection is
+     * established or {@link #STATE_AUDIO_DISCONNECTED} if there was a failure in establishing the
+     * audio connection.
      *
      * @return whether the connection was successfully initiated or an error code on failure
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @ConnectAudioReturnValues int connectAudio() {
         if (VDBG) log("connectAudio()");
         final IBluetoothHeadset service = getService();
-        final int defaultValue = BluetoothStatusCodes.ERROR_UNKNOWN;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
             return BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND;
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.connectAudio(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+                return service.connectAudio(mAttributionSource);
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                throw e.rethrowFromSystemServer();
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                return BluetoothStatusCodes.ERROR_TIMEOUT;
+                throw e.rethrowAsRuntimeException();
             }
         }
 
         Log.e(TAG, "connectAudio: Bluetooth disabled, but profile service still bound");
-        return defaultValue;
+        return BluetoothStatusCodes.ERROR_UNKNOWN;
     }
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(value = {
-            BluetoothStatusCodes.SUCCESS,
-            BluetoothStatusCodes.ERROR_UNKNOWN,
-            BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
-            BluetoothStatusCodes.ERROR_TIMEOUT,
-            BluetoothStatusCodes.ERROR_PROFILE_NOT_CONNECTED,
-            BluetoothStatusCodes.ERROR_AUDIO_DEVICE_ALREADY_DISCONNECTED
-    })
+    @IntDef(
+            value = {
+                BluetoothStatusCodes.SUCCESS,
+                BluetoothStatusCodes.ERROR_UNKNOWN,
+                BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND,
+                BluetoothStatusCodes.ERROR_TIMEOUT,
+                BluetoothStatusCodes.ERROR_PROFILE_NOT_CONNECTED,
+                BluetoothStatusCodes.ERROR_AUDIO_DEVICE_ALREADY_DISCONNECTED
+            })
     public @interface DisconnectAudioReturnValues {}
 
     /**
      * Initiates a disconnection of HFP SCO audio from actively connected devices. It also tears
      * down voice recognition or virtual voice call, if any exists.
      *
-     * <p> If this function returns {@link BluetoothStatusCodes#SUCCESS}, the intent
-     * {@link #ACTION_AUDIO_STATE_CHANGED} will be broadcasted with {@link #EXTRA_STATE} set to
-     * {@link #STATE_AUDIO_DISCONNECTED}.
+     * <p>If this function returns {@link BluetoothStatusCodes#SUCCESS}, the intent {@link
+     * #ACTION_AUDIO_STATE_CHANGED} will be broadcasted with {@link #EXTRA_STATE} set to {@link
+     * #STATE_AUDIO_DISCONNECTED}.
      *
      * @return whether the disconnection was initiated successfully or an error code on failure
      * @hide
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public @DisconnectAudioReturnValues int disconnectAudio() {
         if (VDBG) log("disconnectAudio()");
         final IBluetoothHeadset service = getService();
-        final int defaultValue = BluetoothStatusCodes.ERROR_UNKNOWN;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
             return BluetoothStatusCodes.ERROR_PROFILE_SERVICE_NOT_BOUND;
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Integer> recv = SynchronousResultReceiver.get();
-                service.disconnectAudio(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
+                return service.disconnectAudio(mAttributionSource);
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                throw e.rethrowFromSystemServer();
-            } catch (TimeoutException e) {
-                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                return BluetoothStatusCodes.ERROR_TIMEOUT;
+                throw e.rethrowAsRuntimeException();
             }
         }
 
         Log.e(TAG, "disconnectAudio: Bluetooth disabled, but profile service still bound");
-        return defaultValue;
+        return BluetoothStatusCodes.ERROR_UNKNOWN;
     }
 
     /**
      * Initiates a SCO channel connection as a virtual voice call to the current active device
      * Active handsfree device will be notified of incoming call and connected call.
      *
-     * <p> Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}.
-     * If this function returns true, this intent will be broadcasted with
-     * {@link #EXTRA_STATE} set to {@link #STATE_AUDIO_CONNECTING}.
+     * <p>Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}. If this function returns true,
+     * this intent will be broadcasted with {@link #EXTRA_STATE} set to {@link
+     * #STATE_AUDIO_CONNECTING}.
      *
-     * <p> {@link #EXTRA_STATE} will transition from
-     * {@link #STATE_AUDIO_CONNECTING} to {@link #STATE_AUDIO_CONNECTED} when
-     * audio connection is established and to {@link #STATE_AUDIO_DISCONNECTED}
-     * in case of failure to establish the audio connection.
+     * <p>{@link #EXTRA_STATE} will transition from {@link #STATE_AUDIO_CONNECTING} to {@link
+     * #STATE_AUDIO_CONNECTED} when audio connection is established and to {@link
+     * #STATE_AUDIO_DISCONNECTED} in case of failure to establish the audio connection.
      *
-     * @return true if successful, false if one of the following case applies
-     *  - SCO audio is not idle (connecting or connected)
-     *  - virtual call has already started
-     *  - there is no active device
-     *  - a Telecom managed call is going on
-     *  - binder is dead or Bluetooth is disabled or other error
+     * @return true if successful, false if one of the following case applies - SCO audio is not
+     *     idle (connecting or connected) - virtual call has already started - there is no active
+     *     device - a Telecom managed call is going on - binder is dead or Bluetooth is disabled or
+     *     other error
      * @hide
      */
     @SystemApi
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean startScoUsingVirtualVoiceCall() {
         if (DBG) log("startScoUsingVirtualVoiceCall()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.startScoUsingVirtualVoiceCall(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.startScoUsingVirtualVoiceCall(mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Terminates an ongoing SCO connection and the associated virtual call.
      *
-     * <p> Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}.
-     * If this function returns true, this intent will be broadcasted with
-     * {@link #EXTRA_STATE} set to {@link #STATE_AUDIO_DISCONNECTED}.
+     * <p>Users can listen to {@link #ACTION_AUDIO_STATE_CHANGED}. If this function returns true,
+     * this intent will be broadcasted with {@link #EXTRA_STATE} set to {@link
+     * #STATE_AUDIO_DISCONNECTED}.
      *
-     * @return true if successful, false if one of the following case applies
-     *  - virtual voice call is not started or has ended
-     *  - binder is dead or Bluetooth is disabled or other error
+     * @return true if successful, false if one of the following case applies - virtual voice call
+     *     is not started or has ended - binder is dead or Bluetooth is disabled or other error
      * @hide
      */
     @SystemApi
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean stopScoUsingVirtualVoiceCall() {
         if (DBG) log("stopScoUsingVirtualVoiceCall()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.stopScoUsingVirtualVoiceCall(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.stopScoUsingVirtualVoiceCall(mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
-     * Notify Headset of phone state change.
-     * This is a backdoor for phone app to call BluetoothHeadset since
-     * there is currently not a good way to get precise call state change outside
-     * of phone app.
+     * Notify Headset of phone state change. This is a backdoor for phone app to call
+     * BluetoothHeadset since there is currently not a good way to get precise call state change
+     * outside of phone app.
      *
      * @hide
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-    })
-    public void phoneStateChanged(int numActive, int numHeld, int callState, String number,
-            int type, String name) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+            })
+    public void phoneStateChanged(
+            int numActive, int numHeld, int callState, String number, int type, String name) {
         final IBluetoothHeadset service = getService();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                service.phoneStateChanged(numActive, numHeld, callState, number, type, name,
-                        mAttributionSource);
-            } catch (RemoteException  e) {
+                service.phoneStateChanged(
+                        numActive, numHeld, callState, number, type, name, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
@@ -1233,23 +1166,22 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-    })
-    public void clccResponse(int index, int direction, int status, int mode, boolean mpty,
-            String number, int type) {
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+            })
+    public void clccResponse(
+            int index, int direction, int status, int mode, boolean mpty, String number, int type) {
         final IBluetoothHeadset service = getService();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver recv = SynchronousResultReceiver.get();
-                service.clccResponse(index, direction, status, mode, mpty, number, type,
-                        mAttributionSource, recv);
-                recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(null);
-            } catch (RemoteException | TimeoutException e) {
+                service.clccResponse(
+                        index, direction, status, mode, mpty, number, type, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
@@ -1268,14 +1200,14 @@ public final class BluetoothHeadset implements BluetoothProfile {
      * @param command A vendor-specific command.
      * @param arg The argument that will be attached to the command.
      * @return {@code false} if there is no headset connected, or if the command is not an allowed
-     * vendor-specific unsolicited result code, or on error. {@code true} otherwise.
+     *     vendor-specific unsolicited result code, or on error. {@code true} otherwise.
      * @throws IllegalArgumentException if {@code command} is {@code null}.
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-    public boolean sendVendorSpecificResultCode(BluetoothDevice device, String command,
-            String arg) {
+    public boolean sendVendorSpecificResultCode(
+            BluetoothDevice device, String command, String arg) {
         if (DBG) {
             log("sendVendorSpecificResultCode()");
         }
@@ -1283,75 +1215,66 @@ public final class BluetoothHeadset implements BluetoothProfile {
             throw new IllegalArgumentException("command is null");
         }
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && isValidDevice(device)) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.sendVendorSpecificResultCode(device, command, arg,
-                        mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.sendVendorSpecificResultCode(
+                        device, command, arg, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Select a connected device as active.
      *
-     * The active device selection is per profile. An active device's
-     * purpose is profile-specific. For example, in HFP and HSP profiles,
-     * it is the device used for phone call audio. If a remote device is not
-     * connected, it cannot be selected as active.
+     * <p>The active device selection is per profile. An active device's purpose is
+     * profile-specific. For example, in HFP and HSP profiles, it is the device used for phone call
+     * audio. If a remote device is not connected, it cannot be selected as active.
      *
-     * <p> This API returns false in scenarios like the profile on the
-     * device is not connected or Bluetooth is not turned on.
-     * When this API returns true, it is guaranteed that the
-     * {@link #ACTION_ACTIVE_DEVICE_CHANGED} intent will be broadcasted
-     * with the active device.
+     * <p>This API returns false in scenarios like the profile on the device is not connected or
+     * Bluetooth is not turned on. When this API returns true, it is guaranteed that the {@link
+     * #ACTION_ACTIVE_DEVICE_CHANGED} intent will be broadcasted with the active device.
      *
      * @param device Remote Bluetooth Device, could be null if phone call audio should not be
-     * streamed to a headset
+     *     streamed to a headset
      * @return false on immediate error, true otherwise
      * @hide
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.MODIFY_PHONE_STATE,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.MODIFY_PHONE_STATE,
+            })
     @UnsupportedAppUsage(trackingBug = 171933273)
     public boolean setActiveDevice(@Nullable BluetoothDevice device) {
         if (DBG) {
             Log.d(TAG, "setActiveDevice: " + device);
         }
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled() && (device == null || isValidDevice(device))) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.setActiveDevice(device, mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.setActiveDevice(device, mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     /**
      * Get the connected device that is active.
      *
-     * @return the connected device that is active or null if no device
-     * is active.
+     * @return the connected device that is active or null if no device is active.
      * @hide
      */
     @UnsupportedAppUsage(trackingBug = 171933273)
@@ -1362,23 +1285,18 @@ public final class BluetoothHeadset implements BluetoothProfile {
     public BluetoothDevice getActiveDevice() {
         if (VDBG) Log.d(TAG, "getActiveDevice");
         final IBluetoothHeadset service = getService();
-        final BluetoothDevice defaultValue = null;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<BluetoothDevice> recv =
-                        SynchronousResultReceiver.get();
-                service.getActiveDevice(mAttributionSource, recv);
                 return Attributable.setAttributionSource(
-                        recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue),
-                        mAttributionSource);
-            } catch (RemoteException | TimeoutException e) {
+                        service.getActiveDevice(mAttributionSource), mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return null;
     }
 
     /**
@@ -1391,27 +1309,25 @@ public final class BluetoothHeadset implements BluetoothProfile {
     @SystemApi
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(allOf = {
-            android.Manifest.permission.BLUETOOTH_CONNECT,
-            android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-    })
+    @RequiresPermission(
+            allOf = {
+                android.Manifest.permission.BLUETOOTH_CONNECT,
+                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
+            })
     public boolean isInbandRingingEnabled() {
         if (DBG) log("isInbandRingingEnabled()");
         final IBluetoothHeadset service = getService();
-        final boolean defaultValue = false;
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                final SynchronousResultReceiver<Boolean> recv = SynchronousResultReceiver.get();
-                service.isInbandRingingEnabled(mAttributionSource, recv);
-                return recv.awaitResultNoInterrupt(getSyncTimeout()).getValue(defaultValue);
-            } catch (RemoteException | TimeoutException e) {
+                return service.isInbandRingingEnabled(mAttributionSource);
+            } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
-        return defaultValue;
+        return false;
     }
 
     @UnsupportedAppUsage

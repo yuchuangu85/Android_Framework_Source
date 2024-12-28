@@ -29,8 +29,6 @@ package java.lang;
 // import jdk.internal.misc.CDS;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
 
-// BEGIN Android-removed: dynamic constants not supported on Android.
-/*
 import java.lang.constant.Constable;
 import java.lang.constant.DynamicConstantDesc;
 import java.util.Optional;
@@ -39,8 +37,6 @@ import static java.lang.constant.ConstantDescs.BSM_EXPLICIT_CAST;
 import static java.lang.constant.ConstantDescs.CD_byte;
 import static java.lang.constant.ConstantDescs.CD_int;
 import static java.lang.constant.ConstantDescs.DEFAULT_NAME;
-*/
-// END Android-removed: dynamic constants not supported on Android.
 
 import libcore.util.HexEncoding;
 
@@ -69,10 +65,7 @@ import libcore.util.HexEncoding;
  * @since   1.1
  */
 @jdk.internal.ValueBased
-public final class Byte extends Number implements Comparable<Byte>
-// Android-removed: no Constable support.
-// , Constable
-{
+public final class Byte extends Number implements Comparable<Byte>, Constable {
 
     /**
      * A constant holding the minimum value a {@code byte} can
@@ -105,20 +98,18 @@ public final class Byte extends Number implements Comparable<Byte>
         return Integer.toString((int)b, 10);
     }
 
-    // BEGIN Android-removed: dynamic constants not supported on Android.
     /**
      * Returns an {@link Optional} containing the nominal descriptor for this
      * instance.
      *
      * @return an {@link Optional} describing the {@linkplain Byte} instance
      * @since 15
-     *
+     * @hide
+     */
     @Override
     public Optional<DynamicConstantDesc<Byte>> describeConstable() {
         return Optional.of(DynamicConstantDesc.ofNamed(BSM_EXPLICIT_CAST, DEFAULT_NAME, CD_byte, intValue()));
     }
-    */
-    // END Android-removed: dynamic constants not supported on Android.
 
     private static class ByteCache {
         private ByteCache() {}

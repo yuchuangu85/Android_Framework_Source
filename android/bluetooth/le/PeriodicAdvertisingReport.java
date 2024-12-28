@@ -29,14 +29,12 @@ import java.util.Objects;
  */
 public final class PeriodicAdvertisingReport implements Parcelable {
 
-    /**
-     * The data returned is complete
-     */
+    /** The data returned is complete */
     public static final int DATA_COMPLETE = 0;
 
     /**
-     * The data returned is incomplete. The controller was unsuccessfull to
-     * receive all chained packets, returning only partial data.
+     * The data returned is incomplete. The controller was unsuccessful to receive all chained
+     * packets, returning only partial data.
      */
     public static final int DATA_INCOMPLETE_TRUNCATED = 2;
 
@@ -46,17 +44,14 @@ public final class PeriodicAdvertisingReport implements Parcelable {
     private int mDataStatus;
 
     // periodic advertising data.
-    @Nullable
-    private ScanRecord mData;
+    @Nullable private ScanRecord mData;
 
     // Device timestamp when the result was last seen.
     private long mTimestampNanos;
 
-    /**
-     * Constructor of periodic advertising result.
-     */
-    public PeriodicAdvertisingReport(int syncHandle, int txPower, int rssi,
-            int dataStatus, ScanRecord data) {
+    /** Constructor of periodic advertising result. */
+    public PeriodicAdvertisingReport(
+            int syncHandle, int txPower, int rssi, int dataStatus, ScanRecord data) {
         mSyncHandle = syncHandle;
         mTxPower = txPower;
         mRssi = rssi;
@@ -97,47 +92,39 @@ public final class PeriodicAdvertisingReport implements Parcelable {
         return 0;
     }
 
-    /**
-     * Returns the synchronization handle.
-     */
+    /** Returns the synchronization handle. */
     public int getSyncHandle() {
         return mSyncHandle;
     }
 
     /**
-     * Returns the transmit power in dBm. The valid range is [-127, 126]. Value
-     * of 127 means information was not available.
+     * Returns the transmit power in dBm. The valid range is [-127, 126]. Value of 127 means
+     * information was not available.
      */
     public int getTxPower() {
         return mTxPower;
     }
 
-    /**
-     * Returns the received signal strength in dBm. The valid range is [-127, 20].
-     */
+    /** Returns the received signal strength in dBm. The valid range is [-127, 20]. */
     public int getRssi() {
         return mRssi;
     }
 
     /**
-     * Returns the data status. Can be one of {@link PeriodicAdvertisingReport#DATA_COMPLETE}
-     * or {@link PeriodicAdvertisingReport#DATA_INCOMPLETE_TRUNCATED}.
+     * Returns the data status. Can be one of {@link PeriodicAdvertisingReport#DATA_COMPLETE} or
+     * {@link PeriodicAdvertisingReport#DATA_INCOMPLETE_TRUNCATED}.
      */
     public int getDataStatus() {
         return mDataStatus;
     }
 
-    /**
-     * Returns the data contained in this periodic advertising report.
-     */
+    /** Returns the data contained in this periodic advertising report. */
     @Nullable
     public ScanRecord getData() {
         return mData;
     }
 
-    /**
-     * Returns timestamp since boot when the scan record was observed.
-     */
+    /** Returns timestamp since boot when the scan record was observed. */
     public long getTimestampNanos() {
         return mTimestampNanos;
     }
@@ -166,21 +153,32 @@ public final class PeriodicAdvertisingReport implements Parcelable {
 
     @Override
     public String toString() {
-        return "PeriodicAdvertisingReport{syncHandle=" + mSyncHandle
-                + ", txPower=" + mTxPower + ", rssi=" + mRssi + ", dataStatus=" + mDataStatus
-                + ", data=" + Objects.toString(mData) + ", timestampNanos=" + mTimestampNanos + '}';
+        return "PeriodicAdvertisingReport{syncHandle="
+                + mSyncHandle
+                + ", txPower="
+                + mTxPower
+                + ", rssi="
+                + mRssi
+                + ", dataStatus="
+                + mDataStatus
+                + ", data="
+                + Objects.toString(mData)
+                + ", timestampNanos="
+                + mTimestampNanos
+                + '}';
     }
 
-    public static final @android.annotation.NonNull Parcelable.Creator<PeriodicAdvertisingReport> CREATOR =
-            new Creator<PeriodicAdvertisingReport>() {
-                @Override
-                public PeriodicAdvertisingReport createFromParcel(Parcel source) {
-                    return new PeriodicAdvertisingReport(source);
-                }
+    public static final @android.annotation.NonNull Parcelable.Creator<PeriodicAdvertisingReport>
+            CREATOR =
+                    new Creator<PeriodicAdvertisingReport>() {
+                        @Override
+                        public PeriodicAdvertisingReport createFromParcel(Parcel source) {
+                            return new PeriodicAdvertisingReport(source);
+                        }
 
-                @Override
-                public PeriodicAdvertisingReport[] newArray(int size) {
-                    return new PeriodicAdvertisingReport[size];
-                }
-            };
+                        @Override
+                        public PeriodicAdvertisingReport[] newArray(int size) {
+                            return new PeriodicAdvertisingReport[size];
+                        }
+                    };
 }

@@ -189,8 +189,9 @@ public class LocationPermissionChecker {
      * @param message A message describing why the permission was checked. Only needed if this is
      *                not inside of a two-way binder call from the data receiver
      */
-    public boolean checkCallersLocationPermission(String pkgName, @Nullable String featureId,
-            int uid, boolean coarseForTargetSdkLessThanQ, @Nullable String message) {
+    public boolean checkCallersLocationPermission(@Nullable String pkgName,
+            @Nullable String featureId, int uid, boolean coarseForTargetSdkLessThanQ,
+            @Nullable String message) {
 
         boolean isTargetSdkLessThanQ = isTargetSdkLessThan(pkgName, Build.VERSION_CODES.Q, uid);
 

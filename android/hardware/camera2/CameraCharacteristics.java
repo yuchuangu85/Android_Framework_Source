@@ -16,10 +16,12 @@
 
 package android.hardware.camera2;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.hardware.camera2.impl.CameraMetadataNative;
+import android.hardware.camera2.impl.ExtensionKey;
 import android.hardware.camera2.impl.PublicKey;
 import android.hardware.camera2.impl.SyntheticKey;
 import android.hardware.camera2.params.DeviceStateSensorOrientationMap;
@@ -31,11 +33,15 @@ import android.util.Log;
 import android.util.Rational;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.internal.camera.flags.Flags;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * <p>The properties describing a
@@ -204,6 +210,7 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
     private List<CameraCharacteristics.Key<?>> mKeysNeedingPermission;
     private List<CaptureRequest.Key<?>> mAvailableRequestKeys;
     private List<CaptureRequest.Key<?>> mAvailableSessionKeys;
+    private List<CameraCharacteristics.Key<?>> mAvailableSessionCharacteristicsKeys;
     private List<CaptureRequest.Key<?>> mAvailablePhysicalRequestKeys;
     private List<CaptureResult.Key<?>> mAvailableResultKeys;
     private ArrayList<RecommendedStreamConfigurationMap> mRecommendedConfigurations;
@@ -541,6 +548,45 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
                             /*includeSynthetic*/ false);
         }
         return mAvailableSessionKeys;
+    }
+
+    /**
+     * <p>Get the keys in Camera Characteristics whose values are capture session specific.
+     * The session specific characteristics can be acquired by calling
+     * CameraDevice.getSessionCharacteristics(). </p>
+     *
+     * <p>Note that getAvailableSessionKeys returns the CaptureRequest keys that are difficult to
+     * apply per-frame, whereas this function returns CameraCharacteristics keys that are dependent
+     * on a particular SessionConfiguration.</p>
+     *
+     * @return List of CameraCharacteristic keys containing characterisitics specific to a session
+     * configuration. If {@link #INFO_SESSION_CONFIGURATION_QUERY_VERSION} is
+     * {@link Build.VERSION_CODES#VANILLA_ICE_CREAM}, then this list will only contain
+     * CONTROL_ZOOM_RATIO_RANGE and SCALER_AVAILABLE_MAX_DIGITAL_ZOOM
+     *
+     * @see INFO_SESSION_CONFIGURATION_QUERY_VERSION
+     */
+    @NonNull
+    @FlaggedApi(Flags.FLAG_FEATURE_COMBINATION_QUERY)
+    public List<CameraCharacteristics.Key<?>> getAvailableSessionCharacteristicsKeys() {
+        if (mAvailableSessionCharacteristicsKeys != null) {
+            return mAvailableSessionCharacteristicsKeys;
+        }
+
+        Integer queryVersion = get(INFO_SESSION_CONFIGURATION_QUERY_VERSION);
+        if (queryVersion == null) {
+            mAvailableSessionCharacteristicsKeys = List.of();
+            return mAvailableSessionCharacteristicsKeys;
+        }
+
+        mAvailableSessionCharacteristicsKeys =
+                AVAILABLE_SESSION_CHARACTERISTICS_KEYS_MAP.entrySet().stream()
+                        .filter(e -> e.getKey() <= queryVersion)
+                        .map(Map.Entry::getValue)
+                        .flatMap(Arrays::stream)
+                        .collect(Collectors.toUnmodifiableList());
+
+        return mAvailableSessionCharacteristicsKeys;
     }
 
     /**
@@ -1330,6 +1376,27 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
             new Key<Boolean>("android.control.autoframingAvailable", boolean.class);
 
     /**
+     * <p>The operating luminance range of low light boost measured in lux (lx).</p>
+     * <p><b>Range of valid values:</b><br></p>
+     * <p>The lower bound indicates the lowest scene luminance value the AE mode
+     * 'ON_LOW_LIGHT_BOOST_BRIGHTNESS_PRIORITY' can operate within. Scenes of lower luminance
+     * than this may receive less brightening, increased noise, or artifacts.</p>
+     * <p>The upper bound indicates the luminance threshold at the point when the mode is enabled.
+     * For example, 'Range[0.3, 30.0]' defines 0.3 lux being the lowest scene luminance the
+     * mode can reliably support. 30.0 lux represents the threshold when this mode is
+     * activated. Scenes measured at less than or equal to 30 lux will activate low light
+     * boost.</p>
+     * <p>If this key is defined, then the AE mode 'ON_LOW_LIGHT_BOOST_BRIGHTNESS_PRIORITY' will
+     * also be present.</p>
+     * <p><b>Optional</b> - The value for this key may be {@code null} on some devices.</p>
+     */
+    @PublicKey
+    @NonNull
+    @FlaggedApi(Flags.FLAG_CAMERA_AE_MODE_LOW_LIGHT_BOOST)
+    public static final Key<android.util.Range<Float>> CONTROL_LOW_LIGHT_BOOST_INFO_LUMINANCE_RANGE =
+            new Key<android.util.Range<Float>>("android.control.lowLightBoostInfoLuminanceRange", new TypeReference<android.util.Range<Float>>() {{ }});
+
+    /**
      * <p>List of edge enhancement modes for {@link CaptureRequest#EDGE_MODE android.edge.mode} that are supported by this camera
      * device.</p>
      * <p>Full-capability camera devices must always support OFF; camera devices that support
@@ -1403,6 +1470,74 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
     @NonNull
     public static final Key<Integer> FLASH_INFO_STRENGTH_DEFAULT_LEVEL =
             new Key<Integer>("android.flash.info.strengthDefaultLevel", int.class);
+
+    /**
+     * <p>Maximum flash brightness level for manual flash control in SINGLE mode.</p>
+     * <p>Maximum flash brightness level in camera capture mode and
+     * {@link CaptureRequest#FLASH_MODE android.flash.mode} set to SINGLE.
+     * Value will be &gt; 1 if the manual flash strength control feature is supported,
+     * otherwise the value will be equal to 1.
+     * Note that this level is just a number of supported levels (the granularity of control).
+     * There is no actual physical power units tied to this level.</p>
+     * <p>This key is available on all devices.</p>
+     *
+     * @see CaptureRequest#FLASH_MODE
+     */
+    @PublicKey
+    @NonNull
+    @FlaggedApi(Flags.FLAG_CAMERA_MANUAL_FLASH_STRENGTH_CONTROL)
+    public static final Key<Integer> FLASH_SINGLE_STRENGTH_MAX_LEVEL =
+            new Key<Integer>("android.flash.singleStrengthMaxLevel", int.class);
+
+    /**
+     * <p>Default flash brightness level for manual flash control in SINGLE mode.</p>
+     * <p>If flash unit is available this will be greater than or equal to 1 and less
+     * or equal to <code>android.flash.info.singleStrengthMaxLevel</code>.
+     * Note for devices that do not support the manual flash strength control
+     * feature, this level will always be equal to 1.</p>
+     * <p>This key is available on all devices.</p>
+     */
+    @PublicKey
+    @NonNull
+    @FlaggedApi(Flags.FLAG_CAMERA_MANUAL_FLASH_STRENGTH_CONTROL)
+    public static final Key<Integer> FLASH_SINGLE_STRENGTH_DEFAULT_LEVEL =
+            new Key<Integer>("android.flash.singleStrengthDefaultLevel", int.class);
+
+    /**
+     * <p>Maximum flash brightness level for manual flash control in TORCH mode</p>
+     * <p>Maximum flash brightness level in camera capture mode and
+     * {@link CaptureRequest#FLASH_MODE android.flash.mode} set to TORCH.
+     * Value will be &gt; 1 if the manual flash strength control feature is supported,
+     * otherwise the value will be equal to 1.</p>
+     * <p>Note that this level is just a number of supported levels(the granularity of control).
+     * There is no actual physical power units tied to this level.
+     * There is no relation between android.flash.info.torchStrengthMaxLevel and
+     * android.flash.info.singleStrengthMaxLevel i.e. the ratio of
+     * android.flash.info.torchStrengthMaxLevel:android.flash.info.singleStrengthMaxLevel
+     * is not guaranteed to be the ratio of actual brightness.</p>
+     * <p>This key is available on all devices.</p>
+     *
+     * @see CaptureRequest#FLASH_MODE
+     */
+    @PublicKey
+    @NonNull
+    @FlaggedApi(Flags.FLAG_CAMERA_MANUAL_FLASH_STRENGTH_CONTROL)
+    public static final Key<Integer> FLASH_TORCH_STRENGTH_MAX_LEVEL =
+            new Key<Integer>("android.flash.torchStrengthMaxLevel", int.class);
+
+    /**
+     * <p>Default flash brightness level for manual flash control in TORCH mode</p>
+     * <p>If flash unit is available this will be greater than or equal to 1 and less
+     * or equal to android.flash.info.torchStrengthMaxLevel.
+     * Note for the devices that do not support the manual flash strength control feature,
+     * this level will always be equal to 1.</p>
+     * <p>This key is available on all devices.</p>
+     */
+    @PublicKey
+    @NonNull
+    @FlaggedApi(Flags.FLAG_CAMERA_MANUAL_FLASH_STRENGTH_CONTROL)
+    public static final Key<Integer> FLASH_TORCH_STRENGTH_DEFAULT_LEVEL =
+            new Key<Integer>("android.flash.torchStrengthDefaultLevel", int.class);
 
     /**
      * <p>List of hot pixel correction modes for {@link CaptureRequest#HOT_PIXEL_MODE android.hotPixel.mode} that are supported by this
@@ -3202,8 +3337,9 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * or if the camera device isn't a primary rear/front camera, the minimum required output
      * stream configurations are the same as for applications targeting SDK version older than
      * 31.</p>
-     * <p>Refer to {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} and {@link android.hardware.camera2.CameraDevice#createCaptureSession } for additional mandatory
-     * stream configurations on a per-capability basis.</p>
+     * <p>Refer to {@link CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES android.request.availableCapabilities} and
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#legacy-level-guaranteed-configurations">the table</a>
+     * for additional mandatory stream configurations on a per-capability basis.</p>
      * <p>*1: For JPEG format, the sizes may be restricted by below conditions:</p>
      * <ul>
      * <li>The HAL may choose the aspect ratio of each Jpeg size to be one of well known ones
@@ -3321,12 +3457,12 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * {@link android.hardware.camera2.CameraCharacteristics#INFO_SUPPORTED_HARDWARE_LEVEL }
      * and {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES }.
      * This is an app-readable conversion of the mandatory stream combination
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession tables}.</p>
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#legacy-level-guaranteed-configurations">tables</a>.</p>
      * <p>The array of
      * {@link android.hardware.camera2.params.MandatoryStreamCombination combinations} is
      * generated according to the documented
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession guideline} based on
-     * specific device level and capabilities.
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#legacy-level-guaranteed-configurations">guideline</a>.
+     * based on specific device level and capabilities.
      * Clients can use the array as a quick reference to find an appropriate camera stream
      * combination.
      * As per documentation, the stream combinations with given PREVIEW, RECORD and
@@ -3355,12 +3491,12 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
     /**
      * <p>An array of mandatory concurrent stream combinations.
      * This is an app-readable conversion of the concurrent mandatory stream combination
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession tables}.</p>
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#concurrent-stream-guaranteed-configurations">tables</a>.</p>
      * <p>The array of
      * {@link android.hardware.camera2.params.MandatoryStreamCombination combinations} is
      * generated according to the documented
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession guideline} for each
-     * device which has its Id present in the set returned by
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#concurrent-stream-guaranteed-configurations">guideline</a>
+     * for each device which has its Id present in the set returned by
      * {@link android.hardware.camera2.CameraManager#getConcurrentCameraIds }.
      * Clients can use the array as a quick reference to find an appropriate camera stream
      * combination.
@@ -3465,7 +3601,8 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <p>If a camera device supports multi-resolution output streams for a particular format, for
      * each of its mandatory stream combinations, the camera device will support using a
      * MultiResolutionImageReader for the MAXIMUM stream of supported formats. Refer to
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession } for additional details.</p>
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#legacy-level-additional-guaranteed-combinations-with-multiresolutionoutputs">the table</a>
+     * for additional details.</p>
      * <p>To use multi-resolution input streams, the supported formats can be queried by {@link android.hardware.camera2.params.MultiResolutionStreamConfigurationMap#getInputFormats }.
      * A reprocessable CameraCaptureSession can then be created using an {@link android.hardware.camera2.params.InputConfiguration InputConfiguration} constructed with
      * the input MultiResolutionStreamInfo group, queried by {@link android.hardware.camera2.params.MultiResolutionStreamConfigurationMap#getInputInfo }.</p>
@@ -3473,8 +3610,8 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * {@code YUV} output, or multi-resolution {@code PRIVATE} input and multi-resolution
      * {@code PRIVATE} output, {@code JPEG} and {@code YUV} are guaranteed to be supported
      * multi-resolution output stream formats. Refer to
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession } for
-     * details about the additional mandatory stream combinations in this case.</p>
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#legacy-level-additional-guaranteed-combinations-with-multiresolutionoutputs">the table</a>
+     * for details about the additional mandatory stream combinations in this case.</p>
      * <p><b>Optional</b> - The value for this key may be {@code null} on some devices.</p>
      */
     @PublicKey
@@ -3586,12 +3723,12 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * {@link android.hardware.camera2.CaptureRequest } has {@link CaptureRequest#SENSOR_PIXEL_MODE android.sensor.pixelMode} set
      * to {@link android.hardware.camera2.CameraMetadata#SENSOR_PIXEL_MODE_MAXIMUM_RESOLUTION }.
      * This is an app-readable conversion of the maximum resolution mandatory stream combination
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession tables}.</p>
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#additional-guaranteed-combinations-for-ultra-high-resolution-sensors">tables</a>.</p>
      * <p>The array of
      * {@link android.hardware.camera2.params.MandatoryStreamCombination combinations} is
      * generated according to the documented
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession guideline} for each
-     * device which has the
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#additional-guaranteed-combinations-for-ultra-high-resolution-sensors">guideline</a>
+     * for each device which has the
      * {@link android.hardware.camera2.CameraMetadata#REQUEST_AVAILABLE_CAPABILITIES_ULTRA_HIGH_RESOLUTION_SENSOR }
      * capability.
      * Clients can use the array as a quick reference to find an appropriate camera stream
@@ -3614,12 +3751,12 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * 10-bit output capability
      * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_DYNAMIC_RANGE_TEN_BIT }
      * This is an app-readable conversion of the 10 bit output mandatory stream combination
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession tables}.</p>
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#10-bit-output-additional-guaranteed-configurations">tables</a>.</p>
      * <p>The array of
      * {@link android.hardware.camera2.params.MandatoryStreamCombination combinations} is
      * generated according to the documented
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession guideline} for each
-     * device which has the
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#10-bit-output-additional-guaranteed-configurations">guideline</a>
+     * for each device which has the
      * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_DYNAMIC_RANGE_TEN_BIT }
      * capability.
      * Clients can use the array as a quick reference to find an appropriate camera stream
@@ -3639,12 +3776,13 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <p>An array of mandatory stream combinations which are applicable when device lists
      * {@code PREVIEW_STABILIZATION} in {@link CameraCharacteristics#CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES android.control.availableVideoStabilizationModes}.
      * This is an app-readable conversion of the preview stabilization mandatory stream
-     * combination {@link android.hardware.camera2.CameraDevice#createCaptureSession tables}.</p>
+     * combination
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#preview-stabilization-guaranteed-stream-configurations">tables</a>.</p>
      * <p>The array of
      * {@link android.hardware.camera2.params.MandatoryStreamCombination combinations} is
      * generated according to the documented
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession guideline} for each
-     * device which supports {@code PREVIEW_STABILIZATION}
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#preview-stabilization-guaranteed-stream-configurations">guideline</a>
+     * for each device which supports {@code PREVIEW_STABILIZATION}
      * Clients can use the array as a quick reference to find an appropriate camera stream
      * combination.
      * The mandatory stream combination array will be {@code null} in case the device does not
@@ -3717,8 +3855,8 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
      * <p>The guaranteed stream combinations related to stream use case for a camera device with
      * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_STREAM_USE_CASE }
      * capability is documented in the camera device
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession guideline}. The
-     * application is strongly recommended to use one of the guaranteed stream combinations.
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#stream-use-case-capability-additional-guaranteed-configurations">guideline</a>.
+     * The application is strongly recommended to use one of the guaranteed stream combinations.
      * If the application creates a session with a stream combination not in the guaranteed
      * list, or with mixed DEFAULT and non-DEFAULT use cases within the same session,
      * the camera device may ignore some stream use cases due to hardware constraints
@@ -3754,13 +3892,13 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
     /**
      * <p>An array of mandatory stream combinations with stream use cases.
      * This is an app-readable conversion of the mandatory stream combination
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession tables} with
-     * each stream's use case being set.</p>
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#stream-use-case-capability-additional-guaranteed-configurations">tables</a>
+     * with each stream's use case being set.</p>
      * <p>The array of
      * {@link android.hardware.camera2.params.MandatoryStreamCombination combinations} is
      * generated according to the documented
-     * {@link android.hardware.camera2.CameraDevice#createCaptureSession guideline} for a
-     * camera device with
+     * <a href="https://developer.android.com/reference/android/hardware/camera2/CameraDevice#stream-use-case-capability-additional-guaranteed-configurations">guildeline</a>
+     * for a camera device with
      * {@link android.hardware.camera2.CameraCharacteristics#REQUEST_AVAILABLE_CAPABILITIES_STREAM_USE_CASE }
      * capability.
      * The mandatory stream combination array will be {@code null} in case the device doesn't
@@ -4922,6 +5060,161 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
             new Key<long[]>("android.info.deviceStateOrientations", long[].class);
 
     /**
+     * <p>The version of the session configuration query
+     * {@link android.hardware.camera2.CameraDevice.CameraDeviceSetup#isSessionConfigurationSupported }
+     * and {@link android.hardware.camera2.CameraDevice.CameraDeviceSetup#getSessionCharacteristics }
+     * APIs.</p>
+     * <p>The possible values in this key correspond to the values defined in
+     * android.os.Build.VERSION_CODES. Each version defines a set of feature combinations the
+     * camera device must reliably report whether they are supported via
+     * {@link android.hardware.camera2.CameraDevice.CameraDeviceSetup#isSessionConfigurationSupported }.
+     * It also defines the set of session specific keys in CameraCharacteristics when returned from
+     * {@link android.hardware.camera2.CameraDevice.CameraDeviceSetup#getSessionCharacteristics }.
+     * The version is always less or equal to android.os.Build.VERSION.SDK_INT.</p>
+     * <p>If set to UPSIDE_DOWN_CAKE, this camera device doesn't support the
+     * {@link android.hardware.camera2.CameraDevice.CameraDeviceSetup } API.
+     * Trying to create a CameraDeviceSetup instance throws an UnsupportedOperationException.</p>
+     * <p>From VANILLA_ICE_CREAM onwards, the camera compliance tests verify a set of
+     * commonly used SessionConfigurations to ensure that the outputs of
+     * {@link android.hardware.camera2.CameraDevice.CameraDeviceSetup#isSessionConfigurationSupported }
+     * and {@link android.hardware.camera2.CameraDevice.CameraDeviceSetup#getSessionCharacteristics }
+     * are accurate. The application is encouraged to use these SessionConfigurations when turning on
+     * multiple features at the same time.</p>
+     * <p>When set to VANILLA_ICE_CREAM, the combinations of the following configurations are verified
+     * by the compliance tests:</p>
+     * <ul>
+     * <li>
+     * <p>A set of commonly used stream combinations:</p>
+     * <table>
+     * <thead>
+     * <tr>
+     * <th style="text-align: center;">Target 1</th>
+     * <th style="text-align: center;">Size</th>
+     * <th style="text-align: center;">Target 2</th>
+     * <th style="text-align: center;">Size</th>
+     * </tr>
+     * </thead>
+     * <tbody>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S1080P</td>
+     * <td style="text-align: center;"></td>
+     * <td style="text-align: center;"></td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S720P</td>
+     * <td style="text-align: center;"></td>
+     * <td style="text-align: center;"></td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S1080P</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">MAXIMUM_16_9</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S1080P</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">UHD</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S1080P</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">S1440P</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S1080P</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">S1080P</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S1080P</td>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">UHD</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S720P</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">MAXIMUM_16_9</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S720P</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">UHD</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S720P</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">S1080P</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">XVGA</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">MAXIMUM_4_3</td>
+     * </tr>
+     * <tr>
+     * <td style="text-align: center;">PRIV</td>
+     * <td style="text-align: center;">S1080P_4_3</td>
+     * <td style="text-align: center;">JPEG/JPEG_R</td>
+     * <td style="text-align: center;">MAXIMUM_4_3</td>
+     * </tr>
+     * </tbody>
+     * </table>
+     * <ul>
+     * <li>{@code MAXIMUM_4_3} refers to the camera device's maximum output resolution with
+     *   4:3 aspect ratio for that format from {@code StreamConfigurationMap#getOutputSizes}.</li>
+     * <li>{@code MAXIMUM_16_9} is the maximum output resolution with 16:9 aspect ratio.</li>
+     * <li>{@code S1440P} refers to {@code 2560x1440 (16:9)}.</li>
+     * <li>{@code S1080P} refers to {@code 1920x1080 (16:9)}.</li>
+     * <li>{@code S720P} refers to {@code 1280x720 (16:9)}.</li>
+     * <li>{@code UHD} refers to {@code 3840x2160 (16:9)}.</li>
+     * <li>{@code XVGA} refers to {@code 1024x768 (4:3)}.</li>
+     * <li>{@code S1080P_43} refers to {@code 1440x1080 (4:3)}.</li>
+     * </ul>
+     * </li>
+     * <li>
+     * <p>VIDEO_STABILIZATION_MODE: {OFF, PREVIEW}</p>
+     * </li>
+     * <li>
+     * <p>AE_TARGET_FPS_RANGE: { {*, 30}, {*, 60} }</p>
+     * </li>
+     * <li>
+     * <p>DYNAMIC_RANGE_PROFILE: {STANDARD, HLG10}</p>
+     * </li>
+     * </ul>
+     * <p>All of the above configurations can be set up with a SessionConfiguration. The list of
+     * OutputConfiguration contains the stream configurations and DYNAMIC_RANGE_PROFILE, and
+     * the AE_TARGET_FPS_RANGE and VIDEO_STABILIZATION_MODE are set as session parameters.</p>
+     * <p>This key is available on all devices.</p>
+     */
+    @PublicKey
+    @NonNull
+    @FlaggedApi(Flags.FLAG_FEATURE_COMBINATION_QUERY)
+    public static final Key<Integer> INFO_SESSION_CONFIGURATION_QUERY_VERSION =
+            new Key<Integer>("android.info.sessionConfigurationQueryVersion", int.class);
+
+    /**
+     * <p>Id of the device that owns this camera.</p>
+     * <p>In case of a virtual camera, this would be the id of the virtual device
+     * owning the camera. For any other camera, this key would not be present.
+     * Callers should assume {@link android.content.Context#DEVICE_ID_DEFAULT }
+     * in case this key is not present.</p>
+     * <p><b>Optional</b> - The value for this key may be {@code null} on some devices.</p>
+     * @hide
+     */
+    public static final Key<Integer> INFO_DEVICE_ID =
+            new Key<Integer>("android.info.deviceId", int.class);
+
+    /**
      * <p>The maximum number of frames that can occur after a request
      * (different than the previous) has been submitted, and before the
      * result's state becomes synchronized.</p>
@@ -5673,16 +5966,44 @@ public final class CameraCharacteristics extends CameraMetadata<CameraCharacteri
     public static final Key<android.hardware.camera2.params.StreamConfigurationDuration[]> JPEGR_AVAILABLE_JPEG_R_STALL_DURATIONS_MAXIMUM_RESOLUTION =
             new Key<android.hardware.camera2.params.StreamConfigurationDuration[]>("android.jpegr.availableJpegRStallDurationsMaximumResolution", android.hardware.camera2.params.StreamConfigurationDuration[].class);
 
+    /**
+     * <p>Minimum and maximum padding zoom factors supported by this camera device for
+     * android.efv.paddingZoomFactor used for the
+     * {@link android.hardware.camera2.CameraExtensionCharacteristics#EXTENSION_EYES_FREE_VIDEOGRAPHY }
+     * extension.</p>
+     * <p>The minimum and maximum padding zoom factors supported by the device for
+     * android.efv.paddingZoomFactor used as part of the
+     * {@link android.hardware.camera2.CameraExtensionCharacteristics#EXTENSION_EYES_FREE_VIDEOGRAPHY }
+     * extension feature. This extension specific camera characteristic can be queried using
+     * {@link android.hardware.camera2.CameraExtensionCharacteristics#get }.</p>
+     * <p><b>Units</b>: A pair of padding zoom factors in floating-points:
+     * (minPaddingZoomFactor, maxPaddingZoomFactor)</p>
+     * <p><b>Range of valid values:</b><br></p>
+     * <p>1.0 &lt; minPaddingZoomFactor &lt;= maxPaddingZoomFactor</p>
+     * <p><b>Optional</b> - The value for this key may be {@code null} on some devices.</p>
+     * @hide
+     */
+    @ExtensionKey
+    @FlaggedApi(Flags.FLAG_CONCERT_MODE_API)
+    public static final Key<android.util.Range<Float>> EFV_PADDING_ZOOM_FACTOR_RANGE =
+            new Key<android.util.Range<Float>>("android.efv.paddingZoomFactorRange", new TypeReference<android.util.Range<Float>>() {{ }});
+
+
+    /**
+     * Mapping from INFO_SESSION_CONFIGURATION_QUERY_VERSION to session characteristics key.
+     */
+    private static final Map<Integer, Key<?>[]> AVAILABLE_SESSION_CHARACTERISTICS_KEYS_MAP =
+            Map.ofEntries(
+                Map.entry(
+                    35,
+                    new Key<?>[] {
+                        CONTROL_ZOOM_RATIO_RANGE,
+                        SCALER_AVAILABLE_MAX_DIGITAL_ZOOM,
+                    }
+                )
+            );
+
     /*~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~
      * End generated code
      *~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~@~O@*/
-
-
-
-
-
-
-
-
-
 }

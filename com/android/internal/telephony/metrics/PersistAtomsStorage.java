@@ -30,9 +30,12 @@ import android.util.SparseIntArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.nano.PersistAtomsProto.CarrierIdMismatch;
+import com.android.internal.telephony.nano.PersistAtomsProto.CarrierRoamingSatelliteControllerStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.CarrierRoamingSatelliteSession;
 import com.android.internal.telephony.nano.PersistAtomsProto.CellularDataServiceSwitch;
 import com.android.internal.telephony.nano.PersistAtomsProto.CellularServiceState;
 import com.android.internal.telephony.nano.PersistAtomsProto.DataCallSession;
+import com.android.internal.telephony.nano.PersistAtomsProto.DataNetworkValidation;
 import com.android.internal.telephony.nano.PersistAtomsProto.GbaEvent;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsDedicatedBearerEvent;
 import com.android.internal.telephony.nano.PersistAtomsProto.ImsDedicatedBearerListenerEvent;
@@ -48,7 +51,9 @@ import com.android.internal.telephony.nano.PersistAtomsProto.PersistAtoms;
 import com.android.internal.telephony.nano.PersistAtomsProto.PresenceNotifyEvent;
 import com.android.internal.telephony.nano.PersistAtomsProto.RcsAcsProvisioningStats;
 import com.android.internal.telephony.nano.PersistAtomsProto.RcsClientProvisioningStats;
+import com.android.internal.telephony.nano.PersistAtomsProto.SatelliteConfigUpdater;
 import com.android.internal.telephony.nano.PersistAtomsProto.SatelliteController;
+import com.android.internal.telephony.nano.PersistAtomsProto.SatelliteEntitlement;
 import com.android.internal.telephony.nano.PersistAtomsProto.SatelliteIncomingDatagram;
 import com.android.internal.telephony.nano.PersistAtomsProto.SatelliteOutgoingDatagram;
 import com.android.internal.telephony.nano.PersistAtomsProto.SatelliteProvision;
@@ -172,6 +177,10 @@ public class PersistAtomsStorage {
     /** Maximum number of Satellite relevant stats to store between pulls. */
     private final int mMaxNumSatelliteStats;
     private final int mMaxNumSatelliteControllerStats = 1;
+    private final int mMaxNumCarrierRoamingSatelliteSessionStats = 1;
+
+    /** Maximum number of data network validation to store during pulls. */
+    private final int mMaxNumDataNetworkValidation;
 
     /** Stores persist atoms and persist states of the puller. */
     @VisibleForTesting protected PersistAtoms mAtoms;
@@ -223,6 +232,7 @@ public class PersistAtomsStorage {
             mMaxNumGbaEventStats = 5;
             mMaxOutgoingShortCodeSms = 5;
             mMaxNumSatelliteStats = 5;
+            mMaxNumDataNetworkValidation = 5;
         } else {
             mMaxNumVoiceCallSessions = 50;
             mMaxNumSms = 25;
@@ -247,6 +257,7 @@ public class PersistAtomsStorage {
             mMaxNumGbaEventStats = 10;
             mMaxOutgoingShortCodeSms = 10;
             mMaxNumSatelliteStats = 15;
+            mMaxNumDataNetworkValidation = 15;
         }
 
         mAtoms = loadAtomsFromFile();
@@ -407,6 +418,9 @@ public class PersistAtomsStorage {
             existingStats.videoAvailableMillis += stats.videoAvailableMillis;
             existingStats.utCapableMillis += stats.utCapableMillis;
             existingStats.utAvailableMillis += stats.utAvailableMillis;
+            existingStats.registeringMillis += stats.registeringMillis;
+            existingStats.unregisteredMillis += stats.unregisteredMillis;
+            existingStats.registeredTimes += stats.registeredTimes;
             existingStats.lastUsedMillis = getWallTimeMillis();
         } else {
             stats.lastUsedMillis = getWallTimeMillis();
@@ -736,6 +750,22 @@ public class PersistAtomsStorage {
                 += stats.totalBatteryConsumptionPercent;
         atom.totalBatteryChargedTimeSec
                 += stats.totalBatteryChargedTimeSec;
+        atom.countOfDemoModeSatelliteServiceEnablementsSuccess
+                += stats.countOfDemoModeSatelliteServiceEnablementsSuccess;
+        atom.countOfDemoModeSatelliteServiceEnablementsFail
+                += stats.countOfDemoModeSatelliteServiceEnablementsFail;
+        atom.countOfDemoModeOutgoingDatagramSuccess
+                += stats.countOfDemoModeOutgoingDatagramSuccess;
+        atom.countOfDemoModeOutgoingDatagramFail
+                += stats.countOfDemoModeOutgoingDatagramFail;
+        atom.countOfDemoModeIncomingDatagramSuccess
+                += stats.countOfDemoModeIncomingDatagramSuccess;
+        atom.countOfDemoModeIncomingDatagramFail
+                += stats.countOfDemoModeIncomingDatagramFail;
+        atom.countOfDatagramTypeKeepAliveSuccess
+                += stats.countOfDatagramTypeKeepAliveSuccess;
+        atom.countOfDatagramTypeKeepAliveFail
+                += stats.countOfDatagramTypeKeepAliveFail;
 
         mAtoms.satelliteController = atomArray;
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
@@ -784,6 +814,82 @@ public class PersistAtomsStorage {
             mAtoms.satelliteSosMessageRecommender =
                     insertAtRandomPlace(mAtoms.satelliteSosMessageRecommender, stats,
                             mMaxNumSatelliteStats);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a data network validation to the storage. */
+    public synchronized void addDataNetworkValidation(DataNetworkValidation dataNetworkValidation) {
+        DataNetworkValidation existingStats = find(dataNetworkValidation);
+        if (existingStats != null) {
+            int count = existingStats.networkValidationCount
+                    + dataNetworkValidation.networkValidationCount;
+            long elapsedTime = ((dataNetworkValidation.elapsedTimeInMillis
+                    * dataNetworkValidation.networkValidationCount) + (
+                    existingStats.elapsedTimeInMillis * existingStats.networkValidationCount))
+                    / count;
+            existingStats.networkValidationCount = count;
+            existingStats.elapsedTimeInMillis = elapsedTime;
+        } else {
+            mAtoms.dataNetworkValidation = insertAtRandomPlace(
+                    mAtoms.dataNetworkValidation, dataNetworkValidation, mMaxNumDataCallSessions);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link CarrierRoamingSatelliteSession} to the storage. */
+    public synchronized void addCarrierRoamingSatelliteSessionStats(
+            CarrierRoamingSatelliteSession stats) {
+        mAtoms.carrierRoamingSatelliteSession = insertAtRandomPlace(
+                mAtoms.carrierRoamingSatelliteSession, stats,
+                mMaxNumCarrierRoamingSatelliteSessionStats);
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link CarrierRoamingSatelliteControllerStats} to the storage. */
+    public synchronized void addCarrierRoamingSatelliteControllerStats(
+            CarrierRoamingSatelliteControllerStats stats) {
+        // CarrierRoamingSatelliteController is a single data point
+        CarrierRoamingSatelliteControllerStats[] atomArray =
+                mAtoms.carrierRoamingSatelliteControllerStats;
+        if (atomArray == null || atomArray.length == 0) {
+            atomArray = new CarrierRoamingSatelliteControllerStats[] {new
+                    CarrierRoamingSatelliteControllerStats()};
+        }
+
+        CarrierRoamingSatelliteControllerStats atom = atomArray[0];
+        atom.configDataSource = stats.configDataSource;
+        atom.countOfEntitlementStatusQueryRequest += stats.countOfEntitlementStatusQueryRequest;
+        atom.countOfSatelliteConfigUpdateRequest += stats.countOfSatelliteConfigUpdateRequest;
+        atom.countOfSatelliteNotificationDisplayed += stats.countOfSatelliteNotificationDisplayed;
+        atom.satelliteSessionGapMinSec = stats.satelliteSessionGapMinSec;
+        atom.satelliteSessionGapAvgSec = stats.satelliteSessionGapAvgSec;
+        atom.satelliteSessionGapMaxSec = stats.satelliteSessionGapMaxSec;
+
+        mAtoms.carrierRoamingSatelliteControllerStats = atomArray;
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link SatelliteEntitlement} to the storage. */
+    public synchronized void addSatelliteEntitlementStats(SatelliteEntitlement stats) {
+        SatelliteEntitlement existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+        } else {
+            mAtoms.satelliteEntitlement = insertAtRandomPlace(mAtoms.satelliteEntitlement,
+                    stats, mMaxNumSatelliteStats);
+        }
+        saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
+    }
+
+    /** Adds a new {@link SatelliteConfigUpdater} to the storage. */
+    public synchronized void addSatelliteConfigUpdaterStats(SatelliteConfigUpdater stats) {
+        SatelliteConfigUpdater existingStats = find(stats);
+        if (existingStats != null) {
+            existingStats.count += 1;
+        } else {
+            mAtoms.satelliteConfigUpdater = insertAtRandomPlace(mAtoms.satelliteConfigUpdater,
+                    stats, mMaxNumSatelliteStats);
         }
         saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_UPDATE_MILLIS);
     }
@@ -1446,6 +1552,102 @@ public class PersistAtomsStorage {
         }
     }
 
+    /**
+     * Returns and clears the data network validation if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized DataNetworkValidation[] getDataNetworkValidation(long minIntervalMillis) {
+        long wallTime = getWallTimeMillis();
+        if (wallTime - mAtoms.dataNetworkValidationPullTimestampMillis > minIntervalMillis) {
+            mAtoms.dataNetworkValidationPullTimestampMillis = wallTime;
+            DataNetworkValidation[] previousDataNetworkValidation = mAtoms.dataNetworkValidation;
+            mAtoms.dataNetworkValidation = new DataNetworkValidation[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return previousDataNetworkValidation;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the {@link CarrierRoamingSatelliteSession} stats if last pulled
+     * longer than {@code minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized CarrierRoamingSatelliteSession[] getCarrierRoamingSatelliteSessionStats(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.carrierRoamingSatelliteSessionPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.carrierRoamingSatelliteSessionPullTimestampMillis = getWallTimeMillis();
+            CarrierRoamingSatelliteSession[] statsArray = mAtoms.carrierRoamingSatelliteSession;
+            mAtoms.carrierRoamingSatelliteSession = new CarrierRoamingSatelliteSession[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return statsArray;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the {@link CarrierRoamingSatelliteControllerStats} stats if last pulled
+     * longer than {@code minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized CarrierRoamingSatelliteControllerStats[]
+            getCarrierRoamingSatelliteControllerStats(long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.carrierRoamingSatelliteControllerStatsPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.carrierRoamingSatelliteControllerStatsPullTimestampMillis = getWallTimeMillis();
+            CarrierRoamingSatelliteControllerStats[] statsArray =
+                    mAtoms.carrierRoamingSatelliteControllerStats;
+            mAtoms.carrierRoamingSatelliteControllerStats =
+                    new CarrierRoamingSatelliteControllerStats[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return statsArray;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the {@link SatelliteEntitlement} stats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized SatelliteEntitlement[] getSatelliteEntitlementStats(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.satelliteEntitlementPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.satelliteEntitlementPullTimestampMillis = getWallTimeMillis();
+            SatelliteEntitlement[] statsArray = mAtoms.satelliteEntitlement;
+            mAtoms.satelliteEntitlement = new SatelliteEntitlement[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return statsArray;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Returns and clears the {@link SatelliteConfigUpdater} stats if last pulled longer than {@code
+     * minIntervalMillis} ago, otherwise returns {@code null}.
+     */
+    @Nullable
+    public synchronized SatelliteConfigUpdater[] getSatelliteConfigUpdaterStats(
+            long minIntervalMillis) {
+        if (getWallTimeMillis() - mAtoms.satelliteConfigUpdaterPullTimestampMillis
+                > minIntervalMillis) {
+            mAtoms.satelliteConfigUpdaterPullTimestampMillis = getWallTimeMillis();
+            SatelliteConfigUpdater[] statsArray = mAtoms.satelliteConfigUpdater;
+            mAtoms.satelliteConfigUpdater = new SatelliteConfigUpdater[0];
+            saveAtomsToFile(SAVE_TO_FILE_DELAY_FOR_GET_MILLIS);
+            return statsArray;
+        } else {
+            return null;
+        }
+    }
+
     /** Saves {@link PersistAtoms} to a file in private storage immediately. */
     public synchronized void flushAtoms() {
         saveAtomsToFile(0);
@@ -1596,6 +1798,22 @@ public class PersistAtomsStorage {
             atoms.satelliteSosMessageRecommender = sanitizeAtoms(
                     atoms.satelliteSosMessageRecommender, SatelliteSosMessageRecommender.class,
                     mMaxNumSatelliteStats);
+            atoms.dataNetworkValidation =
+                    sanitizeAtoms(
+                            atoms.dataNetworkValidation,
+                            DataNetworkValidation.class,
+                            mMaxNumDataNetworkValidation
+                    );
+            atoms.carrierRoamingSatelliteSession = sanitizeAtoms(
+                    atoms.carrierRoamingSatelliteSession, CarrierRoamingSatelliteSession.class,
+                    mMaxNumSatelliteStats);
+            atoms.carrierRoamingSatelliteControllerStats = sanitizeAtoms(
+                    atoms.carrierRoamingSatelliteControllerStats,
+                    CarrierRoamingSatelliteControllerStats.class, mMaxNumSatelliteControllerStats);
+            atoms.satelliteEntitlement = sanitizeAtoms(atoms.satelliteEntitlement,
+                    SatelliteEntitlement.class, mMaxNumSatelliteStats);
+            atoms.satelliteConfigUpdater = sanitizeAtoms(atoms.satelliteConfigUpdater,
+                    SatelliteConfigUpdater.class, mMaxNumSatelliteStats);
 
             // out of caution, sanitize also the timestamps
             atoms.voiceCallRatUsagePullTimestampMillis =
@@ -1658,6 +1876,16 @@ public class PersistAtomsStorage {
                     sanitizeTimestamp(atoms.satelliteProvisionPullTimestampMillis);
             atoms.satelliteSosMessageRecommenderPullTimestampMillis =
                     sanitizeTimestamp(atoms.satelliteSosMessageRecommenderPullTimestampMillis);
+            atoms.dataNetworkValidationPullTimestampMillis =
+                    sanitizeTimestamp(atoms.dataNetworkValidationPullTimestampMillis);
+            atoms.carrierRoamingSatelliteSessionPullTimestampMillis = sanitizeTimestamp(
+                    atoms.carrierRoamingSatelliteSessionPullTimestampMillis);
+            atoms.carrierRoamingSatelliteControllerStatsPullTimestampMillis = sanitizeTimestamp(
+                    atoms.carrierRoamingSatelliteControllerStatsPullTimestampMillis);
+            atoms.satelliteEntitlementPullTimestampMillis =
+                    sanitizeTimestamp(atoms.satelliteEntitlementPullTimestampMillis);
+            atoms.satelliteConfigUpdaterPullTimestampMillis =
+                    sanitizeTimestamp(atoms.satelliteConfigUpdaterPullTimestampMillis);
             return atoms;
         } catch (NoSuchFileException e) {
             Rlog.d(TAG, "PersistAtoms file not found");
@@ -1709,7 +1937,11 @@ public class PersistAtomsStorage {
                     && state.carrierId == key.carrierId
                     && state.isEmergencyOnly == key.isEmergencyOnly
                     && state.isInternetPdnUp == key.isInternetPdnUp
-                    && state.foldState == key.foldState) {
+                    && state.foldState == key.foldState
+                    && state.overrideVoiceService == key.overrideVoiceService
+                    && state.isDataEnabled == key.isDataEnabled
+                    && state.isIwlanCrossSim == key.isIwlanCrossSim
+                    && state.isNtn == key.isNtn) {
                 return state;
             }
         }
@@ -1757,7 +1989,8 @@ public class PersistAtomsStorage {
         for (ImsRegistrationStats stats : mAtoms.imsRegistrationStats) {
             if (stats.carrierId == key.carrierId
                     && stats.simSlotIndex == key.simSlotIndex
-                    && stats.rat == key.rat) {
+                    && stats.rat == key.rat
+                    && stats.isIwlanCrossSim == key.isIwlanCrossSim) {
                 return stats;
             }
         }
@@ -1773,6 +2006,7 @@ public class PersistAtomsStorage {
             if (termination.carrierId == key.carrierId
                     && termination.isMultiSim == key.isMultiSim
                     && termination.ratAtEnd == key.ratAtEnd
+                    && termination.isIwlanCrossSim == key.isIwlanCrossSim
                     && termination.setupFailed == key.setupFailed
                     && termination.reasonCode == key.reasonCode
                     && termination.extraCode == key.extraCode
@@ -2049,7 +2283,18 @@ public class PersistAtomsStorage {
         for (SatelliteSession stats : mAtoms.satelliteSession) {
             if (stats.satelliteServiceInitializationResult
                     == key.satelliteServiceInitializationResult
-                    && stats.satelliteTechnology == key.satelliteTechnology) {
+                    && stats.satelliteTechnology == key.satelliteTechnology
+                    && stats.satelliteServiceTerminationResult
+                    == key.satelliteServiceTerminationResult
+                    && stats.initializationProcessingTimeMillis
+                    == key.initializationProcessingTimeMillis
+                    && stats.terminationProcessingTimeMillis == key.terminationProcessingTimeMillis
+                    && stats.sessionDurationSeconds == key.sessionDurationSeconds
+                    && stats.countOfOutgoingDatagramSuccess == key.countOfOutgoingDatagramSuccess
+                    && stats.countOfOutgoingDatagramFailed == key.countOfOutgoingDatagramFailed
+                    && stats.countOfIncomingDatagramSuccess == key.countOfIncomingDatagramSuccess
+                    && stats.countOfIncomingDatagramFailed == key.countOfIncomingDatagramFailed
+                    && stats.isDemoMode == key.isDemoMode) {
                 return stats;
             }
         }
@@ -2066,7 +2311,56 @@ public class PersistAtomsStorage {
             if (stats.isDisplaySosMessageSent == key.isDisplaySosMessageSent
                     && stats.countOfTimerStarted == key.countOfTimerStarted
                     && stats.isImsRegistered == key.isImsRegistered
-                    && stats.cellularServiceState == key.cellularServiceState) {
+                    && stats.cellularServiceState == key.cellularServiceState
+                    && stats.isMultiSim == key.isMultiSim
+                    && stats.recommendingHandoverType == key.recommendingHandoverType) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns SatelliteOutgoingDatagram atom that has same values or {@code null}
+     * if it does not exist.
+     */
+    private @Nullable DataNetworkValidation find(DataNetworkValidation key) {
+        for (DataNetworkValidation stats : mAtoms.dataNetworkValidation) {
+            if (stats.networkType == key.networkType
+                    && stats.apnTypeBitmask == key.apnTypeBitmask
+                    && stats.signalStrength == key.signalStrength
+                    && stats.validationResult == key.validationResult
+                    && stats.handoverAttempted == key.handoverAttempted) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns SatelliteEntitlement atom that has same values or {@code null} if it does not exist.
+     */
+    private @Nullable SatelliteEntitlement find(SatelliteEntitlement key) {
+        for (SatelliteEntitlement stats : mAtoms.satelliteEntitlement) {
+            if (stats.carrierId == key.carrierId
+                    && stats.result == key.result
+                    && stats.entitlementStatus == key.entitlementStatus
+                    && stats.isRetry == key.isRetry) {
+                return stats;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Returns SatelliteConfigUpdater atom that has same values
+     * or {@code null} if it does not exist.
+     */
+    private @Nullable SatelliteConfigUpdater find(SatelliteConfigUpdater key) {
+        for (SatelliteConfigUpdater stats : mAtoms.satelliteConfigUpdater) {
+            if (stats.configVersion == key.configVersion
+                    && stats.oemConfigResult == key.oemConfigResult
+                    && stats.carrierConfigResult == key.carrierConfigResult) {
                 return stats;
             }
         }
@@ -2277,6 +2571,10 @@ public class PersistAtomsStorage {
                     normalizeDurationTo24H(stats[i].utCapableMillis, intervalMillis);
             stats[i].utAvailableMillis =
                     normalizeDurationTo24H(stats[i].utAvailableMillis, intervalMillis);
+            stats[i].registeringMillis =
+                    normalizeDurationTo24H(stats[i].registeringMillis, intervalMillis);
+            stats[i].unregisteredMillis =
+                    normalizeDurationTo24H(stats[i].unregisteredMillis, intervalMillis);
         }
         return stats;
     }
@@ -2325,6 +2623,11 @@ public class PersistAtomsStorage {
         atoms.satelliteOutgoingDatagramPullTimestampMillis = currentTime;
         atoms.satelliteProvisionPullTimestampMillis = currentTime;
         atoms.satelliteSosMessageRecommenderPullTimestampMillis = currentTime;
+        atoms.dataNetworkValidationPullTimestampMillis = currentTime;
+        atoms.carrierRoamingSatelliteSessionPullTimestampMillis = currentTime;
+        atoms.carrierRoamingSatelliteControllerStatsPullTimestampMillis = currentTime;
+        atoms.satelliteEntitlementPullTimestampMillis = currentTime;
+        atoms.satelliteConfigUpdaterPullTimestampMillis = currentTime;
 
         Rlog.d(TAG, "created new PersistAtoms");
         return atoms;

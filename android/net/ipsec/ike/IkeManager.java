@@ -16,6 +16,7 @@
 package android.net.ipsec.ike;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.net.ipsec.ike.utils.IkeMetrics;
 import com.android.internal.net.utils.Log;
 
 /**
@@ -28,6 +29,7 @@ public final class IkeManager {
     private static final boolean LOG_SENSITIVE = false;
 
     private static Log sIkeLog = new Log(IKE_TAG, LOG_SENSITIVE);
+    private static IkeMetrics sIkeMetrics = new IkeMetrics();
 
     /**
      * Returns IKE logger.
@@ -56,5 +58,24 @@ public final class IkeManager {
     @VisibleForTesting
     public static void resetIkeLog() {
         sIkeLog = new Log(IKE_TAG, LOG_SENSITIVE);
+    }
+
+    /**
+     * Returns IKE metrics tool.
+     *
+     * @hide
+     */
+    public static IkeMetrics getIkeMetrics() {
+        return sIkeMetrics;
+    }
+
+    /**
+     * Injects IKE metrics tool for testing.
+     *
+     * @hide
+     */
+    @VisibleForTesting
+    public static void setIkeMetrics(IkeMetrics ikeMetrics) {
+        sIkeMetrics = ikeMetrics;
     }
 }

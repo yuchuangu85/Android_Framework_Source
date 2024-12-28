@@ -1,11 +1,21 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --structured --version 5 --hash notfrozen -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster_interface/4/preprocessed.aidl --previous_api_dir=hardware/interfaces/biometrics/fingerprint/aidl/aidl_api/android.hardware.biometrics.fingerprint/4 --previous_hash 41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen/android/hardware/biometrics/fingerprint/TouchDetectionParameters.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen -Nhardware/interfaces/biometrics/fingerprint/aidl hardware/interfaces/biometrics/fingerprint/aidl/android/hardware/biometrics/fingerprint/TouchDetectionParameters.aidl
  */
 package android.hardware.biometrics.fingerprint;
 /** @hide */
 public class TouchDetectionParameters implements android.os.Parcelable
 {
+  /**
+   * The percentage of the sensor that is considered the target. Value is required to be within
+   * [0.0, 1.0]. The target area expands outwards from center matching the sensorShape. Some
+   * portion of the touch must be within the target to be considered a valid touch.
+   */
   public float targetSize = 1.000000f;
+  /**
+   * The minimum percentage overlap needed on the sensor to be considered a valid touch. Value is
+   * required to be within [0.0, 1.0].
+   */
   public float minOverlap = 0.000000f;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }

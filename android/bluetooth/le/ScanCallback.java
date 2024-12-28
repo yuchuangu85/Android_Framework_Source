@@ -32,45 +32,33 @@ public abstract class ScanCallback {
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(
-        prefix = { "SCAN_FAILED_" },
-        value = {
-            SCAN_FAILED_ALREADY_STARTED,
-            SCAN_FAILED_APPLICATION_REGISTRATION_FAILED,
-            SCAN_FAILED_INTERNAL_ERROR,
-            SCAN_FAILED_FEATURE_UNSUPPORTED,
-            SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES,
-            SCAN_FAILED_SCANNING_TOO_FREQUENTLY,
-        }
-    )
+            prefix = {"SCAN_FAILED_"},
+            value = {
+                SCAN_FAILED_ALREADY_STARTED,
+                SCAN_FAILED_APPLICATION_REGISTRATION_FAILED,
+                SCAN_FAILED_INTERNAL_ERROR,
+                SCAN_FAILED_FEATURE_UNSUPPORTED,
+                SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES,
+                SCAN_FAILED_SCANNING_TOO_FREQUENTLY,
+            })
     public @interface ScanFailed {}
-    /**
-     * Fails to start scan as BLE scan with the same settings is already started by the app.
-     */
+
+    /** Fails to start scan as BLE scan with the same settings is already started by the app. */
     public static final int SCAN_FAILED_ALREADY_STARTED = 1;
 
-    /**
-     * Fails to start scan as app cannot be registered.
-     */
+    /** Fails to start scan as app cannot be registered. */
     public static final int SCAN_FAILED_APPLICATION_REGISTRATION_FAILED = 2;
 
-    /**
-     * Fails to start scan due an internal error
-     */
+    /** Fails to start scan due an internal error */
     public static final int SCAN_FAILED_INTERNAL_ERROR = 3;
 
-    /**
-     * Fails to start power optimized scan as this feature is not supported.
-     */
+    /** Fails to start power optimized scan as this feature is not supported. */
     public static final int SCAN_FAILED_FEATURE_UNSUPPORTED = 4;
 
-    /**
-     * Fails to start scan as it is out of hardware resources.
-     */
+    /** Fails to start scan as it is out of hardware resources. */
     public static final int SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES = 5;
 
-    /**
-     * Fails to start scan as application tries to scan too frequently.
-     */
+    /** Fails to start scan as application tries to scan too frequently. */
     public static final int SCAN_FAILED_SCANNING_TOO_FREQUENTLY = 6;
 
     static final int NO_ERROR = 0;
@@ -79,26 +67,23 @@ public abstract class ScanCallback {
      * Callback when a BLE advertisement has been found.
      *
      * @param callbackType Determines how this callback was triggered. Could be one of {@link
-     * ScanSettings#CALLBACK_TYPE_ALL_MATCHES}, {@link ScanSettings#CALLBACK_TYPE_FIRST_MATCH} or
-     * {@link ScanSettings#CALLBACK_TYPE_MATCH_LOST}
+     *     ScanSettings#CALLBACK_TYPE_ALL_MATCHES}, {@link ScanSettings#CALLBACK_TYPE_FIRST_MATCH}
+     *     or {@link ScanSettings#CALLBACK_TYPE_MATCH_LOST}
      * @param result A Bluetooth LE scan result.
      */
-    public void onScanResult(int callbackType, ScanResult result) {
-    }
+    public void onScanResult(int callbackType, ScanResult result) {}
 
     /**
      * Callback when batch results are delivered.
      *
      * @param results List of scan results that are previously scanned.
      */
-    public void onBatchScanResults(List<ScanResult> results) {
-    }
+    public void onBatchScanResults(List<ScanResult> results) {}
 
     /**
      * Callback when scan could not be started.
      *
      * @param errorCode Error code (one of SCAN_FAILED_*) for scan failure.
      */
-    public void onScanFailed(@ScanFailed int errorCode) {
-    }
+    public void onScanFailed(@ScanFailed int errorCode) {}
 }

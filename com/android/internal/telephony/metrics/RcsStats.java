@@ -1029,8 +1029,11 @@ public class RcsStats {
     }
 
     /** invalidated result when Request message is sent */
-    public synchronized void invalidatedMessageResult(int subId, String sipMessageMethod,
-            int sipMessageDirection, int messageError) {
+    public synchronized void invalidatedMessageResult(String callId, int subId,
+            String sipMessageMethod, int sipMessageDirection, int messageError) {
+        if (mSipMessage == null) {
+            mSipMessage = new SipMessageArray(sipMessageMethod, sipMessageDirection, callId);
+        }
         mSipMessage.addSipMessageStat(subId, sipMessageMethod, 0,
                 sipMessageDirection, messageError);
     }

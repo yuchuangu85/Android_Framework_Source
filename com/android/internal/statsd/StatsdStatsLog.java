@@ -6,6 +6,7 @@ package com.android.internal.statsd;
 import android.os.Build;
 import android.util.StatsEvent;
 import android.util.StatsLog;
+import androidx.annotation.RequiresApi;
 
 
 /**
@@ -33,12 +34,6 @@ public final class StatsdStatsLog {
     public static final int APP_BREADCRUMB_REPORTED = 47;
 
     /**
-     * DaveyOccurred davey_occurred<br>
-     * Usage: StatsLog.write(StatsLog.DAVEY_OCCURRED, int uid, long jank_duration_millis);<br>
-     */
-    public static final int DAVEY_OCCURRED = 58;
-
-    /**
      * BinaryPushStateChanged binary_push_state_changed<br>
      * Usage: StatsLog.write(StatsLog.BINARY_PUSH_STATE_CHANGED, java.lang.String train_name, long train_version_code, boolean requires_staging, boolean rollback_enabled, boolean requires_low_latency_monitor, int state, byte[] experiment_ids, int user_id, int reason, boolean is_rollback);<br>
      */
@@ -49,6 +44,12 @@ public final class StatsdStatsLog {
      * Usage: StatsLog.write(StatsLog.WATCHDOG_ROLLBACK_OCCURRED, int rollback_type, java.lang.String package_name, int package_version_code, int rollback_reason, java.lang.String failing_package_name, byte[] experiment_ids);<br>
      */
     public static final int WATCHDOG_ROLLBACK_OCCURRED = 147;
+
+    /**
+     * StatsSocketLossReported stats_socket_loss_reported<br>
+     * Usage: StatsLog.write(StatsLog.STATS_SOCKET_LOSS_REPORTED, int uid, long first_timestamp_nanos, long last_timestamp_nanos, int overflow_count, int[] errors, int[] tags, int[] counts);<br>
+     */
+    public static final int STATS_SOCKET_LOSS_REPORTED = 752;
 
     /**
      * CpuTimePerUidFreq cpu_time_per_uid_freq<br>
@@ -149,6 +150,25 @@ public final class StatsdStatsLog {
     public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_APP_CRASH = 3;
     public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_APP_NOT_RESPONDING = 4;
     public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_NATIVE_CRASH_DURING_BOOT = 5;
+    public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_NETWORK_RELATED_CRASH = 6;
+    public static final int WATCHDOG_ROLLBACK_OCCURRED__ROLLBACK_REASON__REASON_BOOT_LOOPING = 7;
+
+    // Values for StatsSocketLossReported.errors
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EDQUOT = -122;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EDESTADDRREQ = -89;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EPIPE = -32;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_ENOSPC = -28;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EFBIG = -27;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EINVAL = -22;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_ENODEV = -19;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EFAULT = -14;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EAGAIN = -11;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EBADF = -9;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EIO = -5;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EINTR = -4;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_ON_WRITE_EPERM = -1;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_UNKNOWN = 0;
+    public static final int STATS_SOCKET_LOSS_REPORTED__ERRORS__SOCKET_LOSS_ERROR_QUEUE_OVERFLOW = 1;
 
     // Values for TrainInfo.status
     public static final int TRAIN_INFO__STATUS__UNKNOWN = 0;
@@ -180,37 +200,29 @@ public final class StatsdStatsLog {
     public static final int TRAIN_INFO__STATUS__REBOOT_TRIGGERED = 26;
 
     // Annotation constants.
-    public static final byte ANNOTATION_ID_IS_UID =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            1 : StatsLog.ANNOTATION_ID_IS_UID;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_IS_UID = StatsLog.ANNOTATION_ID_IS_UID;
 
-    public static final byte ANNOTATION_ID_TRUNCATE_TIMESTAMP =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            2 : StatsLog.ANNOTATION_ID_TRUNCATE_TIMESTAMP;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_TRUNCATE_TIMESTAMP = StatsLog.ANNOTATION_ID_TRUNCATE_TIMESTAMP;
 
-    public static final byte ANNOTATION_ID_PRIMARY_FIELD =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            3 : StatsLog.ANNOTATION_ID_PRIMARY_FIELD;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_PRIMARY_FIELD = StatsLog.ANNOTATION_ID_PRIMARY_FIELD;
 
-    public static final byte ANNOTATION_ID_EXCLUSIVE_STATE =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            4 : StatsLog.ANNOTATION_ID_EXCLUSIVE_STATE;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_EXCLUSIVE_STATE = StatsLog.ANNOTATION_ID_EXCLUSIVE_STATE;
 
-    public static final byte ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            5 : StatsLog.ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID = StatsLog.ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID;
 
-    public static final byte ANNOTATION_ID_DEFAULT_STATE =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            6 : StatsLog.ANNOTATION_ID_DEFAULT_STATE;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_DEFAULT_STATE = StatsLog.ANNOTATION_ID_DEFAULT_STATE;
 
-    public static final byte ANNOTATION_ID_TRIGGER_STATE_RESET =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            7 : StatsLog.ANNOTATION_ID_TRIGGER_STATE_RESET;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_TRIGGER_STATE_RESET = StatsLog.ANNOTATION_ID_TRIGGER_STATE_RESET;
 
-    public static final byte ANNOTATION_ID_STATE_NESTED =
-            Build.VERSION.SDK_INT <= Build.VERSION_CODES.R ?
-            8 : StatsLog.ANNOTATION_ID_STATE_NESTED;
+    @android.annotation.SuppressLint("InlinedApi")
+    public static final byte ANNOTATION_ID_STATE_NESTED = StatsLog.ANNOTATION_ID_STATE_NESTED;
 
 
     // Write methods
@@ -228,19 +240,6 @@ public final class StatsdStatsLog {
         StatsLog.write(builder.build());
     }
 
-    public static void write(int code, int arg1, long arg2) {
-        final StatsEvent.Builder builder = StatsEvent.newBuilder();
-        builder.setAtomId(code);
-        builder.writeInt(arg1);
-        if (DAVEY_OCCURRED == code) {
-            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
-        }
-        builder.writeLong(arg2);
-
-        builder.usePooledBuffer();
-        StatsLog.write(builder.build());
-    }
-
     public static void write(int code, int arg1, long arg2, long arg3) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
@@ -250,6 +249,26 @@ public final class StatsdStatsLog {
         }
         builder.writeLong(arg2);
         builder.writeLong(arg3);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static void write(int code, int arg1, long arg2, long arg3, int arg4, int[] arg5, int[] arg6, int[] arg7) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (STATS_SOCKET_LOSS_REPORTED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeLong(arg2);
+        builder.writeLong(arg3);
+        builder.writeInt(arg4);
+        builder.writeIntArray(null == arg5 ? new int[0] : arg5);
+        builder.writeIntArray(null == arg6 ? new int[0] : arg6);
+        builder.writeIntArray(null == arg7 ? new int[0] : arg7);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());

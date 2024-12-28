@@ -19,13 +19,13 @@ package com.android.internal.telephony;
 import android.os.RemoteException;
 
 /**
- * A holder for IRadio services. Use getHidl to get IRadio 1.0 and call the HIDL implementations or
- * getAidl to get the AIDL service and call the AIDL implementations of the HAL APIs.
+ * A holder for IRadio services.
+ * Use getHidl to get the HIDL IRadio service or getAidl to get the corresponding AIDL service.
  */
 public abstract class RadioServiceProxy {
     boolean mIsAidl;
     HalVersion mHalVersion = RIL.RADIO_HAL_VERSION_UNKNOWN;
-    volatile android.hardware.radio.V1_0.IRadio mRadioProxy = null;
+    volatile android.hardware.radio.V1_4.IRadio mRadioProxy = null;
 
     /**
      * Whether RadioServiceProxy is an AIDL or HIDL implementation
@@ -40,7 +40,7 @@ public abstract class RadioServiceProxy {
      * @param halVersion Radio HAL version
      * @param radio      IRadio implementation
      */
-    public void setHidl(HalVersion halVersion, android.hardware.radio.V1_0.IRadio radio) {
+    public void setHidl(HalVersion halVersion, android.hardware.radio.V1_4.IRadio radio) {
         mHalVersion = halVersion;
         mRadioProxy = radio;
         mIsAidl = false;
@@ -50,7 +50,7 @@ public abstract class RadioServiceProxy {
      * Get the HIDL implementation of RadioServiceProxy
      * @return IRadio implementation
      */
-    public android.hardware.radio.V1_0.IRadio getHidl() {
+    public android.hardware.radio.V1_4.IRadio getHidl() {
         return mRadioProxy;
     }
 

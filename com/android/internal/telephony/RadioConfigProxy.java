@@ -31,14 +31,15 @@ import java.util.Set;
  * downstream users.
  */
 public class RadioConfigProxy {
-    private final HalVersion mRadioHalVersion;
+    private static final String TAG = "RadioConfigProxy";
+    private HalVersion mRadioHalVersion;
     private final RadioConfigHidlServiceDeathRecipient mRadioConfigHidlServiceDeathRecipient;
     private final RadioConfigAidlServiceDeathRecipient mRadioConfigAidlServiceDeathRecipient;
 
-    private volatile android.hardware.radio.config.V1_0.IRadioConfig mHidlRadioConfigProxy = null;
+    private volatile android.hardware.radio.config.V1_1.IRadioConfig mHidlRadioConfigProxy = null;
     private volatile android.hardware.radio.config.IRadioConfig mAidlRadioConfigProxy = null;
 
-    private HalVersion mRadioConfigHalVersion = RadioConfig.RADIO_CONFIG_HAL_VERSION_UNKNOWN;
+    private HalVersion mRadioConfigHalVersion = RIL.RADIO_HAL_VERSION_UNKNOWN;
     private boolean mIsAidl;
 
     public RadioConfigProxy(RadioConfig radioConfig, HalVersion radioHalVersion) {
@@ -57,7 +58,7 @@ public class RadioConfigProxy {
      */
     public void setHidl(
             HalVersion radioConfigHalVersion,
-            android.hardware.radio.config.V1_0.IRadioConfig radioConfig) {
+            android.hardware.radio.config.V1_1.IRadioConfig radioConfig) {
         mRadioConfigHalVersion = radioConfigHalVersion;
         mHidlRadioConfigProxy = radioConfig;
         mIsAidl = false;
@@ -65,19 +66,11 @@ public class RadioConfigProxy {
     }
 
     /**
-     * Get HIDL IRadioConfig V1_0
-     * @return IRadioConfigV1_0
-     */
-    public android.hardware.radio.config.V1_0.IRadioConfig getHidl10() {
-        return mHidlRadioConfigProxy;
-    }
-
-    /**
      * Get HIDL IRadioConfig V1_1
      * @return IRadioConfigV1_1
      */
     public android.hardware.radio.config.V1_1.IRadioConfig getHidl11() {
-        return (android.hardware.radio.config.V1_1.IRadioConfig) mHidlRadioConfigProxy;
+        return mHidlRadioConfigProxy;
     }
 
     /**
@@ -91,13 +84,15 @@ public class RadioConfigProxy {
     /**
      * Set IRadioConfig as the AIDL implementation for RadioConfigProxy
      *
-     * @param radioConfigHalVersion RadioConfig HAL version
      * @param radioConfig IRadioConfig implementation
      */
-    public void setAidl(
-            HalVersion radioConfigHalVersion,
-            android.hardware.radio.config.IRadioConfig radioConfig) {
-        mRadioConfigHalVersion = radioConfigHalVersion;
+    public void setAidl(android.hardware.radio.config.IRadioConfig radioConfig) {
+        try {
+            mRadioConfigHalVersion = RIL.getServiceHalVersion(radioConfig.getInterfaceVersion());
+            Rlog.d(TAG, "setAidl: setting HAL version to version = " + mRadioConfigHalVersion);
+        } catch (RemoteException e) {
+            Rlog.e(TAG, "setAidl: " + e);
+        }
         mAidlRadioConfigProxy = radioConfig;
         mIsAidl = true;
         mRadioConfigAidlServiceDeathRecipient.setService(radioConfig.asBinder());
@@ -114,7 +109,7 @@ public class RadioConfigProxy {
 
     /** Reset RadioConfigProxy */
     public void clear() {
-        mRadioConfigHalVersion = RadioConfig.RADIO_CONFIG_HAL_VERSION_UNKNOWN;
+        mRadioConfigHalVersion = RIL.RADIO_HAL_VERSION_UNKNOWN;
         mHidlRadioConfigProxy = null;
         mAidlRadioConfigProxy = null;
         mRadioConfigHidlServiceDeathRecipient.clear();
@@ -192,7 +187,7 @@ public class RadioConfigProxy {
         if (isAidl()) {
             getAidl().getSimSlotsStatus(serial);
         } else {
-            getHidl10().getSimSlotsStatus(serial);
+            getHidl11().getSimSlotsStatus(serial);
         }
     }
 
@@ -227,9 +222,19 @@ public class RadioConfigProxy {
         if (isAidl()) {
             getAidl().setSimSlotsMapping(serial, RILUtils.convertSimSlotsMapping(slotMapping));
         } else {
-            getHidl10().setSimSlotsMapping(serial,
+            getHidl11().setSimSlotsMapping(serial,
                     RILUtils.convertSlotMappingToList(slotMapping));
         }
+    }
+
+    /**
+     * Wrapper function for IRadioConfig.getSimultaneousCallingSupport()
+     */
+    public void updateSimultaneousCallingSupport(int serial) throws RemoteException {
+        if (isAidl()) {
+            getAidl().getSimultaneousCallingSupport(serial);
+        }
+        // Only supported on AIDL.
     }
 
     /**
@@ -265,13 +270,13 @@ public class RadioConfigProxy {
         private static final String TAG = "RadioConfigHidlSDR";
 
         private final RadioConfig mRadioConfig;
-        private android.hardware.radio.config.V1_0.IRadioConfig mService;
+        private android.hardware.radio.config.V1_1.IRadioConfig mService;
 
         RadioConfigHidlServiceDeathRecipient(RadioConfig radioConfig) {
             mRadioConfig = radioConfig;
         }
 
-        public void setService(android.hardware.radio.config.V1_0.IRadioConfig service) {
+        public void setService(android.hardware.radio.config.V1_1.IRadioConfig service) {
             mService = service;
         }
 

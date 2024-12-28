@@ -16,6 +16,9 @@
 
 package com.android.icu.util;
 
+/**
+ * @hide
+ */
 public class Icu4cMetadata {
 
     /** Returns the TZData version as reported by ICU4C. */

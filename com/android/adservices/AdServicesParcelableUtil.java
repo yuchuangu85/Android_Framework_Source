@@ -183,6 +183,61 @@ public final class AdServicesParcelableUtil {
     }
 
     /**
+     * Writes a {@link Set} of {@link Integer} objects to a target {@link Parcel} as a list.
+     *
+     * <p>Use to write a {@link Set} which will be unparceled by {@link
+     * #readIntegerSetFromParcel(Parcel)} later.
+     */
+    public static void writeIntegerSetToParcel(
+            @NonNull Parcel targetParcel, @NonNull Set<Integer> sourceSet) {
+        Objects.requireNonNull(targetParcel);
+        Objects.requireNonNull(sourceSet);
+
+        int[] tempArray = new int[sourceSet.size()];
+        int actualArraySize = 0;
+
+        for (Integer integer : sourceSet) {
+            if (integer == null) {
+                LogUtil.w(
+                        "Null value encountered while parceling Integer to int array; skipping"
+                                + " element");
+                continue;
+            }
+
+            tempArray[actualArraySize++] = integer;
+        }
+
+        // Writing the tempArray as is may write undefined values, so compress into a smaller
+        // accurately-fit array
+        int[] writeArray = new int[actualArraySize];
+        System.arraycopy(tempArray, 0, writeArray, 0, actualArraySize);
+
+        targetParcel.writeInt(actualArraySize);
+        targetParcel.writeIntArray(writeArray);
+    }
+
+    /**
+     * Reads and returns a {@link Set} of {@link Integer} objects from a source {@link Parcel}.
+     *
+     * <p>Use to read a {@link Set} that was written by {@link #writeIntegerSetToParcel(Parcel,
+     * Set)}.
+     */
+    public static Set<Integer> readIntegerSetFromParcel(@NonNull Parcel sourceParcel) {
+        Objects.requireNonNull(sourceParcel);
+
+        final int setSize = sourceParcel.readInt();
+        int[] tempArray = new int[setSize];
+        HashSet<Integer> targetSet = new HashSet<>();
+
+        sourceParcel.readIntArray(tempArray);
+        for (int index = 0; index < setSize; index++) {
+            targetSet.add(tempArray[index]);
+        }
+
+        return targetSet;
+    }
+
+    /**
      * Writes a {@link List} of {@link Instant} objects to a target {@link Parcel} as an array.
      *
      * <p>If an error is encountered while writing any element of the input {@code sourceList}, the

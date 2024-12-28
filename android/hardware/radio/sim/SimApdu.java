@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash ea7be3035be8d4869237a6478d2e0bb0efcc1e87 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen/android/hardware/radio/sim/SimApdu.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3/android/hardware/radio/sim/SimApdu.aidl
  */
 package android.hardware.radio.sim;
+/** @hide */
 public class SimApdu implements android.os.Parcelable
 {
   public int sessionId = 0;
@@ -83,7 +85,7 @@ public class SimApdu implements android.os.Parcelable
     _aidl_sj.add("p3: " + (p3));
     _aidl_sj.add("data: " + (java.util.Objects.toString(data)));
     _aidl_sj.add("isEs10: " + (isEs10));
-    return "android.hardware.radio.sim.SimApdu" + _aidl_sj.toString()  ;
+    return "SimApdu" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

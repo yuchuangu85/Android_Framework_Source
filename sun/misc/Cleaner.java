@@ -115,6 +115,34 @@ public class Cleaner
         this.thunk = thunk;
     }
 
+    // BEGIN Android-added: Support for timeout reporting and error checking.
+    /**
+     * Is q our placeholder queue?
+     * @hide
+     */
+    public static boolean isCleanerQueue(ReferenceQueue q) {
+      return q == dummyQueue;
+    }
+
+    /**
+     * Check that our placeholder queue is empty, as it always should be.
+     * @hide
+     */
+    public static void checkCleanerQueueEmpty() {
+        if (dummyQueue.poll() != null) {
+            throw new AssertionError("Unexpectly nonempty Cleaner placeholder queue");
+        }
+    }
+
+    /**
+     * Retrieve thunk.
+     * @hide
+     */
+    public Runnable getThunk() {
+      return thunk;
+    }
+    // END Android-added: Support for Timeout reporting and error checking.
+
     /**
      * Creates a new cleaner.
      *

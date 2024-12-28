@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation -t --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint_interface/3/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/security/secureclock/aidl/android.hardware.security.secureclock_interface/1/preprocessed.aidl --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.authorization-java-source/gen/android/security/authorization/ResponseCode.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.authorization-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/authorization/ResponseCode.aidl
  */
 package android.security.authorization;
 /**

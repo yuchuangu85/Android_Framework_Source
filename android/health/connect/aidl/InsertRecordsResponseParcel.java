@@ -18,6 +18,7 @@ package android.health.connect.aidl;
 
 import android.annotation.NonNull;
 import android.health.connect.HealthConnectManager;
+import android.health.connect.internal.ParcelUtils;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -39,7 +40,8 @@ public class InsertRecordsResponseParcel implements Parcelable {
         mUids = uids;
     }
 
-    protected InsertRecordsResponseParcel(Parcel in) {
+    private InsertRecordsResponseParcel(Parcel in) {
+        in = ParcelUtils.getParcelForSharedMemoryIfRequired(in);
         mUids = in.createStringArrayList();
     }
 
@@ -50,7 +52,7 @@ public class InsertRecordsResponseParcel implements Parcelable {
 
     @NonNull
     public static final Creator<InsertRecordsResponseParcel> CREATOR =
-            new Creator<InsertRecordsResponseParcel>() {
+            new Creator<>() {
                 @Override
                 public InsertRecordsResponseParcel createFromParcel(Parcel in) {
                     return new InsertRecordsResponseParcel(in);
@@ -69,6 +71,10 @@ public class InsertRecordsResponseParcel implements Parcelable {
 
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
+        ParcelUtils.putToRequiredMemory(dest, flags, this::writeToParcelInternal);
+    }
+
+    private void writeToParcelInternal(@NonNull Parcel dest) {
         dest.writeStringList(mUids);
     }
 }

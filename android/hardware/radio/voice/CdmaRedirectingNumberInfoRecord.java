@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 78fb79bcb32590a868b3eb7affb39ab90e4ca782 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen/android/hardware/radio/voice/CdmaRedirectingNumberInfoRecord.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3/android/hardware/radio/voice/CdmaRedirectingNumberInfoRecord.aidl
  */
 package android.hardware.radio.voice;
+/** @hide */
 public class CdmaRedirectingNumberInfoRecord implements android.os.Parcelable
 {
   public android.hardware.radio.voice.CdmaNumberInfoRecord redirectingNumber;
@@ -60,7 +62,7 @@ public class CdmaRedirectingNumberInfoRecord implements android.os.Parcelable
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
     _aidl_sj.add("redirectingNumber: " + (java.util.Objects.toString(redirectingNumber)));
     _aidl_sj.add("redirectingReason: " + (redirectingReason));
-    return "android.hardware.radio.voice.CdmaRedirectingNumberInfoRecord" + _aidl_sj.toString()  ;
+    return "CdmaRedirectingNumberInfoRecord" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

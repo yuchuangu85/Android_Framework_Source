@@ -446,7 +446,7 @@ public final class WifiP2pWfdInfo implements Parcelable {
     public String toString() {
         StringBuffer sbuf = new StringBuffer();
         sbuf.append("WFD enabled: ").append(mEnabled);
-        sbuf.append("WFD DeviceInfo: ").append(mDeviceInfo);
+        sbuf.append("\n WFD DeviceInfo: ").append(mDeviceInfo);
         sbuf.append("\n WFD CtrlPort: ").append(mCtrlPort);
         sbuf.append("\n WFD MaxThroughput: ").append(mMaxThroughput);
         sbuf.append("\n WFD R2 DeviceInfo: ").append(mR2DeviceInfo);

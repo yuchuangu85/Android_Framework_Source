@@ -396,7 +396,10 @@ public class BaseDexClassLoader extends ClassLoader {
      * @param name the name of the class
      * @return the package information for the class, or {@code null}
      * if there is no package information available for it
+     *
+     * @deprecated See {@link ClassLoader#getPackage(String)}
      */
+    @Deprecated
     @Override
     protected synchronized Package getPackage(String name) {
         if (name != null && !name.isEmpty()) {

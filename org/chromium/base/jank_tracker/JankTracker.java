@@ -1,12 +1,10 @@
-// Copyright 2021 The Chromium Authors
+// Copyright 2023 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
 package org.chromium.base.jank_tracker;
 
-/**
- * Interface for Android UI jank tracking.
- */
+/** Interface for Android UI jank tracking. */
 public interface JankTracker {
     /**
      * Starts tracking UI jank for a specific use scenario (e.g. Tab switcher, Omnibox, etc.),
@@ -22,6 +20,13 @@ public interface JankTracker {
      * calling this method. Calling this method without calling {@code startTrackingScenario}
      * beforehand won't do anything.
      * @param scenario A value from {@link JankScenario} that specifies a use scenario.
+     * @param endScenarioTime A value that determines the maximum frame metric (based on vsync time)
+     *         that should be included.
      */
+    void finishTrackingScenario(@JankScenario int scenario, long endScenarioTimeNs);
+
     void finishTrackingScenario(@JankScenario int scenario);
+
+    /** To be called when the jank tracker should stop listening to changes. */
+    void destroy();
 }

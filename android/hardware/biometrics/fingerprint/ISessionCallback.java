@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --structured --version 5 --hash notfrozen -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/biometrics/common/aidl/android.hardware.biometrics.common_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/keymaster/aidl/android.hardware.keymaster_interface/4/preprocessed.aidl --previous_api_dir=hardware/interfaces/biometrics/fingerprint/aidl/aidl_api/android.hardware.biometrics.fingerprint/4 --previous_hash 41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb --ninja -d out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen/android/hardware/biometrics/fingerprint/ISessionCallback.java.d -o out/soong/.intermediates/hardware/interfaces/biometrics/fingerprint/aidl/android.hardware.biometrics.fingerprint-V5-java-source/gen -Nhardware/interfaces/biometrics/fingerprint/aidl hardware/interfaces/biometrics/fingerprint/aidl/android/hardware/biometrics/fingerprint/ISessionCallback.aidl
  */
 package android.hardware.biometrics.fingerprint;
 /** @hide */
@@ -11,56 +12,198 @@ public interface ISessionCallback extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "637371b53fb7faf9bd43aa51b72c23852d6e6d96";
+  public static final int VERSION = true ? 4 : 5;
+  public static final String HASH = "41a730a7a6b5aa9cebebce70ee5b5e509b0af6fb";
   /** Default implementation for ISessionCallback. */
   public static class Default implements android.hardware.biometrics.fingerprint.ISessionCallback
   {
+    /** Notifies the framework when a challenge is successfully generated. */
     @Override public void onChallengeGenerated(long challenge) throws android.os.RemoteException
     {
     }
+    /** Notifies the framework when a challenge has been revoked. */
     @Override public void onChallengeRevoked(long challenge) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during the following operations:
+     *   - ISession#enroll
+     *   - ISession#authenticate
+     *   - ISession#detectInteraction
+     * 
+     * These messages may be used to provide user guidance multiple times per operation if
+     * necessary.
+     * 
+     * @param info See the AcquiredInfo enum.
+     * @param vendorCode Only valid if info == AcquiredInfo::VENDOR. The vendorCode must be used to
+     *                   index into the configuration
+     *                   com.android.internal.R.array.fingerprint_acquired_vendor that's installed
+     *                   on the vendor partition.
+     */
     @Override public void onAcquired(byte info, int vendorCode) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during the following operations:
+     *   - ISession#enroll
+     *   - ISession#authenticate
+     *   - ISession#detectInteraction
+     *   - ISession#invalidateAuthenticatorId
+     *   - ISession#resetLockout
+     * 
+     * These messages may be used to notify the framework or user that a non-recoverable error
+     * has occurred. The operation is finished, and the HAL can proceed with the next operation
+     * or return to the idling state.
+     * 
+     * Note that cancellation (see common::ICancellationSignal) must be followed with an
+     * Error::CANCELED message.
+     * 
+     * @param error See the Error enum.
+     * @param vendorCode Only valid if error == Error::VENDOR. The vendorCode must be used to index
+     *                   into the configuration
+     *                   com.android.internal.R.fingerprint_error_vendor that's installed on the
+     *                   vendor partition.
+     */
     @Override public void onError(byte error, int vendorCode) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during the ISession#enroll operation.
+     * 
+     * @param enrollmentId Unique stable identifier for the enrollment that's being added by this
+     *                     ISession#enroll invocation.
+     * @param remaining Remaining number of steps before enrollment is complete.
+     */
     @Override public void onEnrollmentProgress(int enrollmentId, int remaining) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during ISession#authenticate.
+     * 
+     * Used to notify the framework upon successful authentication. Note that the authentication
+     * lifecycle ends when either 1) a fingerprint is accepted, or 2) an error occurred. The
+     * authentication lifecycle does NOT end when a fingerprint is rejected.
+     * 
+     * @param enrollmentId Fingerprint that was accepted.
+     * @param hat If the sensor is configured as SensorStrength::STRONG, a non-null attestation that
+     *            a fingerprint was accepted. The HardwareAuthToken's "challenge" field must be set
+     *            with the operationId passed in during ISession#authenticate. If the sensor is NOT
+     *            SensorStrength::STRONG, the HardwareAuthToken MUST be null.
+     */
     @Override public void onAuthenticationSucceeded(int enrollmentId, android.hardware.keymaster.HardwareAuthToken hat) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during ISession#authenticate.
+     * 
+     * Used to notify the framework upon rejected attempts. Note that the authentication
+     * lifecycle ends when either 1) a fingerprint is accepted, or 2) an error occurred.
+     * The authentication lifecycle does NOT end when a fingerprint is rejected.
+     */
     @Override public void onAuthenticationFailed() throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during ISession#authenticate.
+     * 
+     * Authentication is locked out due to too many unsuccessful attempts. This is a rate-limiting
+     * lockout, and authentication can be restarted after a period of time. See
+     * ISession#resetLockout.
+     * 
+     * @param sensorId Sensor for which the user is locked out.
+     * @param userId User for which the sensor is locked out.
+     * @param durationMillis Remaining duration of the lockout.
+     */
     @Override public void onLockoutTimed(long durationMillis) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during ISession#authenticate.
+     * 
+     * Authentication is disabled until the user unlocks with their device credential
+     * (PIN/Pattern/Password). See ISession#resetLockout.
+     * 
+     * @param sensorId Sensor for which the user is locked out.
+     * @param userId User for which the sensor is locked out.
+     */
     @Override public void onLockoutPermanent() throws android.os.RemoteException
     {
     }
+    /**
+     * Notifies the framework that lockout has been cleared for this (sensorId, userId) pair.
+     * 
+     * Note that this method can be used to notify the framework during any state.
+     * 
+     * Lockout can be cleared in the following scenarios:
+     * 1) A timed lockout has ended (e.g. durationMillis specified in previous #onLockoutTimed
+     *    has expired.
+     * 2) See ISession#resetLockout.
+     * 
+     * @param sensorId Sensor for which the user's lockout is cleared.
+     * @param userId User for the sensor's lockout is cleared.
+     */
     @Override public void onLockoutCleared() throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during
+     * ISession#detectInteraction
+     * 
+     * Notifies the framework that user interaction occurred. See ISession#detectInteraction.
+     */
     @Override public void onInteractionDetected() throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during
+     * ISession#enumerateEnrollments.
+     * 
+     * Notifies the framework of the current enrollments. See ISession#enumerateEnrollments.
+     * 
+     * @param enrollmentIds A list of enrollments for the session's (userId, sensorId) pair.
+     */
     @Override public void onEnrollmentsEnumerated(int[] enrollmentIds) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during
+     * ISession#removeEnrollments.
+     * 
+     * Notifies the framework that the specified enrollments are removed.
+     * 
+     * @param enrollmentIds The enrollments that were removed.
+     */
     @Override public void onEnrollmentsRemoved(int[] enrollmentIds) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during
+     * ISession#getAuthenticatorId.
+     * 
+     * Notifies the framework with the authenticatorId corresponding to this session's
+     * (userId, sensorId) pair.
+     * 
+     * @param authenticatorId See the above documentation.
+     */
     @Override public void onAuthenticatorIdRetrieved(long authenticatorId) throws android.os.RemoteException
     {
     }
+    /**
+     * This method must only be used to notify the framework during
+     * ISession#invalidateAuthenticatorId.
+     * 
+     * See ISession#invalidateAuthenticatorId for more information.
+     * 
+     * @param newAuthenticatorId The new entropy-encoded random identifier associated with the
+     *                           current set of enrollments.
+     */
     @Override public void onAuthenticatorIdInvalidated(long newAuthenticatorId) throws android.os.RemoteException
     {
     }
+    /**
+     * This method notifes the client that this session has closed.
+     * The client must not make any more calls to this session.
+     */
     @Override public void onSessionClosed() throws android.os.RemoteException
     {
     }
@@ -81,6 +224,7 @@ public interface ISessionCallback extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.hardware.biometrics.fingerprint.ISessionCallback
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.markVintfStability();
@@ -199,25 +343,19 @@ public interface ISessionCallback extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
-        case TRANSACTION_getInterfaceVersion:
-        {
-          reply.writeNoException();
-          reply.writeInt(getInterfaceVersion());
-          return true;
-        }
-        case TRANSACTION_getInterfaceHash:
-        {
-          reply.writeNoException();
-          reply.writeString(getInterfaceHash());
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceVersion) {
+        reply.writeNoException();
+        reply.writeInt(getInterfaceVersion());
+        return true;
+      }
+      else if (code == TRANSACTION_getInterfaceHash) {
+        reply.writeNoException();
+        reply.writeString(getInterfaceHash());
+        return true;
       }
       switch (code)
       {
@@ -382,6 +520,7 @@ public interface ISessionCallback extends android.os.IInterface
       {
         return DESCRIPTOR;
       }
+      /** Notifies the framework when a challenge is successfully generated. */
       @Override public void onChallengeGenerated(long challenge) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -400,6 +539,7 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** Notifies the framework when a challenge has been revoked. */
       @Override public void onChallengeRevoked(long challenge) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -418,6 +558,21 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during the following operations:
+       *   - ISession#enroll
+       *   - ISession#authenticate
+       *   - ISession#detectInteraction
+       * 
+       * These messages may be used to provide user guidance multiple times per operation if
+       * necessary.
+       * 
+       * @param info See the AcquiredInfo enum.
+       * @param vendorCode Only valid if info == AcquiredInfo::VENDOR. The vendorCode must be used to
+       *                   index into the configuration
+       *                   com.android.internal.R.array.fingerprint_acquired_vendor that's installed
+       *                   on the vendor partition.
+       */
       @Override public void onAcquired(byte info, int vendorCode) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -437,6 +592,27 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during the following operations:
+       *   - ISession#enroll
+       *   - ISession#authenticate
+       *   - ISession#detectInteraction
+       *   - ISession#invalidateAuthenticatorId
+       *   - ISession#resetLockout
+       * 
+       * These messages may be used to notify the framework or user that a non-recoverable error
+       * has occurred. The operation is finished, and the HAL can proceed with the next operation
+       * or return to the idling state.
+       * 
+       * Note that cancellation (see common::ICancellationSignal) must be followed with an
+       * Error::CANCELED message.
+       * 
+       * @param error See the Error enum.
+       * @param vendorCode Only valid if error == Error::VENDOR. The vendorCode must be used to index
+       *                   into the configuration
+       *                   com.android.internal.R.fingerprint_error_vendor that's installed on the
+       *                   vendor partition.
+       */
       @Override public void onError(byte error, int vendorCode) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -456,6 +632,13 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during the ISession#enroll operation.
+       * 
+       * @param enrollmentId Unique stable identifier for the enrollment that's being added by this
+       *                     ISession#enroll invocation.
+       * @param remaining Remaining number of steps before enrollment is complete.
+       */
       @Override public void onEnrollmentProgress(int enrollmentId, int remaining) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -475,6 +658,19 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during ISession#authenticate.
+       * 
+       * Used to notify the framework upon successful authentication. Note that the authentication
+       * lifecycle ends when either 1) a fingerprint is accepted, or 2) an error occurred. The
+       * authentication lifecycle does NOT end when a fingerprint is rejected.
+       * 
+       * @param enrollmentId Fingerprint that was accepted.
+       * @param hat If the sensor is configured as SensorStrength::STRONG, a non-null attestation that
+       *            a fingerprint was accepted. The HardwareAuthToken's "challenge" field must be set
+       *            with the operationId passed in during ISession#authenticate. If the sensor is NOT
+       *            SensorStrength::STRONG, the HardwareAuthToken MUST be null.
+       */
       @Override public void onAuthenticationSucceeded(int enrollmentId, android.hardware.keymaster.HardwareAuthToken hat) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -494,6 +690,13 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during ISession#authenticate.
+       * 
+       * Used to notify the framework upon rejected attempts. Note that the authentication
+       * lifecycle ends when either 1) a fingerprint is accepted, or 2) an error occurred.
+       * The authentication lifecycle does NOT end when a fingerprint is rejected.
+       */
       @Override public void onAuthenticationFailed() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -511,6 +714,17 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during ISession#authenticate.
+       * 
+       * Authentication is locked out due to too many unsuccessful attempts. This is a rate-limiting
+       * lockout, and authentication can be restarted after a period of time. See
+       * ISession#resetLockout.
+       * 
+       * @param sensorId Sensor for which the user is locked out.
+       * @param userId User for which the sensor is locked out.
+       * @param durationMillis Remaining duration of the lockout.
+       */
       @Override public void onLockoutTimed(long durationMillis) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -529,6 +743,15 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during ISession#authenticate.
+       * 
+       * Authentication is disabled until the user unlocks with their device credential
+       * (PIN/Pattern/Password). See ISession#resetLockout.
+       * 
+       * @param sensorId Sensor for which the user is locked out.
+       * @param userId User for which the sensor is locked out.
+       */
       @Override public void onLockoutPermanent() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -546,6 +769,19 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * Notifies the framework that lockout has been cleared for this (sensorId, userId) pair.
+       * 
+       * Note that this method can be used to notify the framework during any state.
+       * 
+       * Lockout can be cleared in the following scenarios:
+       * 1) A timed lockout has ended (e.g. durationMillis specified in previous #onLockoutTimed
+       *    has expired.
+       * 2) See ISession#resetLockout.
+       * 
+       * @param sensorId Sensor for which the user's lockout is cleared.
+       * @param userId User for the sensor's lockout is cleared.
+       */
       @Override public void onLockoutCleared() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -563,6 +799,12 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during
+       * ISession#detectInteraction
+       * 
+       * Notifies the framework that user interaction occurred. See ISession#detectInteraction.
+       */
       @Override public void onInteractionDetected() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -580,6 +822,14 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during
+       * ISession#enumerateEnrollments.
+       * 
+       * Notifies the framework of the current enrollments. See ISession#enumerateEnrollments.
+       * 
+       * @param enrollmentIds A list of enrollments for the session's (userId, sensorId) pair.
+       */
       @Override public void onEnrollmentsEnumerated(int[] enrollmentIds) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -598,6 +848,14 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during
+       * ISession#removeEnrollments.
+       * 
+       * Notifies the framework that the specified enrollments are removed.
+       * 
+       * @param enrollmentIds The enrollments that were removed.
+       */
       @Override public void onEnrollmentsRemoved(int[] enrollmentIds) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -616,6 +874,15 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during
+       * ISession#getAuthenticatorId.
+       * 
+       * Notifies the framework with the authenticatorId corresponding to this session's
+       * (userId, sensorId) pair.
+       * 
+       * @param authenticatorId See the above documentation.
+       */
       @Override public void onAuthenticatorIdRetrieved(long authenticatorId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -634,6 +901,15 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method must only be used to notify the framework during
+       * ISession#invalidateAuthenticatorId.
+       * 
+       * See ISession#invalidateAuthenticatorId for more information.
+       * 
+       * @param newAuthenticatorId The new entropy-encoded random identifier associated with the
+       *                           current set of enrollments.
+       */
       @Override public void onAuthenticatorIdInvalidated(long newAuthenticatorId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -652,6 +928,10 @@ public interface ISessionCallback extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * This method notifes the client that this session has closed.
+       * The client must not make any more calls to this session.
+       */
       @Override public void onSessionClosed() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -728,22 +1008,165 @@ public interface ISessionCallback extends android.os.IInterface
       return 16777214;
     }
   }
+  /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$biometrics$fingerprint$ISessionCallback".replace('$', '.');
+  /** Notifies the framework when a challenge is successfully generated. */
   public void onChallengeGenerated(long challenge) throws android.os.RemoteException;
+  /** Notifies the framework when a challenge has been revoked. */
   public void onChallengeRevoked(long challenge) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during the following operations:
+   *   - ISession#enroll
+   *   - ISession#authenticate
+   *   - ISession#detectInteraction
+   * 
+   * These messages may be used to provide user guidance multiple times per operation if
+   * necessary.
+   * 
+   * @param info See the AcquiredInfo enum.
+   * @param vendorCode Only valid if info == AcquiredInfo::VENDOR. The vendorCode must be used to
+   *                   index into the configuration
+   *                   com.android.internal.R.array.fingerprint_acquired_vendor that's installed
+   *                   on the vendor partition.
+   */
   public void onAcquired(byte info, int vendorCode) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during the following operations:
+   *   - ISession#enroll
+   *   - ISession#authenticate
+   *   - ISession#detectInteraction
+   *   - ISession#invalidateAuthenticatorId
+   *   - ISession#resetLockout
+   * 
+   * These messages may be used to notify the framework or user that a non-recoverable error
+   * has occurred. The operation is finished, and the HAL can proceed with the next operation
+   * or return to the idling state.
+   * 
+   * Note that cancellation (see common::ICancellationSignal) must be followed with an
+   * Error::CANCELED message.
+   * 
+   * @param error See the Error enum.
+   * @param vendorCode Only valid if error == Error::VENDOR. The vendorCode must be used to index
+   *                   into the configuration
+   *                   com.android.internal.R.fingerprint_error_vendor that's installed on the
+   *                   vendor partition.
+   */
   public void onError(byte error, int vendorCode) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during the ISession#enroll operation.
+   * 
+   * @param enrollmentId Unique stable identifier for the enrollment that's being added by this
+   *                     ISession#enroll invocation.
+   * @param remaining Remaining number of steps before enrollment is complete.
+   */
   public void onEnrollmentProgress(int enrollmentId, int remaining) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during ISession#authenticate.
+   * 
+   * Used to notify the framework upon successful authentication. Note that the authentication
+   * lifecycle ends when either 1) a fingerprint is accepted, or 2) an error occurred. The
+   * authentication lifecycle does NOT end when a fingerprint is rejected.
+   * 
+   * @param enrollmentId Fingerprint that was accepted.
+   * @param hat If the sensor is configured as SensorStrength::STRONG, a non-null attestation that
+   *            a fingerprint was accepted. The HardwareAuthToken's "challenge" field must be set
+   *            with the operationId passed in during ISession#authenticate. If the sensor is NOT
+   *            SensorStrength::STRONG, the HardwareAuthToken MUST be null.
+   */
   public void onAuthenticationSucceeded(int enrollmentId, android.hardware.keymaster.HardwareAuthToken hat) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during ISession#authenticate.
+   * 
+   * Used to notify the framework upon rejected attempts. Note that the authentication
+   * lifecycle ends when either 1) a fingerprint is accepted, or 2) an error occurred.
+   * The authentication lifecycle does NOT end when a fingerprint is rejected.
+   */
   public void onAuthenticationFailed() throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during ISession#authenticate.
+   * 
+   * Authentication is locked out due to too many unsuccessful attempts. This is a rate-limiting
+   * lockout, and authentication can be restarted after a period of time. See
+   * ISession#resetLockout.
+   * 
+   * @param sensorId Sensor for which the user is locked out.
+   * @param userId User for which the sensor is locked out.
+   * @param durationMillis Remaining duration of the lockout.
+   */
   public void onLockoutTimed(long durationMillis) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during ISession#authenticate.
+   * 
+   * Authentication is disabled until the user unlocks with their device credential
+   * (PIN/Pattern/Password). See ISession#resetLockout.
+   * 
+   * @param sensorId Sensor for which the user is locked out.
+   * @param userId User for which the sensor is locked out.
+   */
   public void onLockoutPermanent() throws android.os.RemoteException;
+  /**
+   * Notifies the framework that lockout has been cleared for this (sensorId, userId) pair.
+   * 
+   * Note that this method can be used to notify the framework during any state.
+   * 
+   * Lockout can be cleared in the following scenarios:
+   * 1) A timed lockout has ended (e.g. durationMillis specified in previous #onLockoutTimed
+   *    has expired.
+   * 2) See ISession#resetLockout.
+   * 
+   * @param sensorId Sensor for which the user's lockout is cleared.
+   * @param userId User for the sensor's lockout is cleared.
+   */
   public void onLockoutCleared() throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during
+   * ISession#detectInteraction
+   * 
+   * Notifies the framework that user interaction occurred. See ISession#detectInteraction.
+   */
   public void onInteractionDetected() throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during
+   * ISession#enumerateEnrollments.
+   * 
+   * Notifies the framework of the current enrollments. See ISession#enumerateEnrollments.
+   * 
+   * @param enrollmentIds A list of enrollments for the session's (userId, sensorId) pair.
+   */
   public void onEnrollmentsEnumerated(int[] enrollmentIds) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during
+   * ISession#removeEnrollments.
+   * 
+   * Notifies the framework that the specified enrollments are removed.
+   * 
+   * @param enrollmentIds The enrollments that were removed.
+   */
   public void onEnrollmentsRemoved(int[] enrollmentIds) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during
+   * ISession#getAuthenticatorId.
+   * 
+   * Notifies the framework with the authenticatorId corresponding to this session's
+   * (userId, sensorId) pair.
+   * 
+   * @param authenticatorId See the above documentation.
+   */
   public void onAuthenticatorIdRetrieved(long authenticatorId) throws android.os.RemoteException;
+  /**
+   * This method must only be used to notify the framework during
+   * ISession#invalidateAuthenticatorId.
+   * 
+   * See ISession#invalidateAuthenticatorId for more information.
+   * 
+   * @param newAuthenticatorId The new entropy-encoded random identifier associated with the
+   *                           current set of enrollments.
+   */
   public void onAuthenticatorIdInvalidated(long newAuthenticatorId) throws android.os.RemoteException;
+  /**
+   * This method notifes the client that this session has closed.
+   * The client must not make any more calls to this session.
+   */
   public void onSessionClosed() throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;

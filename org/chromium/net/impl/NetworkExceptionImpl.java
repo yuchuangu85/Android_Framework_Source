@@ -4,11 +4,9 @@
 
 package org.chromium.net.impl;
 
-import android.net.http.NetworkException;
+import org.chromium.net.NetworkException;
 
-/**
- * Implements {@link NetworkException}.
- */
+/** Implements {@link NetworkException}. */
 public class NetworkExceptionImpl extends NetworkException {
     // Error code, one of ERROR_*
     protected final int mErrorCode;
@@ -38,12 +36,12 @@ public class NetworkExceptionImpl extends NetworkException {
     }
 
     @Override
-    public int getInternalErrorCode() {
+    public int getCronetInternalErrorCode() {
         return mCronetInternalErrorCode;
     }
 
     @Override
-    public boolean isImmediatelyRetryable() {
+    public boolean immediatelyRetryable() {
         switch (mErrorCode) {
             case ERROR_HOSTNAME_NOT_RESOLVED:
             case ERROR_INTERNET_DISCONNECTED:
@@ -68,7 +66,7 @@ public class NetworkExceptionImpl extends NetworkException {
         if (mCronetInternalErrorCode != 0) {
             b.append(", InternalErrorCode=").append(mCronetInternalErrorCode);
         }
-        b.append(", Retryable=").append(isImmediatelyRetryable());
+        b.append(", Retryable=").append(immediatelyRetryable());
         return b.toString();
     }
 }

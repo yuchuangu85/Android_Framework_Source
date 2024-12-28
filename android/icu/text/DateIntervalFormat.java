@@ -1158,7 +1158,7 @@ public class DateIntervalFormat extends UFormat {
      * @param source    The string to be parsed into an object.
      * @param parse_pos The position to start parsing at. Since no parsing
      *                  is supported, upon return this param is unchanged.
-     * @return          A newly created Formattable* object, or NULL
+     * @return          A newly created {@code Formattable} object, or NULL
      *                  on failure.
      * @deprecated This API is ICU internal only.
      * @hide original deprecated declaration
@@ -2205,7 +2205,7 @@ public class DateIntervalFormat extends UFormat {
      * substitution inside quoted literal text.
      * @param targetString The string to perform the find-replace operation on.
      * @param strToReplace The string to search for and replace in the target string.
-     * @param strToReplaceWith The string to substitute in wherever `stringToReplace` was found.
+     * @param strToReplaceWith The string to substitute in wherever {@code stringToReplace} was found.
      */
     private static String findReplaceInPattern(String targetString,
                                                String strToReplace,
@@ -2281,7 +2281,17 @@ public class DateIntervalFormat extends UFormat {
     private static boolean fieldExistsInSkeleton(int field, String skeleton)
     {
         String fieldChar = DateIntervalInfo.CALENDAR_FIELD_TO_PATTERN_LETTER[field];
-        return ( (skeleton.indexOf(fieldChar) == -1) ? false : true ) ;
+        boolean result = skeleton.contains(fieldChar);
+        if (!result) {
+            if (fieldChar.equals("M")) {
+                // if the caller specified Calendar.MONTH, check the pattern for both M and L
+                result = skeleton.contains("L");
+            } else if (fieldChar.equals("y")) {
+                // if the caller specified Calendar.YEAR, check the pattern for y, Y, u, U, and r
+                result = skeleton.contains("U") || skeleton.contains("Y") || skeleton.contains("u") || skeleton.contains("r");
+            }
+        }
+        return result;
     }
 
 

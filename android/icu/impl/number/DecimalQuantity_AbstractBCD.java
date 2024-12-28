@@ -720,7 +720,7 @@ public abstract class DecimalQuantity_AbstractBCD implements DecimalQuantity {
 
         StringBuilder sb = new StringBuilder();
         toScientificString(sb);
-        return Double.valueOf(sb.toString());
+        return Double.parseDouble(sb.toString());
     }
 
     @Override

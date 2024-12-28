@@ -60,4 +60,14 @@ public final class UnrecognizedIkeProtocolException extends IkeProtocolException
         // is valid
         return dataLen >= 0;
     }
+
+    /**
+     * Returns the error code for metrics
+     *
+     * @hide
+     */
+    @Override
+    public int getMetricsErrorCode() {
+        return getErrorType();
+    }
 }

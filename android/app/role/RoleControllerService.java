@@ -17,6 +17,7 @@
 package android.app.role;
 
 import android.Manifest;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
@@ -31,9 +32,13 @@ import android.os.IBinder;
 import android.os.Process;
 import android.os.RemoteCallback;
 import android.os.UserHandle;
+import android.permission.flags.Flags;
+import android.util.Log;
 
 import com.android.internal.util.Preconditions;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 
@@ -52,6 +57,7 @@ import java.util.concurrent.Executor;
 @Deprecated
 @SystemApi
 public abstract class RoleControllerService extends Service {
+    private static final String LOG_TAG = RoleControllerService.class.getSimpleName();
 
     /**
      * The {@link Intent} that must be declared as handled by the service.
@@ -85,7 +91,6 @@ public abstract class RoleControllerService extends Service {
             @Override
             public void grantDefaultRoles(RemoteCallback callback) {
                 enforceCallerSystemUid("grantDefaultRoles");
-
                 Objects.requireNonNull(callback, "callback cannot be null");
 
                 mWorkerHandler.post(() -> RoleControllerService.this.grantDefaultRoles(callback));
@@ -95,10 +100,6 @@ public abstract class RoleControllerService extends Service {
             public void onAddRoleHolder(String roleName, String packageName, int flags,
                     RemoteCallback callback) {
                 enforceCallerSystemUid("onAddRoleHolder");
-
-                Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
-                Preconditions.checkStringNotEmpty(packageName,
-                        "packageName cannot be null or empty");
                 Objects.requireNonNull(callback, "callback cannot be null");
 
                 mWorkerHandler.post(() -> RoleControllerService.this.onAddRoleHolder(roleName,
@@ -109,10 +110,6 @@ public abstract class RoleControllerService extends Service {
             public void onRemoveRoleHolder(String roleName, String packageName, int flags,
                     RemoteCallback callback) {
                 enforceCallerSystemUid("onRemoveRoleHolder");
-
-                Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
-                Preconditions.checkStringNotEmpty(packageName,
-                        "packageName cannot be null or empty");
                 Objects.requireNonNull(callback, "callback cannot be null");
 
                 mWorkerHandler.post(() -> RoleControllerService.this.onRemoveRoleHolder(roleName,
@@ -122,8 +119,6 @@ public abstract class RoleControllerService extends Service {
             @Override
             public void onClearRoleHolders(String roleName, int flags, RemoteCallback callback) {
                 enforceCallerSystemUid("onClearRoleHolders");
-
-                Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
                 Objects.requireNonNull(callback, "callback cannot be null");
 
                 mWorkerHandler.post(() -> RoleControllerService.this.onClearRoleHolders(roleName,
@@ -141,64 +136,127 @@ public abstract class RoleControllerService extends Service {
             public void isApplicationQualifiedForRole(String roleName, String packageName,
                     RemoteCallback callback) {
                 enforceCallingPermission(Manifest.permission.MANAGE_ROLE_HOLDERS, null);
-
-                Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
-                Preconditions.checkStringNotEmpty(packageName,
-                        "packageName cannot be null or empty");
                 Objects.requireNonNull(callback, "callback cannot be null");
 
-                boolean qualified = onIsApplicationQualifiedForRole(roleName, packageName);
-                callback.sendResult(qualified ? Bundle.EMPTY : null);
+                Bundle result = new Bundle();
+                try {
+                    Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+                    Preconditions.checkStringNotEmpty(packageName,
+                            "packageName cannot be null or empty");
+                    boolean qualified = onIsApplicationQualifiedForRole(roleName, packageName);
+                    result.putBoolean(RoleControllerManager.KEY_RESULT, qualified);
+                } catch (Exception e) {
+                    result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+                }
+                callback.sendResult(result);
             }
 
             @Override
             public void isApplicationVisibleForRole(String roleName, String packageName,
                     RemoteCallback callback) {
                 enforceCallingPermission(Manifest.permission.MANAGE_ROLE_HOLDERS, null);
-
-                Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
-                Preconditions.checkStringNotEmpty(packageName,
-                        "packageName cannot be null or empty");
                 Objects.requireNonNull(callback, "callback cannot be null");
 
-                boolean visible = onIsApplicationVisibleForRole(roleName, packageName);
-                callback.sendResult(visible ? Bundle.EMPTY : null);
+                Bundle result = new Bundle();
+                try {
+                    Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+                    Preconditions.checkStringNotEmpty(packageName,
+                            "packageName cannot be null or empty");
+                    boolean visible = onIsApplicationVisibleForRole(roleName, packageName);
+                    result.putBoolean(RoleControllerManager.KEY_RESULT, visible);
+                } catch (Exception e) {
+                    result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+                }
+                callback.sendResult(result);
             }
 
             @Override
             public void isRoleVisible(String roleName, RemoteCallback callback) {
                 enforceCallingPermission(Manifest.permission.MANAGE_ROLE_HOLDERS, null);
-
-                Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
                 Objects.requireNonNull(callback, "callback cannot be null");
 
-                boolean visible = onIsRoleVisible(roleName);
-                callback.sendResult(visible ? Bundle.EMPTY : null);
+                Bundle result = new Bundle();
+                try {
+                    Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+                    boolean visible = onIsRoleVisible(roleName);
+                    result.putBoolean(RoleControllerManager.KEY_RESULT, visible);
+                } catch (Exception e) {
+                    result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+                }
+                callback.sendResult(result);
+            }
+
+            @Override
+            public void getLegacyFallbackDisabledRoles(RemoteCallback callback) {
+                enforceCallerSystemUid("getLegacyFallbackDisabledRoles");
+
+                Objects.requireNonNull(callback, "callback cannot be null");
+
+                Bundle result = new Bundle();
+                try {
+                    List<String> legacyFallbackDisabledRoles = onGetLegacyFallbackDisabledRoles();
+                    result.putStringArrayList(RoleControllerManager.KEY_RESULT,
+                            new ArrayList<>(legacyFallbackDisabledRoles));
+                } catch (Exception e) {
+                    result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+                }
+                callback.sendResult(result);
             }
         };
     }
 
-    private void grantDefaultRoles(@NonNull RemoteCallback callback) {
-        boolean successful = onGrantDefaultRoles();
-        callback.sendResult(successful ? Bundle.EMPTY : null);
+    private void grantDefaultRoles(RemoteCallback callback) {
+        Bundle result = new Bundle();
+        try {
+            boolean successful = onGrantDefaultRoles();
+            result.putBoolean(RoleControllerManager.KEY_RESULT, successful);
+        } catch (Exception e) {
+            result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+        }
+        callback.sendResult(result);
     }
 
     private void onAddRoleHolder(@NonNull String roleName, @NonNull String packageName,
-            @RoleManager.ManageHoldersFlags int flags, @NonNull RemoteCallback callback) {
-        boolean successful = onAddRoleHolder(roleName, packageName, flags);
-        callback.sendResult(successful ? Bundle.EMPTY : null);
+            @RoleManager.ManageHoldersFlags int flags, RemoteCallback callback) {
+        Bundle result = new Bundle();
+        try {
+            Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+            Preconditions.checkStringNotEmpty(packageName,
+                    "packageName cannot be null or empty");
+            boolean successful = onAddRoleHolder(roleName, packageName, flags);
+            result.putBoolean(RoleControllerManager.KEY_RESULT, successful);
+        } catch (Exception e) {
+            result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+        }
+        callback.sendResult(result);
     }
 
     private void onRemoveRoleHolder(@NonNull String roleName, @NonNull String packageName,
-            @RoleManager.ManageHoldersFlags int flags, @NonNull RemoteCallback callback) {
-        boolean successful = onRemoveRoleHolder(roleName, packageName, flags);
-        callback.sendResult(successful ? Bundle.EMPTY : null);
+            @RoleManager.ManageHoldersFlags int flags, RemoteCallback callback) {
+        Bundle result = new Bundle();
+        try {
+            Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+            Preconditions.checkStringNotEmpty(packageName,
+                    "packageName cannot be null or empty");
+            boolean successful = onRemoveRoleHolder(roleName, packageName, flags);
+            result.putBoolean(RoleControllerManager.KEY_RESULT, successful);
+        } catch (Exception e) {
+            result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+        }
+        callback.sendResult(result);
     }
 
     private void onClearRoleHolders(@NonNull String roleName,
-            @RoleManager.ManageHoldersFlags int flags, @NonNull RemoteCallback callback) {
-        boolean successful = onClearRoleHolders(roleName, flags);
-        callback.sendResult(successful ? Bundle.EMPTY : null);
+            @RoleManager.ManageHoldersFlags int flags, RemoteCallback callback) {
+        Bundle result = new Bundle();
+        try {
+            Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+            boolean successful = onClearRoleHolders(roleName, flags);
+            result.putBoolean(RoleControllerManager.KEY_RESULT, successful);
+        } catch (Exception e) {
+            result.putSerializable(RoleControllerManager.KEY_EXCEPTION, e);
+        }
+        callback.sendResult(result);
     }
 
     /**
@@ -301,4 +359,17 @@ public abstract class RoleControllerService extends Service {
      * @return whether the role should be visible to user
      */
     public abstract boolean onIsRoleVisible(@NonNull String roleName);
+
+    /**
+     * Get the legacy fallback disabled state.
+     *
+     * @return A list of role names with disabled fallback state.
+     */
+    @FlaggedApi(Flags.FLAG_SYSTEM_SERVER_ROLE_CONTROLLER_ENABLED)
+    @NonNull
+    public List<String> onGetLegacyFallbackDisabledRoles() {
+        Log.wtf(LOG_TAG, "onGetLegacyFallbackDisabledRoles is unsupported by this version of"
+                + " PermissionController");
+        throw new UnsupportedOperationException();
+    }
 }

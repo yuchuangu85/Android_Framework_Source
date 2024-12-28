@@ -27,81 +27,69 @@ import java.util.Map;
 /**
  * Class used to identify settings associated with the player on AG.
  *
- * {@hide}
+ * @hide
  */
 public final class BluetoothAvrcpPlayerSettings implements Parcelable {
     public static final String TAG = "BluetoothAvrcpPlayerSettings";
 
-    /**
-     * Equalizer setting.
-     */
+    /** Equalizer setting. */
     public static final int SETTING_EQUALIZER = 0x01;
 
-    /**
-     * Repeat setting.
-     */
+    /** Repeat setting. */
     public static final int SETTING_REPEAT = 0x02;
 
-    /**
-     * Shuffle setting.
-     */
+    /** Shuffle setting. */
     public static final int SETTING_SHUFFLE = 0x04;
 
-    /**
-     * Scan mode setting.
-     */
+    /** Scan mode setting. */
     public static final int SETTING_SCAN = 0x08;
 
     /**
      * Invalid state.
      *
-     * Used for returning error codes.
+     * <p>Used for returning error codes.
      */
     public static final int STATE_INVALID = -1;
 
     /**
      * OFF state.
      *
-     * Denotes a general OFF state. Applies to all settings.
+     * <p>Denotes a general OFF state. Applies to all settings.
      */
     public static final int STATE_OFF = 0x00;
 
     /**
      * ON state.
      *
-     * Applies to {@link SETTING_EQUALIZER}.
+     * <p>Applies to {@link SETTING_EQUALIZER}.
      */
     public static final int STATE_ON = 0x01;
 
     /**
      * Single track repeat.
      *
-     * Applies only to {@link SETTING_REPEAT}.
+     * <p>Applies only to {@link SETTING_REPEAT}.
      */
     public static final int STATE_SINGLE_TRACK = 0x02;
 
     /**
      * All track repeat/shuffle.
      *
-     * Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
+     * <p>Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
      */
     public static final int STATE_ALL_TRACK = 0x03;
 
     /**
      * Group repeat/shuffle.
      *
-     * Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
+     * <p>Applies to {@link #SETTING_REPEAT}, {@link #SETTING_SHUFFLE} and {@link #SETTING_SCAN}.
      */
     public static final int STATE_GROUP = 0x04;
 
-    /**
-     * List of supported settings ORed.
-     */
+    /** List of supported settings ORed. */
     private int mSettings;
 
-    /**
-     * Hash map of current capability values.
-     */
+    /** Hash map of current capability values. */
     private Map<Integer, Integer> mSettingsValue = new HashMap<Integer, Integer>();
 
     @Override
@@ -119,15 +107,16 @@ public final class BluetoothAvrcpPlayerSettings implements Parcelable {
         }
     }
 
-    public static final @NonNull Creator<BluetoothAvrcpPlayerSettings> CREATOR = new Creator<>() {
-        public BluetoothAvrcpPlayerSettings createFromParcel(Parcel in) {
-            return new BluetoothAvrcpPlayerSettings(in);
-        }
+    public static final @NonNull Creator<BluetoothAvrcpPlayerSettings> CREATOR =
+            new Creator<>() {
+                public BluetoothAvrcpPlayerSettings createFromParcel(Parcel in) {
+                    return new BluetoothAvrcpPlayerSettings(in);
+                }
 
-        public BluetoothAvrcpPlayerSettings[] newArray(int size) {
-            return new BluetoothAvrcpPlayerSettings[size];
-        }
-    };
+                public BluetoothAvrcpPlayerSettings[] newArray(int size) {
+                    return new BluetoothAvrcpPlayerSettings[size];
+                }
+            };
 
     private BluetoothAvrcpPlayerSettings(Parcel in) {
         mSettings = in.readInt();
@@ -158,7 +147,7 @@ public final class BluetoothAvrcpPlayerSettings implements Parcelable {
     /**
      * Add a setting value.
      *
-     * The setting must be part of possible settings in {@link getSettings()}.
+     * <p>The setting must be part of possible settings in {@link getSettings()}.
      *
      * @param setting setting config.
      * @param value value for the setting.
@@ -175,7 +164,7 @@ public final class BluetoothAvrcpPlayerSettings implements Parcelable {
     /**
      * Get a setting value.
      *
-     * The setting must be part of possible settings in {@link getSettings()}.
+     * <p>The setting must be part of possible settings in {@link getSettings()}.
      *
      * @param setting setting config.
      * @return value value for the setting.

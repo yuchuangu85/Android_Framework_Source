@@ -23,14 +23,30 @@ public final class TelephonyCommonStatsLog {
     // Constants for enum values.
 
     // Annotation constants.
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_IS_UID = StatsLog.ANNOTATION_ID_IS_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRUNCATE_TIMESTAMP = StatsLog.ANNOTATION_ID_TRUNCATE_TIMESTAMP;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD = StatsLog.ANNOTATION_ID_PRIMARY_FIELD;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_EXCLUSIVE_STATE = StatsLog.ANNOTATION_ID_EXCLUSIVE_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID = StatsLog.ANNOTATION_ID_PRIMARY_FIELD_FIRST_UID;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_DEFAULT_STATE = StatsLog.ANNOTATION_ID_DEFAULT_STATE;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_TRIGGER_STATE_RESET = StatsLog.ANNOTATION_ID_TRIGGER_STATE_RESET;
+
+    @android.annotation.SuppressLint("InlinedApi")
     public static final byte ANNOTATION_ID_STATE_NESTED = StatsLog.ANNOTATION_ID_STATE_NESTED;
+
 
     // Write methods
     public static void write(int code, java.lang.String arg1, java.lang.String arg2, boolean arg3, boolean arg4) {

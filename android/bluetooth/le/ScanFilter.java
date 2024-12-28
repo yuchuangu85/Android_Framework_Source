@@ -38,8 +38,8 @@ import java.util.UUID;
 /**
  * Criteria for filtering result from Bluetooth LE scans. A {@link ScanFilter} allows clients to
  * restrict scan results to only those that are of interest to them.
- * <p>
- * Current filtering on the following fields are supported:
+ *
+ * <p>Current filtering on the following fields are supported:
  * <li>Service UUIDs which identify the bluetooth gatt services running on the device.
  * <li>Name of remote Bluetooth LE device.
  * <li>Mac address of the remote device.
@@ -52,58 +52,55 @@ import java.util.UUID;
  */
 public final class ScanFilter implements Parcelable {
 
-    @Nullable
-    private final String mDeviceName;
+    @Nullable private final String mDeviceName;
 
-    @Nullable
-    private final String mDeviceAddress;
+    @Nullable private final String mDeviceAddress;
 
     private final @AddressType int mAddressType;
 
-    @Nullable
-    private final byte[] mIrk;
+    @Nullable private final byte[] mIrk;
 
-    @Nullable
-    private final ParcelUuid mServiceUuid;
-    @Nullable
-    private final ParcelUuid mServiceUuidMask;
+    @Nullable private final ParcelUuid mServiceUuid;
+    @Nullable private final ParcelUuid mServiceUuidMask;
 
-    @Nullable
-    private final ParcelUuid mServiceSolicitationUuid;
-    @Nullable
-    private final ParcelUuid mServiceSolicitationUuidMask;
+    @Nullable private final ParcelUuid mServiceSolicitationUuid;
+    @Nullable private final ParcelUuid mServiceSolicitationUuidMask;
 
-    @Nullable
-    private final ParcelUuid mServiceDataUuid;
-    @Nullable
-    private final byte[] mServiceData;
-    @Nullable
-    private final byte[] mServiceDataMask;
+    @Nullable private final ParcelUuid mServiceDataUuid;
+    @Nullable private final byte[] mServiceData;
+    @Nullable private final byte[] mServiceDataMask;
 
     private final int mManufacturerId;
-    @Nullable
-    private final byte[] mManufacturerData;
-    @Nullable
-    private final byte[] mManufacturerDataMask;
+    @Nullable private final byte[] mManufacturerData;
+    @Nullable private final byte[] mManufacturerDataMask;
 
     private int mAdvertisingDataType = ScanRecord.DATA_TYPE_NONE;
-    @Nullable
-    private final byte[] mAdvertisingData;
-    @Nullable
-    private final byte[] mAdvertisingDataMask;
+    @Nullable private final byte[] mAdvertisingData;
+    @Nullable private final byte[] mAdvertisingDataMask;
 
-    @Nullable
-    private final TransportBlockFilter mTransportBlockFilter;
+    @Nullable private final TransportBlockFilter mTransportBlockFilter;
 
     /** @hide */
     public static final ScanFilter EMPTY = new ScanFilter.Builder().build();
 
-    private ScanFilter(String name, String deviceAddress, ParcelUuid uuid, ParcelUuid uuidMask,
-            ParcelUuid solicitationUuid, ParcelUuid solicitationUuidMask,
-            ParcelUuid serviceDataUuid, byte[] serviceData, byte[] serviceDataMask,
-            int manufacturerId, byte[] manufacturerData, byte[] manufacturerDataMask,
-            @AddressType int addressType, @Nullable byte[] irk, int advertisingDataType,
-            @Nullable byte[] advertisingData, @Nullable byte[] advertisingDataMask,
+    private ScanFilter(
+            String name,
+            String deviceAddress,
+            ParcelUuid uuid,
+            ParcelUuid uuidMask,
+            ParcelUuid solicitationUuid,
+            ParcelUuid solicitationUuidMask,
+            ParcelUuid serviceDataUuid,
+            byte[] serviceData,
+            byte[] serviceDataMask,
+            int manufacturerId,
+            byte[] manufacturerData,
+            byte[] manufacturerDataMask,
+            @AddressType int addressType,
+            @Nullable byte[] irk,
+            int advertisingDataType,
+            @Nullable byte[] advertisingData,
+            @Nullable byte[] advertisingDataMask,
             @Nullable TransportBlockFilter transportBlockFilter) {
         mDeviceName = name;
         mServiceUuid = uuid;
@@ -213,132 +210,127 @@ public final class ScanFilter implements Parcelable {
         }
     }
 
-    /**
-     * A {@link android.os.Parcelable.Creator} to create {@link ScanFilter} from parcel.
-     */
+    /** A {@link android.os.Parcelable.Creator} to create {@link ScanFilter} from parcel. */
     public static final @android.annotation.NonNull Creator<ScanFilter> CREATOR =
             new Creator<ScanFilter>() {
 
-        @Override
-        public ScanFilter[] newArray(int size) {
-            return new ScanFilter[size];
-        }
+                @Override
+                public ScanFilter[] newArray(int size) {
+                    return new ScanFilter[size];
+                }
 
-        @Override
-        public ScanFilter createFromParcel(Parcel in) {
-            Builder builder = new Builder();
-            if (in.readInt() == 1) {
-                builder.setDeviceName(in.readString());
-            }
-            String address = null;
-            // If we have a non-null address
-            if (in.readInt() == 1) {
-                address = in.readString();
-            }
-            if (in.readInt() == 1) {
-                ParcelUuid uuid = in.readParcelable(ParcelUuid.class.getClassLoader());
-                builder.setServiceUuid(uuid);
-                if (in.readInt() == 1) {
-                    ParcelUuid uuidMask = in.readParcelable(
-                            ParcelUuid.class.getClassLoader());
-                    builder.setServiceUuid(uuid, uuidMask);
-                }
-            }
-            if (in.readInt() == 1) {
-                ParcelUuid solicitationUuid = in.readParcelable(
-                        ParcelUuid.class.getClassLoader());
-                builder.setServiceSolicitationUuid(solicitationUuid);
-                if (in.readInt() == 1) {
-                    ParcelUuid solicitationUuidMask = in.readParcelable(
-                            ParcelUuid.class.getClassLoader());
-                    builder.setServiceSolicitationUuid(solicitationUuid,
-                            solicitationUuidMask);
-                }
-            }
-            if (in.readInt() == 1) {
-                ParcelUuid servcieDataUuid =
-                        in.readParcelable(ParcelUuid.class.getClassLoader());
-                if (in.readInt() == 1) {
-                    int serviceDataLength = in.readInt();
-                    byte[] serviceData = new byte[serviceDataLength];
-                    in.readByteArray(serviceData);
-                    if (in.readInt() == 0) {
-                        builder.setServiceData(servcieDataUuid, serviceData);
-                    } else {
-                        int serviceDataMaskLength = in.readInt();
-                        byte[] serviceDataMask = new byte[serviceDataMaskLength];
-                        in.readByteArray(serviceDataMask);
-                        builder.setServiceData(
-                                servcieDataUuid, serviceData, serviceDataMask);
+                @Override
+                public ScanFilter createFromParcel(Parcel in) {
+                    Builder builder = new Builder();
+                    if (in.readInt() == 1) {
+                        builder.setDeviceName(in.readString());
                     }
+                    String address = null;
+                    // If we have a non-null address
+                    if (in.readInt() == 1) {
+                        address = in.readString();
+                    }
+                    if (in.readInt() == 1) {
+                        ParcelUuid uuid = in.readParcelable(ParcelUuid.class.getClassLoader());
+                        builder.setServiceUuid(uuid);
+                        if (in.readInt() == 1) {
+                            ParcelUuid uuidMask =
+                                    in.readParcelable(ParcelUuid.class.getClassLoader());
+                            builder.setServiceUuid(uuid, uuidMask);
+                        }
+                    }
+                    if (in.readInt() == 1) {
+                        ParcelUuid solicitationUuid =
+                                in.readParcelable(ParcelUuid.class.getClassLoader());
+                        builder.setServiceSolicitationUuid(solicitationUuid);
+                        if (in.readInt() == 1) {
+                            ParcelUuid solicitationUuidMask =
+                                    in.readParcelable(ParcelUuid.class.getClassLoader());
+                            builder.setServiceSolicitationUuid(
+                                    solicitationUuid, solicitationUuidMask);
+                        }
+                    }
+                    if (in.readInt() == 1) {
+                        ParcelUuid serviceDataUuid =
+                                in.readParcelable(ParcelUuid.class.getClassLoader());
+                        if (in.readInt() == 1) {
+                            int serviceDataLength = in.readInt();
+                            byte[] serviceData = new byte[serviceDataLength];
+                            in.readByteArray(serviceData);
+                            if (in.readInt() == 0) {
+                                builder.setServiceData(serviceDataUuid, serviceData);
+                            } else {
+                                int serviceDataMaskLength = in.readInt();
+                                byte[] serviceDataMask = new byte[serviceDataMaskLength];
+                                in.readByteArray(serviceDataMask);
+                                builder.setServiceData(
+                                        serviceDataUuid, serviceData, serviceDataMask);
+                            }
+                        }
+                    }
+
+                    int manufacturerId = in.readInt();
+                    if (in.readInt() == 1) {
+                        int manufacturerDataLength = in.readInt();
+                        byte[] manufacturerData = new byte[manufacturerDataLength];
+                        in.readByteArray(manufacturerData);
+                        if (in.readInt() == 0) {
+                            builder.setManufacturerData(manufacturerId, manufacturerData);
+                        } else {
+                            int manufacturerDataMaskLength = in.readInt();
+                            byte[] manufacturerDataMask = new byte[manufacturerDataMaskLength];
+                            in.readByteArray(manufacturerDataMask);
+                            builder.setManufacturerData(
+                                    manufacturerId, manufacturerData, manufacturerDataMask);
+                        }
+                    }
+
+                    // IRK
+                    if (address != null) {
+                        final int addressType = in.readInt();
+                        if (in.readInt() == 1) {
+                            final byte[] irk = new byte[16];
+                            in.readByteArray(irk);
+                            builder.setDeviceAddress(address, addressType, irk);
+                        } else {
+                            builder.setDeviceAddress(address, addressType);
+                        }
+                    }
+
+                    // Advertising data type
+                    int advertisingDataType = in.readInt();
+                    if (in.readInt() == 1) {
+                        byte[] advertisingData = null;
+                        byte[] advertisingDataMask = null;
+
+                        int advertisingDataLength = in.readInt();
+                        advertisingData = new byte[advertisingDataLength];
+                        in.readByteArray(advertisingData);
+                        if (in.readInt() == 1) {
+                            int advertisingDataMaskLength = in.readInt();
+                            advertisingDataMask = new byte[advertisingDataMaskLength];
+                            in.readByteArray(advertisingDataMask);
+                        }
+                        builder.setAdvertisingDataTypeWithData(
+                                advertisingDataType, advertisingData, advertisingDataMask);
+                    }
+
+                    if (in.readInt() == 1) {
+                        builder.setTransportBlockFilter(
+                                in.readTypedObject(TransportBlockFilter.CREATOR));
+                    }
+
+                    return builder.build();
                 }
-            }
+            };
 
-            int manufacturerId = in.readInt();
-            if (in.readInt() == 1) {
-                int manufacturerDataLength = in.readInt();
-                byte[] manufacturerData = new byte[manufacturerDataLength];
-                in.readByteArray(manufacturerData);
-                if (in.readInt() == 0) {
-                    builder.setManufacturerData(manufacturerId, manufacturerData);
-                } else {
-                    int manufacturerDataMaskLength = in.readInt();
-                    byte[] manufacturerDataMask = new byte[manufacturerDataMaskLength];
-                    in.readByteArray(manufacturerDataMask);
-                    builder.setManufacturerData(manufacturerId, manufacturerData,
-                            manufacturerDataMask);
-                }
-            }
-
-            // IRK
-            if (address != null) {
-                final int addressType = in.readInt();
-                if (in.readInt() == 1) {
-                    final byte[] irk = new byte[16];
-                    in.readByteArray(irk);
-                    builder.setDeviceAddress(address, addressType, irk);
-                } else {
-                    builder.setDeviceAddress(address, addressType);
-                }
-            }
-
-            // Advertising data type
-            int advertisingDataType = in.readInt();
-            if (in.readInt() == 1) {
-                byte[] advertisingData = null;
-                byte[] advertisingDataMask = null;
-
-                int advertisingDataLength = in.readInt();
-                advertisingData = new byte[advertisingDataLength];
-                in.readByteArray(advertisingData);
-                if (in.readInt() == 1) {
-                    int advertisingDataMaskLength = in.readInt();
-                    advertisingDataMask = new byte[advertisingDataMaskLength];
-                    in.readByteArray(advertisingDataMask);
-                }
-                builder.setAdvertisingDataTypeWithData(advertisingDataType, advertisingData,
-                        advertisingDataMask);
-            }
-
-            if (in.readInt() == 1) {
-                builder.setTransportBlockFilter(in.readTypedObject(TransportBlockFilter.CREATOR));
-            }
-
-            return builder.build();
-        }
-    };
-
-    /**
-     * Returns the filter set the device name field of Bluetooth advertisement data.
-     */
+    /** Returns the filter set the device name field of Bluetooth advertisement data. */
     @Nullable
     public String getDeviceName() {
         return mDeviceName;
     }
 
-    /**
-     * Returns the filter set on the service uuid.
-     */
+    /** Returns the filter set on the service uuid. */
     @Nullable
     public ParcelUuid getServiceUuid() {
         return mServiceUuid;
@@ -349,17 +341,13 @@ public final class ScanFilter implements Parcelable {
         return mServiceUuidMask;
     }
 
-    /**
-     * Returns the filter set on the service Solicitation uuid.
-     */
+    /** Returns the filter set on the service Solicitation uuid. */
     @Nullable
     public ParcelUuid getServiceSolicitationUuid() {
         return mServiceSolicitationUuid;
     }
 
-    /**
-     * Returns the filter set on the service Solicitation uuid mask.
-     */
+    /** Returns the filter set on the service Solicitation uuid mask. */
     @Nullable
     public ParcelUuid getServiceSolicitationUuidMask() {
         return mServiceSolicitationUuidMask;
@@ -370,17 +358,13 @@ public final class ScanFilter implements Parcelable {
         return mDeviceAddress;
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @SystemApi
     public @AddressType int getAddressType() {
         return mAddressType;
     }
 
-    /**
-     * @hide
-     */
+    /** @hide */
     @SystemApi
     @Nullable
     public byte[] getIrk() {
@@ -402,9 +386,7 @@ public final class ScanFilter implements Parcelable {
         return mServiceDataUuid;
     }
 
-    /**
-     * Returns the manufacturer id. -1 if the manufacturer filter is not set.
-     */
+    /** Returns the manufacturer id. -1 if the manufacturer filter is not set. */
     public int getManufacturerId() {
         return mManufacturerId;
     }
@@ -431,26 +413,21 @@ public final class ScanFilter implements Parcelable {
     }
 
     /**
-     * Returns the advertising data type of this filter.
-     * Returns {@link ScanRecord#DATA_TYPE_NONE} if the type is not set.
-     * The values of advertising data type are defined in the Bluetooth Generic Access Profile
-     * (https://www.bluetooth.com/specifications/assigned-numbers/)
-    */
+     * Returns the advertising data type of this filter. Returns {@link ScanRecord#DATA_TYPE_NONE}
+     * if the type is not set. The values of advertising data type are defined in the Bluetooth
+     * Generic Access Profile (https://www.bluetooth.com/specifications/assigned-numbers/)
+     */
     @AdvertisingDataType
     public int getAdvertisingDataType() {
         return mAdvertisingDataType;
     }
 
-    /**
-     * Returns the advertising data of this filter.
-    */
+    /** Returns the advertising data of this filter. */
     public @Nullable byte[] getAdvertisingData() {
         return mAdvertisingData;
     }
 
-    /**
-     * Returns the advertising data mask of this filter.
-    */
+    /** Returns the advertising data mask of this filter. */
     public @Nullable byte[] getAdvertisingDataMask() {
         return mAdvertisingDataMask;
     }
@@ -474,9 +451,12 @@ public final class ScanFilter implements Parcelable {
 
         // Scan record is null but there exist filters on it.
         if (scanRecord == null
-                && (mDeviceName != null || mServiceUuid != null || mManufacturerData != null
-                || mServiceData != null || mServiceSolicitationUuid != null
-                || mAdvertisingData != null)) {
+                && (mDeviceName != null
+                        || mServiceUuid != null
+                        || mManufacturerData != null
+                        || mServiceData != null
+                        || mServiceSolicitationUuid != null
+                        || mAdvertisingData != null)) {
             return false;
         }
 
@@ -486,29 +466,34 @@ public final class ScanFilter implements Parcelable {
         }
 
         // UUID match.
-        if (mServiceUuid != null && !matchesServiceUuids(mServiceUuid, mServiceUuidMask,
-                scanRecord.getServiceUuids())) {
+        if (mServiceUuid != null
+                && !matchesServiceUuids(
+                        mServiceUuid, mServiceUuidMask, scanRecord.getServiceUuids())) {
             return false;
         }
 
         // solicitation UUID match.
-        if (mServiceSolicitationUuid != null && !matchesServiceSolicitationUuids(
-                mServiceSolicitationUuid, mServiceSolicitationUuidMask,
-                scanRecord.getServiceSolicitationUuids())) {
+        if (mServiceSolicitationUuid != null
+                && !matchesServiceSolicitationUuids(
+                        mServiceSolicitationUuid,
+                        mServiceSolicitationUuidMask,
+                        scanRecord.getServiceSolicitationUuids())) {
             return false;
         }
 
         // Service data match
         if (mServiceDataUuid != null) {
-            if (!matchesPartialData(mServiceData, mServiceDataMask,
-                    scanRecord.getServiceData(mServiceDataUuid))) {
+            if (!matchesPartialData(
+                    mServiceData, mServiceDataMask, scanRecord.getServiceData(mServiceDataUuid))) {
                 return false;
             }
         }
 
         // Manufacturer data match.
         if (mManufacturerId >= 0) {
-            if (!matchesPartialData(mManufacturerData, mManufacturerDataMask,
+            if (!matchesPartialData(
+                    mManufacturerData,
+                    mManufacturerDataMask,
                     scanRecord.getManufacturerSpecificData(mManufacturerId))) {
                 return false;
             }
@@ -517,8 +502,9 @@ public final class ScanFilter implements Parcelable {
         // Advertising data type match
         if (mAdvertisingDataType > 0) {
             byte[] advertisingData = scanRecord.getAdvertisingDataMap().get(mAdvertisingDataType);
-            if (advertisingData == null || !matchesPartialData(mAdvertisingData,
-                    mAdvertisingDataMask, advertisingData)) {
+            if (advertisingData == null
+                    || !matchesPartialData(
+                            mAdvertisingData, mAdvertisingDataMask, advertisingData)) {
                 return false;
             }
         }
@@ -537,8 +523,8 @@ public final class ScanFilter implements Parcelable {
      *
      * @hide
      */
-    public static boolean matchesServiceUuids(ParcelUuid uuid, ParcelUuid parcelUuidMask,
-            List<ParcelUuid> uuids) {
+    public static boolean matchesServiceUuids(
+            ParcelUuid uuid, ParcelUuid parcelUuidMask, List<ParcelUuid> uuids) {
         if (uuid == null) {
             return true;
         }
@@ -560,12 +546,11 @@ public final class ScanFilter implements Parcelable {
         return BluetoothLeUtils.maskedEquals(data, uuid, mask);
     }
 
-    /**
-     * Check if the solicitation uuid pattern is contained in a list of parcel uuids.
-     *
-     */
-    private static boolean matchesServiceSolicitationUuids(ParcelUuid solicitationUuid,
-            ParcelUuid parcelSolicitationUuidMask, List<ParcelUuid> solicitationUuids) {
+    /** Check if the solicitation uuid pattern is contained in a list of parcel uuids. */
+    private static boolean matchesServiceSolicitationUuids(
+            ParcelUuid solicitationUuid,
+            ParcelUuid parcelSolicitationUuidMask,
+            List<ParcelUuid> solicitationUuids) {
         if (solicitationUuid == null) {
             return true;
         }
@@ -574,20 +559,18 @@ public final class ScanFilter implements Parcelable {
         }
 
         for (ParcelUuid parcelSolicitationUuid : solicitationUuids) {
-            UUID solicitationUuidMask = parcelSolicitationUuidMask == null
-                    ? null : parcelSolicitationUuidMask.getUuid();
-            if (matchesServiceUuid(solicitationUuid.getUuid(), solicitationUuidMask,
+            UUID solicitationUuidMask =
+                    parcelSolicitationUuidMask == null
+                            ? null
+                            : parcelSolicitationUuidMask.getUuid();
+            if (matchesServiceUuid(
+                    solicitationUuid.getUuid(),
+                    solicitationUuidMask,
                     parcelSolicitationUuid.getUuid())) {
                 return true;
             }
         }
         return false;
-    }
-
-    // Check if the solicitation uuid pattern matches the particular service solicitation uuid.
-    private static boolean matchesServiceSolicitationUuid(UUID solicitationUuid,
-            UUID solicitationUuidMask, UUID data) {
-        return BluetoothLeUtils.maskedEquals(data, solicitationUuid, solicitationUuidMask);
     }
 
     // Check whether the data pattern matches the parsed data.
@@ -613,31 +596,56 @@ public final class ScanFilter implements Parcelable {
 
     @Override
     public String toString() {
-        return "BluetoothLeScanFilter [mDeviceName=" + mDeviceName + ", mDeviceAddress="
-                + mDeviceAddress + ", mUuid=" + mServiceUuid + ", mUuidMask=" + mServiceUuidMask
-                + ", mServiceSolicitationUuid=" + mServiceSolicitationUuid
-                + ", mServiceSolicitationUuidMask=" + mServiceSolicitationUuidMask
-                + ", mServiceDataUuid=" + Objects.toString(mServiceDataUuid)
-                + ", mServiceData=" + Arrays.toString(mServiceData) + ", mServiceDataMask="
-                + Arrays.toString(mServiceDataMask) + ", mManufacturerId=" + mManufacturerId
-                + ", mManufacturerData=" + Arrays.toString(mManufacturerData)
-                + ", mManufacturerDataMask=" + Arrays.toString(mManufacturerDataMask)
-                + ", mAdvertisingDataType=" + mAdvertisingDataType + ", mAdvertisingData="
-                + Arrays.toString(mAdvertisingData) + ", mAdvertisingDataMask="
+        return "BluetoothLeScanFilter [mDeviceName="
+                + mDeviceName
+                + ", mDeviceAddress="
+                + mDeviceAddress
+                + ", mUuid="
+                + mServiceUuid
+                + ", mUuidMask="
+                + mServiceUuidMask
+                + ", mServiceSolicitationUuid="
+                + mServiceSolicitationUuid
+                + ", mServiceSolicitationUuidMask="
+                + mServiceSolicitationUuidMask
+                + ", mServiceDataUuid="
+                + Objects.toString(mServiceDataUuid)
+                + ", mServiceData="
+                + Arrays.toString(mServiceData)
+                + ", mServiceDataMask="
+                + Arrays.toString(mServiceDataMask)
+                + ", mManufacturerId="
+                + mManufacturerId
+                + ", mManufacturerData="
+                + Arrays.toString(mManufacturerData)
+                + ", mManufacturerDataMask="
+                + Arrays.toString(mManufacturerDataMask)
+                + ", mAdvertisingDataType="
+                + mAdvertisingDataType
+                + ", mAdvertisingData="
+                + Arrays.toString(mAdvertisingData)
+                + ", mAdvertisingDataMask="
                 + Arrays.toString(mAdvertisingDataMask)
-                + ", mTransportBlockFilter=" + mTransportBlockFilter + "]";
+                + ", mTransportBlockFilter="
+                + mTransportBlockFilter
+                + "]";
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mDeviceName, mDeviceAddress, mManufacturerId,
+        return Objects.hash(
+                mDeviceName,
+                mDeviceAddress,
+                mManufacturerId,
                 Arrays.hashCode(mManufacturerData),
                 Arrays.hashCode(mManufacturerDataMask),
                 mServiceDataUuid,
                 Arrays.hashCode(mServiceData),
                 Arrays.hashCode(mServiceDataMask),
-                mServiceUuid, mServiceUuidMask,
-                mServiceSolicitationUuid, mServiceSolicitationUuidMask,
+                mServiceUuid,
+                mServiceUuidMask,
+                mServiceSolicitationUuid,
+                mServiceSolicitationUuidMask,
                 mAdvertisingDataType,
                 Arrays.hashCode(mAdvertisingData),
                 Arrays.hashCode(mAdvertisingDataMask),
@@ -664,8 +672,7 @@ public final class ScanFilter implements Parcelable {
                 && Objects.equals(mServiceUuid, other.mServiceUuid)
                 && Objects.equals(mServiceUuidMask, other.mServiceUuidMask)
                 && Objects.equals(mServiceSolicitationUuid, other.mServiceSolicitationUuid)
-                && Objects.equals(mServiceSolicitationUuidMask,
-                        other.mServiceSolicitationUuidMask)
+                && Objects.equals(mServiceSolicitationUuidMask, other.mServiceSolicitationUuidMask)
                 && mAdvertisingDataType == other.mAdvertisingDataType
                 && Objects.deepEquals(mAdvertisingData, other.mAdvertisingData)
                 && Objects.deepEquals(mAdvertisingDataMask, other.mAdvertisingDataMask)
@@ -681,16 +688,11 @@ public final class ScanFilter implements Parcelable {
         return EMPTY.equals(this);
     }
 
-    /**
-     * Builder class for {@link ScanFilter}.
-     */
+    /** Builder class for {@link ScanFilter}. */
     public static final class Builder {
 
-        /**
-         * @hide
-         */
-        @SystemApi
-        public static final int LEN_IRK_OCTETS = 16;
+        /** @hide */
+        @SystemApi public static final int LEN_IRK_OCTETS = 16;
 
         private String mDeviceName;
         private String mDeviceAddress;
@@ -716,9 +718,8 @@ public final class ScanFilter implements Parcelable {
         private byte[] mAdvertisingDataMask;
 
         private TransportBlockFilter mTransportBlockFilter = null;
-        /**
-         * Set filter on device name.
-         */
+
+        /** Set filter on device name. */
         public Builder setDeviceName(String deviceName) {
             mDeviceName = deviceName;
             return this;
@@ -726,11 +727,11 @@ public final class ScanFilter implements Parcelable {
 
         /**
          * Set a scan filter on the remote device address.
-         * <p>
-         * The address passed to this API must be in big endian byte order. It needs to be in the
-         * format of "01:02:03:AB:CD:EF". The device address can be validated using
-         * {@link BluetoothAdapter#checkBluetoothAddress}. The @AddressType is defaulted to
-         * {@link BluetoothDevice#ADDRESS_TYPE_PUBLIC}.
+         *
+         * <p>The address passed to this API must be in big endian byte order. It needs to be in the
+         * format of "01:02:03:AB:CD:EF". The device address can be validated using {@link
+         * BluetoothAdapter#checkBluetoothAddress}. The @AddressType is defaulted to {@link
+         * BluetoothDevice#ADDRESS_TYPE_PUBLIC}.
          *
          * @param deviceAddress the remote device Bluetooth address for the filter
          * @throws IllegalArgumentException if the {@code deviceAddress} is invalid
@@ -745,57 +746,66 @@ public final class ScanFilter implements Parcelable {
 
         /**
          * Set a scan filter on the remote device address with an address type.
-         * <p>
-         * The address passed to this API must be in big endian byte order. It needs to be in the
-         * format of "01:02:03:AB:CD:EF". The device address can be validated using
-         * {@link BluetoothAdapter#checkBluetoothAddress}.
+         *
+         * <p>The address passed to this API must be in big endian byte order. It needs to be in the
+         * format of "01:02:03:AB:CD:EF". The device address can be validated using {@link
+         * BluetoothAdapter#checkBluetoothAddress}.
          *
          * @param deviceAddress the remote device Bluetooth address for the filter
          * @param addressType indication of the type of address
-         *
          * @throws IllegalArgumentException If the {@code deviceAddress} is invalid
          * @throws IllegalArgumentException If the {@code addressType} is invalid length or is not
-         * either {@link BluetoothDevice#ADDRESS_TYPE_PUBLIC} or
-         * {@link BluetoothDevice#ADDRESS_TYPE_RANDOM}
+         *     either {@link BluetoothDevice#ADDRESS_TYPE_PUBLIC} or {@link
+         *     BluetoothDevice#ADDRESS_TYPE_RANDOM}
          * @throws NullPointerException if {@code deviceAddress} is null
-         *
          * @hide
          */
         @NonNull
         @SystemApi
-        public Builder setDeviceAddress(@NonNull String deviceAddress,
-                                        @AddressType int addressType) {
+        public Builder setDeviceAddress(
+                @NonNull String deviceAddress, @AddressType int addressType) {
             return setDeviceAddressInternal(deviceAddress, addressType, null);
         }
 
         /**
          * Set a scan filter on the remote device address with an address type and the Identity
          * Resolving Key (IRK).
-         * <p>
-         * The address passed to this API must be either a public or random static address in big
+         *
+         * <p>The address passed to this API must be either a public or random static address in big
          * endian byte order. It needs to be in the format of "01:02:03:AB:CD:EF". The device
          * address can be validated using {@link BluetoothAdapter#checkBluetoothAddress}.
-         * <p>
-         * The IRK is used to resolve a static address from a private address. The IRK must be
+         *
+         * <p>The IRK is used to resolve a static address from a private address. The IRK must be
          * provided in little endian byte order.
          *
-         * @param deviceAddress the remote device Bluetooth address for the filter
+         * <p>When using this API, it is recommended to continue scanning until the device is
+         * bonded.
+         *
+         * <p>The resulting {@link ScanResult} that matches this filter will contain an {@link
+         * BluetoothDevice} object for which the {@link BluetoothDevice#getAddress} method will
+         * return the device address passed as a parameter in this method.
+         *
+         * <p>It is not recommended to use this API for discovering devices that are already bonded,
+         * but note if the device with this IRK is already bonded, calling {@link
+         * BluetoothDevice#getAddress} on the {@link ScanResult} using this filter will return the
+         * device address that was used to initiate bonding, and may not match the address passed
+         * into this method in that scenario.
+         *
+         * @param deviceAddress the remote device Bluetooth address for the filter in big endian
+         *     order
          * @param addressType indication of the type of address
          * @param irk non-null little endian byte array representing the Identity Resolving Key
-         *
          * @throws IllegalArgumentException If the {@code deviceAddress} is invalid
          * @throws IllegalArgumentException if the {@code irk} is invalid length
          * @throws IllegalArgumentException If the {@code addressType} is an invalid length or is
-         * not PUBLIC or RANDOM STATIC
+         *     not PUBLIC or RANDOM STATIC
          * @throws NullPointerException if {@code deviceAddress} or {@code irk} is null
-         *
          * @hide
          */
         @NonNull
         @SystemApi
-        public Builder setDeviceAddress(@NonNull String deviceAddress,
-                                        @AddressType int addressType,
-                                        @NonNull byte[] irk) {
+        public Builder setDeviceAddress(
+                @NonNull String deviceAddress, @AddressType int addressType, @NonNull byte[] irk) {
             requireNonNull(irk);
             if (irk.length != LEN_IRK_OCTETS) {
                 throw new IllegalArgumentException("'irk' is invalid length!");
@@ -809,23 +819,20 @@ public final class ScanFilter implements Parcelable {
          * <p>Internal setter for the device address
          *
          * @param deviceAddress The device Bluetooth address for the filter. It needs to be in the
-         * format of "01:02:03:AB:CD:EF". The device address can be validated using {@link
-         * BluetoothAdapter#checkBluetoothAddress}.
+         *     format of "01:02:03:AB:CD:EF". The device address can be validated using {@link
+         *     BluetoothAdapter#checkBluetoothAddress}.
          * @param addressType indication of the type of address
          * @param irk non-null little endian byte array representing the Identity Resolving Key;
-         *            nullable internally.
-         *
+         *     nullable internally.
          * @throws IllegalArgumentException if the {@code deviceAddress} is invalid
          * @throws IllegalArgumentException if the {@code addressType} is not PUBLIC or RANDOM
-         * STATIC when an IRK is present
+         *     STATIC when an IRK is present
          * @throws NullPointerException if {@code deviceAddress} is null
-         *
          * @hide
          */
         @NonNull
-        private Builder setDeviceAddressInternal(@NonNull String deviceAddress,
-                                                 @AddressType int addressType,
-                                                 @Nullable byte[] irk) {
+        private Builder setDeviceAddressInternal(
+                @NonNull String deviceAddress, @AddressType int addressType, @Nullable byte[] irk) {
 
             // Make sure our deviceAddress is valid!
             requireNonNull(deviceAddress);
@@ -835,7 +842,7 @@ public final class ScanFilter implements Parcelable {
 
             // Verify type range
             if (addressType < BluetoothDevice.ADDRESS_TYPE_PUBLIC
-                || addressType > BluetoothDevice.ADDRESS_TYPE_RANDOM) {
+                    || addressType > BluetoothDevice.ADDRESS_TYPE_RANDOM) {
                 throw new IllegalArgumentException("'addressType' is invalid!");
             }
 
@@ -848,7 +855,7 @@ public final class ScanFilter implements Parcelable {
                     if (!BluetoothAdapter.isAddressRandomStatic(deviceAddress)) {
                         throw new IllegalArgumentException(
                                 "Invalid combination: IRK requires either a PUBLIC or "
-                                + "RANDOM (STATIC) Address");
+                                        + "RANDOM (STATIC) Address");
                     }
                 }
             }
@@ -862,9 +869,7 @@ public final class ScanFilter implements Parcelable {
             return this;
         }
 
-        /**
-         * Set filter on service uuid.
-         */
+        /** Set filter on service uuid. */
         public Builder setServiceUuid(ParcelUuid serviceUuid) {
             mServiceUuid = serviceUuid;
             mUuidMask = null; // clear uuid mask
@@ -872,12 +877,12 @@ public final class ScanFilter implements Parcelable {
         }
 
         /**
-         * Set filter on partial service uuid. The {@code uuidMask} is the bit mask for the
-         * {@code serviceUuid}. Set any bit in the mask to 1 to indicate a match is needed for the
-         * bit in {@code serviceUuid}, and 0 to ignore that bit.
+         * Set filter on partial service uuid. The {@code uuidMask} is the bit mask for the {@code
+         * serviceUuid}. Set any bit in the mask to 1 to indicate a match is needed for the bit in
+         * {@code serviceUuid}, and 0 to ignore that bit.
          *
          * @throws IllegalArgumentException If {@code serviceUuid} is {@code null} but {@code
-         * uuidMask} is not {@code null}.
+         *     uuidMask} is not {@code null}.
          */
         public Builder setServiceUuid(ParcelUuid serviceUuid, ParcelUuid uuidMask) {
             if (mUuidMask != null && mServiceUuid == null) {
@@ -888,10 +893,7 @@ public final class ScanFilter implements Parcelable {
             return this;
         }
 
-
-        /**
-         * Set filter on service solicitation uuid.
-         */
+        /** Set filter on service solicitation uuid. */
         public @NonNull Builder setServiceSolicitationUuid(
                 @Nullable ParcelUuid serviceSolicitationUuid) {
             mServiceSolicitationUuid = serviceSolicitationUuid;
@@ -901,7 +903,6 @@ public final class ScanFilter implements Parcelable {
             return this;
         }
 
-
         /**
          * Set filter on partial service Solicitation uuid. The {@code SolicitationUuidMask} is the
          * bit mask for the {@code serviceSolicitationUuid}. Set any bit in the mask to 1 to
@@ -910,9 +911,8 @@ public final class ScanFilter implements Parcelable {
          *
          * @param serviceSolicitationUuid can only be null if solicitationUuidMask is null.
          * @param solicitationUuidMask can be null or a mask with no restriction.
-         *
          * @throws IllegalArgumentException If {@code serviceSolicitationUuid} is {@code null} but
-         *             {@code serviceSolicitationUuidMask} is not {@code null}.
+         *     {@code solicitationUuidMask} is not {@code null}.
          */
         public @NonNull Builder setServiceSolicitationUuid(
                 @Nullable ParcelUuid serviceSolicitationUuid,
@@ -944,15 +944,15 @@ public final class ScanFilter implements Parcelable {
         /**
          * Set partial filter on service data. For any bit in the mask, set it to 1 if it needs to
          * match the one in service data, otherwise set it to 0 to ignore that bit.
-         * <p>
-         * The {@code serviceDataMask} must have the same length of the {@code serviceData}.
+         *
+         * <p>The {@code serviceDataMask} must have the same length of the {@code serviceData}.
          *
          * @throws IllegalArgumentException If {@code serviceDataUuid} is null or {@code
-         * serviceDataMask} is {@code null} while {@code serviceData} is not or {@code
-         * serviceDataMask} and {@code serviceData} has different length.
+         *     serviceDataMask} is {@code null} while {@code serviceData} is not or {@code
+         *     serviceDataMask} and {@code serviceData} has different length.
          */
-        public Builder setServiceData(ParcelUuid serviceDataUuid,
-                byte[] serviceData, byte[] serviceDataMask) {
+        public Builder setServiceData(
+                ParcelUuid serviceDataUuid, byte[] serviceData, byte[] serviceDataMask) {
             if (serviceDataUuid == null) {
                 throw new IllegalArgumentException("serviceDataUuid is null");
             }
@@ -992,15 +992,16 @@ public final class ScanFilter implements Parcelable {
         /**
          * Set filter on partial manufacture data. For any bit in the mask, set it the 1 if it needs
          * to match the one in manufacturer data, otherwise set it to 0.
-         * <p>
-         * The {@code manufacturerDataMask} must have the same length of {@code manufacturerData}.
+         *
+         * <p>The {@code manufacturerDataMask} must have the same length of {@code
+         * manufacturerData}.
          *
          * @throws IllegalArgumentException If the {@code manufacturerId} is invalid, or {@code
-         * manufacturerData} is null while {@code manufacturerDataMask} is not, or {@code
-         * manufacturerData} and {@code manufacturerDataMask} have different length.
+         *     manufacturerData} is null while {@code manufacturerDataMask} is not, or {@code
+         *     manufacturerData} and {@code manufacturerDataMask} have different length.
          */
-        public Builder setManufacturerData(int manufacturerId, byte[] manufacturerData,
-                byte[] manufacturerDataMask) {
+        public Builder setManufacturerData(
+                int manufacturerId, byte[] manufacturerData, byte[] manufacturerDataMask) {
             if (manufacturerData != null && manufacturerId < 0) {
                 throw new IllegalArgumentException("invalid manufacture id");
             }
@@ -1025,12 +1026,12 @@ public final class ScanFilter implements Parcelable {
         /**
          * Set filter information for a transport block in Transport Discovery Service advertisement
          *
-         * Use {@link BluetoothAdapter#getOffloadedTransportDiscoveryDataScanSupported()} to check
-         * whether transport discovery data filtering is supported on this device before calling
-         * this method.
+         * <p>Use {@link BluetoothAdapter#getOffloadedTransportDiscoveryDataScanSupported()} to
+         * check whether transport discovery data filtering is supported on this device before
+         * calling this method.
          *
          * @param transportBlockFilter filter data for a transport block in Transport Discovery
-         * Service advertisement
+         *     Service advertisement
          * @throws IllegalArgumentException if Transport Discovery Data filter is not supported.
          * @return this builder
          * @hide
@@ -1054,21 +1055,22 @@ public final class ScanFilter implements Parcelable {
         }
 
         /**
-         * Set filter on advertising data with specific advertising data type.
-         * For any bit in the mask, set it the 1 if it needs to match the one in
-         * advertising data, otherwise set it to 0.
-         * <p>
-         * The values of {@code advertisingDataType} are assigned by Bluetooth SIG. For more
+         * Set filter on advertising data with specific advertising data type. For any bit in the
+         * mask, set it the 1 if it needs to match the one in advertising data, otherwise set it to
+         * 0.
+         *
+         * <p>The values of {@code advertisingDataType} are assigned by Bluetooth SIG. For more
          * details refer to Bluetooth Generic Access Profile.
-         * (https://www.bluetooth.com/specifications/assigned-numbers/)
-         * The {@code advertisingDataMask} must have the same length of {@code advertisingData}.
+         * (https://www.bluetooth.com/specifications/assigned-numbers/) The {@code
+         * advertisingDataMask} must have the same length of {@code advertisingData}.
          *
          * @throws IllegalArgumentException If the {@code advertisingDataType} is invalid, {@code
-         * advertisingData} or {@code advertisingDataMask} is null or {@code
-         * advertisingData} and {@code advertisingDataMask} have different length.
+         *     advertisingData} or {@code advertisingDataMask} is null or {@code advertisingData}
+         *     and {@code advertisingDataMask} have different length.
          */
         public @NonNull Builder setAdvertisingDataTypeWithData(
-                @AdvertisingDataType int advertisingDataType, @NonNull byte[] advertisingData,
+                @AdvertisingDataType int advertisingDataType,
+                @NonNull byte[] advertisingData,
                 @NonNull byte[] advertisingDataMask) {
             if (advertisingDataType < 0) {
                 throw new IllegalArgumentException("invalid advertising data type");
@@ -1091,13 +1093,13 @@ public final class ScanFilter implements Parcelable {
             return this;
         }
 
-
         /**
          * Set filter on advertising data with specific advertising data type.
-         * <p>
-         * The values of {@code advertisingDataType} are assigned by Bluetooth SIG. For more
+         *
+         * <p>The values of {@code advertisingDataType} are assigned by Bluetooth SIG. For more
          * details refer to Bluetooth Generic Access Profile.
          * (https://www.bluetooth.com/specifications/assigned-numbers/)
+         *
          * @throws IllegalArgumentException If the {@code advertisingDataType} is invalid
          */
         public @NonNull Builder setAdvertisingDataType(
@@ -1115,11 +1117,25 @@ public final class ScanFilter implements Parcelable {
          * @throws IllegalArgumentException If the filter cannot be built.
          */
         public ScanFilter build() {
-            return new ScanFilter(mDeviceName, mDeviceAddress, mServiceUuid, mUuidMask,
-                    mServiceSolicitationUuid, mServiceSolicitationUuidMask, mServiceDataUuid,
-                    mServiceData, mServiceDataMask, mManufacturerId, mManufacturerData,
-                    mManufacturerDataMask, mAddressType, mIrk, mAdvertisingDataType,
-                    mAdvertisingData, mAdvertisingDataMask, mTransportBlockFilter);
+            return new ScanFilter(
+                    mDeviceName,
+                    mDeviceAddress,
+                    mServiceUuid,
+                    mUuidMask,
+                    mServiceSolicitationUuid,
+                    mServiceSolicitationUuidMask,
+                    mServiceDataUuid,
+                    mServiceData,
+                    mServiceDataMask,
+                    mManufacturerId,
+                    mManufacturerData,
+                    mManufacturerDataMask,
+                    mAddressType,
+                    mIrk,
+                    mAdvertisingDataType,
+                    mAdvertisingData,
+                    mAdvertisingDataMask,
+                    mTransportBlockFilter);
         }
     }
 }

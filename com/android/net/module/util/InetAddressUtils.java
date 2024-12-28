@@ -21,6 +21,7 @@ import android.os.Parcel;
 import android.util.Log;
 
 
+import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -32,6 +33,7 @@ import java.net.UnknownHostException;
 public class InetAddressUtils {
 
     private static final String TAG = InetAddressUtils.class.getSimpleName();
+    private static final int INET4_ADDR_LENGTH = 4;
     private static final int INET6_ADDR_LENGTH = 16;
 
     /**
@@ -89,6 +91,30 @@ public class InetAddressUtils {
         } catch (UnknownHostException impossible) {
             Log.wtf(TAG, "Cannot construct scoped Inet6Address with Inet6Address.getAddress("
                     + addr.getHostAddress() + "): ", impossible);
+            return null;
+        }
+    }
+
+    /**
+     * Create a v4-mapped v6 address from v4 address
+     *
+     * @param v4Addr Inet4Address which is converted to v4-mapped v6 address
+     * @return v4-mapped v6 address
+     */
+    public static Inet6Address v4MappedV6Address(@NonNull final Inet4Address v4Addr) {
+        final byte[] v6AddrBytes = new byte[INET6_ADDR_LENGTH];
+        v6AddrBytes[10] = (byte) 0xFF;
+        v6AddrBytes[11] = (byte) 0xFF;
+        System.arraycopy(v4Addr.getAddress(), 0 /* srcPos */, v6AddrBytes, 12 /* dstPos */,
+                INET4_ADDR_LENGTH);
+        try {
+            // Using Inet6Address.getByAddress since InetAddress.getByAddress converts v4-mapped v6
+            // address to v4 address internally and returns Inet4Address
+            return Inet6Address.getByAddress(null /* host */, v6AddrBytes, -1 /* scope_id */);
+        } catch (UnknownHostException impossible) {
+            // getByAddress throws UnknownHostException when the argument is the invalid length
+            // but INET6_ADDR_LENGTH(16) is the valid length.
+            Log.wtf(TAG, "Failed to generate v4-mapped v6 address from " + v4Addr, impossible);
             return null;
         }
     }

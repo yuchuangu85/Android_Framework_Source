@@ -18,6 +18,11 @@ package android.media;
 
 import static android.media.MediaRouter2Utils.toUniqueId;
 
+import static com.android.media.flags.Flags.FLAG_ENABLE_AUDIO_POLICIES_DEVICE_AND_BLUETOOTH_CONTROLLER;
+import static com.android.media.flags.Flags.FLAG_ENABLE_BUILT_IN_SPEAKER_ROUTE_SUITABILITY_STATUSES;
+import static com.android.media.flags.Flags.FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES;
+
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -141,6 +146,8 @@ public final class MediaRoute2Info implements Parcelable {
                 TYPE_WIRED_HEADPHONES,
                 TYPE_BLUETOOTH_A2DP,
                 TYPE_HDMI,
+                TYPE_HDMI_ARC,
+                TYPE_HDMI_EARC,
                 TYPE_USB_DEVICE,
                 TYPE_USB_ACCESSORY,
                 TYPE_DOCK,
@@ -156,6 +163,7 @@ public final class MediaRoute2Info implements Parcelable {
                 TYPE_REMOTE_GAME_CONSOLE,
                 TYPE_REMOTE_CAR,
                 TYPE_REMOTE_SMARTWATCH,
+                TYPE_REMOTE_SMARTPHONE,
                 TYPE_GROUP
             })
     @Retention(RetentionPolicy.SOURCE)
@@ -203,6 +211,22 @@ public final class MediaRoute2Info implements Parcelable {
      * @see #getType
      */
     public static final int TYPE_HDMI = AudioDeviceInfo.TYPE_HDMI;
+
+    /**
+     * Indicates the route is an Audio Return Channel of an HDMI connection.
+     *
+     * @see #getType
+     */
+    @FlaggedApi(FLAG_ENABLE_AUDIO_POLICIES_DEVICE_AND_BLUETOOTH_CONTROLLER)
+    public static final int TYPE_HDMI_ARC = AudioDeviceInfo.TYPE_HDMI_ARC;
+
+    /**
+     * Indicates the route is an Enhanced Audio Return Channel of an HDMI connection.
+     *
+     * @see #getType
+     */
+    @FlaggedApi(FLAG_ENABLE_AUDIO_POLICIES_DEVICE_AND_BLUETOOTH_CONTROLLER)
+    public static final int TYPE_HDMI_EARC = AudioDeviceInfo.TYPE_HDMI_EARC;
 
     /**
      * Indicates the route is a USB audio device.
@@ -283,8 +307,8 @@ public final class MediaRoute2Info implements Parcelable {
      * routing being done by the system.
      *
      * @see #getType
-     * @hide
      */
+    @FlaggedApi(FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES)
     public static final int TYPE_REMOTE_TABLET = 1004;
 
     /**
@@ -294,8 +318,8 @@ public final class MediaRoute2Info implements Parcelable {
      * routing being done by the system.
      *
      * @see #getType
-     * @hide
      */
+    @FlaggedApi(FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES)
     public static final int TYPE_REMOTE_TABLET_DOCKED = 1005;
 
     /**
@@ -305,8 +329,8 @@ public final class MediaRoute2Info implements Parcelable {
      * routing being done by the system.
      *
      * @see #getType
-     * @hide
      */
+    @FlaggedApi(FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES)
     public static final int TYPE_REMOTE_COMPUTER = 1006;
 
     /**
@@ -316,8 +340,8 @@ public final class MediaRoute2Info implements Parcelable {
      * routing being done by the system.
      *
      * @see #getType
-     * @hide
      */
+    @FlaggedApi(FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES)
     public static final int TYPE_REMOTE_GAME_CONSOLE = 1007;
 
     /**
@@ -327,8 +351,8 @@ public final class MediaRoute2Info implements Parcelable {
      * routing being done by the system.
      *
      * @see #getType
-     * @hide
      */
+    @FlaggedApi(FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES)
     public static final int TYPE_REMOTE_CAR = 1008;
 
     /**
@@ -338,9 +362,20 @@ public final class MediaRoute2Info implements Parcelable {
      * routing being done by the system.
      *
      * @see #getType
-     * @hide
      */
+    @FlaggedApi(FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES)
     public static final int TYPE_REMOTE_SMARTWATCH = 1009;
+
+    /**
+     * Indicates the route is a remote smartphone.
+     *
+     * <p>A remote device uses a routing protocol managed by the application, as opposed to the
+     * routing being done by the system.
+     *
+     * @see #getType
+     */
+    @FlaggedApi(FLAG_ENABLE_NEW_MEDIA_ROUTE_2_INFO_TYPES)
+    public static final int TYPE_REMOTE_SMARTPHONE = 1010;
 
     /**
      * Indicates the route is a group of devices.
@@ -445,27 +480,59 @@ public final class MediaRoute2Info implements Parcelable {
     public static final String FEATURE_REMOTE_GROUP_PLAYBACK =
             "android.media.route.feature.REMOTE_GROUP_PLAYBACK";
 
-    final String mId;
-    final CharSequence mName;
-    final List<String> mFeatures;
+    /** Indicates the route is always suitable for media playback. */
+    @FlaggedApi(FLAG_ENABLE_BUILT_IN_SPEAKER_ROUTE_SUITABILITY_STATUSES)
+    public static final int SUITABILITY_STATUS_SUITABLE_FOR_DEFAULT_TRANSFER = 0;
+
+    /**
+     * Indicates that the route is suitable for media playback only after explicit user selection.
+     */
+    @FlaggedApi(FLAG_ENABLE_BUILT_IN_SPEAKER_ROUTE_SUITABILITY_STATUSES)
+    public static final int SUITABILITY_STATUS_SUITABLE_FOR_MANUAL_TRANSFER = 1;
+
+    /** Indicates that the route is never suitable for media playback. */
+    @FlaggedApi(FLAG_ENABLE_BUILT_IN_SPEAKER_ROUTE_SUITABILITY_STATUSES)
+    public static final int SUITABILITY_STATUS_NOT_SUITABLE_FOR_TRANSFER = 2;
+
+    /**
+     * Route suitability status.
+     *
+     * <p>Signals whether the route is suitable to play media.
+     *
+     * @hide
+     */
+    @IntDef(
+            value = {
+                SUITABILITY_STATUS_SUITABLE_FOR_DEFAULT_TRANSFER,
+                SUITABILITY_STATUS_SUITABLE_FOR_MANUAL_TRANSFER,
+                SUITABILITY_STATUS_NOT_SUITABLE_FOR_TRANSFER
+            })
+    @Retention(RetentionPolicy.SOURCE)
+    @FlaggedApi(FLAG_ENABLE_BUILT_IN_SPEAKER_ROUTE_SUITABILITY_STATUSES)
+    public @interface SuitabilityStatus {}
+
+    private final String mId;
+    private final CharSequence mName;
+    private final List<String> mFeatures;
     @Type
-    final int mType;
-    final boolean mIsSystem;
-    final Uri mIconUri;
-    final CharSequence mDescription;
+    private final int mType;
+    private final boolean mIsSystem;
+    private final Uri mIconUri;
+    private final CharSequence mDescription;
     @ConnectionState
-    final int mConnectionState;
-    final String mClientPackageName;
-    final String mPackageName;
-    final int mVolumeHandling;
-    final int mVolumeMax;
-    final int mVolume;
-    final String mAddress;
-    final Set<String> mDeduplicationIds;
-    final Bundle mExtras;
-    final String mProviderId;
-    final boolean mIsVisibilityRestricted;
-    final Set<String> mAllowedPackages;
+    private final int mConnectionState;
+    private final String mClientPackageName;
+    private final String mPackageName;
+    private final int mVolumeHandling;
+    private final int mVolumeMax;
+    private final int mVolume;
+    private final String mAddress;
+    private final Set<String> mDeduplicationIds;
+    private final Bundle mExtras;
+    private final String mProviderId;
+    private final boolean mIsVisibilityRestricted;
+    private final Set<String> mAllowedPackages;
+    @SuitabilityStatus private final int mSuitabilityStatus;
 
     MediaRoute2Info(@NonNull Builder builder) {
         mId = builder.mId;
@@ -487,6 +554,7 @@ public final class MediaRoute2Info implements Parcelable {
         mProviderId = builder.mProviderId;
         mIsVisibilityRestricted = builder.mIsVisibilityRestricted;
         mAllowedPackages = builder.mAllowedPackages;
+        mSuitabilityStatus = builder.mSuitabilityStatus;
     }
 
     MediaRoute2Info(@NonNull Parcel in) {
@@ -510,6 +578,7 @@ public final class MediaRoute2Info implements Parcelable {
         mProviderId = in.readString();
         mIsVisibilityRestricted = in.readBoolean();
         mAllowedPackages = Set.of(in.createString8Array());
+        mSuitabilityStatus = in.readInt();
     }
 
     /**
@@ -546,32 +615,8 @@ public final class MediaRoute2Info implements Parcelable {
         return mFeatures;
     }
 
-    // TODO (b/278728942): Add the following once the symbols are published in the SDK. Until then,
-    //     adding them would cause the generated link to be broken.
-    //     @see #TYPE_REMOTE_TABLET
-    //     @see #TYPE_REMOTE_TABLET_DOCKED
-    //     @see #TYPE_REMOTE_COMPUTER
-    //     @see #TYPE_REMOTE_GAME_CONSOLE
-    //     @see #TYPE_REMOTE_CAR
-    //     @see #TYPE_REMOTE_SMARTWATCH
     /**
      * Returns the type of this route.
-     *
-     * @see #TYPE_UNKNOWN
-     * @see #TYPE_BUILTIN_SPEAKER
-     * @see #TYPE_WIRED_HEADSET
-     * @see #TYPE_WIRED_HEADPHONES
-     * @see #TYPE_BLUETOOTH_A2DP
-     * @see #TYPE_HDMI
-     * @see #TYPE_DOCK
-     * @see #TYPE_USB_DEVICE
-     * @see #TYPE_USB_ACCESSORY
-     * @see #TYPE_USB_HEADSET
-     * @see #TYPE_HEARING_AID
-     * @see #TYPE_REMOTE_TV
-     * @see #TYPE_REMOTE_SPEAKER
-     * @see #TYPE_REMOTE_AUDIO_VIDEO_RECEIVER
-     * @see #TYPE_GROUP
      */
     @Type
     public int getType() {
@@ -768,6 +813,13 @@ public final class MediaRoute2Info implements Parcelable {
                 || mAllowedPackages.contains(packageName);
     }
 
+    /** Returns the route suitability status. */
+    @SuitabilityStatus
+    @FlaggedApi(FLAG_ENABLE_BUILT_IN_SPEAKER_ROUTE_SUITABILITY_STATUSES)
+    public int getSuitabilityStatus() {
+        return mSuitabilityStatus;
+    }
+
     /**
      * Dumps the current state of the object to the given {@code pw} as a human-readable string.
      *
@@ -799,6 +851,7 @@ public final class MediaRoute2Info implements Parcelable {
         pw.println(indent + "mProviderId=" + mProviderId);
         pw.println(indent + "mIsVisibilityRestricted=" + mIsVisibilityRestricted);
         pw.println(indent + "mAllowedPackages=" + mAllowedPackages);
+        pw.println(indent + "mSuitabilityStatus=" + mSuitabilityStatus);
     }
 
     private void dumpVolume(@NonNull PrintWriter pw, @NonNull String prefix) {
@@ -851,38 +904,78 @@ public final class MediaRoute2Info implements Parcelable {
                 && Objects.equals(mDeduplicationIds, other.mDeduplicationIds)
                 && Objects.equals(mProviderId, other.mProviderId)
                 && (mIsVisibilityRestricted == other.mIsVisibilityRestricted)
-                && Objects.equals(mAllowedPackages, other.mAllowedPackages);
+                && Objects.equals(mAllowedPackages, other.mAllowedPackages)
+                && mSuitabilityStatus == other.mSuitabilityStatus;
     }
 
     @Override
     public int hashCode() {
         // Note: mExtras is not included.
-        return Objects.hash(mId, mName, mFeatures, mType, mIsSystem, mIconUri, mDescription,
-                mConnectionState, mClientPackageName, mPackageName, mVolumeHandling, mVolumeMax,
-                mVolume, mAddress, mDeduplicationIds, mProviderId, mIsVisibilityRestricted,
-                mAllowedPackages);
+        return Objects.hash(
+                mId,
+                mName,
+                mFeatures,
+                mType,
+                mIsSystem,
+                mIconUri,
+                mDescription,
+                mConnectionState,
+                mClientPackageName,
+                mPackageName,
+                mVolumeHandling,
+                mVolumeMax,
+                mVolume,
+                mAddress,
+                mDeduplicationIds,
+                mProviderId,
+                mIsVisibilityRestricted,
+                mAllowedPackages,
+                mSuitabilityStatus);
     }
 
     @Override
     public String toString() {
         // Note: mExtras is not printed here.
-        StringBuilder result = new StringBuilder()
-                .append("MediaRoute2Info{ ")
-                .append("id=").append(getId())
-                .append(", name=").append(getName())
-                .append(", features=").append(getFeatures())
-                .append(", iconUri=").append(getIconUri())
-                .append(", description=").append(getDescription())
-                .append(", connectionState=").append(getConnectionState())
-                .append(", clientPackageName=").append(getClientPackageName())
-                .append(", volumeHandling=").append(getVolumeHandling())
-                .append(", volumeMax=").append(getVolumeMax())
-                .append(", volume=").append(getVolume())
-                .append(", deduplicationIds=").append(String.join(",", getDeduplicationIds()))
-                .append(", providerId=").append(getProviderId())
-                .append(", isVisibilityRestricted=").append(mIsVisibilityRestricted)
-                .append(", allowedPackages=").append(String.join(",", mAllowedPackages))
-                .append(" }");
+        StringBuilder result =
+                new StringBuilder()
+                        .append("MediaRoute2Info{ ")
+                        .append("id=")
+                        .append(getId())
+                        .append(", name=")
+                        .append(getName())
+                        .append(", type=")
+                        .append(getDeviceTypeString(getType()))
+                        .append(", isSystem=")
+                        .append(isSystemRoute())
+                        .append(", features=")
+                        .append(getFeatures())
+                        .append(", iconUri=")
+                        .append(getIconUri())
+                        .append(", description=")
+                        .append(getDescription())
+                        .append(", connectionState=")
+                        .append(getConnectionState())
+                        .append(", clientPackageName=")
+                        .append(getClientPackageName())
+                        .append(", volumeHandling=")
+                        .append(getVolumeHandling())
+                        .append(", volumeMax=")
+                        .append(getVolumeMax())
+                        .append(", volume=")
+                        .append(getVolume())
+                        .append(", address=")
+                        .append(getAddress())
+                        .append(", deduplicationIds=")
+                        .append(String.join(",", getDeduplicationIds()))
+                        .append(", providerId=")
+                        .append(getProviderId())
+                        .append(", isVisibilityRestricted=")
+                        .append(mIsVisibilityRestricted)
+                        .append(", allowedPackages=")
+                        .append(String.join(",", mAllowedPackages))
+                        .append(", suitabilityStatus=")
+                        .append(mSuitabilityStatus)
+                        .append(" }");
         return result.toString();
     }
 
@@ -912,6 +1005,7 @@ public final class MediaRoute2Info implements Parcelable {
         dest.writeString(mProviderId);
         dest.writeBoolean(mIsVisibilityRestricted);
         dest.writeString8Array(mAllowedPackages.toArray(new String[0]));
+        dest.writeInt(mSuitabilityStatus);
     }
 
     private static String getDeviceTypeString(@Type int deviceType) {
@@ -926,6 +1020,10 @@ public final class MediaRoute2Info implements Parcelable {
                 return "BLUETOOTH_A2DP";
             case TYPE_HDMI:
                 return "HDMI";
+            case TYPE_HDMI_ARC:
+                return "HDMI_ARC";
+            case TYPE_HDMI_EARC:
+                return "HDMI_EARC";
             case TYPE_DOCK:
                 return "DOCK";
             case TYPE_USB_DEVICE:
@@ -954,6 +1052,8 @@ public final class MediaRoute2Info implements Parcelable {
                 return "REMOTE_CAR";
             case TYPE_REMOTE_SMARTWATCH:
                 return "REMOTE_SMARTWATCH";
+            case TYPE_REMOTE_SMARTPHONE:
+                return "REMOTE_SMARTPHONE";
             case TYPE_GROUP:
                 return "GROUP";
             case TYPE_UNKNOWN:
@@ -966,28 +1066,29 @@ public final class MediaRoute2Info implements Parcelable {
      * Builder for {@link MediaRoute2Info media route info}.
      */
     public static final class Builder {
-        final String mId;
-        final CharSequence mName;
-        final List<String> mFeatures;
+        private final String mId;
+        private final CharSequence mName;
+        private final List<String> mFeatures;
 
         @Type
-        int mType = TYPE_UNKNOWN;
-        boolean mIsSystem;
-        Uri mIconUri;
-        CharSequence mDescription;
+        private int mType = TYPE_UNKNOWN;
+        private boolean mIsSystem;
+        private Uri mIconUri;
+        private CharSequence mDescription;
         @ConnectionState
-        int mConnectionState;
-        String mClientPackageName;
-        String mPackageName;
-        int mVolumeHandling = PLAYBACK_VOLUME_FIXED;
-        int mVolumeMax;
-        int mVolume;
-        String mAddress;
-        Set<String> mDeduplicationIds;
-        Bundle mExtras;
-        String mProviderId;
-        boolean mIsVisibilityRestricted;
-        Set<String> mAllowedPackages;
+        private int mConnectionState;
+        private String mClientPackageName;
+        private String mPackageName;
+        private int mVolumeHandling = PLAYBACK_VOLUME_FIXED;
+        private int mVolumeMax;
+        private int mVolume;
+        private String mAddress;
+        private Set<String> mDeduplicationIds;
+        private Bundle mExtras;
+        private String mProviderId;
+        private boolean mIsVisibilityRestricted;
+        private Set<String> mAllowedPackages;
+        @SuitabilityStatus private int mSuitabilityStatus;
 
         /**
          * Constructor for builder to create {@link MediaRoute2Info}.
@@ -1011,6 +1112,7 @@ public final class MediaRoute2Info implements Parcelable {
             mFeatures = new ArrayList<>();
             mDeduplicationIds = Set.of();
             mAllowedPackages = Set.of();
+            mSuitabilityStatus = SUITABILITY_STATUS_SUITABLE_FOR_DEFAULT_TRANSFER;
         }
 
         /**
@@ -1058,6 +1160,7 @@ public final class MediaRoute2Info implements Parcelable {
             mProviderId = routeInfo.mProviderId;
             mIsVisibilityRestricted = routeInfo.mIsVisibilityRestricted;
             mAllowedPackages = routeInfo.mAllowedPackages;
+            mSuitabilityStatus = routeInfo.mSuitabilityStatus;
         }
 
         /**
@@ -1297,6 +1400,23 @@ public final class MediaRoute2Info implements Parcelable {
         public Builder setVisibilityRestricted(@NonNull Set<String> allowedPackages) {
             mIsVisibilityRestricted = true;
             mAllowedPackages = Set.copyOf(allowedPackages);
+            return this;
+        }
+
+        /**
+         * Sets route suitability status.
+         *
+         * <p>The default value is {@link
+         * MediaRoute2Info#SUITABILITY_STATUS_SUITABLE_FOR_DEFAULT_TRANSFER}.
+         *
+         * <p> Apps are not supposed to set {@link
+         * MediaRoute2Info#SUITABILITY_STATUS_NOT_SUITABLE_FOR_TRANSFER}. Publishing a non-system
+         * route with such status throws {@link SecurityException}.
+         */
+        @NonNull
+        @FlaggedApi(FLAG_ENABLE_BUILT_IN_SPEAKER_ROUTE_SUITABILITY_STATUSES)
+        public Builder setSuitabilityStatus(@SuitabilityStatus int suitabilityStatus) {
+            mSuitabilityStatus = suitabilityStatus;
             return this;
         }
 

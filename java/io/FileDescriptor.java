@@ -27,7 +27,13 @@ package java.io;
 
 import android.system.ErrnoException;
 import android.system.Os;
+import android.system.OsConstants;
+
 import static android.system.OsConstants.F_DUPFD_CLOEXEC;
+
+import dalvik.annotation.optimization.CriticalNative;
+
+import libcore.io.Libcore;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -59,6 +65,11 @@ public final class FileDescriptor {
     // value (with 0 meaning 'unowned'). libcore chooses to use System.identityHashCode.
     private long ownerId = NO_OWNER;
 
+    /**
+     * true, if file is opened for appending.
+     */
+    private boolean append;
+
     // Android-added: value of ownerId indicating that a FileDescriptor is unowned.
     /** @hide */
     public static final long NO_OWNER = 0L;
@@ -74,8 +85,9 @@ public final class FileDescriptor {
         descriptor = -1;
     }
 
-    private /* */ FileDescriptor(int descriptor) {
-        this.descriptor = descriptor;
+    private /* */ FileDescriptor(int fd) {
+        this.descriptor = fd;
+        this.append = getAppend(fd);
     }
 
     /**
@@ -149,6 +161,12 @@ public final class FileDescriptor {
     /* This routine initializes JNI field offsets for the class */
     //private static native void initIDs();
 
+    /**
+     * Returns true, if the file was opened for appending.
+     */
+    @CriticalNative
+    private static native boolean getAppend(int fd);
+
     // Android-added: Needed for framework to access descriptor value.
     /**
      * Returns the int descriptor. It's highly unlikely you should be calling this. Please discuss
@@ -163,10 +181,14 @@ public final class FileDescriptor {
     /**
      * Sets the int descriptor. It's highly unlikely you should be calling this. Please discuss
      * your needs with a libcore maintainer before using this method.
-     * @hide internal use only
+     *
+     * @hide This method is @SystemApi(MODULE_LIBRARIES) and used by AFileDescriptor_setFd.
      */
     public final void setInt$(int fd) {
         this.descriptor = fd;
+        if (fd != -1) {
+            this.append = getAppend(fd);
+        }
     }
 
     // BEGIN Android-added: Method to clone standard file descriptors.
@@ -182,7 +204,7 @@ public final class FileDescriptor {
     public void cloneForFork() {
         try {
             int newDescriptor = Os.fcntlInt(this, F_DUPFD_CLOEXEC, 0);
-            this.descriptor = newDescriptor;
+            setInt$(newDescriptor);
         } catch (ErrnoException e) {
             throw new RuntimeException(e);
         }
@@ -205,7 +227,7 @@ public final class FileDescriptor {
      *
      * It's highly unlikely you should be calling this.
      * Please discuss your needs with a libcore maintainer before using this method.
-     * @param owner the owner ID of the Object that is responsible for closing this FileDescriptor
+     * @param newOwnerId the owner ID of the Object that is responsible for closing this FileDescriptor
      * @hide internal use only
      */
     public void setOwnerId$(long newOwnerId) {
@@ -241,17 +263,23 @@ public final class FileDescriptor {
         return isSocket(descriptor);
     }
 
+    @CriticalNative
     private static native boolean isSocket(int descriptor);
     // Set up JavaIOFileDescriptorAccess in SharedSecrets
     static {
-        jdk.internal.misc.SharedSecrets.setJavaIOFileDescriptorAccess(
-            new jdk.internal.misc.JavaIOFileDescriptorAccess() {
+        jdk.internal.access.SharedSecrets.setJavaIOFileDescriptorAccess(
+            new jdk.internal.access.JavaIOFileDescriptorAccess() {
                 public void set(FileDescriptor obj, int fd) {
                     obj.descriptor = fd;
                 }
 
                 public int get(FileDescriptor obj) {
                     return obj.descriptor;
+                }
+
+                @Override
+                public boolean getAppend(FileDescriptor fdo) {
+                    return fdo.append;
                 }
 
                 public void setHandle(FileDescriptor obj, long handle) {

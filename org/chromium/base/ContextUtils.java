@@ -19,16 +19,14 @@ import android.os.Process;
 import android.preference.PreferenceManager;
 
 import androidx.annotation.Nullable;
-import androidx.annotation.VisibleForTesting;
 
-import org.chromium.base.annotations.JNINamespace;
+import org.jni_zero.JNINamespace;
+
 import org.chromium.base.compat.ApiHelperForM;
 import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.build.BuildConfig;
 
-/**
- * This class provides Android application context related utility methods.
- */
+/** This class provides Android application context related utility methods. */
 @JNINamespace("base::android")
 public class ContextUtils {
     private static final String TAG = "ContextUtils";
@@ -41,11 +39,10 @@ public class ContextUtils {
      * TODO(mthiesse): Move to ApiHelperForT when we build against T SDK.
      */
     public static final int RECEIVER_EXPORTED = 0x2;
+
     public static final int RECEIVER_NOT_EXPORTED = 0x4;
 
-    /**
-     * Initialization-on-demand holder. This exists for thread-safe lazy initialization.
-     */
+    /** Initialization-on-demand holder. This exists for thread-safe lazy initialization. */
     private static class Holder {
         // Not final for tests.
         private static SharedPreferences sSharedPreferences = fetchAppSharedPreferences();
@@ -78,7 +75,8 @@ public class ContextUtils {
     public static void initApplicationContext(Context appContext) {
         // Conceding that occasionally in tests, native is loaded before the browser process is
         // started, in which case the browser process re-sets the application context.
-        assert sApplicationContext == null || sApplicationContext == appContext
+        assert sApplicationContext == null
+                || sApplicationContext == appContext
                 || ((ContextWrapper) sApplicationContext).getBaseContext() == appContext;
         initJavaSideApplicationContext(appContext);
     }
@@ -115,7 +113,6 @@ public class ContextUtils {
      *
      * @param appContext The new application context.
      */
-    @VisibleForTesting
     public static void initApplicationContextForTests(Context appContext) {
         initJavaSideApplicationContext(appContext);
         Holder.sSharedPreferences = fetchAppSharedPreferences();
@@ -125,7 +122,6 @@ public class ContextUtils {
      * Tests that use the applicationContext may unintentionally use the Context
      * set by a previously run test.
      */
-    @VisibleForTesting
     public static void clearApplicationContextForTests() {
         sApplicationContext = null;
         Holder.sSharedPreferences = null;
@@ -227,13 +223,13 @@ public class ContextUtils {
     public static Intent registerProtectedBroadcastReceiver(
             Context context, BroadcastReceiver receiver, IntentFilter filter) {
         return registerBroadcastReceiver(
-                context, receiver, filter, /*permission=*/null, /*scheduler=*/null, 0);
+                context, receiver, filter, /* permission= */ null, /* scheduler= */ null, 0);
     }
 
     public static Intent registerProtectedBroadcastReceiver(
             Context context, BroadcastReceiver receiver, IntentFilter filter, Handler scheduler) {
         return registerBroadcastReceiver(
-                context, receiver, filter, /*permission=*/null, scheduler, 0);
+                context, receiver, filter, /* permission= */ null, scheduler, 0);
     }
 
     /**
@@ -251,7 +247,7 @@ public class ContextUtils {
     public static Intent registerExportedBroadcastReceiver(
             Context context, BroadcastReceiver receiver, IntentFilter filter, String permission) {
         return registerBroadcastReceiver(
-                context, receiver, filter, permission, /*scheduler=*/null, RECEIVER_EXPORTED);
+                context, receiver, filter, permission, /* scheduler= */ null, RECEIVER_EXPORTED);
     }
 
     /**
@@ -288,18 +284,33 @@ public class ContextUtils {
      */
     public static Intent registerNonExportedBroadcastReceiver(
             Context context, BroadcastReceiver receiver, IntentFilter filter) {
-        return registerBroadcastReceiver(context, receiver, filter, /*permission=*/null,
-                /*scheduler=*/null, RECEIVER_NOT_EXPORTED);
+        return registerBroadcastReceiver(
+                context,
+                receiver,
+                filter,
+                /* permission= */ null,
+                /* scheduler= */ null,
+                RECEIVER_NOT_EXPORTED);
     }
 
     public static Intent registerNonExportedBroadcastReceiver(
             Context context, BroadcastReceiver receiver, IntentFilter filter, Handler scheduler) {
         return registerBroadcastReceiver(
-                context, receiver, filter, /*permission=*/null, scheduler, RECEIVER_NOT_EXPORTED);
+                context,
+                receiver,
+                filter,
+                /* permission= */ null,
+                scheduler,
+                RECEIVER_NOT_EXPORTED);
     }
 
-    private static Intent registerBroadcastReceiver(Context context, BroadcastReceiver receiver,
-            IntentFilter filter, String permission, Handler scheduler, int flags) {
+    private static Intent registerBroadcastReceiver(
+            Context context,
+            BroadcastReceiver receiver,
+            IntentFilter filter,
+            String permission,
+            Handler scheduler,
+            int flags) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             return ApiHelperForO.registerReceiver(
                     context, receiver, filter, permission, scheduler, flags);

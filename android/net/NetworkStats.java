@@ -32,6 +32,7 @@ import android.text.TextUtils;
 import android.util.SparseBooleanArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.modules.utils.build.SdkLevel;
 import com.android.net.module.util.CollectionUtils;
 
 import libcore.util.EmptyArray;
@@ -46,6 +47,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -453,6 +455,41 @@ public final class NetworkStats implements Parcelable, Iterable<NetworkStats.Ent
          */
         public long getOperations() {
             return operations;
+        }
+
+        /**
+         * Set Key fields for this entry.
+         *
+         * @return this object.
+         * @hide
+         */
+        private Entry setKeys(@Nullable String iface, int uid, @State int set,
+                int tag, @Meteredness int metered, @Roaming int roaming,
+                @DefaultNetwork int defaultNetwork) {
+            this.iface = iface;
+            this.uid = uid;
+            this.set = set;
+            this.tag = tag;
+            this.metered = metered;
+            this.roaming = roaming;
+            this.defaultNetwork = defaultNetwork;
+            return this;
+        }
+
+        /**
+         * Set Value fields for this entry.
+         *
+         * @return this object.
+         * @hide
+         */
+        private Entry setValues(long rxBytes, long rxPackets, long txBytes, long txPackets,
+                long operations) {
+            this.rxBytes = rxBytes;
+            this.rxPackets = rxPackets;
+            this.txBytes = txBytes;
+            this.txPackets = txPackets;
+            this.operations = operations;
+            return this;
         }
 
         @Override
@@ -1111,7 +1148,8 @@ public final class NetworkStats implements Parcelable, Iterable<NetworkStats.Ent
             entry.txPackets = left.txPackets[i];
             entry.operations = left.operations[i];
 
-            // find remote row that matches, and subtract
+            // Find the remote row that matches and subtract.
+            // The returned row must be uniquely matched.
             final int j = right.findIndexHinted(entry.iface, entry.uid, entry.set, entry.tag,
                     entry.metered, entry.roaming, entry.defaultNetwork, i);
             if (j != -1) {
@@ -1208,64 +1246,46 @@ public final class NetworkStats implements Parcelable, Iterable<NetworkStats.Ent
      * Return total statistics grouped by {@link #iface}; doesn't mutate the
      * original structure.
      * @hide
+     * @deprecated Use {@link #mapKeysNotNull(Function)} instead.
      */
+    @Deprecated
     public NetworkStats groupedByIface() {
-        final NetworkStats stats = new NetworkStats(elapsedRealtime, 10);
-
-        final Entry entry = new Entry();
-        entry.uid = UID_ALL;
-        entry.set = SET_ALL;
-        entry.tag = TAG_NONE;
-        entry.metered = METERED_ALL;
-        entry.roaming = ROAMING_ALL;
-        entry.defaultNetwork = DEFAULT_NETWORK_ALL;
-        entry.operations = 0L;
-
-        for (int i = 0; i < size; i++) {
-            // skip specific tags, since already counted in TAG_NONE
-            if (tag[i] != TAG_NONE) continue;
-
-            entry.iface = iface[i];
-            entry.rxBytes = rxBytes[i];
-            entry.rxPackets = rxPackets[i];
-            entry.txBytes = txBytes[i];
-            entry.txPackets = txPackets[i];
-            stats.combineValues(entry);
+        if (SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException("groupedByIface is not supported");
         }
+        // Keep backward compatibility where the method filtered out tagged stats and keep the
+        // operation counts as 0. The method used to deal with uid snapshot where tagged and
+        // non-tagged stats were mixed. And this method was also in Android O API list,
+        // so it is possible OEM can access it.
+        final Entry temp = new Entry();
+        final NetworkStats mappedStats = this.mapKeysNotNull(entry -> entry.getTag() != TAG_NONE
+                ? null : temp.setKeys(entry.getIface(), UID_ALL,
+                SET_ALL, TAG_NONE, METERED_ALL, ROAMING_ALL, DEFAULT_NETWORK_ALL));
 
-        return stats;
+        for (int i = 0; i < mappedStats.size; i++) {
+            mappedStats.operations[i] = 0L;
+        }
+        return mappedStats;
     }
 
     /**
      * Return total statistics grouped by {@link #uid}; doesn't mutate the
      * original structure.
      * @hide
+     * @deprecated Use {@link #mapKeysNotNull(Function)} instead.
      */
+    @Deprecated
     public NetworkStats groupedByUid() {
-        final NetworkStats stats = new NetworkStats(elapsedRealtime, 10);
-
-        final Entry entry = new Entry();
-        entry.iface = IFACE_ALL;
-        entry.set = SET_ALL;
-        entry.tag = TAG_NONE;
-        entry.metered = METERED_ALL;
-        entry.roaming = ROAMING_ALL;
-        entry.defaultNetwork = DEFAULT_NETWORK_ALL;
-
-        for (int i = 0; i < size; i++) {
-            // skip specific tags, since already counted in TAG_NONE
-            if (tag[i] != TAG_NONE) continue;
-
-            entry.uid = uid[i];
-            entry.rxBytes = rxBytes[i];
-            entry.rxPackets = rxPackets[i];
-            entry.txBytes = txBytes[i];
-            entry.txPackets = txPackets[i];
-            entry.operations = operations[i];
-            stats.combineValues(entry);
+        if (SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException("groupedByUid is not supported");
         }
-
-        return stats;
+        // Keep backward compatibility where the method filtered out tagged stats. The method used
+        // to deal with uid snapshot where tagged and non-tagged stats were mixed. And
+        // this method is also in Android O API list, so it is possible OEM can access it.
+        final Entry temp = new Entry();
+        return this.mapKeysNotNull(entry ->  entry.getTag() != TAG_NONE
+                ? null : temp.setKeys(IFACE_ALL, entry.getUid(),
+                SET_ALL, TAG_NONE, METERED_ALL, ROAMING_ALL, DEFAULT_NETWORK_ALL));
     }
 
     /**
@@ -1291,14 +1311,41 @@ public final class NetworkStats implements Parcelable, Iterable<NetworkStats.Ent
     }
 
     /**
-     * Removes the interface name from all entries.
-     * This mutates the original structure in place.
+     * Returns a copy of this NetworkStats, replacing iface with IFACE_ALL in all entries.
+     *
      * @hide
      */
-    public void clearInterfaces() {
-        for (int i = 0; i < size; i++) {
-            iface[i] = null;
+    @NonNull
+    public NetworkStats withoutInterfaces() {
+        final Entry temp = new Entry();
+        return mapKeysNotNull(entry -> temp.setKeys(IFACE_ALL, entry.getUid(), entry.getSet(),
+                entry.getTag(), entry.getMetered(), entry.getRoaming(), entry.getDefaultNetwork()));
+    }
+
+    /**
+     * Returns a new NetworkStats object where entries are transformed.
+     *
+     * Note that because NetworkStats is more akin to a map than to a list,
+     * the entries will be grouped after they are mapped by the key fields,
+     * e.g. uid, set, tag, defaultNetwork.
+     * Only the key returned by the function is used ; values will be forcefully
+     * copied from the original entry. Entries that map to the same set of keys
+     * will be added together.
+     */
+    @NonNull
+    private NetworkStats mapKeysNotNull(@NonNull Function<Entry, Entry> f) {
+        final NetworkStats ret = new NetworkStats(0, 1);
+        for (Entry e : this) {
+            final NetworkStats.Entry transformed = f.apply(e);
+            if (transformed == null) continue;
+            if (transformed == e) {
+                throw new IllegalStateException("A new entry must be created.");
+            }
+            transformed.setValues(e.getRxBytes(), e.getRxPackets(), e.getTxBytes(),
+                    e.getTxPackets(), e.getOperations());
+            ret.combineValues(transformed);
         }
+        return ret;
     }
 
     /**

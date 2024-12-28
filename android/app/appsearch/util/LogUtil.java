@@ -19,6 +19,7 @@ package android.app.appsearch.util;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.Size;
+import android.app.appsearch.AppSearchEnvironmentFactory;
 import android.util.Log;
 
 /**
@@ -31,6 +32,9 @@ public final class LogUtil {
     // TODO(b/232285376): If it becomes possible to detect an eng build, turn this on by default
     //  for eng builds.
     public static final boolean DEBUG = false;
+
+    public static final boolean INFO =
+            AppSearchEnvironmentFactory.getEnvironmentInstance().isInfoLoggingEnabled();
 
     /**
      * The {@link #piiTrace} logs are intended for sensitive data that can't be enabled in
@@ -61,7 +65,7 @@ public final class LogUtil {
      */
     public static void piiTrace(
             @Size(min = 0, max = 23) @NonNull String tag, @NonNull String message) {
-        piiTrace(tag, message, /*fastTraceObj=*/ null, /*fullTraceObj=*/ null);
+        piiTrace(tag, message, /* fastTraceObj= */ null, /* fullTraceObj= */ null);
     }
 
     /**
@@ -76,7 +80,7 @@ public final class LogUtil {
             @Size(min = 0, max = 23) @NonNull String tag,
             @NonNull String message,
             @Nullable Object traceObj) {
-        piiTrace(tag, message, /*fastTraceObj=*/ traceObj, /*fullTraceObj=*/ null);
+        piiTrace(tag, message, /* fastTraceObj= */ traceObj, /* fullTraceObj= */ null);
     }
 
     /**
@@ -95,7 +99,7 @@ public final class LogUtil {
             @NonNull String message,
             @Nullable Object fastTraceObj,
             @Nullable Object fullTraceObj) {
-        if (PII_TRACE_LEVEL == 0) {
+        if (PII_TRACE_LEVEL == 0 || !INFO) {
             return;
         }
         StringBuilder builder = new StringBuilder("(trace) ").append(message);

@@ -46,6 +46,7 @@ public final class IntermenstrualBleedingRecord extends InstantRecord {
      * @param o the reference object with which to compare.
      * @return {@code true} if this object is the same as the object
      */
+    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @Override
     public boolean equals(Object o) {
         return super.equals(o);

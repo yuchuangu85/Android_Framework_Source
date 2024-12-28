@@ -39,10 +39,15 @@ public final class DataElement implements Parcelable {
     private final int mKey;
     private final byte[] mValue;
 
-    /** @hide */
+    /**
+     * Note this interface is used for internal implementation only.
+     * We only keep those data element types used for encoding and decoding from the specs.
+     * Please read the nearby specs for learning more about each data type and use it as the only
+     * source.
+     *
+     * @hide
+     */
     @IntDef({
-            DataType.BLE_SERVICE_DATA,
-            DataType.BLE_ADDRESS,
             DataType.SALT,
             DataType.PRIVATE_IDENTITY,
             DataType.TRUSTED_IDENTITY,
@@ -50,20 +55,17 @@ public final class DataElement implements Parcelable {
             DataType.PROVISIONED_IDENTITY,
             DataType.TX_POWER,
             DataType.ACTION,
-            DataType.MODEL_ID,
-            DataType.EDDYSTONE_EPHEMERAL_IDENTIFIER,
             DataType.ACCOUNT_KEY_DATA,
             DataType.CONNECTION_STATUS,
             DataType.BATTERY,
+            DataType.ENCRYPTION_INFO,
+            DataType.BLE_SERVICE_DATA,
+            DataType.BLE_ADDRESS,
             DataType.SCAN_MODE,
             DataType.TEST_DE_BEGIN,
             DataType.TEST_DE_END
     })
     public @interface DataType {
-        int BLE_SERVICE_DATA = 100;
-        int BLE_ADDRESS = 101;
-        // This is to indicate if the scan is offload only
-        int SCAN_MODE = 102;
         int SALT = 0;
         int PRIVATE_IDENTITY = 1;
         int TRUSTED_IDENTITY = 2;
@@ -71,37 +73,24 @@ public final class DataElement implements Parcelable {
         int PROVISIONED_IDENTITY = 4;
         int TX_POWER = 5;
         int ACTION = 6;
-        int MODEL_ID = 7;
-        int EDDYSTONE_EPHEMERAL_IDENTIFIER = 8;
         int ACCOUNT_KEY_DATA = 9;
         int CONNECTION_STATUS = 10;
         int BATTERY = 11;
+
+        int ENCRYPTION_INFO = 16;
+
+        // Not defined in the spec. Reserved for internal use only.
+        int BLE_SERVICE_DATA = 100;
+        int BLE_ADDRESS = 101;
+        // This is to indicate if the scan is offload only
+        int SCAN_MODE = 102;
+
+        int DEVICE_TYPE = 22;
         // Reserves test DE ranges from {@link DataElement.DataType#TEST_DE_BEGIN}
         // to {@link DataElement.DataType#TEST_DE_END}, inclusive.
         // Reserves 128 Test DEs.
         int TEST_DE_BEGIN = Integer.MAX_VALUE - 127; // 2147483520
         int TEST_DE_END = Integer.MAX_VALUE; // 2147483647
-    }
-
-    /**
-     * @hide
-     */
-    public static boolean isValidType(int type) {
-        return type == DataType.BLE_SERVICE_DATA
-                || type == DataType.ACCOUNT_KEY_DATA
-                || type == DataType.BLE_ADDRESS
-                || type == DataType.SCAN_MODE
-                || type == DataType.SALT
-                || type == DataType.PRIVATE_IDENTITY
-                || type == DataType.TRUSTED_IDENTITY
-                || type == DataType.PUBLIC_IDENTITY
-                || type == DataType.PROVISIONED_IDENTITY
-                || type == DataType.TX_POWER
-                || type == DataType.ACTION
-                || type == DataType.MODEL_ID
-                || type == DataType.EDDYSTONE_EPHEMERAL_IDENTIFIER
-                || type == DataType.CONNECTION_STATUS
-                || type == DataType.BATTERY;
     }
 
     /**

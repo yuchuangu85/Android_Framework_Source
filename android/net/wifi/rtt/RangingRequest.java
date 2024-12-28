@@ -16,21 +16,31 @@
 
 package android.net.wifi.rtt;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.net.MacAddress;
+import android.net.wifi.OuiKeyedData;
+import android.net.wifi.ParcelUtil;
 import android.net.wifi.ScanResult;
 import android.net.wifi.aware.AttachCallback;
 import android.net.wifi.aware.DiscoverySessionCallback;
 import android.net.wifi.aware.IdentityChangedListener;
 import android.net.wifi.aware.PeerHandle;
 import android.net.wifi.aware.WifiAwareManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import androidx.annotation.RequiresApi;
+
+import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
+
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.StringJoiner;
@@ -96,10 +106,17 @@ public final class RangingRequest implements Parcelable {
     /** @hide */
     public final int mRttBurstSize;
 
+    /**
+     * List of {@link OuiKeyedData} providing vendor-specific configuration data.
+     */
+    private @NonNull List<OuiKeyedData> mVendorData;
+
     /** @hide */
-    private RangingRequest(List<ResponderConfig> rttPeers, int rttBurstSize) {
+    private RangingRequest(List<ResponderConfig> rttPeers, int rttBurstSize,
+            @NonNull List<OuiKeyedData> vendorData) {
         mRttPeers = rttPeers;
         mRttBurstSize = rttBurstSize;
+        mVendorData = new ArrayList<>(vendorData);
     }
 
     /**
@@ -124,6 +141,24 @@ public final class RangingRequest implements Parcelable {
         return mRttBurstSize;
     }
 
+    /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * Builder#setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @NonNull
+    @SystemApi
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData;
+    }
+
     @Override
     public int describeContents() {
         return 0;
@@ -133,6 +168,7 @@ public final class RangingRequest implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeList(mRttPeers);
         dest.writeInt(mRttBurstSize);
+        dest.writeList(mVendorData);
     }
 
     public static final @android.annotation.NonNull Creator<RangingRequest> CREATOR = new Creator<RangingRequest>() {
@@ -143,7 +179,8 @@ public final class RangingRequest implements Parcelable {
 
         @Override
         public RangingRequest createFromParcel(Parcel in) {
-            return new RangingRequest(in.readArrayList(null), in.readInt());
+            return new RangingRequest(in.readArrayList(null), in.readInt(),
+                ParcelUtil.readOuiKeyedDataList(in));
         }
     };
 
@@ -154,6 +191,8 @@ public final class RangingRequest implements Parcelable {
         for (ResponderConfig rc : mRttPeers) {
             sj.add(rc.toString());
         }
+        sj.add("mRttBurstSize=" + mRttBurstSize);
+        sj.add("mVendorData=" + mVendorData);
         return sj.toString();
     }
 
@@ -171,6 +210,9 @@ public final class RangingRequest implements Parcelable {
         if (mRttBurstSize < getMinRttBurstSize() || mRttBurstSize > getMaxRttBurstSize()) {
             throw new IllegalArgumentException("RTT burst size is out of range");
         }
+        if (mVendorData == null) {
+            throw new IllegalArgumentException("Vendor data must be non-null");
+        }
     }
 
     /**
@@ -179,6 +221,7 @@ public final class RangingRequest implements Parcelable {
     public static final class Builder {
         private List<ResponderConfig> mRttPeers = new ArrayList<>();
         private int mRttBurstSize = DEFAULT_RTT_BURST_SIZE;
+        private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
 
         /**
          * Set the RTT Burst size for the ranging request.
@@ -188,6 +231,14 @@ public final class RangingRequest implements Parcelable {
          * If set, the value must be in the range {@link #getMinRttBurstSize()} and
          * {@link #getMaxRttBurstSize()} inclusively, or a
          * {@link java.lang.IllegalArgumentException} will be thrown.
+         *
+         * Note: RTT burst size is applicable to IEEE 802.11mc, and for one special case it is
+         * also applicable to IEEE 802.11az to generate multiple NTB ranging requests per
+         * measurement. It is applicable for IEEE 802.11az based ranging requests when MIMO is
+         * not available, with the transmit and receive spatial streams between the initiator and
+         * responder station is equal to 1. See
+         * {@link RangingResult#get80211azNumberOfRxSpatialStreams()} and
+         * {@link RangingResult#get80211azNumberOfTxSpatialStreams()}.
          *
          * @param rttBurstSize The number of FTM packets used to estimate a range.
          * @return The builder to facilitate chaining
@@ -207,10 +258,15 @@ public final class RangingRequest implements Parcelable {
          * which to measure range. The total number of peers added to a request cannot exceed the
          * limit specified by {@link #getMaxPeers()}.
          * <p>
-         * Two-sided Ranging will be supported if the Access Point supports IEEE 802.11mc, also
-         * known as two-sided RTT, and this is determined by the method
-         * {@link ScanResult#is80211mcResponder()}. If not supported, one-sided RTT will be
-         * performed with no correction for the AP packet turnaround time.
+         * Two-sided Ranging will be performed if the local device and the AP support IEEE 802.11az
+         * (non-trigger based ranging) or IEEE 802.11mc. AP capability is determined by the method
+         * {@link ScanResult#is80211azNtbResponder()} or {@link ScanResult#is80211mcResponder()}.
+         *
+         * If both 11az and 11mc are supported by the local device and the AP, 11az non-trigger
+         * based ranging will be performed.
+         *
+         * If two-sided ranging is not supported, one-sided RTT will be performed with no
+         * correction for the AP packet turnaround time.
          *
          * @param apInfo Information about an Access Point (AP) obtained in a Scan Result.
          * @return The builder to facilitate chaining
@@ -229,10 +285,15 @@ public final class RangingRequest implements Parcelable {
          * which to measure range. The total number of peers added to a request cannot exceed the
          * limit specified by {@link #getMaxPeers()}.
          * <p>
-         * Two-sided Ranging will be supported if the Access Point supports IEEE 802.11mc, also
-         * known as two-sided RTT, and this is determined by the method
-         * {@link ScanResult#is80211mcResponder()}. If not supported, one-sided RTT will be
-         * performed with no correction for the AP packet turnaround time.
+         * Two-sided Ranging will be performed if the local device and the AP support IEEE 802.11az
+         * (non-trigger based ranging) or IEEE 802.11mc. AP capability is determined by the method
+         * {@link ScanResult#is80211azNtbResponder()} or {@link ScanResult#is80211mcResponder()}.
+         *
+         * If both 11az and 11mc are supported by the local device and the AP, 11az non-trigger
+         * based ranging will be performed.
+         *
+         * If two-sided ranging is not supported, one-sided RTT will be performed with no
+         * correction for the AP packet turnaround time.
          *
          * @param apInfos Information about Access Points (APs) obtained in a Scan Result.
          * @return The builder to facilitate chaining
@@ -254,10 +315,15 @@ public final class RangingRequest implements Parcelable {
          * with which to measure range. The total number of peers added to the request cannot exceed
          * the limit specified by {@link #getMaxPeers()}.
          * <p>
-         * Two-sided Ranging will be supported if an Access Point supports IEEE 802.11mc, also
-         * known as two-sided RTT, and this is specified in the {@link ResponderConfig} builder.
-         * If not supported, one-sided RTT will be performed with no correction for
-         * the AP packet turnaround time.
+         * Two-sided Ranging will be performed if the local device and the AP support IEEE 802.11az
+         * (non-trigger based ranging) or IEEE 802.11mc. AP capability is determined by the method
+         * {@link ScanResult#is80211azNtbResponder()} or {@link ScanResult#is80211mcResponder()}.
+         *
+         * If both 11az and 11mc are supported by the local device and the AP, 11az non-trigger
+         * based ranging will be performed.
+         *
+         * If two-sided ranging is not supported, one-sided RTT will be performed with no
+         * correction for the AP packet turnaround time.
          *
          * @param responder Information on the RTT Responder.
          * @return The builder, to facilitate chaining {@code builder.setXXX(..).setXXX(..)}.
@@ -277,10 +343,15 @@ public final class RangingRequest implements Parcelable {
          * which to measure range. The total number of peers added to a request cannot exceed the
          * limit specified by {@link #getMaxPeers()}.
          * <p>
-         * Two-sided Ranging will be supported if an Access Point supports IEEE 802.11mc, also
-         * known as two-sided RTT, and this is specified in the {@link ResponderConfig} builder.
-         * If not supported, one-sided RTT will be performed with no correction for the AP packet
-         * turnaround time.
+         * Two-sided Ranging will be performed if the local device and the AP support IEEE 802.11az
+         * (non-trigger based ranging) or IEEE 802.11mc. AP capability is determined by the method
+         * {@link ScanResult#is80211azNtbResponder()} or {@link ScanResult#is80211mcResponder()}.
+         *
+         * If both 11az and 11mc are supported by the local device and the AP, 11az non-trigger
+         * based ranging will be performed.
+         *
+         * If two-sided ranging is not supported, one-sided RTT will be performed with no
+         * correction for the AP packet turnaround time.
          *
          * @param responders Information representing the set of access points to be ranged
          * @return The builder to facilitate chaining
@@ -298,17 +369,18 @@ public final class RangingRequest implements Parcelable {
         }
 
         /**
-         * Add the non-802.11mc capable device specified by the {@link ScanResult} to the list of
-         * devices with which to measure range. The total number of peers added to a request cannot
-         * exceed the limit specified by {@link #getMaxPeers()}.
+         * Add the non-802.11mc and non-802.11az capable device specified by the {@link ScanResult}
+         * to the list of devices with which to measure range. The total number of peers added to a
+         * request cannot exceed the limit specified by {@link #getMaxPeers()}.
          * <p>
-         * Accurate ranging cannot be supported if the Access Point does not support IEEE 802.11mc,
-         * and instead an alternate protocol called one-sided RTT will be used with lower
-         * accuracy. Use {@link ScanResult#is80211mcResponder()} to verify the Access Point)s) are
-         * not 802.11mc capable.
+         * Accurate ranging cannot be supported if the Access Point does not support IEEE 802.11mc
+         * and IEEE 802.11az, and instead an alternate protocol called one-sided RTT will be used
+         * with lower accuracy. Use {@link ScanResult#is80211mcResponder()} to verify the Access
+         * Point(s) are not 802.11mc capable. Use {@link ScanResult#is80211azNtbResponder()} ()} to
+         * verify the Access Point)s) are not 802.11az capable.
          * <p>
          * One-sided RTT does not subtract the RTT turnaround time at the Access Point, which can
-         * add hundreds of meters to the estimate. With experimentation it is possible to use this
+         * add hundreds of meters to the estimate. With experimentation, it is possible to use this
          * information to make a statistical estimate of the range by taking multiple measurements
          * to several Access Points and normalizing the result. For some applications this can be
          * used to improve range estimates based on Receive Signal Strength Indication (RSSI), but
@@ -326,24 +398,26 @@ public final class RangingRequest implements Parcelable {
             if (apInfo == null) {
                 throw new IllegalArgumentException("Null ScanResult!");
             }
-            if (apInfo.is80211mcResponder()) {
-                throw new IllegalArgumentException("AP supports the 802.11mc protocol.");
+            if (apInfo.is80211mcResponder() || apInfo.is80211azNtbResponder()) {
+                throw new IllegalArgumentException(
+                        "AP supports the 802.11mc or 8022.11az protocol.");
             }
             return addResponder(ResponderConfig.fromScanResult(apInfo));
         }
 
         /**
-         * Add the non-802.11mc capable devices specified by the {@link ScanResult} to the list of
-         * devices with which to measure range. The total number of peers added to a request cannot
-         * exceed the limit specified by {@link #getMaxPeers()}.
+         * Add the non-802.11mc and non-802.11az capable devices specified by the {@link ScanResult}
+         * to the list of devices with which to measure range. The total number of peers added to a
+         * request cannot exceed the limit specified by {@link #getMaxPeers()}.
          * <p>
-         * Accurate ranging cannot be supported if the Access Point does not support IEEE 802.11mc,
-         * and instead an alternate protocol called one-sided RTT will be used with lower
-         * accuracy. Use {@link ScanResult#is80211mcResponder()} to verify the Access Point)s) are
-         * not 802.11mc capable.
+         * Accurate ranging cannot be supported if the Access Point does not support IEEE 802.11mc
+         * and IEEE 802.11az, and instead an alternate protocol called one-sided RTT will be used
+         * with lower accuracy. Use {@link ScanResult#is80211mcResponder()} to verify the Access
+         * Point(s) are not 802.11mc capable. Use {@link ScanResult#is80211azNtbResponder()} ()} to
+         * verify the Access Point(s) are not 802.11az capable.
          * <p>
          * One-sided RTT does not subtract the RTT turnaround time at the Access Point, which can
-         * add hundreds of meters to the estimate. With experimentation it is possible to use this
+         * add hundreds of meters to the estimate. With experimentation, it is possible to use this
          * information to make a statistical estimate of the range by taking multiple measurements
          * to several Access Points and normalizing the result. For some applications this can be
          * used to improve range estimates based on Receive Signal Strength Indication (RSSI), but
@@ -362,9 +436,9 @@ public final class RangingRequest implements Parcelable {
                 throw new IllegalArgumentException("Null list of ScanResults!");
             }
             for (ScanResult scanResult : apInfos) {
-                if (scanResult.is80211mcResponder()) {
+                if (scanResult.is80211mcResponder() || scanResult.is80211azNtbResponder()) {
                     throw new IllegalArgumentException(
-                            "At least one AP supports the 802.11mc protocol.");
+                            "At least one AP supports the 802.11mc or 802.11az protocol.");
                 }
                 addAccessPoint(scanResult);
             }
@@ -426,13 +500,35 @@ public final class RangingRequest implements Parcelable {
             return addResponder(ResponderConfig.fromWifiAwarePeerHandleWithDefaults(peerHandle));
         }
 
+        /**
+         * Set additional vendor-provided configuration data.
+         *
+         * @param vendorData List of {@link OuiKeyedData} containing the vendor-provided
+         *     configuration data. Note that multiple elements with the same OUI are allowed.
+         * @return Builder for chaining.
+         * @hide
+         */
+        @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        @SystemApi
+        public Builder setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+            if (!SdkLevel.isAtLeastV()) {
+                throw new UnsupportedOperationException();
+            }
+            if (vendorData == null) {
+                throw new IllegalArgumentException("setVendorData received a null value");
+            }
+            mVendorData = vendorData;
+            return this;
+        }
 
         /**
          * Build {@link RangingRequest} given the current configurations made on the
          * builder.
          */
         public RangingRequest build() {
-            return new RangingRequest(mRttPeers, mRttBurstSize);
+            return new RangingRequest(mRttPeers, mRttBurstSize, mVendorData);
         }
     }
 
@@ -450,11 +546,12 @@ public final class RangingRequest implements Parcelable {
 
         return mRttPeers.size() == lhs.mRttPeers.size()
                 && mRttPeers.containsAll(lhs.mRttPeers)
-                && mRttBurstSize == lhs.mRttBurstSize;
+                && mRttBurstSize == lhs.mRttBurstSize
+                && Objects.equals(mVendorData, lhs.mVendorData);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mRttPeers, mRttBurstSize);
+        return Objects.hash(mRttPeers, mRttBurstSize, mVendorData);
     }
 }

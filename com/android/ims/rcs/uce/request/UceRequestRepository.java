@@ -53,7 +53,7 @@ public class UceRequestRepository {
      * Add new UceRequestCoordinator and notify the RequestDispatcher to check whether the given
      * requests can be executed or not.
      */
-    public synchronized void addRequestCoordinator(UceRequestCoordinator coordinator) {
+    public synchronized void addRequestCoordinatorAndDispatch(UceRequestCoordinator coordinator) {
         if (mDestroyed) return;
         mRequestCoordinators.put(coordinator.getCoordinatorId(), coordinator);
         mDispatcher.addRequest(coordinator.getCoordinatorId(),
@@ -66,6 +66,14 @@ public class UceRequestRepository {
     public synchronized UceRequestCoordinator removeRequestCoordinator(Long coordinatorId) {
         return mRequestCoordinators.remove(coordinatorId);
 
+    }
+
+    /**
+     * Add new UceRequestCoordinator for retry only and not execute the given request.
+     */
+    public synchronized void addRequestCoordinator(UceRequestCoordinator coordinator) {
+        if (mDestroyed) return;
+        mRequestCoordinators.put(coordinator.getCoordinatorId(), coordinator);
     }
 
     /**

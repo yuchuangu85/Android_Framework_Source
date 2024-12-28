@@ -22,6 +22,7 @@ import static android.net.wifi.ScanResult.InformationElement.EID_EXT_HE_CAPABILI
 import static android.net.wifi.ScanResult.InformationElement.EID_HT_CAPABILITIES;
 import static android.net.wifi.ScanResult.InformationElement.EID_VHT_CAPABILITIES;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -34,6 +35,8 @@ import android.net.wifi.aware.PeerHandle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
+
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -139,7 +142,6 @@ public final class ResponderConfig implements Parcelable {
     @SystemApi
     public static final int CHANNEL_WIDTH_320MHZ = 5;
 
-
     /** @hide */
     @IntDef({PREAMBLE_LEGACY, PREAMBLE_HT, PREAMBLE_VHT, PREAMBLE_HE, PREAMBLE_EHT})
     @Retention(RetentionPolicy.SOURCE)
@@ -181,6 +183,9 @@ public final class ResponderConfig implements Parcelable {
     @SystemApi
     public static final int PREAMBLE_EHT = 4;
 
+    private static final long DEFAULT_NTB_MIN_TIME_BETWEEN_MEASUREMENTS_MICROS = 250000;
+    private static final long DEFAULT_NTB_MAX_TIME_BETWEEN_MEASUREMENTS_MICROS = 15000000;
+
     /**
      * The MAC address of the Responder. Will be null if a Wi-Fi Aware peer identifier (the
      * peerHandle field) ise used to identify the Responder.
@@ -210,6 +215,14 @@ public final class ResponderConfig implements Parcelable {
      */
     @SystemApi
     public final boolean supports80211mc;
+
+    /**
+     * Indicates whether the Responder device supports IEEE 802.11az non-trigger based ranging.
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public final boolean supports80211azNtb;
 
     /**
      * Responder channel bandwidth, specified using {@link ChannelWidth}.
@@ -248,6 +261,33 @@ public final class ResponderConfig implements Parcelable {
      */
     @SystemApi
     public final int preamble;
+
+    private long mNtbMinMeasurementTime = DEFAULT_NTB_MIN_TIME_BETWEEN_MEASUREMENTS_MICROS;
+    private long mNtbMaxMeasurementTime = DEFAULT_NTB_MAX_TIME_BETWEEN_MEASUREMENTS_MICROS;
+
+    /**
+     * Constructs Responder configuration from the builder
+     * @param builder See {@link Builder}
+     * @hide
+     */
+    public ResponderConfig(Builder builder) {
+        if (builder.mMacAddress == null && builder.mPeerHandle == null) {
+            throw new IllegalArgumentException(
+                    "Invalid ResponderConfig - must specify a MAC address or Peer handle");
+        }
+        this.macAddress = builder.mMacAddress;
+        this.peerHandle = builder.mPeerHandle;
+        this.responderType = builder.mResponderType;
+        this.supports80211mc = builder.mSupports80211Mc;
+        this.supports80211azNtb = builder.mSupports80211azNtb;
+        this.channelWidth = builder.mChannelWidth;
+        this.frequency = builder.mFrequency;
+        this.centerFreq0 = builder.mCenterFreq0;
+        this.centerFreq1 = builder.mCenterFreq1;
+        this.preamble = builder.mPreamble;
+        this.mNtbMinMeasurementTime = builder.mNtbMinMeasurementTime;
+        this.mNtbMaxMeasurementTime = builder.mNtbMaxMeasurementTime;
+    }
 
     /**
      * Constructs Responder configuration, using a MAC address to identify the Responder.
@@ -289,6 +329,9 @@ public final class ResponderConfig implements Parcelable {
         this.centerFreq0 = centerFreq0;
         this.centerFreq1 = centerFreq1;
         this.preamble = preamble;
+        this.supports80211azNtb = false;
+        this.mNtbMinMeasurementTime = DEFAULT_NTB_MIN_TIME_BETWEEN_MEASUREMENTS_MICROS;
+        this.mNtbMaxMeasurementTime = DEFAULT_NTB_MAX_TIME_BETWEEN_MEASUREMENTS_MICROS;
     }
 
     /**
@@ -326,6 +369,9 @@ public final class ResponderConfig implements Parcelable {
         this.centerFreq0 = centerFreq0;
         this.centerFreq1 = centerFreq1;
         this.preamble = preamble;
+        this.supports80211azNtb = false;
+        this.mNtbMinMeasurementTime = DEFAULT_NTB_MIN_TIME_BETWEEN_MEASUREMENTS_MICROS;
+        this.mNtbMaxMeasurementTime = DEFAULT_NTB_MAX_TIME_BETWEEN_MEASUREMENTS_MICROS;
     }
 
     /**
@@ -367,6 +413,9 @@ public final class ResponderConfig implements Parcelable {
         this.centerFreq0 = centerFreq0;
         this.centerFreq1 = centerFreq1;
         this.preamble = preamble;
+        this.supports80211azNtb = false;
+        this.mNtbMinMeasurementTime = DEFAULT_NTB_MIN_TIME_BETWEEN_MEASUREMENTS_MICROS;
+        this.mNtbMaxMeasurementTime = DEFAULT_NTB_MAX_TIME_BETWEEN_MEASUREMENTS_MICROS;
     }
 
     /**
@@ -378,7 +427,8 @@ public final class ResponderConfig implements Parcelable {
         MacAddress macAddress = MacAddress.fromString(scanResult.BSSID);
         int responderType = RESPONDER_AP;
         boolean supports80211mc = scanResult.is80211mcResponder();
-        int channelWidth = translateFromScanResultToLocalChannelWidth(scanResult.channelWidth);
+        boolean supports80211azNtbRanging = scanResult.is80211azNtbResponder();
+        int channelWidth = scanResult.channelWidth;
         int frequency = scanResult.frequency;
         int centerFreq0 = scanResult.centerFreq0;
         int centerFreq1 = scanResult.centerFreq1;
@@ -403,30 +453,39 @@ public final class ResponderConfig implements Parcelable {
             }
 
             if (ehtCapabilitiesPresent && ScanResult.is6GHz(frequency)) {
-                preamble = PREAMBLE_EHT;
+                preamble = ScanResult.PREAMBLE_EHT;
             } else if (heCapabilitiesPresent && ScanResult.is6GHz(frequency)) {
-                preamble = PREAMBLE_HE;
+                preamble = ScanResult.PREAMBLE_HE;
             } else if (vhtCapabilitiesPresent) {
-                preamble = PREAMBLE_VHT;
+                preamble = ScanResult.PREAMBLE_VHT;
             } else if (htCapabilitiesPresent) {
-                preamble = PREAMBLE_HT;
+                preamble = ScanResult.PREAMBLE_HT;
             } else {
-                preamble = PREAMBLE_LEGACY;
+                preamble = ScanResult.PREAMBLE_LEGACY;
             }
         } else {
             Log.e(TAG, "Scan Results do not contain IEs - using backup method to select preamble");
-            if (channelWidth == CHANNEL_WIDTH_320MHZ) {
-                preamble = PREAMBLE_EHT;
-            } else if (channelWidth == CHANNEL_WIDTH_80MHZ
-                    || channelWidth == CHANNEL_WIDTH_160MHZ) {
-                preamble = PREAMBLE_VHT;
+            if (channelWidth == ScanResult.CHANNEL_WIDTH_320MHZ) {
+                preamble = ScanResult.PREAMBLE_EHT;
+            } else if (channelWidth == ScanResult.CHANNEL_WIDTH_80MHZ
+                    || channelWidth == ScanResult.CHANNEL_WIDTH_160MHZ) {
+                preamble = ScanResult.PREAMBLE_VHT;
             } else {
-                preamble = PREAMBLE_HT;
+                preamble = ScanResult.PREAMBLE_HT;
             }
         }
 
-        return new ResponderConfig(macAddress, responderType, supports80211mc, channelWidth,
-                frequency, centerFreq0, centerFreq1, preamble);
+        return new ResponderConfig.Builder()
+                .setMacAddress(macAddress)
+                .setResponderType(responderType)
+                .set80211mcSupported(supports80211mc)
+                .set80211azNtbSupported(supports80211azNtbRanging)
+                .setChannelWidth(channelWidth)
+                .setFrequencyMhz(frequency)
+                .setCenterFreq0Mhz(centerFreq0)
+                .setCenterFreq1Mhz(centerFreq1)
+                .setPreamble(preamble)
+                .build();
     }
 
     /**
@@ -443,8 +502,10 @@ public final class ResponderConfig implements Parcelable {
          * (i.e. Band 5 @ 80MHz). A Responder is brought up on the peer by starting an Aware
          * Unsolicited Publisher with Ranging enabled.
          */
-        return new ResponderConfig(macAddress, RESPONDER_AWARE, true, CHANNEL_WIDTH_20MHZ,
-                AWARE_BAND_2_DISCOVERY_CHANNEL, 0, 0, PREAMBLE_HT);
+        return new ResponderConfig.Builder()
+                .setMacAddress(macAddress)
+                .setResponderType(RESPONDER_AWARE)
+                .build();
     }
 
     /**
@@ -461,8 +522,24 @@ public final class ResponderConfig implements Parcelable {
          * (i.e. Band 5 @ 80MHz). A Responder is brought up on the peer by starting an Aware
          * Unsolicited Publisher with Ranging enabled.
          */
-        return new ResponderConfig(peerHandle, RESPONDER_AWARE, true, CHANNEL_WIDTH_20MHZ,
-                AWARE_BAND_2_DISCOVERY_CHANNEL, 0, 0, PREAMBLE_HT);
+        return new ResponderConfig.Builder()
+                .setPeerHandle(peerHandle)
+                .setResponderType(RESPONDER_AWARE)
+                .build();
+    }
+
+    private static boolean isResponderTypeSupported(@ResponderType int responderType) {
+        switch (responderType) {
+            case RESPONDER_AP:
+            case RESPONDER_STA:
+            case RESPONDER_AWARE:
+                break;
+            case RESPONDER_P2P_GO:
+            case RESPONDER_P2P_CLIENT:
+            default:
+                return false;
+        }
+        return true;
     }
 
     /**
@@ -473,6 +550,7 @@ public final class ResponderConfig implements Parcelable {
      * @hide
      */
     public boolean isValid(boolean awareSupported) {
+        if (!isResponderTypeSupported(responderType)) return false;
         if (macAddress == null && peerHandle == null || macAddress != null && peerHandle != null) {
             return false;
         }
@@ -491,10 +569,29 @@ public final class ResponderConfig implements Parcelable {
     }
 
     /**
+     * @return the peer handle of the responder
+     *
+     * @hide
+     */
+    @Nullable
+    public PeerHandle getPeerHandle() {
+        return peerHandle;
+    }
+
+    /**
      * @return true if the Responder supports the 802.11mc protocol, false otherwise.
      */
     public boolean is80211mcSupported() {
         return supports80211mc;
+    }
+
+    /**
+     * @return true if the Responder supports the 802.11az non-trigger based ranging protocol,
+     * false otherwise.
+     */
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    public boolean is80211azNtbSupported() {
+        return supports80211azNtb;
     }
 
     /**
@@ -559,17 +656,55 @@ public final class ResponderConfig implements Parcelable {
     }
 
     /**
+     * Gets the minimum time between IEEE 802.11az non-trigger based ranging measurements in
+     * microseconds for the responder.
+     *
+     * @hide
+     */
+    public long getNtbMinTimeBetweenMeasurementsMicros() {
+        return mNtbMinMeasurementTime;
+    }
+
+    /**
+     * Gets the maximum time between IEEE 802.11az non-trigger based ranging measurements in
+     * microseconds for the responder.
+     *
+     * @hide
+     */
+    public long getNtbMaxTimeBetweenMeasurementsMicros() {
+        return mNtbMaxMeasurementTime;
+    }
+
+    /**
+     * @hide
+     */
+    public void setNtbMinTimeBetweenMeasurementsMicros(long ntbMinMeasurementTime) {
+        this.mNtbMinMeasurementTime = ntbMinMeasurementTime;
+    }
+
+    /**
+     * @hide
+     */
+    public void setNtbMaxTimeBetweenMeasurementsMicros(long ntbMaxMeasurementTime) {
+        this.mNtbMaxMeasurementTime = ntbMaxMeasurementTime;
+    }
+
+    /**
      * Builder class used to construct {@link ResponderConfig} objects.
      */
     public static final class Builder {
         private MacAddress mMacAddress;
+        private PeerHandle mPeerHandle;
         private @ResponderType int mResponderType = RESPONDER_AP;
         private boolean mSupports80211Mc = true;
+        private boolean mSupports80211azNtb = false;
         private @ChannelWidth int mChannelWidth = CHANNEL_WIDTH_20MHZ;
         private int mFrequency = 0;
         private int mCenterFreq0 = 0;
         private int mCenterFreq1 = 0;
         private @PreambleType int mPreamble = PREAMBLE_LEGACY;
+        private long mNtbMinMeasurementTime = DEFAULT_NTB_MIN_TIME_BETWEEN_MEASUREMENTS_MICROS;
+        private long mNtbMaxMeasurementTime = DEFAULT_NTB_MAX_TIME_BETWEEN_MEASUREMENTS_MICROS;
 
         /**
          * Sets the Responder MAC Address.
@@ -585,6 +720,20 @@ public final class ResponderConfig implements Parcelable {
         }
 
         /**
+         * Sets the Responder Peer handle.
+         *
+         * @param peerHandle Peer handle of the resposnde
+         * @return the builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        public Builder setPeerHandle(@NonNull PeerHandle peerHandle) {
+            this.mPeerHandle = peerHandle;
+            return this;
+        }
+
+        /**
          * Sets an indication the access point can to respond to the two-sided Wi-Fi RTT protocol,
          * but, if false, indicates only one-sided Wi-Fi RTT is possible.
          *
@@ -595,6 +744,23 @@ public final class ResponderConfig implements Parcelable {
         @NonNull
         public Builder set80211mcSupported(boolean supports80211mc) {
             this.mSupports80211Mc = supports80211mc;
+            return this;
+        }
+
+        /**
+         * Sets an indication the access point can to respond to the IEEE 802.11az non-trigger
+         * based ranging protocol, but, if false, indicates only IEEE 802.11mc or one-sided Wi-Fi
+         * RTT is possible.
+         *
+         * @param supports80211azNtb the ability to support the IEEE 802.11az non-trigger based
+         *                           ranging protocol
+         * @return the builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         */
+        @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+        @NonNull
+        public Builder set80211azNtbSupported(boolean supports80211azNtb) {
+            this.mSupports80211azNtb = supports80211azNtb;
             return this;
         }
 
@@ -679,7 +845,8 @@ public final class ResponderConfig implements Parcelable {
         }
 
         /**
-         * Sets the responder type, can be {@link #RESPONDER_AP} or {@link #RESPONDER_STA}
+         * Sets the responder type, can be {@link #RESPONDER_AP} or {@link #RESPONDER_STA} or
+         * {@link #RESPONDER_AWARE}
          *
          * @param responderType the type of the responder, if not set defaults to
          * {@link #RESPONDER_AP}
@@ -687,11 +854,58 @@ public final class ResponderConfig implements Parcelable {
          */
         @NonNull
         public Builder setResponderType(@ResponderType int responderType) {
-            if (responderType != RESPONDER_STA && responderType != RESPONDER_AP) {
-                throw new IllegalArgumentException("invalid responder type");
+            if (!isResponderTypeSupported(responderType)) {
+                throw new IllegalArgumentException("invalid responder type " + responderType);
             }
             mResponderType = responderType;
             return this;
+        }
+
+        /**
+         * Sets the minimum time between IEEE 802.11az non-trigger based ranging measurements in
+         * microseconds for the responder.
+         *
+         * Note: This should be a multiple of 100 microseconds as per IEEE 802.11 az standard.
+         *
+         * @param ntbMinMeasurementTime Minimum time between non-trigger based IEEE 802.11az
+         *                              ranging measurements in units of  100 microseconds. Range of
+         *                              values (0, 419430400).
+         * @hide
+         */
+        public Builder setNtbMinTimeBetweenMeasurementsMicros(long ntbMinMeasurementTime) {
+            if (mNtbMinMeasurementTime == 0 || mNtbMinMeasurementTime >= 419430400) {
+                throw new IllegalArgumentException(
+                        "Should be a non-zero number less than 419430400 microseconds");
+            }
+            if (mNtbMinMeasurementTime % 100 != 0) {
+                throw new IllegalArgumentException("Should be a multiple of 100 microseconds");
+            }
+            mNtbMinMeasurementTime = ntbMinMeasurementTime;
+            return  this;
+        }
+
+        /**
+         * Sets the maximum time between IEEE 802.11az non-trigger based ranging measurements in
+         * microseconds for the responder.
+         *
+         * Note: This should be a multiple of 10000 microseconds (10 milliseconds) as per
+         * IEEE 802.11 az standard.
+         *
+         * @param ntbMaxMeasurementTime Maximum time between non-trigger based IEEE 802.11az
+         *                              ranging measurements in units of  10000 microseconds. Range
+         *                              of values (0, 5242880000).
+         * @hide
+         */
+        public Builder setNtbMaxTimeBetweenMeasurementsMicros(long ntbMaxMeasurementTime) {
+            if (mNtbMaxMeasurementTime % 10000 != 0) {
+                throw new IllegalArgumentException("Should be a multiple of 10000 microseconds");
+            }
+            if (mNtbMaxMeasurementTime == 0 || mNtbMaxMeasurementTime >= 5242880000L) {
+                throw new IllegalArgumentException(
+                        "Should be a non-zero number less than 5242880000 microseconds");
+            }
+            mNtbMaxMeasurementTime = ntbMaxMeasurementTime;
+            return  this;
         }
 
         /**
@@ -700,12 +914,20 @@ public final class ResponderConfig implements Parcelable {
          */
         @NonNull
         public ResponderConfig build() {
-            if (mMacAddress == null) {
+            if ((mMacAddress == null && mPeerHandle == null)
+                    || (mMacAddress != null && mPeerHandle != null)) {
                 throw new IllegalArgumentException(
-                        "Invalid ResponderConfig - must specify a MAC address");
+                        "Invalid ResponderConfig - must specify a MAC address or peer handle but "
+                                + "not both");
             }
-            return new ResponderConfig(mMacAddress, mResponderType, mSupports80211Mc, mChannelWidth,
-                    mFrequency, mCenterFreq0, mCenterFreq1, mPreamble);
+            // For Aware, use supported default values
+            if (mResponderType == RESPONDER_AWARE) {
+                mSupports80211Mc = true;
+                mFrequency = AWARE_BAND_2_DISCOVERY_CHANNEL;
+                mChannelWidth = CHANNEL_WIDTH_20MHZ;
+                mPreamble = PREAMBLE_HT;
+            }
+            return new ResponderConfig(this);
         }
     }
 
@@ -729,12 +951,15 @@ public final class ResponderConfig implements Parcelable {
             dest.writeInt(peerHandle.peerId);
         }
         dest.writeInt(responderType);
-        dest.writeInt(supports80211mc ? 1 : 0);
+        dest.writeBoolean(supports80211mc);
+        dest.writeBoolean(supports80211azNtb);
         dest.writeInt(channelWidth);
         dest.writeInt(frequency);
         dest.writeInt(centerFreq0);
         dest.writeInt(centerFreq1);
         dest.writeInt(preamble);
+        dest.writeLong(mNtbMinMeasurementTime);
+        dest.writeLong(mNtbMaxMeasurementTime);
     }
 
     public static final @android.annotation.NonNull Creator<ResponderConfig> CREATOR = new Creator<ResponderConfig>() {
@@ -755,21 +980,21 @@ public final class ResponderConfig implements Parcelable {
             if (peerHandlePresent) {
                 peerHandle = new PeerHandle(in.readInt());
             }
-            int responderType = in.readInt();
-            boolean supports80211mc = in.readInt() == 1;
-            int channelWidth = in.readInt();
-            int frequency = in.readInt();
-            int centerFreq0 = in.readInt();
-            int centerFreq1 = in.readInt();
-            int preamble = in.readInt();
 
-            if (peerHandle == null) {
-                return new ResponderConfig(macAddress, responderType, supports80211mc, channelWidth,
-                        frequency, centerFreq0, centerFreq1, preamble);
-            } else {
-                return new ResponderConfig(peerHandle, responderType, supports80211mc, channelWidth,
-                        frequency, centerFreq0, centerFreq1, preamble);
-            }
+            return new ResponderConfig.Builder()
+                    .setMacAddress(macAddress)
+                    .setPeerHandle(peerHandle)
+                    .setResponderType(in.readInt())
+                    .set80211mcSupported(in.readBoolean())
+                    .set80211azNtbSupported(in.readBoolean())
+                    .setChannelWidth(in.readInt())
+                    .setFrequencyMhz(in.readInt())
+                    .setCenterFreq0Mhz(in.readInt())
+                    .setCenterFreq1Mhz(in.readInt())
+                    .setPreamble(in.readInt())
+                    .setNtbMinTimeBetweenMeasurementsMicros(in.readLong())
+                    .setNtbMaxTimeBetweenMeasurementsMicros(in.readLong())
+                    .build();
         }
     };
 
@@ -789,24 +1014,34 @@ public final class ResponderConfig implements Parcelable {
                 lhs.peerHandle) && responderType == lhs.responderType
                 && supports80211mc == lhs.supports80211mc && channelWidth == lhs.channelWidth
                 && frequency == lhs.frequency && centerFreq0 == lhs.centerFreq0
-                && centerFreq1 == lhs.centerFreq1 && preamble == lhs.preamble;
+                && centerFreq1 == lhs.centerFreq1 && preamble == lhs.preamble
+                && supports80211azNtb == lhs.supports80211azNtb
+                && mNtbMinMeasurementTime == lhs.mNtbMinMeasurementTime
+                && mNtbMaxMeasurementTime == lhs.mNtbMaxMeasurementTime;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(macAddress, peerHandle, responderType, supports80211mc, channelWidth,
-                frequency, centerFreq0, centerFreq1, preamble);
+                frequency, centerFreq0, centerFreq1, preamble, supports80211azNtb,
+                mNtbMinMeasurementTime, mNtbMaxMeasurementTime);
     }
 
     @Override
     public String toString() {
-        return new StringBuffer("ResponderConfig: macAddress=").append(macAddress).append(
-                ", peerHandle=").append(peerHandle == null ? "<null>" : peerHandle.peerId).append(
-                ", responderType=").append(responderType).append(", supports80211mc=").append(
-                supports80211mc).append(", channelWidth=").append(channelWidth).append(
-                ", frequency=").append(frequency).append(", centerFreq0=").append(
-                centerFreq0).append(", centerFreq1=").append(centerFreq1).append(
-                ", preamble=").append(preamble).toString();
+        return new StringBuffer("ResponderConfig: macAddress=").append(macAddress)
+                .append(", peerHandle=").append(peerHandle == null ? "<null>" : peerHandle.peerId)
+                .append(", responderType=").append(responderType)
+                .append(", supports80211mc=").append(supports80211mc)
+                .append(", channelWidth=").append(channelWidth)
+                .append(", frequency=").append(frequency)
+                .append(", centerFreq0=").append(centerFreq0)
+                .append(", centerFreq1=").append(centerFreq1)
+                .append(", preamble=").append(preamble)
+                .append(", supports80211azNtb=").append(supports80211azNtb)
+                .append(", mNtbMinMeasurementTime ").append(mNtbMinMeasurementTime)
+                .append(", mNtbMaxMeasurementTime ").append(mNtbMaxMeasurementTime)
+                .toString();
     }
 
     /**

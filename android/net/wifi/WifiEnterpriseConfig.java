@@ -21,6 +21,7 @@ import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
@@ -247,6 +248,51 @@ public class WifiEnterpriseConfig implements Parcelable {
     };
 
     /**
+     * Maximum length of a certificate.
+     */
+    private static final int CERTIFICATE_MAX_LENGTH = 8192;
+
+    /**
+     * Maximum length of the {@link #mKeyChainAlias} field.
+     */
+    private static final int KEYCHAIN_ALIAS_MAX_LENGTH = 256;
+
+    /**
+     * Maximum number of elements in a client certificate chain.
+     */
+    private static final int CLIENT_CERTIFICATE_CHAIN_MAX_ELEMENTS = 5;
+
+    /**
+     * Maximum number of elements in a list of CA certificates.
+     */
+    private static final int CA_CERTIFICATES_MAX_ELEMENTS = 100;
+
+    /**
+     * Fields that are supported in {@link #mFields}.
+     * Each entry includes the supported field's key and its maximum allowed length.
+     */
+    private static final Map<String, Integer> SUPPORTED_FIELDS = new HashMap<>() {{
+            put(ALTSUBJECT_MATCH_KEY, 1024);
+            put(ANON_IDENTITY_KEY, 1024);
+            put(CA_CERT_KEY, CERTIFICATE_MAX_LENGTH);
+            put(CA_PATH_KEY, 4096);
+            put(CLIENT_CERT_KEY, CERTIFICATE_MAX_LENGTH);
+            put(DECORATED_IDENTITY_PREFIX_KEY, 256);
+            put(DOM_SUFFIX_MATCH_KEY, 256);
+            put(EAP_ERP, 1);
+            put(ENGINE_KEY, 1);
+            put(ENGINE_ID_KEY, 64);
+            put(IDENTITY_KEY, 256);
+            put(OPP_KEY_CACHING, 1);
+            put(PASSWORD_KEY, 256);
+            put(PLMN_KEY, 16);
+            put(PRIVATE_KEY_ID_KEY, 256);
+            put(REALM_KEY, 256);
+            put(SUBJECT_MATCH_KEY, 256);
+            put(WAPI_CERT_SUITE_KEY, CERTIFICATE_MAX_LENGTH);
+        }};
+
+    /**
      * Fields that have unquoted values in {@link #mFields}.
      */
     private static final List<String> UNQUOTED_KEYS = Arrays.asList(ENGINE_KEY, OPP_KEY_CACHING,
@@ -285,6 +331,68 @@ public class WifiEnterpriseConfig implements Parcelable {
     @Retention(RetentionPolicy.SOURCE)
     public @interface TlsVersion {}
 
+    /**
+     * TOFU is not enabled for this configuration.
+     * @hide
+     */
+    public static final int TOFU_STATE_NOT_ENABLED = 0;
+
+    /**
+     * TOFU is enabled pre-connection.
+     * @hide
+     */
+    public static final int TOFU_STATE_ENABLED_PRE_CONNECTION = 1;
+
+    /**
+     * Root CA was configured post-TOFU connection.
+     * @hide
+     */
+
+    public static final int TOFU_STATE_CONFIGURE_ROOT_CA = 2;
+
+    /**
+     * Certificate pinning was used post-TOFU connection.
+     * @hide
+     */
+    public static final int TOFU_STATE_CERT_PINNING = 3;
+
+    /** @hide */
+    @IntDef(prefix = {"TOFU_STATE_"}, value = {
+            TOFU_STATE_NOT_ENABLED,
+            TOFU_STATE_ENABLED_PRE_CONNECTION,
+            TOFU_STATE_CONFIGURE_ROOT_CA,
+            TOFU_STATE_CERT_PINNING
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface TofuConnectionState {}
+
+    /**
+     * TOFU dialog has not been displayed to the user, or state is unknown.
+     * @hide
+     */
+    public static final int TOFU_DIALOG_STATE_UNSPECIFIED = 0;
+
+    /**
+     * TOFU dialog was rejected by the user.
+     * @hide
+     */
+    public static final int TOFU_DIALOG_STATE_REJECTED = 1;
+
+    /**
+     * TOFU dialog was accepted by the user.
+     * @hide
+     */
+    public static final int TOFU_DIALOG_STATE_ACCEPTED = 2;
+
+    /** @hide */
+    @IntDef(prefix = {"TOFU_DIALOG_STATE_"}, value = {
+            TOFU_DIALOG_STATE_UNSPECIFIED,
+            TOFU_DIALOG_STATE_REJECTED,
+            TOFU_DIALOG_STATE_ACCEPTED
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface TofuDialogState {}
+
     @UnsupportedAppUsage
     private HashMap<String, String> mFields = new HashMap<String, String>();
     private X509Certificate[] mCaCerts;
@@ -299,6 +407,8 @@ public class WifiEnterpriseConfig implements Parcelable {
     private boolean mUserApproveNoCaCert = false;
     // Default is 1.0, i.e. accept any TLS version.
     private int mMinimumTlsVersion = TLS_V1_0;
+    private @TofuDialogState int mTofuDialogState = TOFU_DIALOG_STATE_UNSPECIFIED;
+    private @TofuConnectionState int mTofuConnectionState = TOFU_STATE_NOT_ENABLED;
 
     // Not included in parceling, hashing, or equality because it is an internal, temporary value
     // which is valid only during an actual connection to a Passpoint network with an RCOI-based
@@ -318,6 +428,66 @@ public class WifiEnterpriseConfig implements Parcelable {
     }
 
     /**
+     * Check whether a key is supported by {@link #mFields}.
+     * @return true if the key is supported, false otherwise.
+     */
+    private static boolean isKeySupported(String key) {
+        return SUPPORTED_FIELDS.containsKey(key);
+    }
+
+    /**
+     * Check whether a value from {@link #mFields} has a valid length.
+     * @return true if the length is valid, false otherwise.
+     */
+    private static boolean isFieldLengthValid(String key, String value) {
+        int maxLength = SUPPORTED_FIELDS.getOrDefault(key, 0);
+        return isFieldLengthValid(value, maxLength);
+    }
+
+    private static boolean isFieldLengthValid(String value, int maxLength) {
+        if (value == null) return true;
+        return value.length() <= maxLength;
+    }
+
+    /**
+     * Check whether a key/value pair from {@link #mFields} is valid.
+     * @return true if the key/value pair is valid, false otherwise.
+     */
+    private static boolean isFieldValid(String key, String value) {
+        return isKeySupported(key) && isFieldLengthValid(key, value);
+    }
+
+    /**
+     * Convert the {@link #mFields} map to a Bundle for parceling.
+     * Unsupported keys will not be included in the Bundle.
+     */
+    private Bundle fieldMapToBundle() {
+        Bundle bundle = new Bundle();
+        for (Map.Entry<String, String> entry : mFields.entrySet()) {
+            if (isFieldValid(entry.getKey(), entry.getValue())) {
+                bundle.putString(entry.getKey(), entry.getValue());
+            }
+        }
+        return bundle;
+    }
+
+    /**
+     * Convert an unparceled Bundle to the {@link #mFields} map.
+     * Unsupported keys will not be included in the map.
+     */
+    private static HashMap<String, String> bundleToFieldMap(Bundle bundle) {
+        HashMap<String, String> fieldMap = new HashMap<>();
+        if (bundle == null) return fieldMap;
+        for (String key : bundle.keySet()) {
+            String value = bundle.getString(key);
+            if (isFieldValid(key, value)) {
+                fieldMap.put(key, value);
+            }
+        }
+        return fieldMap;
+    }
+
+    /**
      * Copy over the contents of the source WifiEnterpriseConfig object over to this object.
      *
      * @param source Source WifiEnterpriseConfig object.
@@ -327,11 +497,14 @@ public class WifiEnterpriseConfig implements Parcelable {
      */
     private void copyFrom(WifiEnterpriseConfig source, boolean ignoreMaskedPassword, String mask) {
         for (String key : source.mFields.keySet()) {
+            String value = source.mFields.get(key);
             if (ignoreMaskedPassword && key.equals(PASSWORD_KEY)
-                    && TextUtils.equals(source.mFields.get(key), mask)) {
+                    && TextUtils.equals(value, mask)) {
                 continue;
             }
-            mFields.put(key, source.mFields.get(key));
+            if (isFieldValid(key, value)) {
+                mFields.put(key, source.mFields.get(key));
+            }
         }
         if (source.mCaCerts != null) {
             mCaCerts = Arrays.copyOf(source.mCaCerts, source.mCaCerts.length);
@@ -357,6 +530,8 @@ public class WifiEnterpriseConfig implements Parcelable {
         mSelectedRcoi = source.mSelectedRcoi;
         mMinimumTlsVersion = source.mMinimumTlsVersion;
         mIsStrictConservativePeerMode = source.mIsStrictConservativePeerMode;
+        mTofuDialogState = source.mTofuDialogState;
+        mTofuConnectionState = source.mTofuConnectionState;
     }
 
     /**
@@ -389,12 +564,7 @@ public class WifiEnterpriseConfig implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(mFields.size());
-        for (Map.Entry<String, String> entry : mFields.entrySet()) {
-            dest.writeString(entry.getKey());
-            dest.writeString(entry.getValue());
-        }
-
+        dest.writeBundle(fieldMapToBundle());
         dest.writeInt(mEapMethod);
         dest.writeInt(mPhase2Method);
         ParcelUtil.writeCertificates(dest, mCaCerts);
@@ -407,6 +577,8 @@ public class WifiEnterpriseConfig implements Parcelable {
         dest.writeBoolean(mIsTrustOnFirstUseEnabled);
         dest.writeBoolean(mUserApproveNoCaCert);
         dest.writeInt(mMinimumTlsVersion);
+        dest.writeInt(mTofuDialogState);
+        dest.writeInt(mTofuConnectionState);
     }
 
     public static final @android.annotation.NonNull Creator<WifiEnterpriseConfig> CREATOR =
@@ -414,25 +586,52 @@ public class WifiEnterpriseConfig implements Parcelable {
                 @Override
                 public WifiEnterpriseConfig createFromParcel(Parcel in) {
                     WifiEnterpriseConfig enterpriseConfig = new WifiEnterpriseConfig();
-                    int count = in.readInt();
-                    for (int i = 0; i < count; i++) {
-                        String key = in.readString();
-                        String value = in.readString();
-                        enterpriseConfig.mFields.put(key, value);
-                    }
-
+                    enterpriseConfig.mFields = bundleToFieldMap(in.readBundle());
                     enterpriseConfig.mEapMethod = in.readInt();
                     enterpriseConfig.mPhase2Method = in.readInt();
-                    enterpriseConfig.mCaCerts = ParcelUtil.readCertificates(in);
-                    enterpriseConfig.mClientPrivateKey = ParcelUtil.readPrivateKey(in);
-                    enterpriseConfig.mClientCertificateChain = ParcelUtil.readCertificates(in);
-                    enterpriseConfig.mKeyChainAlias = in.readString();
+
+                    X509Certificate[] caCerts = ParcelUtil.readCertificates(in);
+                    if (caCerts != null && caCerts.length > CA_CERTIFICATES_MAX_ELEMENTS) {
+                        Log.e(TAG, "List of CA certificates with size "
+                                + caCerts.length + " received during unparceling");
+                        enterpriseConfig.mCaCerts = null;
+                    } else {
+                        enterpriseConfig.mCaCerts = caCerts;
+                    }
+
+                    PrivateKey privateKey = ParcelUtil.readPrivateKey(in);
+                    if (privateKey != null && privateKey.getEncoded() != null
+                            && privateKey.getEncoded().length > CERTIFICATE_MAX_LENGTH) {
+                        Log.e(TAG, "Invalid private key with size "
+                                + privateKey.getEncoded().length + " received during unparceling");
+                        enterpriseConfig.mClientPrivateKey = null;
+                    } else {
+                        enterpriseConfig.mClientPrivateKey = privateKey;
+                    }
+
+                    X509Certificate[] clientCertificateChain = ParcelUtil.readCertificates(in);
+                    if (clientCertificateChain != null
+                            && clientCertificateChain.length
+                                    > CLIENT_CERTIFICATE_CHAIN_MAX_ELEMENTS) {
+                        Log.e(TAG, "Client certificate chain with size "
+                                + clientCertificateChain.length + " received during unparceling");
+                        enterpriseConfig.mClientCertificateChain = null;
+                    } else {
+                        enterpriseConfig.mClientCertificateChain = clientCertificateChain;
+                    }
+
+                    String keyChainAlias = in.readString();
+                    enterpriseConfig.mKeyChainAlias =
+                            isFieldLengthValid(keyChainAlias, KEYCHAIN_ALIAS_MAX_LENGTH)
+                                    ? keyChainAlias : "";
                     enterpriseConfig.mIsAppInstalledDeviceKeyAndCert = in.readBoolean();
                     enterpriseConfig.mIsAppInstalledCaCert = in.readBoolean();
                     enterpriseConfig.mOcsp = in.readInt();
                     enterpriseConfig.mIsTrustOnFirstUseEnabled = in.readBoolean();
                     enterpriseConfig.mUserApproveNoCaCert = in.readBoolean();
                     enterpriseConfig.mMinimumTlsVersion = in.readInt();
+                    enterpriseConfig.mTofuDialogState = in.readInt();
+                    enterpriseConfig.mTofuConnectionState = in.readInt();
                     return enterpriseConfig;
                 }
 
@@ -548,10 +747,14 @@ public class WifiEnterpriseConfig implements Parcelable {
                 || mEapMethod == WifiEnterpriseConfig.Eap.AKA
                 || mEapMethod == WifiEnterpriseConfig.Eap.AKA_PRIME;
         for (String key : mFields.keySet()) {
+            String value = mFields.get(key);
+            if (!isFieldValid(key, value)) {
+                continue;
+            }
             if (shouldNotWriteAnonIdentity && ANON_IDENTITY_KEY.equals(key)) {
                 continue;
             }
-            if (!saver.saveValue(key, mFields.get(key))) {
+            if (!saver.saveValue(key, value)) {
                 return false;
             }
         }
@@ -583,7 +786,9 @@ public class WifiEnterpriseConfig implements Parcelable {
     public void loadFromSupplicant(SupplicantLoader loader) {
         for (String key : SUPPLICANT_CONFIG_KEYS) {
             String value = loader.loadValue(key);
-            if (value == null) {
+            if (!isFieldValid(key, value)) {
+                continue;
+            } else if (value == null) {
                 mFields.put(key, EMPTY_VALUE);
             } else {
                 mFields.put(key, value);
@@ -936,10 +1141,15 @@ public class WifiEnterpriseConfig implements Parcelable {
      *
      * @param certs X.509 CA certificates
      * @throws IllegalArgumentException if any of the provided certificates is
-     *     not a CA certificate
+     *     not a CA certificate, or if too many CA certificates are provided
      */
     public void setCaCertificates(@Nullable X509Certificate[] certs) {
         if (certs != null) {
+            if (certs.length > CA_CERTIFICATES_MAX_ELEMENTS) {
+                mCaCerts = null;
+                throw new IllegalArgumentException("List of CA certificates contains more "
+                        + "than the allowed number of elements");
+            }
             X509Certificate[] newCerts = new X509Certificate[certs.length];
             for (int i = 0; i < certs.length; i++) {
                 if (certs[i].getBasicConstraints() >= 0) {
@@ -1094,6 +1304,10 @@ public class WifiEnterpriseConfig implements Parcelable {
             // We use this to judge whether the certificate is an end
             // certificate or a CA certificate.
             // https://cryptography.io/en/latest/x509/reference/
+            if (clientCertificateChain.length > CLIENT_CERTIFICATE_CHAIN_MAX_ELEMENTS) {
+                throw new IllegalArgumentException(
+                        "Certificate chain contains more than the allowed number of elements");
+            }
             if (clientCertificateChain[0].getBasicConstraints() != -1) {
                 throw new IllegalArgumentException(
                         "First certificate in the chain must be a client end certificate");
@@ -1111,8 +1325,13 @@ public class WifiEnterpriseConfig implements Parcelable {
             if (privateKey == null) {
                 throw new IllegalArgumentException("Client cert without a private key");
             }
-            if (privateKey.getEncoded() == null) {
+            byte[] encodedKey = privateKey.getEncoded();
+            if (encodedKey == null) {
                 throw new IllegalArgumentException("Private key cannot be encoded");
+            }
+            if (encodedKey.length > CERTIFICATE_MAX_LENGTH) {
+                throw new IllegalArgumentException(
+                        "Private key exceeds the maximum allowed length");
             }
         }
 
@@ -1133,6 +1352,9 @@ public class WifiEnterpriseConfig implements Parcelable {
     public void setClientKeyPairAlias(@NonNull String alias) {
         if (!SdkLevel.isAtLeastS()) {
             throw new UnsupportedOperationException();
+        }
+        if (!isFieldLengthValid(alias, KEYCHAIN_ALIAS_MAX_LENGTH)) {
+            throw new IllegalArgumentException();
         }
         mKeyChainAlias = alias;
     }
@@ -1409,8 +1631,10 @@ public class WifiEnterpriseConfig implements Parcelable {
      * @hide
      */
     private String getFieldValue(String key, String prefix) {
-        // TODO: Should raise an exception if |key| is EAP_KEY or PHASE2_KEY since
-        // neither of these keys should be retrieved in this manner.
+        if (!isKeySupported(key)) {
+            return "";
+        }
+
         String value = mFields.get(key);
         // Uninitialized or known to be empty after reading from supplicant
         if (TextUtils.isEmpty(value) || EMPTY_VALUE.equals(value)) return "";
@@ -1441,8 +1665,9 @@ public class WifiEnterpriseConfig implements Parcelable {
      * @hide
      */
     private void setFieldValue(String key, String value, String prefix) {
-        // TODO: Should raise an exception if |key| is EAP_KEY or PHASE2_KEY since
-        // neither of these keys should be set in this manner.
+        if (!isFieldValid(key, value)) {
+            return;
+        }
         if (TextUtils.isEmpty(value)) {
             mFields.put(key, EMPTY_VALUE);
         } else {
@@ -1487,6 +1712,8 @@ public class WifiEnterpriseConfig implements Parcelable {
         sb.append(" minimum_tls_version: ").append(mMinimumTlsVersion).append("\n");
         sb.append(" enable_conservative_peer_mode: ")
                 .append(mIsStrictConservativePeerMode).append("\n");
+        sb.append(" tofu_dialog_state: ").append(mTofuDialogState).append("\n");
+        sb.append(" tofu_connection_state: ").append(mTofuConnectionState).append("\n");
         return sb.toString();
     }
 
@@ -1780,6 +2007,12 @@ public class WifiEnterpriseConfig implements Parcelable {
      */
     public void enableTrustOnFirstUse(boolean enable) {
         mIsTrustOnFirstUseEnabled = enable;
+        if (mTofuConnectionState != TOFU_STATE_CONFIGURE_ROOT_CA &&
+                mTofuConnectionState != TOFU_STATE_CERT_PINNING) {
+            // Override the current pre-connection state.
+            mTofuConnectionState = enable ?
+                    TOFU_STATE_ENABLED_PRE_CONNECTION : TOFU_STATE_NOT_ENABLED;
+        }
     }
 
     /**
@@ -1789,6 +2022,54 @@ public class WifiEnterpriseConfig implements Parcelable {
      */
     public boolean isTrustOnFirstUseEnabled() {
         return mIsTrustOnFirstUseEnabled;
+    }
+
+    /**
+     * Set the TOFU connection state.
+     * @hide
+     */
+    public void setTofuConnectionState(@TofuConnectionState int state) {
+        if (state < TOFU_STATE_NOT_ENABLED || state > TOFU_STATE_CERT_PINNING) {
+            Log.e(TAG, "Invalid TOFU connection state received. state=" + state);
+            return;
+        }
+        mTofuConnectionState = state;
+    }
+
+    /**
+     * Get the TOFU connection state.
+     * @hide
+     */
+    public @TofuConnectionState int getTofuConnectionState() {
+        return mTofuConnectionState;
+    }
+
+    /**
+     * Indicate whether the user accepted the TOFU dialog.
+     * @hide
+     */
+    public void setTofuDialogApproved(boolean approved) {
+        mTofuDialogState = approved ? TOFU_DIALOG_STATE_ACCEPTED : TOFU_DIALOG_STATE_REJECTED;
+    }
+
+    /**
+     * Set the TOFU dialog state.
+     * @hide
+     */
+    public void setTofuDialogState(@TofuDialogState int state) {
+        if (state < TOFU_DIALOG_STATE_UNSPECIFIED || state > TOFU_DIALOG_STATE_ACCEPTED) {
+            Log.e(TAG, "Invalid TOFU dialog state received. state=" + state);
+            return;
+        }
+        mTofuDialogState = state;
+    }
+
+    /**
+     * Get the TOFU dialog state.
+     * @hide
+     */
+    public @TofuDialogState int getTofuDialogState() {
+        return mTofuDialogState;
     }
 
     /**

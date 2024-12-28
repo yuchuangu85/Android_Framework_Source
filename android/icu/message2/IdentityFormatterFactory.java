@@ -1,6 +1,6 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 // © 2022 and later: Unicode, Inc. and others.
-// License & terms of use: http://www.unicode.org/copyright.html
+// License & terms of use: https://www.unicode.org/copyright.html
 
 package android.icu.message2;
 
@@ -26,7 +26,8 @@ class IdentityFormatterFactory implements FormatterFactory {
          */
         @Override
         public FormattedPlaceholder format(Object toFormat, Map<String, Object> variableOptions) {
-            return new FormattedPlaceholder(toFormat, new PlainStringFormattedValue(Objects.toString(toFormat)));
+            return new FormattedPlaceholder(
+                    toFormat, new PlainStringFormattedValue(Objects.toString(toFormat)));
         }
 
         /**

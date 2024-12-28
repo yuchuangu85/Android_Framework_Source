@@ -31,6 +31,7 @@ public final class LocaleData {
     private boolean noSubstitute;
     private ICUResourceBundle bundle;
     private ICUResourceBundle langBundle;
+    private MissingResourceException langBundleException;
 
     /**
      * EXType for {@link #getExemplarSet(int, int)}.
@@ -223,7 +224,12 @@ public final class LocaleData {
     public static final LocaleData getInstance(ULocale locale) {
         LocaleData ld = new LocaleData();
         ld.bundle = (ICUResourceBundle)UResourceBundle.getBundleInstance(ICUData.ICU_BASE_NAME, locale);
-        ld.langBundle = (ICUResourceBundle)UResourceBundle.getBundleInstance(ICUData.ICU_LANG_BASE_NAME, locale);
+        try {
+            ld.langBundle = (ICUResourceBundle)UResourceBundle.getBundleInstance(ICUData.ICU_LANG_BASE_NAME, locale);
+        } catch (MissingResourceException mre) {
+            // Expected error case: ICU-22149
+            ld.langBundleException = mre;
+        }
         ld.noSubstitute = false;
         return ld;
     }
@@ -406,6 +412,9 @@ public final class LocaleData {
      * @hide unsupported on Android
      */
     public String getLocaleDisplayPattern() {
+        if (langBundle == null) {
+            throw langBundleException;
+        }
         ICUResourceBundle locDispBundle = (ICUResourceBundle) langBundle.get(LOCALE_DISPLAY_PATTERN);
         String localeDisplayPattern = locDispBundle.getStringWithFallback(PATTERN);
         return localeDisplayPattern;
@@ -417,6 +426,9 @@ public final class LocaleData {
      * @hide unsupported on Android
      */
     public String getLocaleSeparator() {
+        if (langBundle == null) {
+            throw langBundleException;
+        }
         String sub0 = "{0}";
         String sub1 = "{1}";
         ICUResourceBundle locDispBundle = (ICUResourceBundle) langBundle.get(LOCALE_DISPLAY_PATTERN);

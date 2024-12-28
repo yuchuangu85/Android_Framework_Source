@@ -16,6 +16,7 @@
 
 package android.net.wifi.p2p;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -23,6 +24,8 @@ import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.net.MacAddress;
+import android.net.wifi.OuiKeyedData;
+import android.net.wifi.ParcelUtil;
 import android.net.wifi.WpsInfo;
 import android.os.Build;
 import android.os.Parcel;
@@ -32,10 +35,14 @@ import android.text.TextUtils;
 import androidx.annotation.RequiresApi;
 
 import com.android.modules.utils.build.SdkLevel;
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.regex.PatternSyntaxException;
 
 /**
@@ -194,6 +201,48 @@ public class WifiP2pConfig implements Parcelable {
         return netId;
     }
 
+    /** List of {@link OuiKeyedData} providing vendor-specific configuration data. */
+    private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
+
+    /**
+     * Set additional vendor-provided configuration data.
+     *
+     * @param vendorData List of {@link android.net.wifi.OuiKeyedData} containing the
+     *                   vendor-provided configuration data. Note that multiple elements with
+     *                   the same OUI are allowed.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SystemApi
+    public void setVendorData(@NonNull List<OuiKeyedData> vendorData) {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        if (vendorData == null) {
+            throw new IllegalArgumentException("setVendorData received a null value");
+        }
+        mVendorData = new ArrayList<>(vendorData);
+    }
+
+    /**
+     * Return the vendor-provided configuration data, if it exists. See also {@link
+     * #setVendorData(List)}
+     *
+     * @return Vendor configuration data, or empty list if it does not exist.
+     * @hide
+     */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SystemApi
+    @NonNull
+    public List<OuiKeyedData> getVendorData() {
+        if (!SdkLevel.isAtLeastV()) {
+            throw new UnsupportedOperationException();
+        }
+        return mVendorData;
+    }
+
     public WifiP2pConfig() {
         //set defaults
         wps = new WpsInfo();
@@ -269,6 +318,7 @@ public class WifiP2pConfig implements Parcelable {
         sbuf.append("\n groupOwnerBand: ").append(groupOwnerBand);
         sbuf.append("\n groupClientIpProvisioningMode: ").append(mGroupClientIpProvisioningMode);
         sbuf.append("\n joinExistingGroup: ").append(mJoinExistingGroup);
+        sbuf.append("\n vendorData: ").append(mVendorData);
         return sbuf.toString();
     }
 
@@ -289,6 +339,7 @@ public class WifiP2pConfig implements Parcelable {
             groupOwnerBand = source.groupOwnerBand;
             mGroupClientIpProvisioningMode = source.mGroupClientIpProvisioningMode;
             mJoinExistingGroup = source.mJoinExistingGroup;
+            mVendorData = new ArrayList<>(source.mVendorData);
         }
     }
 
@@ -303,6 +354,7 @@ public class WifiP2pConfig implements Parcelable {
         dest.writeInt(groupOwnerBand);
         dest.writeInt(mGroupClientIpProvisioningMode);
         dest.writeBoolean(mJoinExistingGroup);
+        dest.writeList(mVendorData);
     }
 
     /** Implement the Parcelable interface */
@@ -320,6 +372,7 @@ public class WifiP2pConfig implements Parcelable {
                 config.groupOwnerBand = in.readInt();
                 config.mGroupClientIpProvisioningMode = in.readInt();
                 config.mJoinExistingGroup = in.readBoolean();
+                config.mVendorData = ParcelUtil.readOuiKeyedDataList(in);
                 return config;
             }
 

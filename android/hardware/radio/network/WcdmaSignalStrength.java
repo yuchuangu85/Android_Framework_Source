@@ -1,7 +1,9 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/WcdmaSignalStrength.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/WcdmaSignalStrength.aidl
  */
 package android.hardware.radio.network;
+/** @hide */
 public class WcdmaSignalStrength implements android.os.Parcelable
 {
   public int signalStrength = 0;
@@ -63,7 +65,7 @@ public class WcdmaSignalStrength implements android.os.Parcelable
     _aidl_sj.add("bitErrorRate: " + (bitErrorRate));
     _aidl_sj.add("rscp: " + (rscp));
     _aidl_sj.add("ecno: " + (ecno));
-    return "android.hardware.radio.network.WcdmaSignalStrength" + _aidl_sj.toString()  ;
+    return "WcdmaSignalStrength" + _aidl_sj.toString()  ;
   }
   @Override
   public int describeContents() {

@@ -1,5 +1,6 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl-java-source/gen/android/permission/IPermissionChecker.java.d -o out/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl-java-source/gen -Nframeworks/native/libs/permission/aidl frameworks/native/libs/permission/aidl/android/permission/IPermissionChecker.aidl
  */
 package android.permission;
 /** Interface to communicate directly with the permission checker service. */
@@ -28,6 +29,7 @@ public interface IPermissionChecker extends android.os.IInterface
   public static abstract class Stub extends android.os.Binder implements android.permission.IPermissionChecker
   {
     /** Construct the stub at attach it to the interface. */
+    @SuppressWarnings("this-escape")
     public Stub()
     {
       this.attachInterface(this, DESCRIPTOR);
@@ -57,13 +59,9 @@ public interface IPermissionChecker extends android.os.IInterface
       if (code >= android.os.IBinder.FIRST_CALL_TRANSACTION && code <= android.os.IBinder.LAST_CALL_TRANSACTION) {
         data.enforceInterface(descriptor);
       }
-      switch (code)
-      {
-        case INTERFACE_TRANSACTION:
-        {
-          reply.writeString(descriptor);
-          return true;
-        }
+      if (code == INTERFACE_TRANSACTION) {
+        reply.writeString(descriptor);
+        return true;
       }
       switch (code)
       {
@@ -210,7 +208,8 @@ public interface IPermissionChecker extends android.os.IInterface
     static final int TRANSACTION_finishDataDelivery = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
     static final int TRANSACTION_checkOp = (android.os.IBinder.FIRST_CALL_TRANSACTION + 2);
   }
-  public static final java.lang.String DESCRIPTOR = "android$permission$IPermissionChecker".replace('$', '.');
+  /** @hide */
+  public static final java.lang.String DESCRIPTOR = "android.permission.IPermissionChecker";
   public static final int PERMISSION_GRANTED = 0;
   public static final int PERMISSION_SOFT_DENIED = 1;
   public static final int PERMISSION_HARD_DENIED = 2;

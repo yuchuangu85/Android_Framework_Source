@@ -34,43 +34,39 @@ public class PersonNameFormatterImpl {
     private final String initialSequencePattern;
     private final boolean capitalizeSurname;
     private final String foreignSpaceReplacement;
-    private final boolean formatterLocaleUsesSpaces;
+    private final String nativeSpaceReplacement;
     private final PersonNameFormatter.Length length;
     private final PersonNameFormatter.Usage usage;
     private final PersonNameFormatter.Formality formality;
-    private final Set<PersonNameFormatter.Options> options;
+    private final PersonNameFormatter.DisplayOrder displayOrder;
 
     public PersonNameFormatterImpl(Locale locale,
                                    PersonNameFormatter.Length length,
                                    PersonNameFormatter.Usage usage,
                                    PersonNameFormatter.Formality formality,
-                                   Set<PersonNameFormatter.Options> options) {
-        // null for `options` is the same as the empty set
-        if (options == null) {
-            options = new HashSet<>();
-        }
-
+                                   PersonNameFormatter.DisplayOrder displayOrder,
+                                   boolean surnameAllCaps) {
         // save off our creation parameters (these are only used if we have to create a second formatter)
         this.length = length;
         this.usage = usage;
         this.formality = formality;
-        this.options = options;
+        this.displayOrder = displayOrder;
+        this.capitalizeSurname = surnameAllCaps;
 
         // load simple property values from the resource bundle (or the options set)
         ICUResourceBundle rb = (ICUResourceBundle)UResourceBundle.getBundleInstance(ICUData.ICU_BASE_NAME, locale);
         this.locale = locale;
         this.initialPattern = rb.getStringWithFallback("personNames/initialPattern/initial");
         this.initialSequencePattern = rb.getStringWithFallback("personNames/initialPattern/initialSequence");
-        this.capitalizeSurname = options.contains(PersonNameFormatter.Options.SURNAME_ALLCAPS);
         this.foreignSpaceReplacement = rb.getStringWithFallback("personNames/foreignSpaceReplacement");
-        this.formatterLocaleUsesSpaces = !LOCALES_THAT_DONT_USE_SPACES.contains(locale.getLanguage());
+        this.nativeSpaceReplacement = rb.getStringWithFallback("personNames/nativeSpaceReplacement");
 
         // asjust for combinations of parameters that don't make sense in practice
         if (usage == PersonNameFormatter.Usage.MONOGRAM) {
             // we don't support SORTING in conjunction with MONOGRAM; if the caller passes in SORTING, remove it from
             // the options list
-            options.remove(PersonNameFormatter.Options.SORTING);
-        } else if (options.contains(PersonNameFormatter.Options.SORTING)) {
+            displayOrder = PersonNameFormatter.DisplayOrder.DEFAULT;
+        } else if (displayOrder == PersonNameFormatter.DisplayOrder.SORTING) {
             // we only support SORTING in conjunction with REFERRING; if the caller passes in ADDRESSING, treat it
             // the same as REFERRING
             usage = PersonNameFormatter.Usage.REFERRING;
@@ -80,9 +76,12 @@ public class PersonNameFormatterImpl {
         // different for different names), load patterns for both given-first and surname-first names.  (If the user has
         // specified SORTING, we don't need to do this-- we just load the "sorting" patterns and ignore the name's order.)
         final String RESOURCE_PATH_PREFIX = "personNames/namePattern/";
-        String resourceNameBody = length.toString().toLowerCase() + "-" + usage.toString().toLowerCase() + "-"
-                + formality.toString().toLowerCase();
-        if (!options.contains(PersonNameFormatter.Options.SORTING)) {
+        String lengthStr = (length != PersonNameFormatter.Length.DEFAULT) ? length.toString().toLowerCase()
+                : rb.getStringWithFallback("personNames/parameterDefault/length");
+        String formalityStr = (formality != PersonNameFormatter.Formality.DEFAULT) ? formality.toString().toLowerCase()
+                : rb.getStringWithFallback("personNames/parameterDefault/formality");
+        String resourceNameBody = lengthStr + "-" + usage.toString().toLowerCase() + "-" + formalityStr;
+        if (displayOrder != PersonNameFormatter.DisplayOrder.SORTING) {
             ICUResourceBundle gnFirstResource = rb.getWithFallback(RESOURCE_PATH_PREFIX + "givenFirst-" + resourceNameBody);
             ICUResourceBundle snFirstResource = rb.getWithFallback(RESOURCE_PATH_PREFIX + "surnameFirst-" + resourceNameBody);
 
@@ -106,54 +105,80 @@ public class PersonNameFormatterImpl {
     /**
      * THIS IS A DUMMY CONSTRUCTOR JUST FOR THE USE OF THE UNIT TESTS TO CHECK SOME OF THE INTERNAL IMPLEMENTATION!
      */
-    public PersonNameFormatterImpl(Locale locale, String[] patterns) {
+    public PersonNameFormatterImpl(Locale locale, String[] gnFirstPatterns, String[] snFirstPatterns, String[] gnFirstLocales, String[] snFirstLocales) {
         // first, set dummy values for the other fields
-        snFirstPatterns = null;
-        gnFirstLocales = null;
-        snFirstLocales = null;
         length = PersonNameFormatter.Length.MEDIUM;
         usage = PersonNameFormatter.Usage.REFERRING;
         formality = PersonNameFormatter.Formality.FORMAL;
-        options = Collections.emptySet();
+        displayOrder = PersonNameFormatter.DisplayOrder.DEFAULT;
         initialPattern = "{0}.";
         initialSequencePattern = "{0} {1}";
         capitalizeSurname = false;
         foreignSpaceReplacement = " ";
-        formatterLocaleUsesSpaces = true;
+        nativeSpaceReplacement = " ";
 
-        // then, set values for the fields we actually care about
+        // then, set values for the fields we actually care about (all but gnFirstPatterns are optional)
         this.locale = locale;
-        gnFirstPatterns = PersonNamePattern.makePatterns(patterns, this);
+        this.gnFirstPatterns = PersonNamePattern.makePatterns(gnFirstPatterns, this);
+        this.snFirstPatterns = (snFirstPatterns != null) ? PersonNamePattern.makePatterns(snFirstPatterns, this) : null;
+        if (gnFirstLocales != null) {
+            this.gnFirstLocales = new HashSet<>();
+            Collections.addAll(this.gnFirstLocales, gnFirstLocales);
+        } else {
+            this.gnFirstLocales = null;
+        }
+        if (snFirstLocales != null) {
+            this.snFirstLocales = new HashSet<>();
+            Collections.addAll(this.snFirstLocales, snFirstLocales);
+        } else {
+            this.snFirstLocales = null;
+        }
+    }
 
+    @Override
+    public String toString() {
+        return "PersonNameFormatter: " + displayOrder + "-" + length + "-" + usage + "-" + formality + ", " + locale;
     }
 
     public String formatToString(PersonName name) {
         // TODO: Should probably return a FormattedPersonName object
 
-        // if the formatter is for a language that doesn't use spaces between words and the name is from a language
-        // that does, create a formatter for the NAME'S locale and use THAT to format the name
         Locale nameLocale = getNameLocale(name);
-        boolean nameLocaleUsesSpaces = !LOCALES_THAT_DONT_USE_SPACES.contains(nameLocale.getLanguage());
-        if (!formatterLocaleUsesSpaces && nameLocaleUsesSpaces) {
-            PersonNameFormatterImpl nativeFormatter = new PersonNameFormatterImpl(nameLocale, this.length,
-                    this.usage, this.formality, this.options);
-            String result = nativeFormatter.formatToString(name);
+        String nameScript = getNameScript(name);
 
-            // BUT, if the name is actually written in the formatter locale's script, replace any spaces in the name
-            // with the foreignSpaceReplacement character
-            if (!foreignSpaceReplacement.equals(" ") && scriptMatchesLocale(result, this.locale)) {
-                result = result.replace(" ", this.foreignSpaceReplacement);
+        if (!nameScriptMatchesLocale(nameScript, this.locale)) {
+            Locale newFormattingLocale;
+            if (formattingLocaleExists(nameLocale)) {
+                newFormattingLocale = nameLocale;
+            } else {
+                newFormattingLocale = newLocaleWithScript(null, nameScript, nameLocale.getCountry());
             }
-            return result;
+            PersonNameFormatterImpl nameLocaleFormatter = new PersonNameFormatterImpl(newFormattingLocale, this.length,
+                    this.usage, this.formality, this.displayOrder, this.capitalizeSurname);
+            return nameLocaleFormatter.formatToString(name);
         }
 
-        // if we get down to here, we're just doing normal formatting-- if we have both given-first and surname-first
-        // rules, choose which one to use based on the name's locale and preferred field order
+        String result = null;
+
+        // choose the GN-first or SN-first pattern based on the name itself and use that to format it
         if (snFirstPatterns == null || nameIsGnFirst(name)) {
-            return getBestPattern(gnFirstPatterns, name).format(name);
+            result = getBestPattern(gnFirstPatterns, name).format(name);
         } else {
-            return getBestPattern(snFirstPatterns, name).format(name);
+            result = getBestPattern(snFirstPatterns, name).format(name);
         }
+
+        // if either of the space-replacement characters is something other than a space,
+        // check to see if the name locale's language matches the formatter locale's language.
+        // If they match, replace all spaces with the native space-replacement character,
+        // and if they don't, replace all spaces with the foreign space-replacement character
+        if (!nativeSpaceReplacement.equals(" ") || !foreignSpaceReplacement.equals(" ")) {
+            if (localesMatch(nameLocale, this.locale)) {
+                result = result.replace(" ", nativeSpaceReplacement);
+            } else {
+                result = result.replace(" ", foreignSpaceReplacement);
+            }
+        }
+        return result;
     }
 
     public Locale getLocale() {
@@ -166,7 +191,8 @@ public class PersonNameFormatterImpl {
 
     public PersonNameFormatter.Formality getFormality() { return formality; }
 
-    public Set<PersonNameFormatter.Options> getOptions() { return options; }
+    public PersonNameFormatter.DisplayOrder getDisplayOrder() { return displayOrder; }
+    public boolean getSurnameAllCaps() { return capitalizeSurname; }
 
     public String getInitialPattern() {
         return initialPattern;
@@ -180,7 +206,7 @@ public class PersonNameFormatterImpl {
         return capitalizeSurname;
     }
 
-    private final Set<String> LOCALES_THAT_DONT_USE_SPACES = new HashSet<>(Arrays.asList("ja", "zh", "th", "yue", "km", "lo"));
+    static final Set<String> NON_DEFAULT_SCRIPTS = new HashSet<>(Arrays.asList("Hani", "Hira", "Kana"));
 
     /**
      * Returns the value of the resource, as a string array.
@@ -205,36 +231,72 @@ public class PersonNameFormatterImpl {
      * @return If true, use given-first order to format the name; if false, use surname-first order.
      */
     private boolean nameIsGnFirst(PersonName name) {
-        // the name can declare its order-- check that first (it overrides any locale-based calculation)
-        Set<PersonName.FieldModifier> modifiers = new HashSet<>();
-        String preferredOrder = name.getFieldValue(PersonName.NameField.PREFERRED_ORDER, modifiers);
-        if (preferredOrder != null) {
-            if (preferredOrder.equals("givenFirst")) {
-                return true;
-            } else if (preferredOrder.equals("surnameFirst")) {
-                return false;
-            } else {
-                throw new IllegalArgumentException("Illegal preferredOrder value " + preferredOrder);
-            }
+        // if the formatter has its display order set to one of the "force" values, that overrides
+        // all this logic and the name's preferred-order property
+        if (this.displayOrder == PersonNameFormatter.DisplayOrder.FORCE_GIVEN_FIRST) {
+            return true;
+        } else if (this.displayOrder == PersonNameFormatter.DisplayOrder.FORCE_SURNAME_FIRST) {
+            return false;
         }
 
-        String localeStr = getNameLocale(name).toString();
+        // the name can declare its order-- check that first (it overrides any locale-based calculation)
+        if (name.getPreferredOrder() == PersonName.PreferredOrder.GIVEN_FIRST) {
+            return true;
+        } else if (name.getPreferredOrder() == PersonName.PreferredOrder.SURNAME_FIRST) {
+            return false;
+        }
+
+        // Otherwise, search the gnFirstLocales and snFirstLocales for the locale's name.
+        // For our purposes, the "locale's name" is the locale the name itself gives us (if it
+        // has one), or the locale we guess for the name (if it doesn't).
+        Locale nameLocale = name.getNameLocale();
+        if (nameLocale == null) {
+            nameLocale = getNameLocale(name);
+        }
+
+        // this is a hack to deal with certain script codes that are valid, but not the default, for their locales--
+        // to make the parent-chain lookup work right, we need to replace any of those script codes (in the name's locale)
+        // with the appropriate default script for whatever language and region we have
+        ULocale nameULocale = ULocale.forLocale(nameLocale);
+        if (NON_DEFAULT_SCRIPTS.contains(nameULocale.getScript())) {
+            ULocale.Builder builder = new ULocale.Builder();
+            builder.setLocale(nameULocale);
+            builder.setScript(null);
+            nameULocale = ULocale.addLikelySubtags(builder.build());
+        }
+
+        // now search for the locale in the gnFirstLocales and snFirstLocales lists...
+        String localeStr = nameULocale.getName();
+        String origLocaleStr = localeStr;
+        String languageCode = nameULocale.getLanguage();
+
         do {
+            // first check if the locale is in one of those lists
             if (gnFirstLocales.contains(localeStr)) {
                 return true;
             } else if (snFirstLocales.contains(localeStr)) {
                 return false;
             }
 
-            int lastUnderbarPos = localeStr.lastIndexOf("_");
-            if (lastUnderbarPos >= 0) {
-                localeStr = localeStr.substring(0, lastUnderbarPos);
-            } else {
-                localeStr = "root";
+            // if not, try again with "und" in place of the language code (this lets us use "und_CN" to match
+            // all locales with a region code of "CN" and makes sure the last thing we try is always "und", which
+            // is required to be in gnFirstLocales or snFirstLocales)
+            String undStr = localeStr.replaceAll("^" + languageCode, "und");
+            if (gnFirstLocales.contains(undStr)) {
+                return true;
+            } else if (snFirstLocales.contains(undStr)) {
+                return false;
             }
-        } while (!localeStr.equals("root"));
 
-        // should never get here-- "root" should always be in one of the locales
+            // if we haven't found the locale ID yet, look up its parent locale ID and try again-- if getParentLocaleID()
+            // returns null (i.e., we have a locale ID, such as "zh_Hant", that inherits directly from "root"), try again
+            // with just the locale ID's language code (this fixes it so that "zh_Hant" matches "zh", even though "zh" isn't,
+            // strictly speaking, its parent locale)
+            String parentLocaleStr = ICUResourceBundle.getParentLocaleID(localeStr, origLocaleStr, ICUResourceBundle.OpenType.LOCALE_DEFAULT_ROOT);
+            localeStr = (parentLocaleStr != null) ? parentLocaleStr : languageCode;
+        } while (localeStr != null);
+
+        // should never get here ("und" should always be in gnFirstLocales or snFirstLocales), but if we do...
         return true;
     }
 
@@ -267,6 +329,67 @@ public class PersonNameFormatterImpl {
     }
 
     /**
+     * Internal function to figure out the name's script by examining its characters.
+     * @param name The name for which we need the script
+     * @return The four-letter script code for the name.
+     */
+    private String getNameScript(PersonName name) {
+        // Rather than exhaustively checking all the fields in the name, we just check the given-name
+        // and surname fields, giving preference to the script of the surname if they're different
+        // (we concatenate them into one string for simplicity).  The "name script" is the script
+        // of the first character we find whose script isn't "common".  If that script is one
+        // of the scripts used by the specified locale, we have a match.
+        String givenName = name.getFieldValue(PersonName.NameField.SURNAME, Collections.emptySet());
+        String surname = name.getFieldValue(PersonName.NameField.GIVEN, Collections.emptySet());
+        String nameText = ((surname != null) ? surname : "") + ((givenName != null) ? givenName : "");
+        int stringScript = UScript.UNKNOWN;
+        for (int i = 0; stringScript == UScript.UNKNOWN && i < nameText.length(); i++) {
+            int c = nameText.codePointAt(i);
+            int charScript = UScript.getScript(c);
+            if (charScript != UScript.COMMON && charScript != UScript.INHERITED && charScript != UScript.UNKNOWN) {
+                stringScript = charScript;
+            }
+        }
+        return UScript.getShortName(stringScript);
+    }
+
+    private Locale newLocaleWithScript(Locale oldLocale, String scriptCode, String regionCode) {
+        Locale workingLocale;
+        String localeScript;
+
+        // if we got the "unknown" script code, don't do anything with it-- just return the original locale
+        if (scriptCode.equals("Zzzz")) {
+            return oldLocale;
+        }
+
+        Locale.Builder builder = new Locale.Builder();
+        if (oldLocale != null) {
+            workingLocale = oldLocale;
+            builder.setLocale(oldLocale);
+            localeScript = ULocale.addLikelySubtags(ULocale.forLocale(oldLocale)).getScript();
+        } else {
+            ULocale tmpLocale = ULocale.addLikelySubtags(new ULocale("und_" + scriptCode));
+            builder.setLanguage(tmpLocale.getLanguage());
+            workingLocale = ULocale.addLikelySubtags(new ULocale(tmpLocale.getLanguage())).toLocale();
+            localeScript = workingLocale.getScript();
+
+            if (regionCode != null) {
+                builder.setRegion(regionCode);
+            }
+        }
+
+        // if the detected character script matches one of the default scripts for the name's locale,
+        // use the name locale's default script code in the locale ID we return (this converts a detected
+        // script of "Hani" to "Hans" for "zh", "Hant" for "zh_Hant", and "Jpan" for "ja")
+        if (!scriptCode.equals(localeScript) && nameScriptMatchesLocale(scriptCode, workingLocale)) {
+            scriptCode = localeScript;
+        }
+
+        builder.setScript(scriptCode);
+        return builder.build();
+    }
+
+    /**
      * Internal function to figure out the name's locale when the name doesn't specify it.
      * (Note that this code assumes that if the locale is specified, it includes a language
      * code.)
@@ -274,57 +397,69 @@ public class PersonNameFormatterImpl {
      * @return The name's (real or guessed) locale.
      */
     private Locale getNameLocale(PersonName name) {
-        // if the name specifies its locale, we can just return it
-        Locale nameLocale = name.getNameLocale();
-        if (nameLocale == null) {
-            // if not, we look at the characters in the name.  If their script matches the default script for the formatter's
-            // locale, we use the formatter's locale as the name's locale
-            int formatterScript = UScript.getCodeFromName(ULocale.addLikelySubtags(ULocale.forLocale(locale)).getScript());
-            String givenName = name.getFieldValue(PersonName.NameField.GIVEN, new HashSet<PersonName.FieldModifier>());
-            int nameScript = UScript.INVALID_CODE;
-            for (int i = 0; nameScript == UScript.INVALID_CODE && i < givenName.length(); i++) {
-                // the script of the name is the script of the first character in the name whose script isn't
-                // COMMON or INHERITED
-                int script = UScript.getScript(givenName.charAt(i));
-                if (script != UScript.COMMON && script != UScript.INHERITED) {
-                    nameScript = script;
-                }
-            }
-            if (formatterScript == nameScript) {
-                nameLocale = this.locale;
-            } else {
-                // if the name's script is different from the formatter's script, we use addLikelySubtags() to find the
-                // default language for the name's script and use THAT as the name's locale
-                nameLocale = new Locale(ULocale.addLikelySubtags(new ULocale("und_" + UScript.getShortName(nameScript))).getLanguage());
-            }
-            // TODO: This algorithm has a few deficiencies: First, it assumes the script of the string is the script of the first
-            // character in the string that's not COMMON or INHERITED.  This won't work well for some languages, such as Japanese,
-            // that use multiple scripts.  Doing better would require adding a new getScript(String) method on UScript, which
-            // might be something we want.  Second, we only look at the given-name field.  This field should always be populated,
-            // but if it isn't, we're stuck.  Looking at all the fields requires API on PersonName that we don't need anywhere
-            // else.
-        }
-        return nameLocale;
+        return newLocaleWithScript(name.getNameLocale(), getNameScript(name), null);
     }
 
     /**
-     * Returns true if the script of `s` is one of the default scripts for `locale`.
-     * This function only checks the script of the first character whose script isn't "common,"
-     * so it probably won't work right on mixed-script strings.
+     * Returns true if the characters in the name match one of the scripts for the specified locale.
      */
-    private boolean scriptMatchesLocale(String s, Locale locale) {
-        int[] localeScripts = UScript.getCode(locale);
-        int stringScript = UScript.COMMON;
-        for (int i = 0; stringScript == UScript.COMMON && i < s.length(); i++) {
-            char c = s.charAt(i);
-            stringScript = UScript.getScript(c);
+    private boolean nameScriptMatchesLocale(String nameScriptID, Locale formatterLocale) {
+        // if the script code is the "unknown" script, pretend it matches everything
+        if (nameScriptID.equals("Zzzz")) {
+            return true;
         }
 
+        int[] localeScripts = UScript.getCode(formatterLocale);
+        int nameScript = UScript.getCodeFromName(nameScriptID);
+
         for (int localeScript : localeScripts) {
-            if (localeScript == stringScript) {
+            if (localeScript == nameScript || (localeScript == UScript.SIMPLIFIED_HAN && nameScript == UScript.HAN) || (localeScript == UScript.TRADITIONAL_HAN && nameScript == UScript.HAN)) {
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * Returns true if there's actual name formatting data for the specified locale (i.e., when
+     * we fetch the resource data, we don't fall back to root).
+     */
+    private boolean formattingLocaleExists(Locale formattingLocale) {
+        // NOTE: What we really want to test for here is whether we're falling back to root for either the resource bundle itself
+        // or for the personNames/nameOrderLocales/givenFirst and personNames/nameOrderLocales/surnameFirst resources.
+        // The problem is that getBundleInstance() doesn't return root when it can't find what it's looking for; it returns
+        // ULocale.getDefault().  We could theoretically get around this by passing OpenType.LOCALE_ROOT, but this
+        // bypasses the parent-locale table, so fallback across script can happen (ja_Latn falls back to ja instead of root).
+        // So I'm checking to see if the language code got changed and using that as a surrogate for falling back to root.
+        String formattingLanguage = formattingLocale.getLanguage();
+        ICUResourceBundle mainRB = ICUResourceBundle.getBundleInstance(ICUData.ICU_BASE_NAME, ULocale.forLocale(formattingLocale), ICUResourceBundle.OpenType.LOCALE_DEFAULT_ROOT);
+        if (!mainRB.getULocale().getLanguage().equals(formattingLanguage)) {
+            return false;
+        }
+
+        ICUResourceBundle gnFirstResource = mainRB.getWithFallback("personNames/nameOrderLocales/givenFirst");
+        ICUResourceBundle snFirstResource = mainRB.getWithFallback("personNames/nameOrderLocales/surnameFirst");
+
+        return gnFirstResource.getULocale().getLanguage().equals(formattingLanguage) || snFirstResource.getULocale().getLanguage().equals(formattingLanguage);
+    }
+
+    /**
+     * Returns true if the two locales should be considered equivalent for space-replacement purposes.
+     */
+    private boolean localesMatch(Locale nameLocale, Locale formatterLocale) {
+        String nameLanguage = nameLocale.getLanguage();
+        String formatterLanguage = formatterLocale.getLanguage();
+
+        if (nameLanguage.equals(formatterLanguage)) {
+            return true;
+        }
+
+        // HACK to make Japanese and Chinese names use the native format and native space replacement
+        // (do we want to do something more general here?)
+        if ((nameLanguage.equals("ja") || nameLanguage.equals("zh")) && (formatterLanguage.equals("ja") || formatterLanguage.equals("zh"))) {
+            return true;
+        }
+
         return false;
     }
 }
