@@ -38,6 +38,11 @@ import java.util.Set;
  */
 @Identifier(recordIdentifier = RecordTypeIdentifier.RECORD_TYPE_BLOOD_PRESSURE)
 public final class BloodPressureRecord extends InstantRecord {
+    private static final double SYSTOLIC_MIN_VALUE = 20.0;
+    private static final double SYSTOLIC_MAX_VALUE = 300.0;
+    private static final double DIASTOLIC_MIN_VALUE = 10.0;
+    private static final double DIASTOLIC_MAX_VALUE = 300.0;
+
     /**
      * Metric identifier to get average diastolic pressure using aggregate APIs in {@link
      * HealthConnectManager}
@@ -147,9 +152,15 @@ public final class BloodPressureRecord extends InstantRecord {
                 BloodPressureMeasurementLocation.class.getSimpleName());
         if (!skipValidation) {
             ValidationUtils.requireInRange(
-                    systolic.getInMillimetersOfMercury(), 20.0, 200.0, "systolic");
+                    systolic.getInMillimetersOfMercury(),
+                    SYSTOLIC_MIN_VALUE,
+                    SYSTOLIC_MAX_VALUE,
+                    "systolic");
             ValidationUtils.requireInRange(
-                    diastolic.getInMillimetersOfMercury(), 10.0, 180.0, "diastolic");
+                    diastolic.getInMillimetersOfMercury(),
+                    DIASTOLIC_MIN_VALUE,
+                    DIASTOLIC_MAX_VALUE,
+                    "diastolic");
         }
         validateIntDefValue(
                 bodyPosition, BodyPosition.VALID_TYPES, BodyPosition.class.getSimpleName());

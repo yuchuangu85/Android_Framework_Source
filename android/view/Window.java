@@ -1334,6 +1334,9 @@ public abstract class Window {
      * <p>The requested color mode is not guaranteed to be honored. Please refer to
      * {@link #getColorMode()} for more information.</p>
      *
+     * <p>Note: This does not impact SurfaceViews or SurfaceControls, as those have their own
+     * independent color mode and HDR parameters.</p>
+     *
      * @see #getColorMode()
      * @see Display#isWideColorGamut()
      * @see Configuration#isScreenWideColorGamut()
@@ -1345,7 +1348,7 @@ public abstract class Window {
     }
 
     /**
-     * <p>Sets the desired about of HDR headroom to be used when rendering as a ratio of
+     * <p>Sets the desired amount of HDR headroom to be used when rendering as a ratio of
      * targetHdrPeakBrightnessInNits / targetSdrWhitePointInNits. Only applies when
      * {@link #setColorMode(int)} is {@link ActivityInfo#COLOR_MODE_HDR}</p>
      *
@@ -1360,6 +1363,9 @@ public abstract class Window {
      * of factors such as ambient conditions, display capabilities, or bit-depth limitations.
      * See {@link Display#getHdrSdrRatio()} for more information as well as how to query the
      * current value.</p>
+     *
+     * <p>Note: This does not impact SurfaceViews or SurfaceControls, as those have their own
+     * independent desired HDR headroom and HDR capabilities.</p>
      *
      * @param desiredHeadroom The amount of HDR headroom that is desired. Must be >= 1.0 (no HDR)
      *                        and <= 10,000.0. Passing 0.0 will reset to the default, automatically
@@ -1722,7 +1728,9 @@ public abstract class Window {
      * @see View#findViewById(int)
      * @see Window#requireViewById(int)
      */
-    @Nullable
+    // Strictly speaking this should be marked as @Nullable but the nullability of the return value
+    // is deliberately left unspecified as idiomatically correct code can make assumptions either
+    // way based on local context, e.g. layout specification.
     public <T extends View> T findViewById(@IdRes int id) {
         return getDecorView().findViewById(id);
     }
@@ -2954,6 +2962,15 @@ public abstract class Window {
      * There is a second caption drawn underneath it that will be fast enough. By default the
      * caption is constructed from the theme. You can provide a drawable, that will be drawn instead
      * to better match your application.
+     *
+     * Starting in Android 15, this API is a no-op. New window decorations introduced in Android 14
+     * are drawn in SystemUI process, and OEMs are responsible to make them responsive to resizing.
+     * There is no need to set a background drawable to improve UX anymore since then. Additionally,
+     * the foremost activity can draw in caption areas starting in Android 15. Check
+     * {@link WindowInsetsController#APPEARANCE_TRANSPARENT_CAPTION_BAR_BACKGROUND},
+     * {@link WindowInsetsController#APPEARANCE_LIGHT_CAPTION_BARS},
+     * {@link WindowInsetsController#setSystemBarsAppearance(int, int)} and
+     * {@link WindowInsets#getBoundingRects(int)}.
      */
     public abstract void setResizingCaptionDrawable(Drawable drawable);
 

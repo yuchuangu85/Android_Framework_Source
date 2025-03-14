@@ -24,6 +24,8 @@ import android.util.Range;
 import android.util.SparseArray;
 import android.util.proto.ProtoOutputStream;
 
+import com.android.internal.annotations.GuardedBy;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.os.BatteryStatsHistory;
 import com.android.internal.os.BatteryStatsHistoryIterator;
 import com.android.internal.os.MonotonicClock;
@@ -43,7 +45,9 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Contains a snapshot of battery attribution data, on a per-subsystem and per-UID basis.
@@ -95,19 +99,21 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
     static final String XML_TAG_USER = "user";
     static final String XML_TAG_POWER_COMPONENTS = "power_components";
     static final String XML_TAG_COMPONENT = "component";
-    static final String XML_TAG_CUSTOM_COMPONENT = "custom_component";
     static final String XML_ATTR_ID = "id";
     static final String XML_ATTR_UID = "uid";
     static final String XML_ATTR_USER_ID = "user_id";
     static final String XML_ATTR_SCOPE = "scope";
     static final String XML_ATTR_PREFIX_CUSTOM_COMPONENT = "custom_component_";
     static final String XML_ATTR_PREFIX_INCLUDES_PROC_STATE_DATA = "includes_proc_state_data";
+    static final String XML_ATTR_PREFIX_INCLUDES_SCREEN_STATE_DATA = "includes_screen_state_data";
+    static final String XML_ATTR_PREFIX_INCLUDES_POWER_STATE_DATA = "includes_power_state_data";
     static final String XML_ATTR_START_TIMESTAMP = "start_timestamp";
     static final String XML_ATTR_END_TIMESTAMP = "end_timestamp";
     static final String XML_ATTR_PROCESS_STATE = "process_state";
+    static final String XML_ATTR_SCREEN_STATE = "screen_state";
+    static final String XML_ATTR_POWER_STATE = "power_state";
     static final String XML_ATTR_POWER = "power";
     static final String XML_ATTR_DURATION = "duration";
-    static final String XML_ATTR_MODEL = "model";
     static final String XML_ATTR_BATTERY_CAPACITY = "battery_capacity";
     static final String XML_ATTR_DISCHARGE_PERCENT = "discharge_pct";
     static final String XML_ATTR_DISCHARGE_LOWER = "discharge_lower";
@@ -120,8 +126,14 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
     static final String XML_ATTR_TIME_IN_BACKGROUND = "time_in_background";
     static final String XML_ATTR_TIME_IN_FOREGROUND_SERVICE = "time_in_foreground_service";
 
-    // We need about 700 bytes per UID
-    private static final long BATTERY_CONSUMER_CURSOR_WINDOW_SIZE = 5_000 * 700;
+    // Max window size. CursorWindow uses only as much memory as needed.
+    private static final long BATTERY_CONSUMER_CURSOR_WINDOW_SIZE = 20_000_000; // bytes
+
+    /**
+     * Used by tests to ensure all BatteryUsageStats instances are closed.
+     */
+    @VisibleForTesting
+    public static boolean DEBUG_INSTANCE_COUNT;
 
     private static final int STATSD_PULL_ATOM_MAX_BYTES = 45000;
 
@@ -142,12 +154,15 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
     private final long mBatteryTimeRemainingMs;
     private final long mChargeTimeRemainingMs;
     private final String[] mCustomPowerComponentNames;
-    private final boolean mIncludesPowerModels;
     private final boolean mIncludesProcessStateData;
+    private final boolean mIncludesScreenStateData;
+    private final boolean mIncludesPowerStateData;
     private final List<UidBatteryConsumer> mUidBatteryConsumers;
     private final List<UserBatteryConsumer> mUserBatteryConsumers;
     private final AggregateBatteryConsumer[] mAggregateBatteryConsumers;
     private final BatteryStatsHistory mBatteryStatsHistory;
+    private final long mPreferredHistoryDurationMs;
+    private final BatteryConsumer.BatteryConsumerDataLayout mBatteryConsumerDataLayout;
     private CursorWindow mBatteryConsumersCursorWindow;
 
     private BatteryUsageStats(@NonNull Builder builder) {
@@ -160,11 +175,14 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         mDischargedPowerUpperBound = builder.mDischargedPowerUpperBoundMah;
         mDischargeDurationMs = builder.mDischargeDurationMs;
         mBatteryStatsHistory = builder.mBatteryStatsHistory;
+        mPreferredHistoryDurationMs = builder.mPreferredHistoryDurationMs;
         mBatteryTimeRemainingMs = builder.mBatteryTimeRemainingMs;
         mChargeTimeRemainingMs = builder.mChargeTimeRemainingMs;
         mCustomPowerComponentNames = builder.mCustomPowerComponentNames;
-        mIncludesPowerModels = builder.mIncludePowerModels;
         mIncludesProcessStateData = builder.mIncludesProcessStateData;
+        mIncludesScreenStateData = builder.mIncludesScreenStateData;
+        mIncludesPowerStateData = builder.mIncludesPowerStateData;
+        mBatteryConsumerDataLayout = builder.mBatteryConsumerDataLayout;
         mBatteryConsumersCursorWindow = builder.mBatteryConsumersCursorWindow;
 
         double totalPowerMah = 0;
@@ -190,7 +208,7 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         }
 
         builder.getAggregateBatteryConsumerBuilder(AGGREGATE_BATTERY_CONSUMER_SCOPE_ALL_APPS)
-                .setConsumedPower(totalPowerMah);
+                .addConsumedPower(totalPowerMah);
 
         mAggregateBatteryConsumers =
                 new AggregateBatteryConsumer[AGGREGATE_BATTERY_CONSUMER_SCOPE_COUNT];
@@ -345,13 +363,14 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         mBatteryTimeRemainingMs = source.readLong();
         mChargeTimeRemainingMs = source.readLong();
         mCustomPowerComponentNames = source.readStringArray();
-        mIncludesPowerModels = source.readBoolean();
         mIncludesProcessStateData = source.readBoolean();
+        mIncludesScreenStateData = source.readBoolean();
+        mIncludesPowerStateData = source.readBoolean();
 
         mBatteryConsumersCursorWindow = CursorWindow.newFromParcel(source);
-        BatteryConsumer.BatteryConsumerDataLayout dataLayout =
-                BatteryConsumer.createBatteryConsumerDataLayout(mCustomPowerComponentNames,
-                        mIncludesPowerModels, mIncludesProcessStateData);
+        mBatteryConsumerDataLayout = BatteryConsumer.createBatteryConsumerDataLayout(
+                mCustomPowerComponentNames, mIncludesProcessStateData,
+                mIncludesScreenStateData, mIncludesPowerStateData);
 
         final int numRows = mBatteryConsumersCursorWindow.getNumRows();
 
@@ -363,7 +382,7 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         for (int i = 0; i < numRows; i++) {
             final BatteryConsumer.BatteryConsumerData data =
                     new BatteryConsumer.BatteryConsumerData(mBatteryConsumersCursorWindow, i,
-                            dataLayout);
+                            mBatteryConsumerDataLayout);
 
             int consumerType = mBatteryConsumersCursorWindow.getInt(i,
                             BatteryConsumer.COLUMN_INDEX_BATTERY_CONSUMER_TYPE);
@@ -385,8 +404,10 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
 
         if (source.readBoolean()) {
             mBatteryStatsHistory = BatteryStatsHistory.createFromBatteryUsageStatsParcel(source);
+            mPreferredHistoryDurationMs = source.readLong();
         } else {
             mBatteryStatsHistory = null;
+            mPreferredHistoryDurationMs = 0;
         }
     }
 
@@ -403,14 +424,15 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         dest.writeLong(mBatteryTimeRemainingMs);
         dest.writeLong(mChargeTimeRemainingMs);
         dest.writeStringArray(mCustomPowerComponentNames);
-        dest.writeBoolean(mIncludesPowerModels);
         dest.writeBoolean(mIncludesProcessStateData);
+        dest.writeBoolean(mIncludesScreenStateData);
+        dest.writeBoolean(mIncludesPowerStateData);
 
         mBatteryConsumersCursorWindow.writeToParcel(dest, flags);
 
         if (mBatteryStatsHistory != null) {
             dest.writeBoolean(true);
-            mBatteryStatsHistory.writeToBatteryUsageStatsParcel(dest);
+            mBatteryStatsHistory.writeToBatteryUsageStatsParcel(dest, mPreferredHistoryDurationMs);
         } else {
             dest.writeBoolean(false);
         }
@@ -483,9 +505,6 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
                 getDischargeDurationMs());
         deviceBatteryConsumer.writeStatsProto(proto,
                 BatteryUsageStatsAtomsProto.DEVICE_BATTERY_CONSUMER);
-        if (mIncludesPowerModels) {
-            deviceBatteryConsumer.writePowerComponentModelProto(proto);
-        }
         writeUidBatteryConsumersProto(proto, maxRawSize);
     }
 
@@ -596,43 +615,52 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         final BatteryConsumer appsConsumer = getAggregateBatteryConsumer(
                 AGGREGATE_BATTERY_CONSUMER_SCOPE_ALL_APPS);
 
-        for (int componentId = 0; componentId < BatteryConsumer.POWER_COMPONENT_COUNT;
-                componentId++) {
-            for (BatteryConsumer.Key key : deviceConsumer.getKeys(componentId)) {
-                final double devicePowerMah = deviceConsumer.getConsumedPower(key);
-                final double appsPowerMah = appsConsumer.getConsumedPower(key);
-                if (devicePowerMah == 0 && appsPowerMah == 0) {
-                    continue;
-                }
-
-                String label = BatteryConsumer.powerComponentIdToString(componentId);
-                if (key.processState != BatteryConsumer.PROCESS_STATE_UNSPECIFIED) {
-                    label = label
-                            + "(" + BatteryConsumer.processStateToString(key.processState) + ")";
-                }
-                printPowerComponent(pw, prefix, label, devicePowerMah, appsPowerMah,
-                        mIncludesPowerModels ? deviceConsumer.getPowerModel(key)
-                                : BatteryConsumer.POWER_MODEL_UNDEFINED,
-                        deviceConsumer.getUsageDurationMillis(key));
-            }
-        }
-
-        for (int componentId = BatteryConsumer.FIRST_CUSTOM_POWER_COMPONENT_ID;
-                componentId < BatteryConsumer.FIRST_CUSTOM_POWER_COMPONENT_ID
-                        + mCustomPowerComponentNames.length;
-                componentId++) {
-            final double devicePowerMah =
-                    deviceConsumer.getConsumedPowerForCustomComponent(componentId);
-            final double appsPowerMah =
-                    appsConsumer.getConsumedPowerForCustomComponent(componentId);
+        for (@BatteryConsumer.PowerComponentId int powerComponent :
+                mBatteryConsumerDataLayout.powerComponentIds) {
+            final double devicePowerMah = deviceConsumer.getConsumedPower(powerComponent);
+            final double appsPowerMah = appsConsumer.getConsumedPower(powerComponent);
             if (devicePowerMah == 0 && appsPowerMah == 0) {
                 continue;
             }
 
-            printPowerComponent(pw, prefix, deviceConsumer.getCustomPowerComponentName(componentId),
+            printPowerComponent(pw, prefix,
+                    mBatteryConsumerDataLayout.getPowerComponentName(powerComponent),
                     devicePowerMah, appsPowerMah,
-                    BatteryConsumer.POWER_MODEL_UNDEFINED,
-                    deviceConsumer.getUsageDurationForCustomComponentMillis(componentId));
+                    deviceConsumer.getUsageDurationMillis(powerComponent));
+        }
+
+        String prefixPlus = prefix + "  ";
+        if (mIncludesPowerStateData && !mIncludesScreenStateData) {
+            for (@BatteryConsumer.PowerState int powerState = 0;
+                    powerState < BatteryConsumer.POWER_STATE_COUNT;
+                    powerState++) {
+                if (powerState != BatteryConsumer.POWER_STATE_UNSPECIFIED) {
+                    dumpPowerComponents(pw, BatteryConsumer.SCREEN_STATE_ANY, powerState,
+                            prefixPlus);
+                }
+            }
+        } else if (!mIncludesPowerStateData && mIncludesScreenStateData) {
+            for (@BatteryConsumer.ScreenState int screenState = 0;
+                    screenState < BatteryConsumer.SCREEN_STATE_COUNT;
+                    screenState++) {
+                if (screenState != BatteryConsumer.SCREEN_STATE_UNSPECIFIED) {
+                    dumpPowerComponents(pw, screenState, BatteryConsumer.POWER_STATE_ANY,
+                            prefixPlus);
+                }
+            }
+        } else if (mIncludesPowerStateData && mIncludesScreenStateData) {
+            for (@BatteryConsumer.PowerState int powerState = 0;
+                    powerState < BatteryConsumer.POWER_STATE_COUNT;
+                    powerState++) {
+                if (powerState != BatteryConsumer.POWER_STATE_UNSPECIFIED) {
+                    for (@BatteryConsumer.ScreenState int screenState = 0;
+                            screenState < BatteryConsumer.SCREEN_STATE_COUNT; screenState++) {
+                        if (screenState != BatteryConsumer.SCREEN_STATE_UNSPECIFIED) {
+                            dumpPowerComponents(pw, screenState, powerState, prefixPlus);
+                        }
+                    }
+                }
+            }
         }
 
         dumpSortedBatteryConsumers(pw, prefix, getUidBatteryConsumers());
@@ -640,24 +668,66 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         pw.println();
     }
 
-    private void printPowerComponent(PrintWriter pw, String prefix, String label,
-            double devicePowerMah, double appsPowerMah, int powerModel, long durationMs) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(prefix).append("      ").append(label).append(": ")
-                .append(BatteryStats.formatCharge(devicePowerMah));
-        if (powerModel != BatteryConsumer.POWER_MODEL_UNDEFINED
-                && powerModel != BatteryConsumer.POWER_MODEL_POWER_PROFILE) {
-            sb.append(" [");
-            sb.append(BatteryConsumer.powerModelToString(powerModel));
-            sb.append("]");
+    private void dumpPowerComponents(PrintWriter pw,
+            @BatteryConsumer.ScreenState int screenState,
+            @BatteryConsumer.PowerState int powerState, String prefix) {
+        final BatteryConsumer deviceConsumer = getAggregateBatteryConsumer(
+                AGGREGATE_BATTERY_CONSUMER_SCOPE_DEVICE);
+        final BatteryConsumer appsConsumer = getAggregateBatteryConsumer(
+                AGGREGATE_BATTERY_CONSUMER_SCOPE_ALL_APPS);
+
+        boolean labelPrinted = false;
+        for (@BatteryConsumer.PowerComponentId int powerComponent :
+                mBatteryConsumerDataLayout.powerComponentIds) {
+            BatteryConsumer.Dimensions dimensions = new BatteryConsumer.Dimensions(
+                    powerComponent, BatteryConsumer.PROCESS_STATE_ANY, screenState, powerState);
+            final double devicePowerMah = deviceConsumer.getConsumedPower(dimensions);
+            final double appsPowerMah = appsConsumer.getConsumedPower(dimensions);
+            if (devicePowerMah == 0 && appsPowerMah == 0) {
+                continue;
+            }
+
+            if (!labelPrinted) {
+                boolean empty = true;
+                StringBuilder stateLabel = new StringBuilder();
+                stateLabel.append("      (");
+                if (powerState != BatteryConsumer.POWER_STATE_ANY) {
+                    stateLabel.append(BatteryConsumer.powerStateToString(powerState));
+                    empty = false;
+                }
+                if (screenState != BatteryConsumer.SCREEN_STATE_ANY) {
+                    if (!empty) {
+                        stateLabel.append(", ");
+                    }
+                    stateLabel.append("screen ")
+                            .append(BatteryConsumer.screenStateToString(screenState));
+                    empty = false;
+                }
+                if (!empty) {
+                    stateLabel.append(")");
+                    pw.println(stateLabel);
+                    labelPrinted = true;
+                }
+            }
+            printPowerComponent(pw, prefix,
+                    mBatteryConsumerDataLayout.getPowerComponentName(powerComponent),
+                    devicePowerMah, appsPowerMah,
+                    deviceConsumer.getUsageDurationMillis(dimensions));
         }
+    }
+
+    private void printPowerComponent(PrintWriter pw, String prefix, String label,
+            double devicePowerMah, double appsPowerMah, long durationMs) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(prefix).append("    ").append(label).append(": ")
+                .append(BatteryStats.formatCharge(devicePowerMah));
         sb.append(" apps: ").append(BatteryStats.formatCharge(appsPowerMah));
         if (durationMs != 0) {
             sb.append(" duration: ");
             BatteryStats.formatTimeMs(sb, durationMs);
         }
 
-        pw.println(sb.toString());
+        pw.println(sb);
     }
 
     private void dumpSortedBatteryConsumers(PrintWriter pw, String prefix,
@@ -670,9 +740,8 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
                 continue;
             }
             pw.print(prefix);
-            pw.print("    ");
+            pw.print("  ");
             consumer.dump(pw);
-            pw.println();
         }
     }
 
@@ -686,6 +755,10 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         }
         serializer.attributeBoolean(null, XML_ATTR_PREFIX_INCLUDES_PROC_STATE_DATA,
                 mIncludesProcessStateData);
+        serializer.attributeBoolean(null, XML_ATTR_PREFIX_INCLUDES_SCREEN_STATE_DATA,
+                mIncludesScreenStateData);
+        serializer.attributeBoolean(null, XML_ATTR_PREFIX_INCLUDES_POWER_STATE_DATA,
+                mIncludesPowerStateData);
         serializer.attributeLong(null, XML_ATTR_START_TIMESTAMP, mStatsStartTimestampMs);
         serializer.attributeLong(null, XML_ATTR_END_TIMESTAMP, mStatsEndTimestampMs);
         serializer.attributeLong(null, XML_ATTR_DURATION, mStatsDurationMs);
@@ -713,6 +786,12 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
     /** Parses an XML representation of BatteryUsageStats */
     public static BatteryUsageStats createFromXml(TypedXmlPullParser parser)
             throws XmlPullParserException, IOException {
+        return createBuilderFromXml(parser).build();
+    }
+
+    /** Parses an XML representation of BatteryUsageStats */
+    public static BatteryUsageStats.Builder createBuilderFromXml(TypedXmlPullParser parser)
+            throws XmlPullParserException, IOException {
         Builder builder = null;
         int eventType = parser.getEventType();
         while (eventType != XmlPullParser.END_DOCUMENT) {
@@ -732,9 +811,13 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
 
                 final boolean includesProcStateData = parser.getAttributeBoolean(null,
                         XML_ATTR_PREFIX_INCLUDES_PROC_STATE_DATA, false);
+                final boolean includesScreenStateData = parser.getAttributeBoolean(null,
+                        XML_ATTR_PREFIX_INCLUDES_SCREEN_STATE_DATA, false);
+                final boolean includesPowerStateData = parser.getAttributeBoolean(null,
+                        XML_ATTR_PREFIX_INCLUDES_POWER_STATE_DATA, false);
 
-                builder = new Builder(customComponentNames.toArray(new String[0]), true,
-                        includesProcStateData, 0);
+                builder = new Builder(customComponentNames.toArray(new String[0]),
+                        includesProcStateData, includesScreenStateData, includesPowerStateData, 0);
 
                 builder.setStatsStartTimestamp(
                         parser.getAttributeLong(null, XML_ATTR_START_TIMESTAMP));
@@ -744,12 +827,12 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
                         parser.getAttributeLong(null, XML_ATTR_DURATION));
                 builder.setBatteryCapacity(
                         parser.getAttributeDouble(null, XML_ATTR_BATTERY_CAPACITY));
-                builder.setDischargePercentage(
+                builder.addDischargePercentage(
                         parser.getAttributeInt(null, XML_ATTR_DISCHARGE_PERCENT));
-                builder.setDischargedPowerRange(
+                builder.addDischargedPowerRange(
                         parser.getAttributeDouble(null, XML_ATTR_DISCHARGE_LOWER),
                         parser.getAttributeDouble(null, XML_ATTR_DISCHARGE_UPPER));
-                builder.setDischargeDurationMs(
+                builder.addDischargeDurationMs(
                         parser.getAttributeLong(null, XML_ATTR_DISCHARGE_DURATION));
                 builder.setBatteryTimeRemainingMs(
                         parser.getAttributeLong(null, XML_ATTR_BATTERY_REMAINING));
@@ -783,11 +866,12 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
             eventType = parser.next();
         }
 
-        return builder.build();
+        return builder;
     }
 
     @Override
     public void close() throws IOException {
+        onCursorWindowReleased(mBatteryConsumersCursorWindow);
         mBatteryConsumersCursorWindow.close();
         mBatteryConsumersCursorWindow = null;
     }
@@ -795,6 +879,7 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
     @Override
     protected void finalize() throws Throwable {
         if (mBatteryConsumersCursorWindow != null) {
+            // Do not decrement sOpenCusorWindowCount. All instances should be closed explicitly
             mBatteryConsumersCursorWindow.close();
         }
         super.finalize();
@@ -816,8 +901,9 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         private final CursorWindow mBatteryConsumersCursorWindow;
         @NonNull
         private final String[] mCustomPowerComponentNames;
-        private final boolean mIncludePowerModels;
         private final boolean mIncludesProcessStateData;
+        private final boolean mIncludesScreenStateData;
+        private final boolean mIncludesPowerStateData;
         private final double mMinConsumedPowerThreshold;
         private final BatteryConsumer.BatteryConsumerDataLayout mBatteryConsumerDataLayout;
         private long mStatsStartTimestampMs;
@@ -837,23 +923,27 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         private final SparseArray<UserBatteryConsumer.Builder> mUserBatteryConsumerBuilders =
                 new SparseArray<>();
         private BatteryStatsHistory mBatteryStatsHistory;
+        private long mPreferredHistoryDurationMs;
 
         public Builder(@NonNull String[] customPowerComponentNames) {
-            this(customPowerComponentNames, false, false, 0);
+            this(customPowerComponentNames, false, false, false, 0);
         }
 
-        public Builder(@NonNull String[] customPowerComponentNames, boolean includePowerModels,
-                boolean includeProcessStateData, double minConsumedPowerThreshold) {
+        public Builder(@NonNull String[] customPowerComponentNames,
+                boolean includeProcessStateData, boolean includeScreenStateData,
+                boolean includesPowerStateData, double minConsumedPowerThreshold) {
             mBatteryConsumersCursorWindow =
                     new CursorWindow(null, BATTERY_CONSUMER_CURSOR_WINDOW_SIZE);
-            mBatteryConsumerDataLayout =
-                    BatteryConsumer.createBatteryConsumerDataLayout(customPowerComponentNames,
-                            includePowerModels, includeProcessStateData);
+            onCursorWindowAllocated(mBatteryConsumersCursorWindow);
+            mBatteryConsumerDataLayout = BatteryConsumer.createBatteryConsumerDataLayout(
+                    customPowerComponentNames, includeProcessStateData,
+                    includeScreenStateData, includesPowerStateData);
             mBatteryConsumersCursorWindow.setNumColumns(mBatteryConsumerDataLayout.columnCount);
 
             mCustomPowerComponentNames = customPowerComponentNames;
-            mIncludePowerModels = includePowerModels;
             mIncludesProcessStateData = includeProcessStateData;
+            mIncludesScreenStateData = includeScreenStateData;
+            mIncludesPowerStateData = includesPowerStateData;
             mMinConsumedPowerThreshold = minConsumedPowerThreshold;
             for (int scope = 0; scope < AGGREGATE_BATTERY_CONSUMER_SCOPE_COUNT; scope++) {
                 final BatteryConsumer.BatteryConsumerData data =
@@ -869,12 +959,44 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
             return mIncludesProcessStateData;
         }
 
+        public boolean isScreenStateDataNeeded() {
+            return mIncludesScreenStateData;
+        }
+
+        public boolean isPowerStateDataNeeded() {
+            return mIncludesPowerStateData;
+        }
+
+        /**
+         * Returns true if this Builder is configured to hold data for the specified
+         * power component index.
+         */
+        public boolean isSupportedPowerComponent(
+                @BatteryConsumer.PowerComponentId int componentId) {
+            return componentId < BatteryConsumer.POWER_COMPONENT_COUNT
+                    || (componentId >= BatteryConsumer.FIRST_CUSTOM_POWER_COMPONENT_ID
+                    && componentId < BatteryConsumer.FIRST_CUSTOM_POWER_COMPONENT_ID
+                    + mBatteryConsumerDataLayout.customPowerComponentCount);
+        }
+
         /**
          * Constructs a read-only object using the Builder values.
          */
         @NonNull
         public BatteryUsageStats build() {
+            if (mBatteryConsumersCursorWindow == null) {
+                throw new IllegalStateException("Builder has been discarded");
+            }
             return new BatteryUsageStats(this);
+        }
+
+        /**
+         * Close this builder without actually calling ".build()". Do not attempt
+         * to continue using the builder after this call.
+         */
+        public void discard() {
+            mBatteryConsumersCursorWindow.close();
+            onCursorWindowReleased(mBatteryConsumersCursorWindow);
         }
 
         /**
@@ -910,7 +1032,10 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
             return this;
         }
 
-        private long getStatsDuration() {
+        /**
+         * Returns the duration of the battery session reflected by these stats.
+         */
+        public long getStatsDuration() {
             if (mStatsDurationMs != -1) {
                 return mStatsDurationMs;
             } else {
@@ -919,23 +1044,22 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
         }
 
         /**
-         * Sets the battery discharge amount since BatteryStats reset as percentage of the full
-         * charge.
+         * Accumulates the battery discharge amount as percentage of the full charge. Can exceed 100
          */
         @NonNull
-        public Builder setDischargePercentage(int dischargePercentage) {
-            mDischargePercentage = dischargePercentage;
+        public Builder addDischargePercentage(int dischargePercentage) {
+            mDischargePercentage += dischargePercentage;
             return this;
         }
 
         /**
-         * Sets the estimated battery discharge range.
+         * Accumulates the estimated battery discharge range.
          */
         @NonNull
-        public Builder setDischargedPowerRange(double dischargedPowerLowerBoundMah,
+        public Builder addDischargedPowerRange(double dischargedPowerLowerBoundMah,
                 double dischargedPowerUpperBoundMah) {
-            mDischargedPowerLowerBoundMah = dischargedPowerLowerBoundMah;
-            mDischargedPowerUpperBoundMah = dischargedPowerUpperBoundMah;
+            mDischargedPowerLowerBoundMah += dischargedPowerLowerBoundMah;
+            mDischargedPowerUpperBoundMah += dischargedPowerUpperBoundMah;
             return this;
         }
 
@@ -943,8 +1067,8 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
          * Sets the total battery discharge time, in milliseconds.
          */
         @NonNull
-        public Builder setDischargeDurationMs(long durationMs) {
-            mDischargeDurationMs = durationMs;
+        public Builder addDischargeDurationMs(long durationMs) {
+            mDischargeDurationMs += durationMs;
             return this;
         }
 
@@ -972,8 +1096,10 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
          * Sets the parceled recent history.
          */
         @NonNull
-        public Builder setBatteryHistory(BatteryStatsHistory batteryStatsHistory) {
+        public Builder setBatteryHistory(BatteryStatsHistory batteryStatsHistory,
+                long preferredHistoryDurationMs) {
             mBatteryStatsHistory = batteryStatsHistory;
+            mPreferredHistoryDurationMs = preferredHistoryDurationMs;
             return this;
         }
 
@@ -1137,6 +1263,52 @@ public final class BatteryUsageStats implements Parcelable, Closeable {
                 }
                 sb.setLength(sb.length() - 2);
                 writer.println(sb);
+            }
+        }
+    }
+
+    @GuardedBy("BatteryUsageStats.class")
+    private static Map<CursorWindow, Exception> sInstances;
+
+    private static void onCursorWindowAllocated(CursorWindow window) {
+        if (!DEBUG_INSTANCE_COUNT) {
+            return;
+        }
+
+        synchronized (BatteryUsageStats.class) {
+            if (sInstances == null) {
+                sInstances = new HashMap<>();
+            }
+            sInstances.put(window, new Exception());
+        }
+    }
+
+    private static void onCursorWindowReleased(CursorWindow window) {
+        if (!DEBUG_INSTANCE_COUNT) {
+            return;
+        }
+
+        synchronized (BatteryUsageStats.class) {
+            sInstances.remove(window);
+        }
+    }
+
+    /**
+     * Used by tests to ensure all BatteryUsageStats instances are closed.
+     */
+    @VisibleForTesting
+    public static void assertAllInstancesClosed() {
+        if (!DEBUG_INSTANCE_COUNT) {
+            throw new IllegalStateException("DEBUG_INSTANCE_COUNT is false");
+        }
+
+        synchronized (BatteryUsageStats.class) {
+            if (sInstances != null && !sInstances.isEmpty()) {
+                Exception callSite = sInstances.entrySet().iterator().next().getValue();
+                int count = sInstances.size();
+                sInstances.clear();
+                throw new IllegalStateException(
+                        "Instances of BatteryUsageStats not closed: " + count, callSite);
             }
         }
     }

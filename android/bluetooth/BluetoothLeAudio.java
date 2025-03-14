@@ -17,22 +17,32 @@
 
 package android.bluetooth;
 
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresNoPermission;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
+import android.app.compat.CompatChanges;
 import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
 import android.bluetooth.annotations.RequiresLegacyBluetoothPermission;
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledSince;
 import android.content.AttributionSource;
 import android.content.Context;
 import android.os.IBinder;
+import android.os.Process;
 import android.os.RemoteException;
 import android.util.CloseGuard;
 import android.util.Log;
@@ -42,11 +52,9 @@ import com.android.bluetooth.flags.Flags;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 /**
  * This class provides the public APIs to control the LeAudio profile.
@@ -59,10 +67,9 @@ import java.util.concurrent.Executor;
  */
 public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     private static final String TAG = "BluetoothLeAudio";
+
     private static final boolean DBG = Log.isLoggable(TAG, Log.DEBUG);
     private static final boolean VDBG = false;
-
-    private final Map<Callback, Executor> mCallbackExecutorMap = new HashMap<>();
 
     private CloseGuard mCloseGuard;
 
@@ -142,7 +149,6 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
          * @param groupStreamStatus streaming or idle state.
          * @hide
          */
-        @FlaggedApi(Flags.FLAG_LEAUDIO_CALLBACK_ON_GROUP_STREAM_STATUS)
         @SystemApi
         default void onGroupStreamStatusChanged(
                 int groupId, @GroupStreamStatus int groupStreamStatus) {
@@ -150,69 +156,67 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
                 Log.d(TAG, " onGroupStreamStatusChanged is not implemented.");
             }
         }
+
+        /**
+         * Callback invoked when the broadcast to unicast fallback group changes.
+         *
+         * <p>This callback provides the new broadcast to unicast fallback group ID. It is invoked
+         * when the broadcast to unicast fallback group is initially set, or when it subsequently
+         * changes.
+         *
+         * @param groupId The ID of the new broadcast to unicast fallback group.
+         * @hide
+         */
+        @FlaggedApi(Flags.FLAG_LEAUDIO_BROADCAST_API_MANAGE_PRIMARY_GROUP)
+        @SystemApi
+        default void onBroadcastToUnicastFallbackGroupChanged(int groupId) {
+            if (DBG) {
+                Log.d(TAG, "onBroadcastToUnicastFallbackGroupChanged is not implemented.");
+            }
+        }
     }
 
-    @SuppressLint("AndroidFrameworkBluetoothPermission")
-    private final IBluetoothLeAudioCallback mCallback =
-            new IBluetoothLeAudioCallback.Stub() {
-                @Override
-                public void onCodecConfigChanged(
-                        int groupId, @NonNull BluetoothLeAudioCodecStatus status) {
-                    for (Map.Entry<BluetoothLeAudio.Callback, Executor> callbackExecutorEntry :
-                            mCallbackExecutorMap.entrySet()) {
-                        BluetoothLeAudio.Callback callback = callbackExecutorEntry.getKey();
-                        Executor executor = callbackExecutorEntry.getValue();
-                        executor.execute(() -> callback.onCodecConfigChanged(groupId, status));
-                    }
-                }
+    private final CallbackWrapper<Callback, IBluetoothLeAudio> mCallbackWrapper;
 
-                @Override
-                public void onGroupNodeAdded(@NonNull BluetoothDevice device, int groupId) {
-                    Attributable.setAttributionSource(device, mAttributionSource);
-                    for (Map.Entry<BluetoothLeAudio.Callback, Executor> callbackExecutorEntry :
-                            mCallbackExecutorMap.entrySet()) {
-                        BluetoothLeAudio.Callback callback = callbackExecutorEntry.getKey();
-                        Executor executor = callbackExecutorEntry.getValue();
-                        executor.execute(() -> callback.onGroupNodeAdded(device, groupId));
-                    }
-                }
+    private final IBluetoothLeAudioCallback mCallback = new LeAudioNotifyCallback();
 
-                @Override
-                public void onGroupNodeRemoved(@NonNull BluetoothDevice device, int groupId) {
-                    Attributable.setAttributionSource(device, mAttributionSource);
-                    for (Map.Entry<BluetoothLeAudio.Callback, Executor> callbackExecutorEntry :
-                            mCallbackExecutorMap.entrySet()) {
-                        BluetoothLeAudio.Callback callback = callbackExecutorEntry.getKey();
-                        Executor executor = callbackExecutorEntry.getValue();
-                        executor.execute(() -> callback.onGroupNodeRemoved(device, groupId));
-                    }
-                }
+    private class LeAudioNotifyCallback extends IBluetoothLeAudioCallback.Stub {
+        @Override
+        public void onCodecConfigChanged(int groupId, BluetoothLeAudioCodecStatus status) {
+            mCallbackWrapper.forEach((cb) -> cb.onCodecConfigChanged(groupId, status));
+        }
 
-                @Override
-                public void onGroupStatusChanged(int groupId, int groupStatus) {
-                    for (Map.Entry<BluetoothLeAudio.Callback, Executor> callbackExecutorEntry :
-                            mCallbackExecutorMap.entrySet()) {
-                        BluetoothLeAudio.Callback callback = callbackExecutorEntry.getKey();
-                        Executor executor = callbackExecutorEntry.getValue();
-                        executor.execute(() -> callback.onGroupStatusChanged(groupId, groupStatus));
-                    }
-                }
+        @Override
+        public void onGroupNodeAdded(@NonNull BluetoothDevice device, int groupId) {
+            Attributable.setAttributionSource(device, mAttributionSource);
+            mCallbackWrapper.forEach((cb) -> cb.onGroupNodeAdded(device, groupId));
+        }
 
-                @Override
-                public void onGroupStreamStatusChanged(int groupId, int groupStreamStatus) {
-                    if (Flags.leaudioCallbackOnGroupStreamStatus()) {
-                        for (Map.Entry<BluetoothLeAudio.Callback, Executor> callbackExecutorEntry :
-                                mCallbackExecutorMap.entrySet()) {
-                            BluetoothLeAudio.Callback callback = callbackExecutorEntry.getKey();
-                            Executor executor = callbackExecutorEntry.getValue();
-                            executor.execute(
-                                    () ->
-                                            callback.onGroupStreamStatusChanged(
-                                                    groupId, groupStreamStatus));
-                        }
-                    }
-                }
-            };
+        @Override
+        public void onGroupNodeRemoved(@NonNull BluetoothDevice device, int groupId) {
+            Attributable.setAttributionSource(device, mAttributionSource);
+            mCallbackWrapper.forEach((cb) -> cb.onGroupNodeRemoved(device, groupId));
+        }
+
+        @Override
+        public void onGroupStatusChanged(int groupId, int groupStatus) {
+            mCallbackWrapper.forEach((cb) -> cb.onGroupStatusChanged(groupId, groupStatus));
+        }
+
+        @Override
+        public void onGroupStreamStatusChanged(int groupId, int groupStreamStatus) {
+            mCallbackWrapper.forEach(
+                    (cb) -> cb.onGroupStreamStatusChanged(groupId, groupStreamStatus));
+        }
+
+        @Override
+        public void onBroadcastToUnicastFallbackGroupChanged(int groupId) {
+            if (Flags.leaudioBroadcastApiManagePrimaryGroup()) {
+                mCallbackWrapper.forEach(
+                        (cb) -> cb.onBroadcastToUnicastFallbackGroupChanged(groupId));
+            }
+        }
+    }
 
     /**
      * Intent used to broadcast the change in connection state of the LeAudio profile. Please note
@@ -233,7 +237,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED =
             "android.bluetooth.action.LE_AUDIO_CONNECTION_STATE_CHANGED";
@@ -253,11 +257,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     @SystemApi
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_LE_AUDIO_ACTIVE_DEVICE_CHANGED =
             "android.bluetooth.action.LE_AUDIO_ACTIVE_DEVICE_CHANGED";
@@ -380,11 +380,42 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     public static final int GROUP_ID_INVALID = IBluetoothLeAudio.LE_AUDIO_GROUP_ID_INVALID;
 
     /**
+     * This ChangeId allows to use new Mono audio location as per
+     * https://www.bluetooth.com/specifications/assigned-numbers/ 6.12.1 Audio Location Definitions
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = android.os.Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    static final long LEAUDIO_MONO_LOCATION_ERRATA = 330847930L;
+
+    /**
      * This represents an invalid audio location.
+     *
+     * @deprecated As per Bluetooth Assigned Numbers, previously location invalid is now replaced
+     *     with a meaning MONO.
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_LEAUDIO_MONO_LOCATION_ERRATA_API)
+    @Deprecated
+    @SystemApi
+    public static final int AUDIO_LOCATION_INVALID = 0;
+
+    /**
+     * This represents an Mono audio location.
      *
      * @hide
      */
-    @SystemApi public static final int AUDIO_LOCATION_INVALID = 0;
+    @FlaggedApi(Flags.FLAG_LEAUDIO_MONO_LOCATION_ERRATA_API)
+    @SystemApi
+    public static final int AUDIO_LOCATION_MONO = 0;
+
+    /**
+     * This represents an Unknown audio location which will be returned only when Bluetooth is OFF.
+     *
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_LEAUDIO_MONO_LOCATION_ERRATA_API)
+    @SystemApi
+    public static final int AUDIO_LOCATION_UNKNOWN = 0x01 << 31;
 
     /**
      * This represents an audio location front left.
@@ -583,11 +614,13 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     @SystemApi public static final int AUDIO_LOCATION_RIGHT_SURROUND = 0x01 << 27;
 
     /** @hide */
+    @SuppressLint("UniqueConstants")
     @IntDef(
             flag = true,
             prefix = "AUDIO_LOCATION_",
             value = {
                 AUDIO_LOCATION_INVALID,
+                AUDIO_LOCATION_MONO,
                 AUDIO_LOCATION_FRONT_LEFT,
                 AUDIO_LOCATION_FRONT_RIGHT,
                 AUDIO_LOCATION_FRONT_CENTER,
@@ -616,6 +649,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
                 AUDIO_LOCATION_FRONT_RIGHT_WIDE,
                 AUDIO_LOCATION_LEFT_SURROUND,
                 AUDIO_LOCATION_RIGHT_SURROUND,
+                AUDIO_LOCATION_UNKNOWN,
             })
     @Retention(RetentionPolicy.SOURCE)
     public @interface AudioLocation {}
@@ -661,6 +695,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     public static final String EXTRA_LE_AUDIO_AVAILABLE_CONTEXTS =
             "android.bluetooth.extra.LE_AUDIO_AVAILABLE_CONTEXTS";
 
+    private final Context mContext;
     private final BluetoothAdapter mAdapter;
     private final AttributionSource mAttributionSource;
 
@@ -683,7 +718,6 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      *
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_CALLBACK_ON_GROUP_STREAM_STATUS)
     @SystemApi
     public static final int GROUP_STREAM_STATUS_IDLE = IBluetoothLeAudio.GROUP_STREAM_STATUS_IDLE;
 
@@ -692,7 +726,6 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      *
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_CALLBACK_ON_GROUP_STREAM_STATUS)
     @SystemApi
     public static final int GROUP_STREAM_STATUS_STREAMING =
             IBluetoothLeAudio.GROUP_STREAM_STATUS_STREAMING;
@@ -703,11 +736,31 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * Create a BluetoothLeAudio proxy object for interacting with the local Bluetooth LeAudio
      * service.
      */
+    @SuppressLint("AndroidFrameworkRequiresPermission") // Consumer wrongly report permission
     /* package */ BluetoothLeAudio(Context context, BluetoothAdapter adapter) {
+        mContext = requireNonNull(context);
         mAdapter = adapter;
         mAttributionSource = adapter.getAttributionSource();
         mService = null;
 
+        Consumer<IBluetoothLeAudio> registerConsumer =
+                (IBluetoothLeAudio service) -> {
+                    try {
+                        service.registerCallback(mCallback, mAttributionSource);
+                    } catch (RemoteException e) {
+                        Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                    }
+                };
+        Consumer<IBluetoothLeAudio> unregisterConsumer =
+                (IBluetoothLeAudio service) -> {
+                    try {
+                        service.unregisterCallback(mCallback, mAttributionSource);
+                    } catch (RemoteException e) {
+                        Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+                    }
+                };
+
+        mCallbackWrapper = new CallbackWrapper(registerConsumer, unregisterConsumer);
         mCloseGuard = new CloseGuard();
         mCloseGuard.open("close");
     }
@@ -720,25 +773,16 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
 
     /** @hide */
     @Override
+    @SuppressLint("AndroidFrameworkRequiresPermission") // Unexposed re-entrant callback
+    @RequiresNoPermission
     public void onServiceConnected(IBinder service) {
         mService = IBluetoothLeAudio.Stub.asInterface(service);
-        // re-register the service-to-app callback
-        synchronized (mCallbackExecutorMap) {
-            if (mCallbackExecutorMap.isEmpty()) {
-                return;
-            }
-            try {
-                if (service != null) {
-                    mService.registerCallback(mCallback, mAttributionSource);
-                }
-            } catch (RemoteException e) {
-                Log.e(TAG, "Failed to register callback", e);
-            }
-        }
+        mCallbackWrapper.registerToNewService(mService);
     }
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public void onServiceDisconnected() {
         mService = null;
     }
@@ -749,6 +793,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public BluetoothAdapter getAdapter() {
         return mAdapter;
     }
@@ -775,7 +820,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean connect(@Nullable BluetoothDevice device) {
         if (DBG) log("connect(" + device + ")");
         final IBluetoothLeAudio service = getService();
@@ -811,7 +856,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean disconnect(@Nullable BluetoothDevice device) {
         if (DBG) log("disconnect(" + device + ")");
         final IBluetoothLeAudio service = getService();
@@ -846,7 +891,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @return group lead device.
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public @Nullable BluetoothDevice getConnectedGroupLeadDevice(int groupId) {
         if (VDBG) log("getConnectedGroupLeadDevice()");
         final IBluetoothLeAudio service = getService();
@@ -868,7 +913,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     /** {@inheritDoc} */
     @Override
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public @NonNull List<BluetoothDevice> getConnectedDevices() {
         if (VDBG) log("getConnectedDevices()");
         final IBluetoothLeAudio service = getService();
@@ -889,7 +934,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     /** {@inheritDoc} */
     @Override
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @NonNull
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(@NonNull int[] states) {
         if (VDBG) log("getDevicesMatchingStates()");
@@ -913,7 +958,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     @Override
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public @BtProfileState int getConnectionState(@NonNull BluetoothDevice device) {
         if (VDBG) log("getState(" + device + ")");
         final IBluetoothLeAudio service = getService();
@@ -934,9 +979,9 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * Register a {@link Callback} that will be invoked during the operation of this profile.
      *
      * <p>Repeated registration of the same <var>callback</var> object will have no effect after the
-     * first call to this method, even when the <var>executor</var> is different. API caller would
-     * have to call {@link #unregisterCallback(Callback)} with the same callback object before
-     * registering it again.
+     * first call to this method, even when the <var>executor</var> is different. API caller must
+     * call {@link #unregisterCallback(Callback)} with the same callback object before registering
+     * it again.
      *
      * <p>The {@link Callback} will be invoked only if there is codec status changed for the remote
      * device or the device is connected/disconnected in a certain group or the group status is
@@ -950,43 +995,18 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void registerCallback(
             @NonNull @CallbackExecutor Executor executor, @NonNull Callback callback) {
-        Objects.requireNonNull(executor, "executor cannot be null");
-        Objects.requireNonNull(callback, "callback cannot be null");
-        if (DBG) log("registerCallback");
+        // Enforcing permission in the framework is useless from security point of view.
+        // This is being done to help normal app developer to catch the missing permission, since
+        // the call to the service is oneway and the SecurityException will just be logged
+        final int pid = Process.myPid();
+        final int uid = Process.myUid();
+        mContext.enforcePermission(BLUETOOTH_CONNECT, pid, uid, null);
+        mContext.enforcePermission(BLUETOOTH_PRIVILEGED, pid, uid, null);
 
-        synchronized (mCallbackExecutorMap) {
-            // If the callback map is empty, we register the service-to-app callback
-            if (mCallbackExecutorMap.isEmpty()) {
-                if (!mAdapter.isEnabled()) {
-                    /* If Bluetooth is off, just store callback and it will be registered
-                     * when Bluetooth is on
-                     */
-                    mCallbackExecutorMap.put(callback, executor);
-                    return;
-                }
-                try {
-                    final IBluetoothLeAudio service = getService();
-                    if (service != null) {
-                        service.registerCallback(mCallback, mAttributionSource);
-                    }
-                } catch (RemoteException e) {
-                    throw e.rethrowAsRuntimeException();
-                }
-            }
-
-            // Adds the passed in callback to our map of callbacks to executors
-            if (mCallbackExecutorMap.containsKey(callback)) {
-                throw new IllegalArgumentException("This callback has already been registered");
-            }
-            mCallbackExecutorMap.put(callback, executor);
-        }
+        mCallbackWrapper.registerCallback(getService(), callback, executor);
     }
 
     /**
@@ -995,7 +1015,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * <p>The same {@link Callback} object used when calling {@link #registerCallback(Executor,
      * Callback)} must be used.
      *
-     * <p>Callbacks are automatically unregistered when application process goes away
+     * <p>Callbacks are automatically unregistered when the application process goes away
      *
      * @param callback user implementation of the {@link Callback}
      * @throws NullPointerException when callback is null
@@ -1004,32 +1024,17 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void unregisterCallback(@NonNull Callback callback) {
-        Objects.requireNonNull(callback, "callback cannot be null");
-        if (DBG) log("unregisterCallback");
+        // Enforcing permission in the framework is useless from security point of view.
+        // This is being done to help normal app developer to catch the missing permission, since
+        // the call to the service is oneway and the SecurityException will just be logged
+        final int pid = Process.myPid();
+        final int uid = Process.myUid();
+        mContext.enforcePermission(BLUETOOTH_CONNECT, pid, uid, null);
+        mContext.enforcePermission(BLUETOOTH_PRIVILEGED, pid, uid, null);
 
-        synchronized (mCallbackExecutorMap) {
-            if (mCallbackExecutorMap.remove(callback) == null) {
-                throw new IllegalArgumentException("This callback has not been registered");
-            }
-        }
-
-        // If the callback map is empty, we unregister the service-to-app callback
-        if (mCallbackExecutorMap.isEmpty()) {
-            try {
-                final IBluetoothLeAudio service = getService();
-                if (service != null) {
-                    service.unregisterCallback(mCallback, mAttributionSource);
-                }
-            } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
-            }
-        }
+        mCallbackWrapper.unregisterCallback(getService(), callback);
     }
 
     /**
@@ -1049,7 +1054,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public boolean setActiveDevice(@Nullable BluetoothDevice device) {
         if (DBG) log("setActiveDevice(" + device + ")");
         final IBluetoothLeAudio service = getService();
@@ -1075,7 +1080,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
     @NonNull
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public List<BluetoothDevice> getActiveDevices() {
         if (VDBG) log("getActiveDevice()");
         final IBluetoothLeAudio service = getService();
@@ -1103,7 +1108,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     public int getGroupId(@NonNull BluetoothDevice device) {
         if (VDBG) log("getGroupId()");
         final IBluetoothLeAudio service = getService();
@@ -1128,11 +1133,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void setVolume(@IntRange(from = 0, to = 255) int volume) {
         if (VDBG) log("setVolume(vol: " + volume + " )");
         final IBluetoothLeAudio service = getService();
@@ -1157,11 +1158,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public boolean groupAddNode(int groupId, @NonNull BluetoothDevice device) {
         if (VDBG) log("groupAddNode()");
         final IBluetoothLeAudio service = getService();
@@ -1187,11 +1184,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @hide
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public boolean groupRemoveNode(int groupId, @NonNull BluetoothDevice device) {
         if (VDBG) log("groupRemoveNode()");
         final IBluetoothLeAudio service = getService();
@@ -1214,17 +1207,13 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * Front Left: 0x00000001 Front Right: 0x00000002 Front Left | Front Right: 0x00000003
      *
      * @param device the bluetooth device
-     * @return The bit field of audio location for the device, if bluetooth is off, return
-     *     AUDIO_LOCATION_INVALID.
+     * @return The bit field of audio location for the device.
      * @hide
      */
-    @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
     @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    @SuppressWarnings("FlaggedApi") // Due to deprecated AUDIO_LOCATION_INVALID
     public @AudioLocation int getAudioLocation(@NonNull BluetoothDevice device) {
         if (VDBG) log("getAudioLocation()");
         final IBluetoothLeAudio service = getService();
@@ -1238,6 +1227,12 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
+
+        if (Flags.leaudioMonoLocationErrataApi()
+                && CompatChanges.isChangeEnabled(LEAUDIO_MONO_LOCATION_ERRATA)) {
+            return AUDIO_LOCATION_UNKNOWN;
+        }
+
         return AUDIO_LOCATION_INVALID;
     }
 
@@ -1249,12 +1244,9 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @return {@code true} if inband ringtone is enabled, {@code false} otherwise
      * @hide
      */
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
     @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public boolean isInbandRingtoneEnabled(int groupId) {
         if (VDBG) {
             log("isInbandRingtoneEnabled(), groupId: " + groupId);
@@ -1270,7 +1262,6 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
                 return service.isInbandRingtoneEnabled(mAttributionSource, groupId);
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                throw e.rethrowAsRuntimeException();
             }
         }
         return false;
@@ -1290,11 +1281,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public boolean setConnectionPolicy(
             @NonNull BluetoothDevice device, @ConnectionPolicy int connectionPolicy) {
         if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
@@ -1327,11 +1314,7 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public @ConnectionPolicy int getConnectionPolicy(@Nullable BluetoothDevice device) {
         if (VDBG) log("getConnectionPolicy(" + device + ")");
         final IBluetoothLeAudio service = getService();
@@ -1389,14 +1372,9 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      * @hide
      */
     @SystemApi
-    @Nullable
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
-    public BluetoothLeAudioCodecStatus getCodecStatus(int groupId) {
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    public @Nullable BluetoothLeAudioCodecStatus getCodecStatus(int groupId) {
         if (DBG) {
             Log.d(TAG, "getCodecStatus(" + groupId + ")");
         }
@@ -1411,7 +1389,6 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
                 return service.getCodecStatus(groupId, mAttributionSource);
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                throw e.rethrowAsRuntimeException();
             }
         }
         return null;
@@ -1429,19 +1406,15 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void setCodecConfigPreference(
             int groupId,
             @NonNull BluetoothLeAudioCodecConfig inputCodecConfig,
             @NonNull BluetoothLeAudioCodecConfig outputCodecConfig) {
         if (DBG) Log.d(TAG, "setCodecConfigPreference(" + groupId + ")");
 
-        Objects.requireNonNull(inputCodecConfig, " inputCodecConfig shall not be null");
-        Objects.requireNonNull(outputCodecConfig, " outputCodecConfig shall not be null");
+        requireNonNull(inputCodecConfig);
+        requireNonNull(outputCodecConfig);
 
         final IBluetoothLeAudio service = getService();
 
@@ -1455,8 +1428,80 @@ public final class BluetoothLeAudio implements BluetoothProfile, AutoCloseable {
                         groupId, inputCodecConfig, outputCodecConfig, mAttributionSource);
             } catch (RemoteException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-                throw e.rethrowAsRuntimeException();
             }
         }
+    }
+
+    /**
+     * Sets broadcast to unicast fallback group.
+     *
+     * <p>In broadcast handover situations where unicast is unavailable, this group acts as the
+     * fallback.
+     *
+     * <p>A handover can occur when ongoing broadcast is interrupted with unicast streaming request.
+     *
+     * <p>On fallback group changed, {@link Callback#onBroadcastToUnicastFallbackGroupChanged} will
+     * be invoked.
+     *
+     * @param groupId the ID of the group to switch to if unicast fails during a broadcast handover,
+     *     {@link #GROUP_ID_INVALID} when there should be no such fallback group.
+     * @see BluetoothLeAudio#getGroupId()
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_LEAUDIO_BROADCAST_API_MANAGE_PRIMARY_GROUP)
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    public void setBroadcastToUnicastFallbackGroup(int groupId) {
+        if (DBG) Log.d(TAG, "setBroadcastToUnicastFallbackGroup(" + groupId + ")");
+
+        final IBluetoothLeAudio service = getService();
+
+        if (service == null) {
+            Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (mAdapter.isEnabled()) {
+            try {
+                service.setBroadcastToUnicastFallbackGroup(groupId, mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+    }
+
+    /**
+     * Gets broadcast to unicast fallback group.
+     *
+     * <p>In broadcast handover situations where unicast is unavailable, this group acts as the
+     * fallback.
+     *
+     * <p>A broadcast handover can occur when a {@link BluetoothLeBroadcast#startBroadcast} call is
+     * successful and there's an active unicast group.
+     *
+     * @return groupId the ID of the fallback group, {@link #GROUP_ID_INVALID} when adapter is
+     *     disabled
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_LEAUDIO_BROADCAST_API_MANAGE_PRIMARY_GROUP)
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    public int getBroadcastToUnicastFallbackGroup() {
+        if (DBG) Log.d(TAG, "getBroadcastToUnicastFallbackGroup()");
+
+        final IBluetoothLeAudio service = getService();
+
+        if (service == null) {
+            Log.w(TAG, "Proxy not attached to service");
+            if (DBG) log(Log.getStackTraceString(new Throwable()));
+        } else if (mAdapter.isEnabled()) {
+            try {
+                return service.getBroadcastToUnicastFallbackGroup(mAttributionSource);
+            } catch (RemoteException e) {
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
+            }
+        }
+
+        return GROUP_ID_INVALID;
     }
 }

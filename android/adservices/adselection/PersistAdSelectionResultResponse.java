@@ -19,14 +19,16 @@ package android.adservices.adselection;
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID;
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID_MESSAGE;
 
+import android.adservices.common.AdTechIdentifier;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.net.Uri;
 import android.os.Parcel;
 import android.os.Parcelable;
 
 import com.android.internal.util.Preconditions;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -36,7 +38,9 @@ import java.util.Objects;
  */
 public final class PersistAdSelectionResultResponse implements Parcelable {
     private final long mAdSelectionId;
-    @NonNull private final Uri mAdRenderUri;
+    private final Uri mAdRenderUri;
+    private final AdTechIdentifier mWinningSeller;
+    private final List<Uri> mComponentAdUris;
 
     public static final Creator<PersistAdSelectionResultResponse> CREATOR =
             new Creator<>() {
@@ -53,18 +57,27 @@ public final class PersistAdSelectionResultResponse implements Parcelable {
                 }
             };
 
-    private PersistAdSelectionResultResponse(long adSelectionId, @NonNull Uri adRenderUri) {
+    private PersistAdSelectionResultResponse(
+            long adSelectionId,
+            Uri adRenderUri,
+            AdTechIdentifier winningSeller,
+            List<Uri> componentAdUris) {
         Objects.requireNonNull(adRenderUri);
 
         this.mAdSelectionId = adSelectionId;
         this.mAdRenderUri = adRenderUri;
+        this.mWinningSeller = winningSeller;
+        this.mComponentAdUris = componentAdUris;
     }
 
-    private PersistAdSelectionResultResponse(@NonNull Parcel in) {
+    private PersistAdSelectionResultResponse(Parcel in) {
         Objects.requireNonNull(in);
 
         this.mAdSelectionId = in.readLong();
         this.mAdRenderUri = Uri.CREATOR.createFromParcel(in);
+        this.mWinningSeller = AdTechIdentifier.CREATOR.createFromParcel(in);
+        this.mComponentAdUris = new ArrayList<>();
+        in.readTypedList(mComponentAdUris, Uri.CREATOR);
     }
 
     @Override
@@ -72,14 +85,16 @@ public final class PersistAdSelectionResultResponse implements Parcelable {
         if (o instanceof PersistAdSelectionResultResponse) {
             PersistAdSelectionResultResponse response = (PersistAdSelectionResultResponse) o;
             return mAdSelectionId == response.mAdSelectionId
-                    && Objects.equals(mAdRenderUri, response.mAdRenderUri);
+                    && Objects.equals(mAdRenderUri, response.mAdRenderUri)
+                    && Objects.equals(mWinningSeller, response.mWinningSeller)
+                    && Objects.equals(mComponentAdUris, response.mComponentAdUris);
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mAdSelectionId, mAdRenderUri);
+        return Objects.hash(mAdSelectionId, mAdRenderUri, mWinningSeller, mComponentAdUris);
     }
 
     @Override
@@ -97,13 +112,26 @@ public final class PersistAdSelectionResultResponse implements Parcelable {
         return mAdRenderUri;
     }
 
+    /** Returns the winning seller id */
+    public AdTechIdentifier getWinningSeller() {
+        return mWinningSeller;
+    }
+
+    /** Returns the list of component ad URIs. */
+    public List<Uri> getComponentAdUris() {
+        return mComponentAdUris;
+    }
+
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         Objects.requireNonNull(dest);
-        Objects.requireNonNull(mAdRenderUri);
+        Objects.requireNonNull(mAdRenderUri, "Ad render uri cannot be null");
+        Objects.requireNonNull(mWinningSeller, "Winning seller cannot be null");
 
         dest.writeLong(mAdSelectionId);
         mAdRenderUri.writeToParcel(dest, flags);
+        mWinningSeller.writeToParcel(dest, flags);
+        dest.writeTypedList(mComponentAdUris);
     }
 
     /**
@@ -113,23 +141,40 @@ public final class PersistAdSelectionResultResponse implements Parcelable {
      */
     public static final class Builder {
         private long mAdSelectionId;
-        @Nullable private Uri mAdRenderUri;
+        private Uri mAdRenderUri;
+        private AdTechIdentifier mWinningSeller;
+        private List<Uri> mComponentAdUris = List.of();
 
-        public Builder() {}
+        public Builder() {
+            mWinningSeller = AdTechIdentifier.UNSET_AD_TECH_IDENTIFIER;
+        }
 
         /** Sets the adSelectionId. */
-        @NonNull
         public PersistAdSelectionResultResponse.Builder setAdSelectionId(long adSelectionId) {
             this.mAdSelectionId = adSelectionId;
             return this;
         }
 
         /** Sets the adRenderUri. */
-        @NonNull
-        public PersistAdSelectionResultResponse.Builder setAdRenderUri(@NonNull Uri adRenderUri) {
+        public PersistAdSelectionResultResponse.Builder setAdRenderUri(Uri adRenderUri) {
             Objects.requireNonNull(adRenderUri);
 
             this.mAdRenderUri = adRenderUri;
+            return this;
+        }
+
+        /** Sets the winningSeller that won the auction. */
+        public PersistAdSelectionResultResponse.Builder setWinningSeller(
+                AdTechIdentifier winningSeller) {
+            this.mWinningSeller = winningSeller;
+            return this;
+        }
+
+        /** Sets the list of component ad URIs. Takes a copy of the provided list. */
+        public PersistAdSelectionResultResponse.Builder setComponentAdUris(
+                List<Uri> componentAdUris) {
+            Objects.requireNonNull(componentAdUris);
+            this.mComponentAdUris = componentAdUris;
             return this;
         }
 
@@ -141,11 +186,14 @@ public final class PersistAdSelectionResultResponse implements Parcelable {
          */
         @NonNull
         public PersistAdSelectionResultResponse build() {
-            Objects.requireNonNull(mAdRenderUri);
+            Objects.requireNonNull(mAdRenderUri, "Ad render uri cannot be null");
+            Objects.requireNonNull(mWinningSeller, "Winning seller cannot be null");
+
             Preconditions.checkArgument(
                     mAdSelectionId != UNSET_AD_SELECTION_ID, UNSET_AD_SELECTION_ID_MESSAGE);
 
-            return new PersistAdSelectionResultResponse(mAdSelectionId, mAdRenderUri);
+            return new PersistAdSelectionResultResponse(
+                    mAdSelectionId, mAdRenderUri, mWinningSeller, mComponentAdUris);
         }
     }
 }

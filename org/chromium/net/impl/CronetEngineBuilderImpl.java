@@ -3,9 +3,12 @@
 // found in the LICENSE file.
 package org.chromium.net.impl;
 
+import static android.os.Process.THREAD_PRIORITY_BACKGROUND;
 import static android.os.Process.THREAD_PRIORITY_LOWEST;
 
 import android.content.Context;
+import android.os.Process;
+import android.os.SystemClock;
 import android.util.Base64;
 
 import androidx.annotation.IntDef;
@@ -13,6 +16,7 @@ import androidx.annotation.VisibleForTesting;
 
 import org.chromium.net.CronetEngine;
 import org.chromium.net.ICronetEngineBuilder;
+import org.chromium.net.impl.CronetLogger.CronetSource;
 
 import java.io.File;
 import java.lang.annotation.Retention;
@@ -23,6 +27,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -65,7 +70,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
 
     /** Mapping between public builder view of HttpCacheMode and internal builder one. */
     @VisibleForTesting
-    public enum HttpCacheMode {
+    static enum HttpCacheMode {
         DISABLED(HttpCacheType.DISABLED, false),
         DISK(HttpCacheType.DISK, true),
         DISK_NO_HTTP(HttpCacheType.DISK, false),
@@ -88,8 +93,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
         }
 
         @HttpCacheSetting
-        @VisibleForTesting
-        public int toPublicBuilderCacheMode() {
+        int toPublicBuilderCacheMode() {
             switch (this) {
                 case DISABLED:
                     return CronetEngine.Builder.HTTP_CACHE_DISABLED;
@@ -105,7 +109,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
         }
 
         @VisibleForTesting
-        public static HttpCacheMode fromPublicBuilderCacheMode(@HttpCacheSetting int cacheMode) {
+        static HttpCacheMode fromPublicBuilderCacheMode(@HttpCacheSetting int cacheMode) {
             switch (cacheMode) {
                 case CronetEngine.Builder.HTTP_CACHE_DISABLED:
                     return DISABLED;
@@ -125,18 +129,23 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
 
     private static final int INVALID_THREAD_PRIORITY = THREAD_PRIORITY_LOWEST + 1;
 
+    @VisibleForTesting
+    static int sApiLevel = VersionSafeCallbacks.ApiVersion.getMaximumAvailableApiLevel();
+
+    protected final CronetLogger mLogger;
+
     // Private fields are simply storage of configuration for the resulting CronetEngine.
     // See setters below for verbose descriptions.
     private final Context mApplicationContext;
     private final List<QuicHint> mQuicHints = new LinkedList<>();
     private final List<Pkp> mPkps = new LinkedList<>();
+    private final CronetSource mSource;
     private boolean mPublicKeyPinningBypassForLocalTrustAnchorsEnabled;
     private String mUserAgent;
     private String mStoragePath;
     private boolean mQuicEnabled;
     private boolean mHttp2Enabled;
     private boolean mBrotiEnabled;
-    private boolean mDisableCache;
     private HttpCacheMode mHttpCacheMode;
     private long mHttpCacheMaxSize;
     private String mExperimentalOptions;
@@ -146,16 +155,65 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
 
     /**
      * Default config enables SPDY and QUIC, disables SDCH and HTTP cache.
+     *
      * @param context Android {@link Context} for engine to use.
      */
-    public CronetEngineBuilderImpl(Context context) {
+    public CronetEngineBuilderImpl(Context context, CronetSource source) {
+        var startUptimeMillis = SystemClock.uptimeMillis();
+        boolean successful = false;
         mApplicationContext = context.getApplicationContext();
-        enableQuic(true);
-        enableHttp2(true);
-        enableBrotli(false);
-        enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISABLED, 0);
-        enableNetworkQualityEstimator(false);
-        enablePublicKeyPinningBypassForLocalTrustAnchors(true);
+        mSource = source;
+        mLogger = CronetLoggerFactory.createLogger(mApplicationContext, mSource);
+        try {
+            enableQuic(true);
+            enableHttp2(true);
+            enableBrotli(false);
+            enableHttpCache(CronetEngine.Builder.HTTP_CACHE_DISABLED, 0);
+            enableNetworkQualityEstimator(false);
+            enablePublicKeyPinningBypassForLocalTrustAnchors(true);
+
+            successful = true;
+        } finally {
+            maybeLogCronetEngineBuilderInitializedInfo(startUptimeMillis, successful);
+        }
+    }
+
+    /** TODO(b/332878149): Remove once this has landed internally and we've fixed all failures. */
+    public CronetEngineBuilderImpl(Context context) {
+        this(context, CronetSource.CRONET_SOURCE_UNSPECIFIED);
+    }
+
+    private void maybeLogCronetEngineBuilderInitializedInfo(
+            long startUptimeMillis, boolean successful) {
+        // Normally, the API code is responsible for logging this. However this only happens if the
+        // app is bundling an API jar that is recent enough to include the logging code. If it does
+        // not, we are on the hook for doing the logging here in impl code.
+        //
+        // The addition of logging code to the API was accompanied by an API level bump so that we
+        // can detect this case.
+        if (sApiLevel >= 30) return;
+
+        var logInfo = new CronetLogger.CronetEngineBuilderInitializedInfo();
+        logInfo.creationSuccessful = false;
+        try {
+            logInfo.author = CronetLogger.CronetEngineBuilderInitializedInfo.Author.IMPL;
+            logInfo.uid = Process.myUid();
+            logInfo.implVersion = new CronetLogger.CronetVersion(ImplVersion.getCronetVersion());
+            logInfo.source = mSource;
+            logInfo.apiVersion =
+                    new CronetLogger.CronetVersion(
+                            VersionSafeCallbacks.ApiVersion.getCronetVersion());
+            logInfo.cronetInitializationRef = getLogCronetInitializationRef();
+            logInfo.creationSuccessful = successful;
+        } finally {
+            logInfo.engineBuilderCreatedLatencyMillis =
+                    (int) (SystemClock.uptimeMillis() - startUptimeMillis);
+            mLogger.logCronetEngineBuilderInitializedInfo(logInfo);
+        }
+    }
+
+    CronetSource getCronetSource() {
+        return mSource;
     }
 
     @Override
@@ -170,7 +228,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
     }
 
     @VisibleForTesting
-    public String getUserAgent() {
+    String getUserAgent() {
         return mUserAgent;
     }
 
@@ -184,7 +242,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
     }
 
     @VisibleForTesting
-    public String storagePath() {
+    String storagePath() {
         return mStoragePath;
     }
 
@@ -213,7 +271,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
     }
 
     @VisibleForTesting
-    public boolean quicEnabled() {
+    boolean quicEnabled() {
         return mQuicEnabled;
     }
 
@@ -234,7 +292,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
     }
 
     @VisibleForTesting
-    public boolean http2Enabled() {
+    boolean http2Enabled() {
         return mHttp2Enabled;
     }
 
@@ -250,7 +308,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
     }
 
     @VisibleForTesting
-    public boolean brotliEnabled() {
+    boolean brotliEnabled() {
         return mBrotiEnabled;
     }
 
@@ -286,13 +344,12 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
     }
 
     @VisibleForTesting
-    public int httpCacheMode() {
+    int httpCacheMode() {
         return mHttpCacheMode.getType();
     }
 
     @HttpCacheSetting
-    @VisibleForTesting
-    public int publicBuilderHttpCacheMode() {
+    int publicBuilderHttpCacheMode() {
         return mHttpCacheMode.toPublicBuilderCacheMode();
     }
 
@@ -315,15 +372,10 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
             Set<byte[]> pinsSha256,
             boolean includeSubdomains,
             Date expirationDate) {
-        if (hostName == null) {
-            throw new NullPointerException("The hostname cannot be null");
-        }
-        if (pinsSha256 == null) {
-            throw new NullPointerException("The set of SHA256 pins cannot be null");
-        }
-        if (expirationDate == null) {
-            throw new NullPointerException("The pin expiration date cannot be null");
-        }
+        Objects.requireNonNull(hostName, "The hostname cannot be null.");
+        Objects.requireNonNull(pinsSha256, "The set of SHA256 pins cannot be null.");
+        Objects.requireNonNull(expirationDate, "The pin expiration date cannot be null.");
+
         String idnHostName = validateHostNameForPinningAndConvert(hostName);
         // Convert the pin to BASE64 encoding to remove duplicates.
         Map<String, byte[]> hashes = new HashMap<>();
@@ -358,7 +410,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
     }
 
     @VisibleForTesting
-    public boolean publicKeyPinningBypassForLocalTrustAnchorsEnabled() {
+    boolean publicKeyPinningBypassForLocalTrustAnchorsEnabled() {
         return mPublicKeyPinningBypassForLocalTrustAnchorsEnabled;
     }
 
@@ -436,7 +488,7 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
      * this builder.
      */
     @VisibleForTesting
-    public boolean networkQualityEstimatorEnabled() {
+    boolean networkQualityEstimatorEnabled() {
         return mNetworkQualityEstimatorEnabled;
     }
 
@@ -455,9 +507,16 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
         return this;
     }
 
-    /** @return thread priority provided by user, or {@code defaultThreadPriority} if none provided. */
+    @Override
+    protected long getLogCronetInitializationRef() {
+        return 0;
+    }
+
+    /**
+     * @return thread priority provided by user, or {@code defaultThreadPriority} if none provided.
+     */
     @VisibleForTesting
-    public int threadPriority(int defaultThreadPriority) {
+    int threadPriority(int defaultThreadPriority) {
         return mThreadPriority == INVALID_THREAD_PRIORITY ? defaultThreadPriority : mThreadPriority;
     }
 
@@ -468,5 +527,20 @@ public abstract class CronetEngineBuilderImpl extends ICronetEngineBuilder {
      */
     Context getContext() {
         return mApplicationContext;
+    }
+
+    CronetLogger.CronetEngineBuilderInfo toLoggerInfo() {
+        return new CronetLogger.CronetEngineBuilderInfo(
+                /* publicKeyPinningBypassForLocalTrustAnchorsEnabled= */ publicKeyPinningBypassForLocalTrustAnchorsEnabled(),
+                /* userAgent= */ getUserAgent(),
+                /* storagePath= */ storagePath(),
+                /* quicEnabled= */ quicEnabled(),
+                /* http2Enabled= */ http2Enabled(),
+                /* brotiEnabled= */ brotliEnabled(),
+                /* httpCacheMode= */ publicBuilderHttpCacheMode(),
+                /* experimentalOptions= */ experimentalOptions(),
+                /* networkQualityEstimatorEnabled= */ networkQualityEstimatorEnabled(),
+                /* threadPriority= */ threadPriority(THREAD_PRIORITY_BACKGROUND),
+                /* cronetInitializationRef= */ getLogCronetInitializationRef());
     }
 }

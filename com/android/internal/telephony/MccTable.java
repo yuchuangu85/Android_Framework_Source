@@ -24,6 +24,7 @@ import android.content.Context;
 import android.os.Build;
 import android.os.SystemProperties;
 import android.text.TextUtils;
+import android.timezone.MobileCountries;
 import android.timezone.TelephonyLookup;
 import android.timezone.TelephonyNetwork;
 import android.timezone.TelephonyNetworkFinder;
@@ -36,6 +37,7 @@ import com.android.telephony.Rlog;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -53,12 +55,18 @@ public final class MccTable {
 
     static ArrayList<MccEntry> sTable;
 
+    @VisibleForTesting
+    public static List<MccEntry> getAllMccEntries() {
+        return new ArrayList<>(sTable);
+    }
+
     /**
      * Container class for mcc and iso. This class implements compareTo so that it can be sorted
      * by mcc.
      */
     public static class MccEntry implements Comparable<MccEntry> {
-        final int mMcc;
+        @VisibleForTesting
+        public final int mMcc;
         @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.Q,
                 publicAlternatives = "There is no alternative for {@code MccTable.MccEntry.mIso}, "
                         + "but it was included in hidden APIs due to a static analysis false "
@@ -87,7 +95,6 @@ public final class MccTable {
      *
      * @hide
      */
-    @VisibleForTesting
     public static class MccMnc {
         @NonNull
         public final String mcc;
@@ -174,29 +181,46 @@ public final class MccTable {
      * Given a GSM Mobile Country Code, returns a lower-case ISO 3166 alpha-2 country code if
      * available. Returns empty string if unavailable.
      */
-    @UnsupportedAppUsage
-    @NonNull
-    public static String countryCodeForMcc(int mcc) {
-        MccEntry entry = entryForMcc(mcc);
-
-        if (entry == null) {
-            return "";
-        } else {
-            return entry.mIso;
-        }
-    }
-
-    /**
-     * Given a GSM Mobile Country Code, returns a lower-case ISO 3166 alpha-2 country code if
-     * available. Returns empty string if unavailable.
-     */
     @NonNull
     public static String countryCodeForMcc(@NonNull String mcc) {
-        try {
-            return countryCodeForMcc(Integer.parseInt(mcc));
-        } catch (NumberFormatException ex) {
+        if (mcc == null) {
             return "";
         }
+
+        if (!isNewMccTableEnabled()) {
+            try {
+                MccEntry entry = entryForMcc(Integer.parseInt(mcc));
+
+                if (entry == null) {
+                    return "";
+                } else {
+                    return entry.mIso;
+                }
+            } catch (NumberFormatException ex) {
+                return "";
+            }
+        }
+
+        TelephonyNetworkFinder telephonyNetworkFinder;
+
+        synchronized (MccTable.class) {
+            if ((telephonyNetworkFinder = sTelephonyNetworkFinder) == null) {
+                sTelephonyNetworkFinder = telephonyNetworkFinder =
+                        TelephonyLookup.getInstance().getTelephonyNetworkFinder();
+            }
+        }
+
+        if (telephonyNetworkFinder == null) {
+            // This should not happen under normal circumstances, only when the data is missing.
+            return "";
+        }
+
+        MobileCountries mobileCountries = telephonyNetworkFinder.findCountriesByMcc(mcc);
+        if (mobileCountries == null) {
+            return "";
+        }
+
+        return mobileCountries.getDefaultCountryIsoCode();
     }
 
     /**
@@ -209,7 +233,7 @@ public final class MccTable {
      * help distinguish, or the MCC assigned to a country isn't used for geopolitical reasons.
      * When the geographical country is needed  (e.g. time zone detection) this version can provide
      * more pragmatic results than the official MCC-only answer. This method falls back to calling
-     * {@link #countryCodeForMcc(int)} if no special MCC+MNC cases are found.
+     * {@link #countryCodeForMcc(String)} if no special MCC+MNC cases are found.
      * Returns empty string if no code can be determined.
      */
     @NonNull
@@ -220,7 +244,7 @@ public final class MccTable {
         }
         if (TextUtils.isEmpty(countryCode)) {
             // Try the MCC-only fallback.
-            countryCode = MccTable.countryCodeForMcc(mccMnc.mcc);
+            countryCode = countryCodeForMcc(mccMnc.mcc);
         }
         return countryCode;
     }
@@ -243,7 +267,6 @@ public final class MccTable {
         }
         return network.getCountryIsoCode();
     }
-
 
     /**
      * Given a GSM Mobile Country Code, returns
@@ -311,6 +334,11 @@ public final class MccTable {
      * Maps a given locale to a fallback locale that approximates it. This is a hack.
      */
     public static final Map<Locale, Locale> FALLBACKS = new HashMap<Locale, Locale>();
+
+    public static boolean isNewMccTableEnabled() {
+        return com.android.icu.Flags.telephonyLookupMccExtension()
+                && com.android.internal.telephony.flags.Flags.useI18nForMccMapping();
+    }
 
     static {
         // If we have English (without a country) explicitly prioritize en_US. http://b/28998094

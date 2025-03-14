@@ -56,19 +56,24 @@ public class KeepaliveTracker extends Handler {
     private static final int EVENT_UNREGISTER_FOR_KEEPALIVE_STATUS = 5;
 
     /** The phone instance. */
-    private final @NonNull Phone mPhone;
+    @NonNull
+    private final Phone mPhone;
 
     /** The parent data network. */
-    private final @NonNull DataNetwork mDataNetwork;
+    @NonNull
+    private final DataNetwork mDataNetwork;
 
     /** The associated network agent. */
-    private final @NonNull TelephonyNetworkAgent mNetworkAgent;
+    @NonNull
+    private final TelephonyNetworkAgent mNetworkAgent;
 
     /** The log tag. */
-    private final @NonNull String mLogTag;
+    @NonNull
+    private final String mLogTag;
 
     /** The keepalive records. */
-    private final @NonNull SparseArray<KeepaliveRecord> mKeepalives = new SparseArray<>();
+    @NonNull
+    private final SparseArray<KeepaliveRecord> mKeepalives = new SparseArray<>();
 
     /**
      * Keepalive session record
@@ -78,7 +83,8 @@ public class KeepaliveTracker extends Handler {
         public int slotIndex;
 
         /** The current status. */
-        public @KeepaliveStatusCode int currentStatus;
+        @KeepaliveStatusCode
+        public int currentStatus;
 
         /**
          * Constructor

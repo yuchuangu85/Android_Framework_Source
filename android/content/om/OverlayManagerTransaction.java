@@ -18,8 +18,6 @@ package android.content.om;
 
 import static android.annotation.SystemApi.Client.SYSTEM_SERVER;
 
-import static com.android.internal.util.Preconditions.checkNotNull;
-
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -29,13 +27,15 @@ import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.UserHandle;
+import android.text.TextUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -106,7 +106,9 @@ public final class OverlayManagerTransaction implements Parcelable {
             final OverlayIdentifier overlay = source.readParcelable(null, android.content.om.OverlayIdentifier.class);
             final int userId = source.readInt();
             final Bundle extras = source.readBundle(null);
-            mRequests.add(new Request(request, overlay, userId, extras));
+            OverlayConstraint[] constraints = source.createTypedArray(OverlayConstraint.CREATOR);
+            mRequests.add(new Request(request, overlay, userId, extras,
+                    Arrays.asList(constraints)));
         }
         mSelfTargeting = false;
     }
@@ -115,6 +117,7 @@ public final class OverlayManagerTransaction implements Parcelable {
      * Get the iterator of requests
      *
      * @return the iterator of request
+     *
      * @hide
      */
     @SuppressLint("ReferencesHidden")
@@ -145,6 +148,8 @@ public final class OverlayManagerTransaction implements Parcelable {
         @IntDef(prefix = "TYPE_", value = {
                 TYPE_SET_ENABLED,
                 TYPE_SET_DISABLED,
+                TYPE_REGISTER_FABRICATED,
+                TYPE_UNREGISTER_FABRICATED,
         })
         @Retention(RetentionPolicy.SOURCE)
         @interface RequestType {}
@@ -166,23 +171,51 @@ public final class OverlayManagerTransaction implements Parcelable {
         @Nullable
         public final Bundle extras;
 
+        /**
+         * @hide
+         */
+        @NonNull
+        public final List<OverlayConstraint> constraints;
+
         public Request(@RequestType final int type, @NonNull final OverlayIdentifier overlay,
                 final int userId) {
-            this(type, overlay, userId, null /* extras */);
+            this(type, overlay, userId, null /* extras */,
+                    Collections.emptyList() /* constraints */);
         }
 
         public Request(@RequestType final int type, @NonNull final OverlayIdentifier overlay,
                 final int userId, @Nullable Bundle extras) {
+            this(type, overlay, userId, extras, Collections.emptyList() /* constraints */);
+        }
+
+        /**
+         * @hide
+         */
+        public Request(@RequestType final int type, @NonNull final OverlayIdentifier overlay,
+                final int userId, @NonNull List<OverlayConstraint> constraints) {
+            this(type, overlay, userId, null /* extras */, constraints);
+        }
+
+        /**
+         * @hide
+         */
+        public Request(@RequestType final int type, @NonNull final OverlayIdentifier overlay,
+                final int userId, @Nullable Bundle extras,
+                @NonNull List<OverlayConstraint> constraints) {
             this.type = type;
             this.overlay = overlay;
             this.userId = userId;
             this.extras = extras;
+            Objects.requireNonNull(constraints);
+            this.constraints = constraints;
         }
 
         @Override
         public String toString() {
-            return String.format(Locale.US, "Request{type=0x%02x (%s), overlay=%s, userId=%d}",
-                    type, typeToString(), overlay, userId);
+            return TextUtils.formatSimple(
+                    "Request{type=0x%02x (%s), overlay=%s, userId=%d, constraints=%s}",
+                    type, typeToString(), overlay, userId,
+                    OverlayConstraint.constraintsToString(constraints));
         }
 
         /**
@@ -205,10 +238,12 @@ public final class OverlayManagerTransaction implements Parcelable {
     /**
      * Builder class for OverlayManagerTransaction objects.
      * TODO(b/269197647): mark the API used by the systemUI.
+     *
      * @hide
      */
     public static final class Builder {
         private final List<Request> mRequests = new ArrayList<>();
+        private boolean mSelfTargeting = false;
 
         /**
          * Request that an overlay package be enabled and change its loading
@@ -237,11 +272,40 @@ public final class OverlayManagerTransaction implements Parcelable {
         /**
          * @hide
          */
+        public Builder setEnabled(@NonNull OverlayIdentifier overlay, boolean enable,
+                @NonNull List<OverlayConstraint> constraints) {
+            return setEnabled(overlay, enable, UserHandle.myUserId(), constraints);
+        }
+
+        /**
+         * @hide
+         */
         public Builder setEnabled(@NonNull OverlayIdentifier overlay, boolean enable, int userId) {
-            checkNotNull(overlay);
+            return setEnabled(overlay, enable, userId, Collections.emptyList() /* constraints */);
+        }
+
+        /**
+         * @hide
+         */
+        public Builder setEnabled(@NonNull OverlayIdentifier overlay, boolean enable, int userId,
+                @NonNull List<OverlayConstraint> constraints) {
+            Objects.requireNonNull(overlay);
             @Request.RequestType final int type =
                 enable ? Request.TYPE_SET_ENABLED : Request.TYPE_SET_DISABLED;
-            mRequests.add(new Request(type, overlay, userId));
+            mRequests.add(new Request(type, overlay, userId, constraints));
+            return this;
+        }
+
+        /**
+         * Request that an overlay package be self-targeting. Self-targeting overlays enable
+         * applications to overlay on itself resources. The overlay target is itself, or the Android
+         * package, and the work range is only in caller application.
+         * @param selfTargeting whether the overlay is self-targeting, the default is false.
+         *
+         * @hide
+         */
+        public Builder setSelfTargeting(boolean selfTargeting) {
+            mSelfTargeting = selfTargeting;
             return this;
         }
 
@@ -286,7 +350,7 @@ public final class OverlayManagerTransaction implements Parcelable {
          */
         @NonNull
         public OverlayManagerTransaction build() {
-            return new OverlayManagerTransaction(mRequests, false /* selfTargeting */);
+            return new OverlayManagerTransaction(mRequests, mSelfTargeting);
         }
     }
 
@@ -311,23 +375,24 @@ public final class OverlayManagerTransaction implements Parcelable {
             dest.writeParcelable(req.overlay, flags);
             dest.writeInt(req.userId);
             dest.writeBundle(req.extras);
+            dest.writeTypedArray(req.constraints.toArray(new OverlayConstraint[0]), flags);
         }
     }
 
     @NonNull
     public static final Parcelable.Creator<OverlayManagerTransaction> CREATOR =
-            new Parcelable.Creator<OverlayManagerTransaction>() {
+            new Parcelable.Creator<>() {
 
-        @Override
-        public OverlayManagerTransaction createFromParcel(Parcel source) {
-            return new OverlayManagerTransaction(source);
-        }
+                @Override
+                public OverlayManagerTransaction createFromParcel(Parcel source) {
+                    return new OverlayManagerTransaction(source);
+                }
 
-        @Override
-        public OverlayManagerTransaction[] newArray(int size) {
-            return new OverlayManagerTransaction[size];
-        }
-    };
+                @Override
+                public OverlayManagerTransaction[] newArray(int size) {
+                    return new OverlayManagerTransaction[size];
+                }
+            };
 
     private static Request generateRegisterFabricatedOverlayRequest(
             @NonNull FabricatedOverlay overlay) {

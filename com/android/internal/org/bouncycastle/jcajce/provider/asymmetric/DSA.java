@@ -24,7 +24,7 @@ public class DSA
         public Mappings()
         {
         }
-        
+
         public void configure(ConfigurableProvider provider)
         {
             provider.addAlgorithm("AlgorithmParameters.DSA", PREFIX + "AlgorithmParametersSpi");
@@ -90,6 +90,8 @@ public class DSA
             provider.addAlgorithm("Alg.Alias.Signature.SHA1WithDSA", "SHA1withDSA");
             provider.addAlgorithm("Alg.Alias.Signature.DSAWithSHA1", "SHA1withDSA");
             // END Android-changed: Change primary ID from DSA to SHA1withDSA
+
+            // addSignatureAlgorithm(provider, "RIPEMD160", "DSA", PREFIX + "DSASigner$dsaRMD160");
 
             AsymmetricKeyInfoConverter keyFact = new KeyFactorySpi();
 

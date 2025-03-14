@@ -35,7 +35,6 @@ import com.android.internal.telephony.satellite.SatelliteServiceUtils;
 public class ControllerMetricsStats {
     private static final int ADD_COUNT = 1;
     private static final String TAG = ControllerMetricsStats.class.getSimpleName();
-    private static final boolean DBG = false;
 
     private static ControllerMetricsStats sInstance;
 
@@ -112,7 +111,6 @@ public class ControllerMetricsStats {
         mSatelliteStats = satelliteStats;
     }
 
-
     /** Report a counter when an attempt for satellite service on is successfully done */
     public void reportServiceEnablementSuccessCount() {
         logd("reportServiceEnablementSuccessCount()");
@@ -124,7 +122,7 @@ public class ControllerMetricsStats {
 
     /** Report a counter when an attempt for satellite service on is failed */
     public void reportServiceEnablementFailCount() {
-        logd("reportServiceEnablementSuccessCount()");
+        logd("reportServiceEnablementFailCount()");
         mSatelliteStats.onSatelliteControllerMetrics(
                 new SatelliteStats.SatelliteControllerParams.Builder()
                         .setCountOfSatelliteServiceEnablementsFail(ADD_COUNT)
@@ -141,14 +139,13 @@ public class ControllerMetricsStats {
             builder.setCountOfDemoModeOutgoingDatagramSuccess(ADD_COUNT);
         } else {
             builder.setCountOfOutgoingDatagramSuccess(ADD_COUNT);
-        }
-
-        if (SatelliteServiceUtils.isSosMessage(datagramType)) {
-            builder.setCountOfDatagramTypeSosSmsSuccess(ADD_COUNT);
-        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
-            builder.setCountOfDatagramTypeLocationSharingSuccess(ADD_COUNT);
-        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_KEEP_ALIVE) {
-            builder.setCountOfDatagramTypeKeepAliveSuccess(ADD_COUNT).build();
+            if (SatelliteServiceUtils.isSosMessage(datagramType)) {
+                builder.setCountOfDatagramTypeSosSmsSuccess(ADD_COUNT);
+            } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
+                builder.setCountOfDatagramTypeLocationSharingSuccess(ADD_COUNT);
+            } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_KEEP_ALIVE) {
+                builder.setCountOfDatagramTypeKeepAliveSuccess(ADD_COUNT).build();
+            }
         }
 
         SatelliteStats.SatelliteControllerParams controllerParam = builder.build();
@@ -166,14 +163,13 @@ public class ControllerMetricsStats {
             builder.setCountOfDemoModeOutgoingDatagramFail(ADD_COUNT);
         } else {
             builder.setCountOfOutgoingDatagramFail(ADD_COUNT);
-        }
-
-        if (SatelliteServiceUtils.isSosMessage(datagramType)) {
-            builder.setCountOfDatagramTypeSosSmsFail(ADD_COUNT);
-        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
-            builder.setCountOfDatagramTypeLocationSharingFail(ADD_COUNT);
-        } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_KEEP_ALIVE) {
-            builder.setCountOfDatagramTypeKeepAliveFail(ADD_COUNT);
+            if (SatelliteServiceUtils.isSosMessage(datagramType)) {
+                builder.setCountOfDatagramTypeSosSmsFail(ADD_COUNT);
+            } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_LOCATION_SHARING) {
+                builder.setCountOfDatagramTypeLocationSharingFail(ADD_COUNT);
+            } else if (datagramType == SatelliteManager.DATAGRAM_TYPE_KEEP_ALIVE) {
+                builder.setCountOfDatagramTypeKeepAliveFail(ADD_COUNT);
+            }
         }
 
         SatelliteStats.SatelliteControllerParams controllerParam = builder.build();
@@ -233,6 +229,36 @@ public class ControllerMetricsStats {
                     .build();
         }
         logd("reportDeprovisionCount(): " + controllerParam);
+        mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
+    }
+
+    /**
+     * Report a counter when checking result whether satellite communication is allowed or not for
+     * current location.
+     */
+    public void reportAllowedSatelliteAccessCount(boolean isAllowed) {
+        SatelliteStats.SatelliteControllerParams.Builder builder;
+        if (isAllowed) {
+            builder = new SatelliteStats.SatelliteControllerParams.Builder()
+                    .setCountOfAllowedSatelliteAccess(ADD_COUNT);
+        } else {
+            builder = new SatelliteStats.SatelliteControllerParams.Builder()
+                    .setCountOfDisallowedSatelliteAccess(ADD_COUNT);
+        }
+        SatelliteStats.SatelliteControllerParams controllerParam = builder.build();
+        logd("reportAllowedSatelliteAccessCount:" + controllerParam);
+        mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
+    }
+
+    /**
+     * Report a counter when checking whether satellite communication for current location is
+     * allowed has failed.
+     */
+    public void reportFailedSatelliteAccessCheckCount() {
+        SatelliteStats.SatelliteControllerParams controllerParam =
+                new SatelliteStats.SatelliteControllerParams.Builder()
+                        .setCountOfSatelliteAccessCheckFail(ADD_COUNT).build();
+        logd("reportFailedSatelliteAccessCheckCount:" + controllerParam);
         mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
     }
 
@@ -341,6 +367,91 @@ public class ControllerMetricsStats {
         }
     }
 
+    /** Capture the latest provisioned state for satellite service */
+    @VisibleForTesting
+    public void setIsProvisioned(boolean isProvisioned) {
+        logd("setIsProvisioned:" + isProvisioned);
+        mSatelliteStats.onSatelliteControllerMetrics(
+                new SatelliteStats.SatelliteControllerParams.Builder()
+                        .setIsProvisioned(isProvisioned)
+                        .build());
+    }
+
+    /** Capture the NB-IoT NTN carrier ID */
+    public void setCarrierId(int carrierId) {
+        logd("setCarrierId:" + carrierId);
+        mSatelliteStats.onSatelliteControllerMetrics(
+                new SatelliteStats.SatelliteControllerParams.Builder()
+                        .setCarrierId(carrierId)
+                        .build());
+    }
+
+    /**
+     * Report a counter when allowed state has changed.
+     */
+    public void reportAllowedStateChanged() {
+        logd("reportAllowedStateChanged:");
+        mSatelliteStats.onSatelliteControllerMetrics(
+                new SatelliteStats.SatelliteControllerParams.Builder()
+                        .setCountOfSatelliteAllowedStateChangedEvents(ADD_COUNT)
+                        .build());
+    }
+
+    /**
+     * Report a counter when location query was successful or failed.
+     */
+    public void reportLocationQuerySuccessful(boolean result) {
+        SatelliteStats.SatelliteControllerParams.Builder builder;
+        if (result) {
+            builder = new SatelliteStats.SatelliteControllerParams.Builder()
+                    .setCountOfSuccessfulLocationQueries(ADD_COUNT);
+        } else {
+            builder = new SatelliteStats.SatelliteControllerParams.Builder()
+                    .setCountOfFailedLocationQueries(ADD_COUNT);
+        }
+        SatelliteStats.SatelliteControllerParams controllerParam = builder.build();
+        logd("reportLocationQuerySuccessful:" + controllerParam);
+        mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
+    }
+
+    /**
+     * Report a current version of satellite access config.
+     */
+    public void reportCurrentVersionOfSatelliteAccessConfig(int version) {
+        logd("reportCurrentVersionOfSatelliteAccessConfig:" + version);
+        mSatelliteStats.onSatelliteControllerMetrics(
+                new SatelliteStats.SatelliteControllerParams.Builder()
+                        .setVersionOfSatelliteAccessControl(version)
+                        .build());
+    }
+
+    /**
+     * Add count when the notification for P2P SMS over satellite avaibility is shown or removed.
+     */
+    public void reportP2PSmsEligibilityNotificationsCount(boolean isEligible) {
+        SatelliteStats.SatelliteControllerParams.Builder builder;
+        if (isEligible) {
+            builder = new SatelliteStats.SatelliteControllerParams.Builder()
+                    .setCountOfP2PSmsAvailableNotificationShown(ADD_COUNT);
+        } else {
+            builder = new SatelliteStats.SatelliteControllerParams.Builder()
+                    .setCountOfP2PSmsAvailableNotificationRemoved(ADD_COUNT);
+
+        }
+        SatelliteStats.SatelliteControllerParams controllerParam = builder.build();
+        logd("reportP2PSmsEligibilityNotificationsCount:" + controllerParam);
+        mSatelliteStats.onSatelliteControllerMetrics(controllerParam);
+    }
+
+    /** Capture the latest provisioned state for satellite service */
+    public void setIsNtnOnlyCarrier(boolean isNtnOnlyCarrier) {
+        logd("setIsNtnOnlyCarrier:" + isNtnOnlyCarrier);
+        mSatelliteStats.onSatelliteControllerMetrics(
+                new SatelliteStats.SatelliteControllerParams.Builder()
+                        .setIsNtnOnlyCarrier(isNtnOnlyCarrier)
+                        .build());
+    }
+
     /** Receives the battery status whether it is in charging or not, update interval is 60 sec. */
     private final BroadcastReceiver mBatteryStatusReceiver = new BroadcastReceiver() {
         private long mLastUpdatedTime = 0;
@@ -370,9 +481,7 @@ public class ControllerMetricsStats {
     }
 
     private static void logd(@NonNull String log) {
-        if (DBG) {
-            Log.d(TAG, log);
-        }
+        Log.d(TAG, log);
     }
 
     private static void loge(@NonNull String log) {

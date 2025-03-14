@@ -31,10 +31,10 @@ import android.net.ipsec.ike.TunnelModeChildSessionParams.ConfigRequestIpv6Addre
 import android.net.ipsec.ike.TunnelModeChildSessionParams.ConfigRequestIpv6DnsServer;
 import android.net.ipsec.ike.TunnelModeChildSessionParams.TunnelModeChildConfigRequest;
 import android.net.ipsec.ike.exceptions.InvalidSyntaxException;
+import android.net.vcn.util.PersistableBundleUtils;
 import android.os.PersistableBundle;
 
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.server.vcn.util.PersistableBundleUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;

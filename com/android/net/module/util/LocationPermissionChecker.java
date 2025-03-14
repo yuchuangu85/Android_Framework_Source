@@ -16,6 +16,8 @@
 
 package com.android.net.module.util;
 
+import static com.android.internal.annotations.VisibleForTesting.Visibility.PRIVATE;
+
 import android.Manifest;
 import android.annotation.IntDef;
 import android.annotation.Nullable;
@@ -112,48 +114,14 @@ public class LocationPermissionChecker {
      *
      * @return {@link LocationPermissionCheckStatus} the result of the location permission check.
      */
-    public @LocationPermissionCheckStatus int checkLocationPermissionWithDetailInfo(
+    @VisibleForTesting(visibility = PRIVATE)
+    public @LocationPermissionCheckStatus int checkLocationPermissionInternal(
             String pkgName, @Nullable String featureId, int uid, @Nullable String message) {
-        final int result = checkLocationPermissionInternal(pkgName, featureId, uid, message);
-        switch (result) {
-            case ERROR_LOCATION_MODE_OFF:
-                Log.e(TAG, "Location mode is disabled for the device");
-                break;
-            case ERROR_LOCATION_PERMISSION_MISSING:
-                Log.e(TAG, "UID " + uid + " has no location permission");
-                break;
+        try {
+            checkPackage(uid, pkgName);
+        } catch (SecurityException e) {
+            return ERROR_LOCATION_PERMISSION_MISSING;
         }
-        return result;
-    }
-
-    /**
-     * Enforce the caller has location permission.
-     *
-     * This API determines if the location mode enabled for the caller and the caller has
-     * ACCESS_COARSE_LOCATION permission is targetSDK<29, otherwise, has ACCESS_FINE_LOCATION.
-     * SecurityException is thrown if the caller has no permission or the location mode is disabled.
-     *
-     * @param pkgName package name of the application requesting access
-     * @param featureId The feature in the package
-     * @param uid The uid of the package
-     * @param message A message describing why the permission was checked. Only needed if this is
-     *                not inside of a two-way binder call from the data receiver
-     */
-    public void enforceLocationPermission(String pkgName, @Nullable String featureId, int uid,
-            @Nullable String message) throws SecurityException {
-        final int result = checkLocationPermissionInternal(pkgName, featureId, uid, message);
-
-        switch (result) {
-            case ERROR_LOCATION_MODE_OFF:
-                throw new SecurityException("Location mode is disabled for the device");
-            case ERROR_LOCATION_PERMISSION_MISSING:
-                throw new SecurityException("UID " + uid + " has no location permission");
-        }
-    }
-
-    private int checkLocationPermissionInternal(String pkgName, @Nullable String featureId,
-            int uid, @Nullable String message) {
-        checkPackage(uid, pkgName);
 
         // Apps with NETWORK_SETTINGS, NETWORK_SETUP_WIZARD, NETWORK_STACK & MAINLINE_NETWORK_STACK
         // are granted a bypass.
@@ -221,7 +189,7 @@ public class LocationPermissionChecker {
     /**
      * Retrieves a handle to LocationManager (if not already done) and check if location is enabled.
      */
-    public boolean isLocationModeEnabled() {
+    private boolean isLocationModeEnabled() {
         final LocationManager LocationManager = mContext.getSystemService(LocationManager.class);
         try {
             return LocationManager.isLocationEnabledForUser(UserHandle.of(
@@ -278,7 +246,7 @@ public class LocationPermissionChecker {
     /**
      * Returns true if the |uid| holds NETWORK_SETTINGS permission.
      */
-    public boolean checkNetworkSettingsPermission(int uid) {
+    private boolean checkNetworkSettingsPermission(int uid) {
         return getUidPermission(android.Manifest.permission.NETWORK_SETTINGS, uid)
                 == PackageManager.PERMISSION_GRANTED;
     }
@@ -286,7 +254,7 @@ public class LocationPermissionChecker {
     /**
      * Returns true if the |uid| holds NETWORK_SETUP_WIZARD permission.
      */
-    public boolean checkNetworkSetupWizardPermission(int uid) {
+    private boolean checkNetworkSetupWizardPermission(int uid) {
         return getUidPermission(android.Manifest.permission.NETWORK_SETUP_WIZARD, uid)
                 == PackageManager.PERMISSION_GRANTED;
     }
@@ -294,7 +262,7 @@ public class LocationPermissionChecker {
     /**
      * Returns true if the |uid| holds NETWORK_STACK permission.
      */
-    public boolean checkNetworkStackPermission(int uid) {
+    private boolean checkNetworkStackPermission(int uid) {
         return getUidPermission(android.Manifest.permission.NETWORK_STACK, uid)
                 == PackageManager.PERMISSION_GRANTED;
     }
@@ -302,7 +270,7 @@ public class LocationPermissionChecker {
     /**
      * Returns true if the |uid| holds MAINLINE_NETWORK_STACK permission.
      */
-    public boolean checkMainlineNetworkStackPermission(int uid) {
+    private boolean checkMainlineNetworkStackPermission(int uid) {
         return getUidPermission(NetworkStack.PERMISSION_MAINLINE_NETWORK_STACK, uid)
                 == PackageManager.PERMISSION_GRANTED;
     }

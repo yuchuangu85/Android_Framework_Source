@@ -45,7 +45,7 @@ public final class StringFactory {
     }
 
     public static String newStringFromBytes(byte[] data, byte coder) {
-        if (coder == String.LATIN1) {
+        if (coder == String.CODER_LATIN1) {
             return newStringFromBytes(data, /*high=*/ 0);
         } else {
             return newStringFromUtf16Bytes(data, 0, data.length >>> 1);

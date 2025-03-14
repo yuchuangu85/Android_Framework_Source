@@ -35,6 +35,7 @@ import android.os.Parcelable;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.net.thread.flags.Flags;
 
 import java.io.ByteArrayOutputStream;
 import java.net.Inet6Address;
@@ -69,7 +70,7 @@ import java.util.Arrays;
  *
  * @hide
  */
-@FlaggedApi(ThreadNetworkFlags.FLAG_THREAD_ENABLED)
+@FlaggedApi(Flags.FLAG_THREAD_ENABLED)
 @SystemApi
 public final class ActiveOperationalDataset implements Parcelable {
     /** The maximum length of the Active Operational Dataset TLV array in bytes. */

@@ -166,7 +166,6 @@ public interface PersonName {
          * Requests the genitive form of the field's contents, if possible.  The default implementation
          * does nothing, but subclasses of PersonName can override getFieldValue() to produce the genitive
          * form (or just add an "xxx-genitive" entry to a SimplePersonName).
-         * @hide draft / provisional / internal are hidden on Android
          */
         GENITIVE("genitive"),
 
@@ -174,7 +173,6 @@ public interface PersonName {
          * Requests the vocative form of the field's contents, if possible.  The default implementation
          * does nothing, but subclasses of PersonName can override getFieldValue() to produce the vocative
          * form (or just add an "xxx-vocative" entry to a SimplePersonName).
-         * @hide draft / provisional / internal are hidden on Android
          */
         VOCATIVE("vocative");
 

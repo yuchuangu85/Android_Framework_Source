@@ -565,10 +565,9 @@ public class LocaleTracker extends Handler {
                 TelephonyProperties.operator_iso_country(newProp);
             }
 
-            if (mFeatureFlags.oemEnabledSatelliteFlag()) {
-                TelephonyCountryDetector.getInstance(mPhone.getContext())
-                        .onNetworkCountryCodeChanged(mPhone, countryIso);
-            }
+            TelephonyCountryDetector.getInstance(mPhone.getContext(), mFeatureFlags)
+                    .onNetworkCountryCodeChanged(mPhone, countryIso);
+
             Intent intent = new Intent(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED);
             intent.putExtra(TelephonyManager.EXTRA_NETWORK_COUNTRY, countryIso);
             intent.putExtra(TelephonyManager.EXTRA_LAST_KNOWN_NETWORK_COUNTRY,

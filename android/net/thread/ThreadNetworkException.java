@@ -23,6 +23,8 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
 
+import com.android.net.thread.flags.Flags;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
@@ -31,7 +33,7 @@ import java.lang.annotation.RetentionPolicy;
  *
  * @hide
  */
-@FlaggedApi(ThreadNetworkFlags.FLAG_THREAD_ENABLED)
+@FlaggedApi(Flags.FLAG_THREAD_ENABLED)
 @SystemApi
 public class ThreadNetworkException extends Exception {
     /** @hide */
@@ -139,16 +141,14 @@ public class ThreadNetworkException extends Exception {
     public static final int ERROR_THREAD_DISABLED = 12;
 
     /**
-     * The operation failed because it is not supported by the platform. For example, some platforms
-     * may not support setting the target power of each channel. The caller should not retry and may
-     * return an error to the user.
-     *
-     * @hide
+     * The operation failed because the feature is not supported by the platform. For example, some
+     * platforms may not support setting the target power of each channel. The caller should not
+     * retry and may return an error to the user.
      */
-    public static final int ERROR_UNSUPPORTED_OPERATION = 13;
+    public static final int ERROR_UNSUPPORTED_FEATURE = 13;
 
     private static final int ERROR_MIN = ERROR_INTERNAL_ERROR;
-    private static final int ERROR_MAX = ERROR_UNSUPPORTED_OPERATION;
+    private static final int ERROR_MAX = ERROR_UNSUPPORTED_FEATURE;
 
     private final int mErrorCode;
 

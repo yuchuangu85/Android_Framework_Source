@@ -225,11 +225,15 @@ public final class ICUBinary {
         abstract void addBaseNamesInFolder(String folder, String suffix, Set<String> names);
     }
 
+    // BEGIN Android-changed: Map file only once during ICUBinary initialization. Attempt to fix
+    // some apps not seeing metazones.res file. See b/339899412.
     private static final class SingleDataFile extends DataFile {
+        private final ByteBuffer bytes;
         private final File path;
 
         SingleDataFile(String item, File path) {
             super(item);
+            this.bytes = mapFile(path);
             this.path = path;
         }
         @Override
@@ -240,12 +244,13 @@ public final class ICUBinary {
         @Override
         ByteBuffer getData(String requestedPath) {
             if (requestedPath.equals(itemPath)) {
-                return mapFile(path);
+                return bytes.duplicate();
             } else {
                 return null;
             }
         }
-
+    // END Android-changed: Map file only once during ICUBinary initialization. Attempt to fix
+    // some apps not seeing metazones.res files in b/339899412.
         @Override
         void addBaseNamesInFolder(String folder, String suffix, Set<String> names) {
             if (itemPath.length() > folder.length() + suffix.length() &&

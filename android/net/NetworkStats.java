@@ -18,6 +18,7 @@ package android.net;
 
 import static com.android.net.module.util.NetworkStatsUtils.multiplySafeByRational;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -33,6 +34,7 @@ import android.util.SparseBooleanArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.modules.utils.build.SdkLevel;
+import com.android.net.flags.Flags;
 import com.android.net.module.util.CollectionUtils;
 
 import libcore.util.EmptyArray;
@@ -842,6 +844,21 @@ public final class NetworkStats implements Parcelable, Iterable<NetworkStats.Ent
             operations[i] += entry.operations;
         }
         return this;
+    }
+
+    /**
+     * Adds multiple entries to a copy of this NetworkStats instance.
+     *
+     * @param entries The entries to add.
+     * @return A new NetworkStats instance with the added entries.
+     */
+    @FlaggedApi(Flags.FLAG_NETSTATS_ADD_ENTRIES)
+    public @NonNull NetworkStats addEntries(@NonNull final List<Entry> entries) {
+        final NetworkStats newStats = this.clone();
+        for (final Entry entry : Objects.requireNonNull(entries)) {
+            newStats.combineValues(entry);
+        }
+        return newStats;
     }
 
     /**

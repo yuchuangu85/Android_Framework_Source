@@ -31,6 +31,7 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.compat.Compatibility;
 import android.compat.annotation.ChangeId;
@@ -808,9 +809,21 @@ public class JobInfo implements Parcelable {
     }
 
     /**
+     * <p class="caution"><strong>Note:</strong> Beginning with
+     * {@link android.os.Build.VERSION_CODES#B}, this flag will be ignored and no longer
+     * function effectively, regardless of the calling app's target SDK version.
+     * Calling this method will always return {@code false}.
+     *
      * @see JobInfo.Builder#setImportantWhileForeground(boolean)
+     *
+     * @deprecated Use {@link #isExpedited()} instead.
      */
+    @FlaggedApi(Flags.FLAG_IGNORE_IMPORTANT_WHILE_FOREGROUND)
+    @Deprecated
     public boolean isImportantWhileForeground() {
+        if (Flags.ignoreImportantWhileForeground()) {
+            return false;
+        }
         return (flags & FLAG_IMPORTANT_WHILE_FOREGROUND) != 0;
     }
 
@@ -1366,6 +1379,7 @@ public class JobInfo implements Parcelable {
          * @return This object for method chaining
          */
         @FlaggedApi(Flags.FLAG_JOB_DEBUG_INFO_APIS)
+        @SuppressLint("BuilderSetStyle")
         @NonNull
         public Builder removeDebugTag(@NonNull String tag) {
             mDebugTags.remove(tag);
@@ -2122,6 +2136,13 @@ public class JobInfo implements Parcelable {
          * <p>
          * Jobs marked as important-while-foreground are given {@link #PRIORITY_HIGH} by default.
          *
+         * <p class="caution"><strong>Note:</strong> Beginning with
+         * {@link android.os.Build.VERSION_CODES#B}, this flag will be ignored and no longer
+         * function effectively, regardless of the calling app's target SDK version.
+         * {link #isImportantWhileForeground()} will always return {@code false}.
+         * Apps should use {link #setExpedited(boolean)} with {@code true} to indicate
+         * that this job is important and needs to run as soon as possible.
+         *
          * @param importantWhileForeground whether to relax doze restrictions for this job when the
          *                                 app is in the foreground. False by default.
          * @see JobInfo#isImportantWhileForeground()
@@ -2129,6 +2150,12 @@ public class JobInfo implements Parcelable {
          */
         @Deprecated
         public Builder setImportantWhileForeground(boolean importantWhileForeground) {
+            if (Flags.ignoreImportantWhileForeground()) {
+                Log.w(TAG, "Requested important-while-foreground flag for job" + mJobId
+                        + " is ignored and takes no effect");
+                return this;
+            }
+
             if (importantWhileForeground) {
                 mFlags |= FLAG_IMPORTANT_WHILE_FOREGROUND;
                 if (mPriority == PRIORITY_DEFAULT) {

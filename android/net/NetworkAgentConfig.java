@@ -272,6 +272,27 @@ public final class NetworkAgentConfig implements Parcelable {
         return mVpnRequiresValidation;
     }
 
+    /**
+     * Whether the native network creation should be skipped.
+     *
+     * If set, the native network and routes should be maintained by the caller.
+     *
+     * @hide
+     */
+    private boolean mSkipNativeNetworkCreation = false;
+
+
+    /**
+     * @return Whether the native network creation should be skipped.
+     * @hide
+     */
+    // TODO: Expose API when ready.
+    // @FlaggedApi(Flags.FLAG_TETHERING_NETWORK_AGENT)
+    // @SystemApi(client = MODULE_LIBRARIES) when ready.
+    public boolean shouldSkipNativeNetworkCreation() {
+        return mSkipNativeNetworkCreation;
+    }
+
     /** @hide */
     public NetworkAgentConfig() {
     }
@@ -293,6 +314,7 @@ public final class NetworkAgentConfig implements Parcelable {
             mLegacyExtraInfo = nac.mLegacyExtraInfo;
             excludeLocalRouteVpn = nac.excludeLocalRouteVpn;
             mVpnRequiresValidation = nac.mVpnRequiresValidation;
+            mSkipNativeNetworkCreation = nac.mSkipNativeNetworkCreation;
         }
     }
 
@@ -484,6 +506,26 @@ public final class NetworkAgentConfig implements Parcelable {
         }
 
         /**
+         * Sets the native network creation should be skipped.
+         *
+         * @return this builder, to facilitate chaining.
+         * @hide
+         */
+        @NonNull
+        // TODO: Expose API when ready.
+        // @FlaggedApi(Flags.FLAG_TETHERING_NETWORK_AGENT)
+        // @SystemApi(client = MODULE_LIBRARIES) when ready.
+        public Builder setSkipNativeNetworkCreation(boolean skipNativeNetworkCreation) {
+            if (!SdkLevel.isAtLeastV()) {
+                // Local agents are supported starting on U on TVs and on V on everything else.
+                // Thus, only support this flag on V+.
+                throw new UnsupportedOperationException("Method is not supported");
+            }
+            mConfig.mSkipNativeNetworkCreation = skipNativeNetworkCreation;
+            return this;
+        }
+
+        /**
          * Returns the constructed {@link NetworkAgentConfig} object.
          */
         @NonNull
@@ -510,7 +552,8 @@ public final class NetworkAgentConfig implements Parcelable {
                 && Objects.equals(legacySubTypeName, that.legacySubTypeName)
                 && Objects.equals(mLegacyExtraInfo, that.mLegacyExtraInfo)
                 && excludeLocalRouteVpn == that.excludeLocalRouteVpn
-                && mVpnRequiresValidation == that.mVpnRequiresValidation;
+                && mVpnRequiresValidation == that.mVpnRequiresValidation
+                && mSkipNativeNetworkCreation == that.mSkipNativeNetworkCreation;
     }
 
     @Override
@@ -518,7 +561,8 @@ public final class NetworkAgentConfig implements Parcelable {
         return Objects.hash(allowBypass, explicitlySelected, acceptUnvalidated,
                 acceptPartialConnectivity, provisioningNotificationDisabled, subscriberId,
                 skip464xlat, legacyType, legacySubType, legacyTypeName, legacySubTypeName,
-                mLegacyExtraInfo, excludeLocalRouteVpn, mVpnRequiresValidation);
+                mLegacyExtraInfo, excludeLocalRouteVpn, mVpnRequiresValidation,
+                mSkipNativeNetworkCreation);
     }
 
     @Override
@@ -539,6 +583,7 @@ public final class NetworkAgentConfig implements Parcelable {
                 + ", legacyExtraInfo = '" + mLegacyExtraInfo + '\''
                 + ", excludeLocalRouteVpn = '" + excludeLocalRouteVpn + '\''
                 + ", vpnRequiresValidation = '" + mVpnRequiresValidation + '\''
+                + ", skipNativeNetworkCreation = '" + mSkipNativeNetworkCreation + '\''
                 + "}";
     }
 
@@ -563,33 +608,35 @@ public final class NetworkAgentConfig implements Parcelable {
         out.writeString(mLegacyExtraInfo);
         out.writeInt(excludeLocalRouteVpn ? 1 : 0);
         out.writeInt(mVpnRequiresValidation ? 1 : 0);
+        out.writeInt(mSkipNativeNetworkCreation ? 1 : 0);
     }
 
     public static final @NonNull Creator<NetworkAgentConfig> CREATOR =
             new Creator<NetworkAgentConfig>() {
-        @Override
-        public NetworkAgentConfig createFromParcel(Parcel in) {
-            NetworkAgentConfig networkAgentConfig = new NetworkAgentConfig();
-            networkAgentConfig.allowBypass = in.readInt() != 0;
-            networkAgentConfig.explicitlySelected = in.readInt() != 0;
-            networkAgentConfig.acceptUnvalidated = in.readInt() != 0;
-            networkAgentConfig.acceptPartialConnectivity = in.readInt() != 0;
-            networkAgentConfig.subscriberId = in.readString();
-            networkAgentConfig.provisioningNotificationDisabled = in.readInt() != 0;
-            networkAgentConfig.skip464xlat = in.readInt() != 0;
-            networkAgentConfig.legacyType = in.readInt();
-            networkAgentConfig.legacyTypeName = in.readString();
-            networkAgentConfig.legacySubType = in.readInt();
-            networkAgentConfig.legacySubTypeName = in.readString();
-            networkAgentConfig.mLegacyExtraInfo = in.readString();
-            networkAgentConfig.excludeLocalRouteVpn = in.readInt() != 0;
-            networkAgentConfig.mVpnRequiresValidation = in.readInt() != 0;
-            return networkAgentConfig;
-        }
+                @Override
+                public NetworkAgentConfig createFromParcel(Parcel in) {
+                    NetworkAgentConfig networkAgentConfig = new NetworkAgentConfig();
+                    networkAgentConfig.allowBypass = in.readInt() != 0;
+                    networkAgentConfig.explicitlySelected = in.readInt() != 0;
+                    networkAgentConfig.acceptUnvalidated = in.readInt() != 0;
+                    networkAgentConfig.acceptPartialConnectivity = in.readInt() != 0;
+                    networkAgentConfig.subscriberId = in.readString();
+                    networkAgentConfig.provisioningNotificationDisabled = in.readInt() != 0;
+                    networkAgentConfig.skip464xlat = in.readInt() != 0;
+                    networkAgentConfig.legacyType = in.readInt();
+                    networkAgentConfig.legacyTypeName = in.readString();
+                    networkAgentConfig.legacySubType = in.readInt();
+                    networkAgentConfig.legacySubTypeName = in.readString();
+                    networkAgentConfig.mLegacyExtraInfo = in.readString();
+                    networkAgentConfig.excludeLocalRouteVpn = in.readInt() != 0;
+                    networkAgentConfig.mVpnRequiresValidation = in.readInt() != 0;
+                    networkAgentConfig.mSkipNativeNetworkCreation = in.readInt() != 0;
+                    return networkAgentConfig;
+                }
 
-        @Override
-        public NetworkAgentConfig[] newArray(int size) {
-            return new NetworkAgentConfig[size];
-        }
-    };
+                @Override
+                public NetworkAgentConfig[] newArray(int size) {
+                    return new NetworkAgentConfig[size];
+                }
+            };
 }

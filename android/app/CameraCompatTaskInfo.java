@@ -16,11 +16,16 @@
 
 package android.app;
 
+import static android.app.WindowConfiguration.ROTATION_UNDEFINED;
+import static android.view.Surface.ROTATION_0;
+import static android.view.Surface.ROTATION_90;
+
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.view.Surface;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -31,64 +36,47 @@ import java.lang.annotation.RetentionPolicy;
  */
 public class CameraCompatTaskInfo implements Parcelable {
     /**
-     * Camera compat control isn't shown because it's not requested by heuristics.
+     * Undefined camera compat mode.
      */
-    public static final int CAMERA_COMPAT_CONTROL_HIDDEN = 0;
-
-    /**
-     * Camera compat control is shown with the treatment suggested.
-     */
-    public static final int CAMERA_COMPAT_CONTROL_TREATMENT_SUGGESTED = 1;
-
-    /**
-     * Camera compat control is shown to allow reverting the applied treatment.
-     */
-    public static final int CAMERA_COMPAT_CONTROL_TREATMENT_APPLIED = 2;
-
-    /**
-     * Camera compat control is dismissed by user.
-     */
-    public static final int CAMERA_COMPAT_CONTROL_DISMISSED = 3;
-
-    /**
-     * Enum for the Camera app compat control states.
-     */
-    @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "CAMERA_COMPAT_CONTROL_" }, value = {
-            CAMERA_COMPAT_CONTROL_HIDDEN,
-            CAMERA_COMPAT_CONTROL_TREATMENT_SUGGESTED,
-            CAMERA_COMPAT_CONTROL_TREATMENT_APPLIED,
-            CAMERA_COMPAT_CONTROL_DISMISSED,
-    })
-    public @interface CameraCompatControlState {}
-
-    /**
-     * State of the Camera app compat control which is used to correct stretched viewfinder
-     * in apps that don't handle all possible configurations and changes between them correctly.
-     */
-    @CameraCompatControlState
-    public int cameraCompatControlState = CAMERA_COMPAT_CONTROL_HIDDEN;
+    public static final int CAMERA_COMPAT_FREEFORM_UNSPECIFIED = 0;
 
     /**
      * The value to use when no camera compat treatment should be applied to a windowed task.
      */
-    public static final int CAMERA_COMPAT_FREEFORM_NONE = 0;
+    public static final int CAMERA_COMPAT_FREEFORM_NONE = 1;
 
     /**
-     * The value to use when portrait camera compat treatment should be applied to a windowed task.
+     * The value to use when camera compat treatment should be applied to an activity requesting
+     * portrait orientation, while a device is in landscape. Applies only to freeform tasks.
      */
-    public static final int CAMERA_COMPAT_FREEFORM_PORTRAIT = 1;
+    public static final int CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_LANDSCAPE = 2;
 
     /**
-     * The value to use when landscape camera compat treatment should be applied to a windowed task.
+     * The value to use when camera compat treatment should be applied to an activity requesting
+     * landscape orientation, while a device is in landscape. Applies only to freeform tasks.
      */
-    public static final int CAMERA_COMPAT_FREEFORM_LANDSCAPE = 2;
+    public static final int CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_LANDSCAPE = 3;
+
+    /**
+     * The value to use when camera compat treatment should be applied to an activity requesting
+     * portrait orientation, while a device is in portrait. Applies only to freeform tasks.
+     */
+    public static final int CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_PORTRAIT = 4;
+
+    /**
+     * The value to use when camera compat treatment should be applied to an activity requesting
+     * landscape orientation, while a device is in portrait. Applies only to freeform tasks.
+     */
+    public static final int CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_PORTRAIT = 5;
 
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(prefix = { "CAMERA_COMPAT_FREEFORM_" }, value = {
+            CAMERA_COMPAT_FREEFORM_UNSPECIFIED,
             CAMERA_COMPAT_FREEFORM_NONE,
-            CAMERA_COMPAT_FREEFORM_PORTRAIT,
-            CAMERA_COMPAT_FREEFORM_LANDSCAPE,
+            CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_LANDSCAPE,
+            CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_LANDSCAPE,
+            CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_PORTRAIT,
+            CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_PORTRAIT,
     })
     public @interface FreeformCameraCompatMode {}
 
@@ -137,7 +125,6 @@ public class CameraCompatTaskInfo implements Parcelable {
      * Reads the CameraCompatTaskInfo from a parcel.
      */
     void readFromParcel(Parcel source) {
-        cameraCompatControlState = source.readInt();
         freeformCameraCompatMode = source.readInt();
     }
 
@@ -146,23 +133,7 @@ public class CameraCompatTaskInfo implements Parcelable {
      */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(cameraCompatControlState);
         dest.writeInt(freeformCameraCompatMode);
-    }
-
-    /**
-     * @return {@value true} if the task has camera compat controls.
-     */
-    public boolean hasCameraCompatControl() {
-        return cameraCompatControlState != CAMERA_COMPAT_CONTROL_HIDDEN
-                && cameraCompatControlState != CAMERA_COMPAT_CONTROL_DISMISSED;
-    }
-
-    /**
-     * @return {@value true} if the task has some compat ui.
-     */
-    public boolean hasCameraCompatUI() {
-        return hasCameraCompatControl();
     }
 
     /**
@@ -183,30 +154,34 @@ public class CameraCompatTaskInfo implements Parcelable {
         if (that == null) {
             return false;
         }
-        return cameraCompatControlState == that.cameraCompatControlState
-                && freeformCameraCompatMode == that.freeformCameraCompatMode;
+        return freeformCameraCompatMode == that.freeformCameraCompatMode;
     }
 
     @Override
     public String toString() {
-        return "CameraCompatTaskInfo { cameraCompatControlState="
-                + cameraCompatControlStateToString(cameraCompatControlState)
-                + " freeformCameraCompatMode="
+        return "CameraCompatTaskInfo { freeformCameraCompatMode="
                 + freeformCameraCompatModeToString(freeformCameraCompatMode)
                 + "}";
     }
 
-    /** Human readable version of the camera control state. */
-    @NonNull
-    public static String cameraCompatControlStateToString(
-            @CameraCompatControlState int cameraCompatControlState) {
-        return switch (cameraCompatControlState) {
-            case CAMERA_COMPAT_CONTROL_HIDDEN -> "hidden";
-            case CAMERA_COMPAT_CONTROL_TREATMENT_SUGGESTED -> "treatment-suggested";
-            case CAMERA_COMPAT_CONTROL_TREATMENT_APPLIED -> "treatment-applied";
-            case CAMERA_COMPAT_CONTROL_DISMISSED -> "dismissed";
-            default -> throw new AssertionError(
-                    "Unexpected camera compat control state: " + cameraCompatControlState);
+    /**
+     * Returns the sandboxed display rotation based on the given {@code cameraCompatMode}.
+     *
+     * <p>This will be what the app likely expects in its requested orientation while running on a
+     * device with portrait natural orientation: `CAMERA_COMPAT_FREEFORM_PORTRAIT_*` is 0, and
+     * `CAMERA_COMPAT_FREEFORM_LANDSCAPE_*` is 90.
+     *
+     * @return {@link WindowConfiguration#ROTATION_UNDEFINED} if not in camera compat mode.
+     */
+    @Surface.Rotation
+    public static int getDisplayRotationFromCameraCompatMode(@FreeformCameraCompatMode int
+            cameraCompatMode) {
+        return switch (cameraCompatMode) {
+            case CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_LANDSCAPE,
+                 CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_PORTRAIT -> ROTATION_0;
+            case CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_LANDSCAPE,
+                 CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_PORTRAIT -> ROTATION_90;
+            default -> ROTATION_UNDEFINED;
         };
     }
 
@@ -215,9 +190,16 @@ public class CameraCompatTaskInfo implements Parcelable {
     public static String freeformCameraCompatModeToString(
             @FreeformCameraCompatMode int freeformCameraCompatMode) {
         return switch (freeformCameraCompatMode) {
+            case CAMERA_COMPAT_FREEFORM_UNSPECIFIED -> "undefined";
             case CAMERA_COMPAT_FREEFORM_NONE -> "inactive";
-            case CAMERA_COMPAT_FREEFORM_PORTRAIT -> "portrait";
-            case CAMERA_COMPAT_FREEFORM_LANDSCAPE -> "landscape";
+            case CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_LANDSCAPE ->
+                    "app-portrait-device-landscape";
+            case CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_LANDSCAPE ->
+                    "app-landscape-device-landscape";
+            case CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_PORTRAIT ->
+                    "app-portrait-device-portrait";
+            case CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_PORTRAIT ->
+                    "app-landscape-device-portrait";
             default -> throw new AssertionError(
                     "Unexpected camera compat mode: " + freeformCameraCompatMode);
         };

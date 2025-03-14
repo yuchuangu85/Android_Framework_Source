@@ -592,17 +592,6 @@ public final class DexFile {
             throws FileNotFoundException, IOException;
 
     /**
-     * Returns the status of the dex file {@code fileName}. The returned string is
-     * an opaque, human readable representation of the current status. The output
-     * is only meant for debugging and is not guaranteed to be stable across
-     * releases and/or devices.
-     *
-     * @hide
-     */
-    public static native String getDexFileStatus(String fileName, String instructionSet)
-        throws FileNotFoundException;
-
-    /**
      * Encapsulates information about the optimizations performed on a dex file.
      *
      * Note that the info is only meant for debugging and is not guaranteed to be

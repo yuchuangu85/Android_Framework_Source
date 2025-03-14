@@ -10,9 +10,9 @@ import java.security.spec.ECPoint;
 import java.security.spec.ECPublicKeySpec;
 import java.security.spec.EllipticCurve;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.ASN1OctetString;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
-import com.android.internal.org.bouncycastle.asn1.DERBitString;
 import com.android.internal.org.bouncycastle.asn1.DEROctetString;
 import com.android.internal.org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import com.android.internal.org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
@@ -29,6 +29,7 @@ import com.android.internal.org.bouncycastle.jcajce.provider.config.ProviderConf
 import com.android.internal.org.bouncycastle.jce.interfaces.ECPointEncoder;
 import com.android.internal.org.bouncycastle.jce.provider.BouncyCastleProvider;
 import com.android.internal.org.bouncycastle.math.ec.ECCurve;
+import com.android.internal.org.bouncycastle.util.Arrays;
 import com.android.internal.org.bouncycastle.util.Properties;
 
 /**
@@ -45,6 +46,8 @@ public class BCECPublicKey
     private transient ECPublicKeyParameters   ecPublicKey;
     private transient ECParameterSpec         ecSpec;
     private transient ProviderConfiguration   configuration;
+    private transient byte[]                  encoding;
+    private transient boolean                 oldPcSet;
 
     public BCECPublicKey(
         String algorithm,
@@ -197,7 +200,7 @@ public class BCECPublicKey
         ECCurve curve = EC5Util.getCurve(configuration, params);
         ecSpec = EC5Util.convertToSpec(params, curve);
 
-        DERBitString    bits = info.getPublicKeyData();
+        ASN1BitString   bits = info.getPublicKeyData();
         byte[]          data = bits.getBytes();
         ASN1OctetString key = new DEROctetString(data);
 
@@ -239,16 +242,23 @@ public class BCECPublicKey
 
     public byte[] getEncoded()
     {
-        boolean compress = withCompression || Properties.isOverrideSet("com.android.internal.org.bouncycastle.ec.enable_pc");
+        boolean pcSet = Properties.isOverrideSet("com.android.internal.org.bouncycastle.ec.enable_pc");
+        if (encoding == null || oldPcSet != pcSet)
+        {
+            boolean compress = withCompression || pcSet;
 
-        AlgorithmIdentifier algId = new AlgorithmIdentifier(
-            X9ObjectIdentifiers.id_ecPublicKey,
-            ECUtils.getDomainParametersFromName(ecSpec, compress));
+            AlgorithmIdentifier algId = new AlgorithmIdentifier(
+                X9ObjectIdentifiers.id_ecPublicKey,
+                ECUtils.getDomainParametersFromName(ecSpec, compress));
 
-        byte[] pubKeyOctets = ecPublicKey.getQ().getEncoded(compress);
+            byte[] pubKeyOctets = ecPublicKey.getQ().getEncoded(compress);
 
-        // stored curve is null if ImplicitlyCa
-        return KeyUtil.getEncodedSubjectPublicKeyInfo(algId, pubKeyOctets);
+            // stored curve is null if ImplicitlyCa
+            encoding = KeyUtil.getEncodedSubjectPublicKeyInfo(algId, pubKeyOctets);
+            oldPcSet = pcSet;
+        }
+
+        return Arrays.clone(encoding);
     }
 
     public ECParameterSpec getParams()
@@ -306,18 +316,26 @@ public class BCECPublicKey
     public void setPointFormat(String style)
     {
        withCompression = !("UNCOMPRESSED".equalsIgnoreCase(style));
+       encoding = null;
     }
 
     public boolean equals(Object o)
     {
-        if (!(o instanceof BCECPublicKey))
+        if (o instanceof BCECPublicKey)
         {
-            return false;
+            BCECPublicKey other = (BCECPublicKey)o;
+
+            return ecPublicKey.getQ().equals(other.ecPublicKey.getQ()) && (engineGetSpec().equals(other.engineGetSpec()));
         }
 
-        BCECPublicKey other = (BCECPublicKey)o;
+        if (o instanceof ECPublicKey)
+        {
+            ECPublicKey other = (ECPublicKey)o;
 
-        return ecPublicKey.getQ().equals(other.ecPublicKey.getQ()) && (engineGetSpec().equals(other.engineGetSpec()));
+            return Arrays.areEqual(getEncoded(), other.getEncoded());
+        }
+
+        return false;
     }
 
     public int hashCode()

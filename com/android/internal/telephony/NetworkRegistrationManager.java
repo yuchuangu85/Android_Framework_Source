@@ -75,17 +75,19 @@ public class NetworkRegistrationManager extends Handler {
 
         CarrierConfigManager ccm = phone.getContext().getSystemService(CarrierConfigManager.class);
         // Callback directly calls rebindService and should be executed in handler thread
-        ccm.registerCarrierConfigChangeListener(
-                this::post,
-                (slotIndex, subId, carrierId, specificCarrierId) -> {
-                    if (slotIndex == phone.getPhoneId()) {
-                        // We should wait for carrier config changed event because the target
-                        // binding package name can come from the carrier config. Note that
-                        // we still get this event even when SIM is absent.
-                        logd("Carrier config changed. Try to bind network service.");
-                        rebindService();
-                    }
-                });
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(
+                    this::post,
+                    (slotIndex, subId, carrierId, specificCarrierId) -> {
+                        if (slotIndex == phone.getPhoneId()) {
+                            // We should wait for carrier config changed event because the target
+                            // binding package name can come from the carrier config. Note that
+                            // we still get this event even when SIM is absent.
+                            logd("Carrier config changed. Try to bind network service.");
+                            rebindService();
+                        }
+                    });
+        }
 
         PhoneConfigurationManager.registerForMultiSimConfigChange(
                 this, EVENT_BIND_NETWORK_SERVICE, null);

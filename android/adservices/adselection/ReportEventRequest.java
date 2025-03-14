@@ -19,25 +19,34 @@ package android.adservices.adselection;
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID;
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID_MESSAGE;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.view.InputEvent;
 
+import com.android.adservices.flags.Flags;
 import com.android.internal.util.Preconditions;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.StandardCharsets;
-import java.util.Locale;
 import java.util.Objects;
 
 /**
  * Request object wrapping the required arguments needed to report an ad event.
  */
 public class ReportEventRequest {
+    /** This is used to represent seller as the destination for report event API */
     public static final int FLAG_REPORTING_DESTINATION_SELLER = 1 << 0;
+
+    /** This is used to represent buyer as the destination for report event API. */
     public static final int FLAG_REPORTING_DESTINATION_BUYER = 1 << 1;
+
+    /** This is used to component seller as the destination for report event API */
+    @FlaggedApi(Flags.FLAG_FLEDGE_ENABLE_REPORT_EVENT_FOR_COMPONENT_SELLER)
+    public static final int FLAG_REPORTING_DESTINATION_COMPONENT_SELLER = 1 << 2;
+
     private static final int UNSET_REPORTING_DESTINATIONS = 0;
     private static final String UNSET_REPORTING_DESTINATIONS_MESSAGE =
             "Reporting destinations bitfield not set.";
@@ -54,7 +63,9 @@ public class ReportEventRequest {
     @NonNull private final String mEventKey;
     @Nullable private final InputEvent mInputEvent;
     @NonNull private final String mEventData;
-    @ReportingDestination private final int mReportingDestinations; // buyer, seller, or both
+
+    @ReportingDestination
+    private final int mReportingDestinations; // buyer, seller, component seller or all
 
     private ReportEventRequest(@NonNull Builder builder) {
         Objects.requireNonNull(builder);
@@ -131,14 +142,18 @@ public class ReportEventRequest {
     }
 
     /**
-     * Returns the bitfield of reporting destinations to report to (buyer, seller, or both).
+     * Returns the bitfield of reporting destinations to report to (buyer, seller, component seller
+     * or any of the combination of them).
      *
      * <p>To create this bitfield, place an {@code |} bitwise operator between each {@code
      * reportingDestination} to be reported to. For example to only report to buyer, set the
      * reportingDestinations field to {@link #FLAG_REPORTING_DESTINATION_BUYER} To only report to
      * seller, set the reportingDestinations field to {@link #FLAG_REPORTING_DESTINATION_SELLER} To
-     * report to both buyers and sellers, set the reportingDestinations field to {@link
-     * #FLAG_REPORTING_DESTINATION_BUYER} | {@link #FLAG_REPORTING_DESTINATION_SELLER}
+     * report to buyers and sellers, set the reportingDestinations field to {@link
+     * #FLAG_REPORTING_DESTINATION_BUYER} | {@link #FLAG_REPORTING_DESTINATION_SELLER}. To report to
+     * buyer, seller and component seller, set the reportingDestinations field to {@link
+     * #FLAG_REPORTING_DESTINATION_BUYER} | {@link #FLAG_REPORTING_DESTINATION_SELLER} | {@link
+     * #FLAG_REPORTING_DESTINATION_COMPONENT_SELLER}.
      */
     @ReportingDestination
     public int getReportingDestinations() {
@@ -149,14 +164,20 @@ public class ReportEventRequest {
     @IntDef(
             flag = true,
             prefix = {"FLAG_REPORTING_DESTINATION"},
-            value = {FLAG_REPORTING_DESTINATION_SELLER, FLAG_REPORTING_DESTINATION_BUYER})
+            value = {
+                FLAG_REPORTING_DESTINATION_SELLER,
+                FLAG_REPORTING_DESTINATION_BUYER,
+                FLAG_REPORTING_DESTINATION_COMPONENT_SELLER
+            })
     @Retention(RetentionPolicy.SOURCE)
     public @interface ReportingDestination {}
 
     private static boolean isValidDestination(@ReportingDestination int reportingDestinations) {
         return 0 < reportingDestinations
                 && reportingDestinations
-                        <= (FLAG_REPORTING_DESTINATION_SELLER | FLAG_REPORTING_DESTINATION_BUYER);
+                        <= (FLAG_REPORTING_DESTINATION_SELLER
+                                | FLAG_REPORTING_DESTINATION_BUYER
+                                | FLAG_REPORTING_DESTINATION_COMPONENT_SELLER);
     }
 
     /** Builder for {@link ReportEventRequest} objects. */

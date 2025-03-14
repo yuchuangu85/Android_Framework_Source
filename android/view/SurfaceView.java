@@ -16,6 +16,8 @@
 
 package android.view;
 
+import static android.view.flags.Flags.FLAG_SURFACE_VIEW_GET_SURFACE_PACKAGE;
+import static android.view.flags.Flags.FLAG_SURFACE_VIEW_SET_COMPOSITION_ORDER;
 import static android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
 import static android.view.WindowManagerPolicyConstants.APPLICATION_MEDIA_OVERLAY_SUBLAYER;
 import static android.view.WindowManagerPolicyConstants.APPLICATION_MEDIA_SUBLAYER;
@@ -26,6 +28,7 @@ import android.annotation.FloatRange;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.res.CompatibilityInfo.Translator;
@@ -37,6 +40,7 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.Region;
 import android.graphics.RenderNode;
 import android.hardware.input.InputManager;
@@ -49,6 +53,7 @@ import android.os.SystemClock;
 import android.text.TextUtils;
 import android.util.ArraySet;
 import android.util.AttributeSet;
+import android.util.EventLog;
 import android.util.Log;
 import android.view.SurfaceControl.Transaction;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -163,6 +168,8 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     private static final boolean DEBUG_POSITION = false;
 
     private static final long FORWARD_BACK_KEY_TOLERANCE_MS = 100;
+    private static final int LOGTAG_SURFACEVIEW_LAYOUT = 60005;
+    private static final int LOGTAG_SURFACEVIEW_CALLBACK = 60006;
 
     @UnsupportedAppUsage(
             maxTargetSdk = Build.VERSION_CODES.TIRAMISU,
@@ -188,7 +195,6 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     boolean mDrawFinished = false;
 
     final Rect mScreenRect = new Rect();
-    private final SurfaceSession mSurfaceSession = new SurfaceSession();
     private final boolean mLimitedHdrEnabled = Flags.limitedHdr();
 
     SurfaceControl mSurfaceControl;
@@ -320,17 +326,64 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     private final ConcurrentLinkedQueue<WindowManager.LayoutParams> mEmbeddedWindowParams =
             new ConcurrentLinkedQueue<>();
 
-    private final ISurfaceControlViewHostParent mSurfaceControlViewHostParent =
-            new ISurfaceControlViewHostParent.Stub() {
+    private String mTag = TAG;
+
+    private static class SurfaceControlViewHostParent extends ISurfaceControlViewHostParent.Stub {
+
+        /**
+         * mSurfaceView is set in {@link #attach} and cleared in {@link #detach} to prevent
+         * temporary memory leaks. The remote process's ISurfaceControlViewHostParent binder
+         * reference extends this object's lifetime. If mSurfaceView is not cleared in
+         * {@link #detach}, then the SurfaceView and anything it references will not be promptly
+         * garbage collected.
+         */
+        @Nullable
+        private SurfaceView mSurfaceView;
+
+        void attach(SurfaceView sv) {
+            synchronized (this) {
+                try {
+                    sv.mSurfacePackage.getRemoteInterface().attachParentInterface(this);
+                    mSurfaceView = sv;
+                } catch (RemoteException e) {
+                    Log.d(TAG, "Failed to attach parent interface to SCVH. Likely SCVH is alraedy "
+                            + "dead.");
+                }
+            }
+        }
+
+        void detach() {
+            synchronized (this) {
+                if (mSurfaceView == null) {
+                    return;
+                }
+                try {
+                    mSurfaceView.mSurfacePackage.getRemoteInterface().attachParentInterface(null);
+                } catch (RemoteException e) {
+                    Log.d(TAG, "Failed to remove parent interface from SCVH. Likely SCVH is "
+                            + "already dead");
+                }
+                mSurfaceView = null;
+            }
+        }
+
         @Override
         public void updateParams(WindowManager.LayoutParams[] childAttrs) {
-            mEmbeddedWindowParams.clear();
-            mEmbeddedWindowParams.addAll(Arrays.asList(childAttrs));
+            SurfaceView sv;
+            synchronized (this) {
+                sv = mSurfaceView;
+            }
+            if (sv == null) {
+                return;
+            }
 
-            if (isAttachedToWindow()) {
-                runOnUiThread(() -> {
-                    if (mParent != null) {
-                        mParent.recomputeViewAttributes(SurfaceView.this);
+            sv.mEmbeddedWindowParams.clear();
+            sv.mEmbeddedWindowParams.addAll(Arrays.asList(childAttrs));
+
+            if (sv.isAttachedToWindow()) {
+                sv.runOnUiThread(() -> {
+                    if (sv.mParent != null) {
+                        sv.mParent.recomputeViewAttributes(sv);
                     }
                 });
             }
@@ -338,39 +391,45 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
 
         @Override
         public void forwardBackKeyToParent(@NonNull KeyEvent keyEvent) {
-                runOnUiThread(() -> {
-                    if (!isAttachedToWindow() || keyEvent.getKeyCode() != KeyEvent.KEYCODE_BACK) {
-                        return;
-                    }
-                    final ViewRootImpl vri = getViewRootImpl();
-                    if (vri == null) {
-                        return;
-                    }
-                    final InputManager inputManager = mContext.getSystemService(InputManager.class);
-                    if (inputManager == null) {
-                        return;
-                    }
-                    // Check that the event was created recently.
-                    final long timeDiff = SystemClock.uptimeMillis() - keyEvent.getEventTime();
-                    if (timeDiff > FORWARD_BACK_KEY_TOLERANCE_MS) {
-                        Log.e(TAG, "Ignore the input event that exceed the tolerance time, "
-                                + "exceed " + timeDiff + "ms");
-                        return;
-                    }
-                    if (inputManager.verifyInputEvent(keyEvent) == null) {
-                        Log.e(TAG, "Received invalid input event");
-                        return;
-                    }
-                    try {
-                        vri.processingBackKey(true);
-                        vri.enqueueInputEvent(keyEvent, null /* receiver */, 0 /* flags */,
-                                true /* processImmediately */);
-                    } finally {
-                        vri.processingBackKey(false);
-                    }
-                });
+            SurfaceView sv;
+            synchronized (this) {
+                sv = mSurfaceView;
+            }
+            if (sv == null) {
+                return;
+            }
+
+            sv.runOnUiThread(() -> {
+                if (!sv.isAttachedToWindow() || keyEvent.getKeyCode() != KeyEvent.KEYCODE_BACK) {
+                    return;
+                }
+                final ViewRootImpl vri = sv.getViewRootImpl();
+                if (vri == null) {
+                    return;
+                }
+                final InputManager inputManager = sv.mContext.getSystemService(InputManager.class);
+                if (inputManager == null) {
+                    return;
+                }
+                // Check that the event was created recently.
+                final long timeDiff = SystemClock.uptimeMillis() - keyEvent.getEventTime();
+                if (timeDiff > FORWARD_BACK_KEY_TOLERANCE_MS) {
+                    Log.e(TAG, "Ignore the input event that exceed the tolerance time, "
+                            + "exceed " + timeDiff + "ms");
+                    return;
+                }
+                if (inputManager.verifyInputEvent(keyEvent) == null) {
+                    Log.e(TAG, "Received invalid input event");
+                    return;
+                }
+                vri.enqueueInputEvent(keyEvent, null /* receiver */, 0 /* flags */,
+                        true /* processImmediately */);
+            });
         }
-    };
+    }
+
+    private final SurfaceControlViewHostParent mSurfaceControlViewHostParent =
+            new SurfaceControlViewHostParent();
 
     private final boolean mRtDrivenClipping = Flags.clipSurfaceviews();
 
@@ -418,13 +477,26 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
         updateSurface();
     }
 
+    private void setTag() {
+        String windowName = "";
+        ViewRootImpl viewRoot = getViewRootImpl();
+        if (viewRoot != null) {
+            // strip package name
+            final String[] split = viewRoot.mWindowAttributes.getTitle().toString().split("\\.");
+            if (split.length > 0) {
+                windowName =  " " + split[split.length - 1];
+            }
+        }
+
+        mTag = "SV[" + System.identityHashCode(this) + windowName + "]";
+    }
+
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-
+        setTag();
         getViewRootImpl().addSurfaceChangedCallback(this);
         mWindowStopped = false;
-
         mViewVisibility = getVisibility() == VISIBLE;
         updateRequestedVisibility();
 
@@ -701,6 +773,36 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     }
 
     /**
+     * Controls the composition order of the SurfaceView. A non-negative composition order
+     * value indicates that the SurfaceView is composited on top of the parent window, while
+     * a negative composition order indicates that the SurfaceView is behind the parent
+     * window. A SurfaceView with a higher value appears above its peers with lower values.
+     * For SurfaceViews with the same composition order value, their relative order is
+     * undefined.
+     *
+     * @param compositionOrder the composition order of the surface view.
+     */
+    @FlaggedApi(FLAG_SURFACE_VIEW_SET_COMPOSITION_ORDER)
+    public void setCompositionOrder(int compositionOrder) {
+        mRequestedSubLayer = compositionOrder;
+        if (mSubLayer != mRequestedSubLayer) {
+            updateSurface();
+        }
+    }
+
+    /**
+     * Returns the composition order of the SurfaceView.
+     *
+     * @return composition order of the SurfaceView.
+     *
+     * @see #setCompositionOrder(int)
+     */
+    @FlaggedApi(FLAG_SURFACE_VIEW_SET_COMPOSITION_ORDER)
+    public int getCompositionOrder() {
+        return mRequestedSubLayer;
+    }
+
+    /**
      * Control whether the surface view's surface is placed on top of another
      * regular surface view in the window (but still behind the window itself).
      * This is typically used to place overlays on top of an underlying media
@@ -830,7 +932,8 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
 
     /**
      * Sets the desired amount of HDR headroom to be used when HDR content is presented on this
-     * SurfaceView.
+     * SurfaceView. This is expressed as the ratio of maximum HDR white point over the SDR
+     * white point, not as absolute nits.
      *
      * <p>By default the system will choose an amount of HDR headroom that is appropriate
      * for the underlying device capabilities & bit-depth of the panel. However, for some types
@@ -843,6 +946,10 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
      * of factors such as ambient conditions, display capabilities, or bit-depth limitations.
      * See {@link Display#getHdrSdrRatio()} for more information as well as how to query the
      * current value.</p>
+     *
+     * <p>Note: This API operates independently of both the
+     * {@link Window#setColorMode Widow color mode} and the
+     * {@link Window#setDesiredHdrHeadroom Window desiredHdrHeadroom}</p>
      *
      * @param desiredHeadroom The amount of HDR headroom that is desired. Must be >= 1.0 (no HDR)
      *                        and <= 10,000.0. Passing 0.0 will reset to the default, automatically
@@ -917,13 +1024,8 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
             }
 
             if (mSurfacePackage != null) {
-                try {
-                    mSurfacePackage.getRemoteInterface().attachParentInterface(null);
-                    mEmbeddedWindowParams.clear();
-                } catch (RemoteException e) {
-                    Log.d(TAG, "Failed to remove parent interface from SCVH. Likely SCVH is "
-                            + "already dead");
-                }
+                mSurfaceControlViewHostParent.detach();
+                mEmbeddedWindowParams.clear();
                 if (releaseSurfacePackage) {
                     mSurfacePackage.release();
                     mSurfacePackage = null;
@@ -1023,7 +1125,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                     }
                 }
 
-                surfaceUpdateTransaction.setDesintationFrame(mBlastSurfaceControl, mSurfaceWidth,
+                surfaceUpdateTransaction.setDestinationFrame(mBlastSurfaceControl, mSurfaceWidth,
                             mSurfaceHeight);
 
                 if (isHardwareAccelerated()) {
@@ -1146,12 +1248,21 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                     + " format=" + formatChanged + " size=" + sizeChanged
                     + " visible=" + visibleChanged + " alpha=" + alphaChanged
                     + " hint=" + hintChanged
-                    + " visible=" + visibleChanged
                     + " left=" + (mWindowSpaceLeft != mLocation[0])
                     + " top=" + (mWindowSpaceTop != mLocation[1])
                     + " z=" + relativeZChanged
                     + " attached=" + mAttachedToWindow
                     + " lifecycleStrategy=" + surfaceLifecycleStrategyChanged);
+
+            if (creating || formatChanged || sizeChanged  || visibleChanged
+                    || layoutSizeChanged ||  relativeZChanged || !mAttachedToWindow
+                    || surfaceLifecycleStrategyChanged ) {
+                EventLog.writeEvent(LOGTAG_SURFACEVIEW_LAYOUT,
+                        mTag, mRequestedFormat, myWidth, myHeight, mRequestedSubLayer,
+                        (mRequestedWidth > 0 ? "setFixedSize" : "layout"),
+                        (mAttachedToWindow ? 1 : 0),
+                        mRequestedSurfaceLifecycleStrategy, (mRequestedVisible ? 1 : 0));
+            }
 
             try {
                 mVisible = mRequestedVisible;
@@ -1184,7 +1295,8 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                 final Transaction surfaceUpdateTransaction = new Transaction();
                 if (creating) {
                     updateOpaqueFlag();
-                    final String name = "SurfaceView[" + viewRoot.getTitle().toString() + "]";
+                    final String name = Integer.toHexString(System.identityHashCode(this))
+                            + " SurfaceView[" + viewRoot.getTitle().toString() + "]";
                     createBlastSurfaceControls(viewRoot, name, surfaceUpdateTransaction);
                 } else if (mSurfaceControl == null) {
                     return;
@@ -1235,6 +1347,8 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                             mIsCreating = true;
                             if (DEBUG) Log.i(TAG, System.identityHashCode(this) + " "
                                     + "visibleChanged -- surfaceCreated");
+                            EventLog.writeEvent(LOGTAG_SURFACEVIEW_CALLBACK, mTag,
+                                "surfaceCreated");
                             callbacks = getSurfaceCallbacks();
                             for (SurfaceHolder.Callback c : callbacks) {
                                 c.surfaceCreated(mSurfaceHolder);
@@ -1244,6 +1358,9 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                                 || (respectVisibility && visibleChanged) || realSizeChanged) {
                             if (DEBUG) Log.i(TAG, System.identityHashCode(this) + " "
                                     + "surfaceChanged -- format=" + mFormat
+                                    + " w=" + myWidth + " h=" + myHeight);
+                            EventLog.writeEvent(LOGTAG_SURFACEVIEW_CALLBACK, mTag,
+                                    "surfaceChanged -- format=" + mFormat
                                     + " w=" + myWidth + " h=" + myHeight);
                             if (callbacks == null) {
                                 callbacks = getSurfaceCallbacks();
@@ -1256,6 +1373,9 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                             if (DEBUG) {
                                 Log.i(TAG, System.identityHashCode(this) + " surfaceRedrawNeeded");
                             }
+                            EventLog.writeEvent(LOGTAG_SURFACEVIEW_CALLBACK, mTag,
+                                "surfaceRedrawNeeded");
+
                             if (callbacks == null) {
                                 callbacks = getSurfaceCallbacks();
                             }
@@ -1337,7 +1457,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
 
     private void redrawNeededAsync(SurfaceHolder.Callback[] callbacks,
             Runnable callbacksCollected) {
-        SurfaceCallbackHelper sch = new SurfaceCallbackHelper(callbacksCollected);
+        SurfaceCallbackHelper sch = new SurfaceCallbackHelper(callbacksCollected, mTag);
         sch.dispatchSurfaceRedrawNeededAsync(mSurfaceHolder, callbacks);
     }
 
@@ -1436,7 +1556,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     private void createBlastSurfaceControls(ViewRootImpl viewRoot, String name,
             Transaction surfaceUpdateTransaction) {
         if (mSurfaceControl == null) {
-            mSurfaceControl = new SurfaceControl.Builder(mSurfaceSession)
+            mSurfaceControl = new SurfaceControl.Builder()
                     .setName(name)
                     .setLocalOwnerView(this)
                     .setParent(viewRoot.updateAndGetBoundsLayer(surfaceUpdateTransaction))
@@ -1446,7 +1566,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
         }
 
         if (mBlastSurfaceControl == null) {
-            mBlastSurfaceControl = new SurfaceControl.Builder(mSurfaceSession)
+            mBlastSurfaceControl = new SurfaceControl.Builder()
                     .setName(name + "(BLAST)")
                     .setLocalOwnerView(this)
                     .setParent(mSurfaceControl)
@@ -1464,7 +1584,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
         }
 
         if (mBackgroundControl == null) {
-            mBackgroundControl = new SurfaceControl.Builder(mSurfaceSession)
+            mBackgroundControl = new SurfaceControl.Builder()
                     .setName("Background for " + name)
                     .setLocalOwnerView(this)
                     .setOpaque(true)
@@ -1552,7 +1672,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     }
 
     private final Rect mRTLastReportedPosition = new Rect();
-    private final Rect mRTLastSetCrop = new Rect();
+    private final RectF mRTLastSetCrop = new RectF();
 
     private class SurfaceViewPositionUpdateListener implements RenderNode.PositionUpdateListener {
         private final int mRtSurfaceWidth;
@@ -1597,16 +1717,18 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
 
         @Override
         public void positionChanged(long frameNumber, int left, int top, int right, int bottom,
-                int clipLeft, int clipTop, int clipRight, int clipBottom) {
+                int clipLeft, int clipTop, int clipRight, int clipBottom,
+                int nodeWidth, int nodeHeight) {
             try {
                 if (DEBUG_POSITION) {
                     Log.d(TAG, String.format(
                             "%d updateSurfacePosition RenderWorker, frameNr = %d, "
                                     + "position = [%d, %d, %d, %d] clip = [%d, %d, %d, %d] "
-                                    + "surfaceSize = %dx%d",
+                                    + "surfaceSize = %dx%d renderNodeSize = %d%d",
                             System.identityHashCode(SurfaceView.this), frameNumber,
                             left, top, right, bottom, clipLeft, clipTop, clipRight, clipBottom,
-                            mRtSurfaceWidth, mRtSurfaceHeight));
+                            mRtSurfaceWidth, mRtSurfaceHeight,
+                            nodeWidth, nodeHeight));
                 }
                 synchronized (mSurfaceControlLock) {
                     if (mSurfaceControl == null) return;
@@ -1621,16 +1743,29 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                             mRTLastReportedPosition.top /*positionTop*/,
                             postScaleX, postScaleY);
 
-                    mRTLastSetCrop.set((int) (clipLeft / postScaleX), (int) (clipTop / postScaleY),
-                            (int) Math.ceil(clipRight / postScaleX),
-                            (int) Math.ceil(clipBottom / postScaleY));
+                    // The computed crop is in view-relative dimensions, however we need it to be
+                    // in buffer-relative dimensions. So scale the crop by the ratio between
+                    // the view's unscaled width/height (nodeWidth/Height), and the surface's
+                    // width/height
+                    // That is, if the Surface has a fixed size of 50x50, the SurfaceView is laid
+                    // out to a size of 100x100, and the SurfaceView is ultimately scaled to
+                    // 1000x1000, then we need to scale the crop by just the 2x from surface
+                    // domain to SV domain.
+                    final float surfaceToNodeScaleX = (float) mRtSurfaceWidth / (float) nodeWidth;
+                    final float surfaceToNodeScaleY = (float) mRtSurfaceHeight / (float) nodeHeight;
+                    mRTLastSetCrop.set(clipLeft * surfaceToNodeScaleX,
+                            clipTop * surfaceToNodeScaleY,
+                            clipRight * surfaceToNodeScaleX,
+                            clipBottom * surfaceToNodeScaleY);
+
                     if (DEBUG_POSITION) {
-                        Log.d(TAG, String.format("Setting layer crop = [%d, %d, %d, %d] "
+                        Log.d(TAG, String.format("Setting layer crop = [%f, %f, %f, %f] "
                                         + "from scale %f, %f", mRTLastSetCrop.left,
                                 mRTLastSetCrop.top, mRTLastSetCrop.right, mRTLastSetCrop.bottom,
-                                postScaleX, postScaleY));
+                                surfaceToNodeScaleX, surfaceToNodeScaleY));
                     }
-                    mPositionChangedTransaction.setCrop(mSurfaceControl, mRTLastSetCrop);
+                    mPositionChangedTransaction.setCrop(mSurfaceControl, mRTLastSetCrop.left,
+                            mRTLastSetCrop.top, mRTLastSetCrop.right, mRTLastSetCrop.bottom);
                     if (mRTLastSetCrop.isEmpty()) {
                         mPositionChangedTransaction.hide(mSurfaceControl);
                     } else {
@@ -2002,7 +2137,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
     }
 
     /**
-     * Display the view-hierarchy embedded within a {@link SurfaceControlViewHost.SurfacePackage}
+     * Displays the view-hierarchy embedded within a {@link SurfaceControlViewHost.SurfacePackage}
      * within this SurfaceView.
      *
      * This can be called independently of the SurfaceView lifetime callbacks. SurfaceView
@@ -2022,6 +2157,8 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
      * SurfaceView the underlying {@link SurfaceControlViewHost} remains managed by it's original
      * remote-owner.
      *
+     * Users can call {@link SurfaceView#clearChildSurfacePackage} to clear the package.
+     *
      * @param p The SurfacePackage to embed.
      */
     public void setChildSurfacePackage(@NonNull SurfaceControlViewHost.SurfacePackage p) {
@@ -2037,17 +2174,52 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
             applyTransactionOnVriDraw(transaction);
         }
         mSurfacePackage = p;
-        try {
-            mSurfacePackage.getRemoteInterface().attachParentInterface(
-                    mSurfaceControlViewHostParent);
-        } catch (RemoteException e) {
-            Log.d(TAG, "Failed to attach parent interface to SCVH. Likely SCVH is already dead.");
-        }
+        mSurfaceControlViewHostParent.attach(this);
 
         if (isFocused()) {
             requestEmbeddedFocus(true);
         }
         invalidate();
+    }
+
+    /**
+     * Returns the {@link SurfaceControlViewHost.SurfacePackage} that was set on this SurfaceView.
+     *
+     * Note: This method will return {@code null} if
+     * {@link #setChildSurfacePackage(SurfaceControlViewHost.SurfacePackage)}
+     * has not been called or if {@link #clearChildSurfacePackage()} has been called.
+     *
+     * @see #setChildSurfacePackage(SurfaceControlViewHost.SurfacePackage)
+     */
+    @SuppressLint("GetterSetterNullability")
+    @FlaggedApi(FLAG_SURFACE_VIEW_GET_SURFACE_PACKAGE)
+    public @Nullable SurfaceControlViewHost.SurfacePackage getChildSurfacePackage() {
+        return mSurfacePackage;
+    }
+
+    /**
+     * Clears the {@link SurfaceControlViewHost.SurfacePackage} that was set on this SurfaceView.
+     * This hides any content rendered by the provided
+     * {@link SurfaceControlViewHost.SurfacePackage}.
+     *
+     * @see #setChildSurfacePackage(SurfaceControlViewHost.SurfacePackage)
+     */
+    @FlaggedApi(FLAG_SURFACE_VIEW_GET_SURFACE_PACKAGE)
+    public void clearChildSurfacePackage() {
+        if (mSurfacePackage != null) {
+            mSurfaceControlViewHostParent.detach();
+            mEmbeddedWindowParams.clear();
+
+            // Reparent the SurfaceControl to remove the content on screen.
+            final SurfaceControl sc = mSurfacePackage.getSurfaceControl();
+            final SurfaceControl.Transaction transaction = new Transaction();
+            transaction.reparent(sc, null);
+            mSurfacePackage.release();
+            applyTransactionOnVriDraw(transaction);
+
+            mSurfacePackage = null;
+            invalidate();
+        }
     }
 
     private void reparentSurfacePackage(SurfaceControl.Transaction t,
@@ -2100,6 +2272,7 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
         if (mSurface.isValid()) {
             if (DEBUG) Log.i(TAG, System.identityHashCode(this) + " "
                     + "surfaceDestroyed");
+            EventLog.writeEvent(LOGTAG_SURFACEVIEW_CALLBACK, mTag, "surfaceDestroyed");
             SurfaceHolder.Callback[] callbacks = getSurfaceCallbacks();
             for (SurfaceHolder.Callback c : callbacks) {
                 c.surfaceDestroyed(mSurfaceHolder);
@@ -2217,5 +2390,10 @@ public class SurfaceView extends View implements ViewRootImpl.SurfaceChangedCall
                 break;
             }
         }
+    }
+
+    @Override
+    public CharSequence getAccessibilityClassName() {
+        return SurfaceView.class.getName();
     }
 }

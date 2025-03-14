@@ -23,6 +23,16 @@
     </xs:complexType>
   </xs:element>
 
+  <xs:simpleType name="Partition">
+    <xs:restriction base="xs:string">
+        <xs:pattern value="SYSTEM"/>
+        <xs:pattern value="SYSTEM_EXT"/>
+        <xs:pattern value="PRODUCT"/>
+        <xs:pattern value="VENDOR"/>
+        <xs:pattern value="ODM"/>
+    </xs:restriction>
+  </xs:simpleType>
+
   <xs:element name="apex-info">
     <xs:complexType>
       <xs:attribute name="moduleName" type="xs:string" use="required"/>
@@ -34,6 +44,7 @@
       <xs:attribute name="isActive" type="xs:boolean" use="required"/>
       <xs:attribute name="lastUpdateMillis" type="xs:long"/>
       <xs:attribute name="provideSharedApexLibs" type="xs:boolean" use="required"/>
+      <xs:attribute name="partition" type="Partition" use="required"/>
     </xs:complexType>
   </xs:element>
 </xs:schema>

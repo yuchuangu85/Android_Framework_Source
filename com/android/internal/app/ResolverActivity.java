@@ -170,6 +170,10 @@ public class ResolverActivity extends Activity implements
     // Expected to be true if this object is ResolverActivity or is ResolverWrapperActivity.
     private final boolean mIsIntentPicker;
 
+    // Whether this activity was instantiated with a specialized constructor that predefines a list
+    // of resolutions to be displayed for the target intent (as in, e.g., the NFC use case).
+    private boolean mHasSubclassSpecifiedResolutions;
+
     // Whether or not this activity supports choosing a default handler for the intent.
     @VisibleForTesting
     protected boolean mSupportsAlwaysUseOption;
@@ -420,6 +424,8 @@ public class ResolverActivity extends Activity implements
             List<ResolveInfo> rList, boolean supportsAlwaysUseOption) {
         setTheme(appliedThemeResId());
         super.onCreate(savedInstanceState);
+
+        mHasSubclassSpecifiedResolutions = (rList != null);
 
         mQuietModeManager = createQuietModeManager();
 
@@ -923,8 +929,11 @@ public class ResolverActivity extends Activity implements
 
         if (shouldUseMiniResolver()) {
             View buttonContainer = findViewById(R.id.button_bar_container);
-            buttonContainer.setPadding(0, 0, 0, mSystemWindowInsets.bottom
-                    + getResources().getDimensionPixelOffset(R.dimen.resolver_button_bar_spacing));
+            if (buttonContainer != null) {
+                buttonContainer.setPadding(0, 0, 0, mSystemWindowInsets.bottom
+                        + getResources().getDimensionPixelOffset(
+                                R.dimen.resolver_button_bar_spacing));
+            }
         }
 
         // Need extra padding so the list can fully scroll up
@@ -1203,9 +1212,19 @@ public class ResolverActivity extends Activity implements
         if (!isChangingConfigurations() && mPickOptionRequest != null) {
             mPickOptionRequest.cancel();
         }
-        if (mMultiProfilePagerAdapter != null
-                && mMultiProfilePagerAdapter.getActiveListAdapter() != null) {
-            mMultiProfilePagerAdapter.getActiveListAdapter().onDestroy();
+        if (mMultiProfilePagerAdapter != null) {
+            ResolverListAdapter activeAdapter =
+                    mMultiProfilePagerAdapter.getActiveListAdapter();
+            if (activeAdapter != null) {
+                activeAdapter.onDestroy();
+            }
+            if (android.service.chooser.Flags.fixResolverMemoryLeak()) {
+                ResolverListAdapter inactiveAdapter =
+                        mMultiProfilePagerAdapter.getInactiveListAdapter();
+                if (inactiveAdapter != null) {
+                    inactiveAdapter.onDestroy();
+                }
+            }
         }
     }
 
@@ -1586,8 +1605,7 @@ public class ResolverActivity extends Activity implements
         // In case cloned apps are present, we would want to start those apps in cloned user
         // space, which will not be same as adaptor's userHandle. resolveInfo.userHandle
         // identifies the correct user space in such cases.
-        UserHandle activityUserHandle = getResolveInfoUserHandle(
-                cti.getResolveInfo(), mMultiProfilePagerAdapter.getCurrentUserHandle());
+        UserHandle activityUserHandle = cti.getResolveInfo().userHandle;
         safelyStartActivityAsUser(cti, activityUserHandle, null);
     }
 
@@ -1698,17 +1716,25 @@ public class ResolverActivity extends Activity implements
                 isAudioCaptureDevice, initialIntentsUserSpace);
     }
 
+    private AbstractResolverComparator makeResolverComparator(UserHandle userHandle) {
+        if (mHasSubclassSpecifiedResolutions) {
+            return new NoOpResolverComparator(
+                    this, getTargetIntent(), getResolverRankerServiceUserHandleList(userHandle));
+        } else {
+            return new ResolverRankerServiceResolverComparator(
+                   this,
+                   getTargetIntent(),
+                   getReferrerPackageName(),
+                   null,
+                   null,
+                   getResolverRankerServiceUserHandleList(userHandle));
+        }
+    }
+
     @VisibleForTesting
     protected ResolverListController createListController(UserHandle userHandle) {
         UserHandle queryIntentsUser = getQueryIntentsUser(userHandle);
-        ResolverRankerServiceResolverComparator resolverComparator =
-                new ResolverRankerServiceResolverComparator(
-                        this,
-                        getTargetIntent(),
-                        getReferrerPackageName(),
-                        null,
-                        null,
-                        getResolverRankerServiceUserHandleList(userHandle));
+        AbstractResolverComparator resolverComparator = makeResolverComparator(userHandle);
         return new ResolverListController(
                 this,
                 mPm,
@@ -2372,11 +2398,7 @@ public class ResolverActivity extends Activity implements
                 && Objects.equals(lhs.activityInfo.packageName, rhs.activityInfo.packageName)
                         // Comparing against resolveInfo.userHandle in case cloned apps are present,
                         // as they will have the same activityInfo.
-                && Objects.equals(
-                        getResolveInfoUserHandle(lhs,
-                                mMultiProfilePagerAdapter.getActiveListAdapter().getUserHandle()),
-                        getResolveInfoUserHandle(rhs,
-                                mMultiProfilePagerAdapter.getActiveListAdapter().getUserHandle()));
+                && Objects.equals(lhs.userHandle, rhs.userHandle);
     }
 
     protected String getMetricsCategory() {
@@ -2657,18 +2679,6 @@ public class ResolverActivity extends Activity implements
             userList.add(getCloneProfileUserHandle());
         }
         return userList;
-    }
-
-    /**
-     * This function is temporary in nature, and its usages will be replaced with just
-     * resolveInfo.userHandle, once it is available, once sharesheet is stable.
-     */
-    public static UserHandle getResolveInfoUserHandle(ResolveInfo resolveInfo,
-            UserHandle predictedHandle) {
-        if (resolveInfo.userHandle == null) {
-            Log.e(TAG, "ResolveInfo with null UserHandle found: " + resolveInfo);
-        }
-        return resolveInfo.userHandle;
     }
 
     private boolean privateSpaceEnabled() {

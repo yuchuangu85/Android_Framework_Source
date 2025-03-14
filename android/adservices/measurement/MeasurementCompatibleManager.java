@@ -18,8 +18,7 @@ package android.adservices.measurement;
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_ATTRIBUTION;
 
 import android.adservices.adid.AdId;
-import android.adservices.adid.AdIdCompatibleManager;
-import android.adservices.common.AdServicesOutcomeReceiver;
+import android.adservices.adid.AdIdManager;
 import android.adservices.common.AdServicesStatusUtils;
 import android.adservices.common.CallerMetadata;
 import android.adservices.common.SandboxedSdkContextUtils;
@@ -31,8 +30,10 @@ import android.annotation.SuppressLint;
 import android.app.sdksandbox.SandboxedSdkContext;
 import android.content.Context;
 import android.net.Uri;
+import android.os.OutcomeReceiver;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.os.Trace;
 import android.view.InputEvent;
 
 import com.android.adservices.AdServicesCommon;
@@ -53,6 +54,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * @hide
  */
+@SuppressWarnings("NewApi")
 public class MeasurementCompatibleManager {
     private interface MeasurementAdIdCallback {
         void onAdIdCallback(boolean isAdIdEnabled, @Nullable String adIdValue);
@@ -62,7 +64,7 @@ public class MeasurementCompatibleManager {
 
     private final Context mContext;
     private final ServiceBinder<IMeasurementService> mServiceBinder;
-    private AdIdCompatibleManager mAdIdManager;
+    private AdIdManager mAdIdManager;
     private final Executor mAdIdExecutor = Executors.newCachedThreadPool();
 
     private static final String DEBUG_API_WARNING_MESSAGE =
@@ -85,9 +87,7 @@ public class MeasurementCompatibleManager {
      * @hide
      */
     @VisibleForTesting
-    @NonNull
-    public static MeasurementCompatibleManager get(
-            @NonNull Context context, @NonNull AdIdCompatibleManager adIdManager) {
+    public static MeasurementCompatibleManager get(Context context, AdIdManager adIdManager) {
         MeasurementCompatibleManager measurementManager = MeasurementCompatibleManager.get(context);
         measurementManager.mAdIdManager = adIdManager;
         return measurementManager;
@@ -105,7 +105,7 @@ public class MeasurementCompatibleManager {
                         context,
                         AdServicesCommon.ACTION_MEASUREMENT_SERVICE,
                         IMeasurementService.Stub::asInterface);
-        mAdIdManager = new AdIdCompatibleManager(context);
+        mAdIdManager = new AdIdManager(context);
     }
 
     /**
@@ -129,7 +129,7 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Register an attribution source / trigger.
+     * Registers an attribution source / trigger.
      *
      * @hide
      */
@@ -137,7 +137,7 @@ public class MeasurementCompatibleManager {
             @NonNull RegistrationRequest registrationRequest,
             @NonNull IMeasurementService service,
             @Nullable @CallbackExecutor Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(registrationRequest);
         requireExecutorForCallback(executor, callback);
 
@@ -179,7 +179,7 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Register an attribution source (click or view).
+     * Registers an attribution source (click or view).
      *
      * @param attributionSource the platform issues a request to this URI in order to fetch metadata
      *     associated with the attribution source. The source metadata is stored on device, making
@@ -194,7 +194,7 @@ public class MeasurementCompatibleManager {
             @NonNull Uri attributionSource,
             @Nullable InputEvent inputEvent,
             @Nullable @CallbackExecutor Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(attributionSource);
         requireExecutorForCallback(executor, callback);
 
@@ -228,8 +228,10 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Register attribution sources(click or view) from an app context. This API will not process
-     * any redirects, all registration URLs should be supplied with the request.
+     * Registers attribution sources(click or view) from an app context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request.
      *
      * @param request app source registration request
      * @param executor used by callback to dispatch results
@@ -239,7 +241,7 @@ public class MeasurementCompatibleManager {
     public void registerSource(
             @NonNull SourceRegistrationRequest request,
             @Nullable @CallbackExecutor Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(request);
         requireExecutorForCallback(executor, callback);
 
@@ -297,13 +299,14 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Register an attribution source(click or view) from web context. This API will not process any
-     * redirects, all registration URLs should be supplied with the request. At least one of
-     * appDestination or webDestination parameters are required to be provided. If the registration
-     * is successful, {@code callback}'s {@link AdServicesOutcomeReceiver#onResult} is invoked with
-     * null. In case of failure, a {@link Exception} is sent through {@code callback}'s {@link
-     * AdServicesOutcomeReceiver#onError}. Both success and failure feedback are executed on the
-     * provided {@link Executor}.
+     * Registers an attribution source(click or view) from web context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request. At least one of appDestination or webDestination parameters are required to be
+     * provided. If the registration is successful, {@code callback}'s {@link
+     * OutcomeReceiver#onResult} is invoked with {@code null}. In case of failure, a {@link
+     * Exception} is sent through {@code callback}'s {@link OutcomeReceiver#onError}. Both success
+     * and failure feedback are executed on the provided {@link Executor}.
      *
      * @param request source registration request
      * @param executor used by callback to dispatch results.
@@ -313,7 +316,7 @@ public class MeasurementCompatibleManager {
     public void registerWebSource(
             @NonNull WebSourceRegistrationRequest request,
             @Nullable Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(request);
         requireExecutorForCallback(executor, callback);
 
@@ -372,7 +375,7 @@ public class MeasurementCompatibleManager {
             @Nullable Executor executor,
             @NonNull CallerMetadata callerMetadata,
             @NonNull IMeasurementCallback measurementCallback,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         requireExecutorForCallback(executor, callback);
         try {
             LogUtil.d("Registering web source");
@@ -386,12 +389,13 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Register an attribution trigger(click or view) from web context. This API will not process
-     * any redirects, all registration URLs should be supplied with the request. If the registration
-     * is successful, {@code callback}'s {@link AdServicesOutcomeReceiver#onResult} is invoked with
-     * null. In case of failure, a {@link Exception} is sent through {@code callback}'s {@link
-     * AdServicesOutcomeReceiver#onError}. Both success and failure feedback are executed on the
-     * provided {@link Executor}.
+     * Registers an attribution trigger(click or view) from web context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request. If the registration is successful, {@code callback}'s {@link
+     * OutcomeReceiver#onResult} is invoked with {@code null}. In case of failure, a {@link
+     * Exception} is sent through {@code callback}'s {@link OutcomeReceiver#onError}. Both success
+     * and failure feedback are executed on the provided {@link Executor}.
      *
      * @param request trigger registration request
      * @param executor used by callback to dispatch results
@@ -401,7 +405,7 @@ public class MeasurementCompatibleManager {
     public void registerWebTrigger(
             @NonNull WebTriggerRegistrationRequest request,
             @Nullable Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(request);
         requireExecutorForCallback(executor, callback);
 
@@ -457,7 +461,7 @@ public class MeasurementCompatibleManager {
             @Nullable Executor executor,
             @NonNull CallerMetadata callerMetadata,
             @NonNull IMeasurementCallback measurementCallback,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         requireExecutorForCallback(executor, callback);
         try {
             LogUtil.d("Registering web trigger");
@@ -471,7 +475,7 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Register a trigger (conversion).
+     * Registers a trigger (conversion).
      *
      * @param trigger the API issues a request to this URI to fetch metadata associated with the
      *     trigger. The trigger metadata is stored on-device, and is eligible to be matched with
@@ -483,7 +487,7 @@ public class MeasurementCompatibleManager {
     public void registerTrigger(
             @NonNull Uri trigger,
             @Nullable @CallbackExecutor Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(trigger);
         requireExecutorForCallback(executor, callback);
 
@@ -514,14 +518,14 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Delete previously registered data.
+     * Deletes previously registered data.
      *
      * @hide
      */
     private void deleteRegistrations(
             @NonNull DeletionParam deletionParam,
             @NonNull @CallbackExecutor Executor executor,
-            @NonNull AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @NonNull OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(deletionParam);
         Objects.requireNonNull(executor);
         Objects.requireNonNull(callback);
@@ -559,10 +563,12 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Delete previous registrations. If the deletion is successful, the callback's {@link
-     * AdServicesOutcomeReceiver#onResult} is invoked with null. In case of failure, a {@link
-     * Exception} is sent through the callback's {@link AdServicesOutcomeReceiver#onError}. Both
-     * success and failure feedback are executed on the provided {@link Executor}.
+     * Deletes previous registrations.
+     *
+     * <p>If the deletion is successful, the callback's {@link OutcomeReceiver#onResult} is invoked
+     * with {@code null}. In case of failure, a {@link Exception} is sent through the callback's
+     * {@link OutcomeReceiver#onError}. Both success and failure feedback are executed on the
+     * provided {@link Executor}.
      *
      * @param deletionRequest The request for deleting data.
      * @param executor The executor to run callback.
@@ -571,7 +577,7 @@ public class MeasurementCompatibleManager {
     public void deleteRegistrations(
             @NonNull DeletionRequest deletionRequest,
             @NonNull @CallbackExecutor Executor executor,
-            @NonNull AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @NonNull OutcomeReceiver<Object, Exception> callback) {
         deleteRegistrations(
                 new DeletionParam.Builder(
                                 deletionRequest.getOriginUris(),
@@ -588,7 +594,7 @@ public class MeasurementCompatibleManager {
     }
 
     /**
-     * Get Measurement API status.
+     * Gets Measurement API status.
      *
      * <p>The callback's {@code Integer} value is one of {@code MeasurementApiState}.
      *
@@ -598,7 +604,7 @@ public class MeasurementCompatibleManager {
     @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
     public void getMeasurementApiStatus(
             @NonNull @CallbackExecutor Executor executor,
-            @NonNull AdServicesOutcomeReceiver<Integer, Exception> callback) {
+            @NonNull OutcomeReceiver<Integer, Exception> callback) {
         Objects.requireNonNull(executor);
         Objects.requireNonNull(callback);
 
@@ -674,7 +680,7 @@ public class MeasurementCompatibleManager {
     @Nullable
     private IMeasurementService getServiceWrapper(
             @Nullable @CallbackExecutor Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+            @Nullable OutcomeReceiver<Object, Exception> callback) {
         requireExecutorForCallback(executor, callback);
         IMeasurementService service = null;
         try {
@@ -689,7 +695,7 @@ public class MeasurementCompatibleManager {
     }
 
     private static void requireExecutorForCallback(
-            Executor executor, AdServicesOutcomeReceiver<Object, Exception> callback) {
+            Executor executor, OutcomeReceiver<Object, Exception> callback) {
         if (callback != null && executor == null) {
             throw new IllegalArgumentException(
                     "Executor should be provided when callback is provided.");
@@ -699,12 +705,13 @@ public class MeasurementCompatibleManager {
     /* Make AdId call with timeout */
     @SuppressLint("MissingPermission")
     private void getAdId(MeasurementAdIdCallback measurementAdIdCallback) {
+        Trace.beginSection("MeasurementCompatibleManager#getAdId");
         CountDownLatch countDownLatch = new CountDownLatch(1);
         AtomicBoolean isAdIdEnabled = new AtomicBoolean();
         AtomicReference<String> adIdValue = new AtomicReference<>();
         mAdIdManager.getAdId(
                 mAdIdExecutor,
-                new AdServicesOutcomeReceiver<>() {
+                new OutcomeReceiver<>() {
                     @Override
                     public void onResult(AdId adId) {
                         isAdIdEnabled.set(isAdIdPermissionEnabled(adId));
@@ -737,6 +744,7 @@ public class MeasurementCompatibleManager {
         if (timedOut) {
             LogUtil.w("AdId call timed out");
         }
+        Trace.endSection();
         measurementAdIdCallback.onAdIdCallback(isAdIdEnabled.get(), adIdValue.get());
     }
 }

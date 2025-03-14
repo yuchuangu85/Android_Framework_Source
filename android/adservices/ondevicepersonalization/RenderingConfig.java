@@ -16,11 +16,9 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.os.Parcelable;
 
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 import com.android.ondevicepersonalization.internal.util.AnnotationValidations;
 import com.android.ondevicepersonalization.internal.util.DataClass;
 
@@ -35,7 +33,6 @@ import java.util.List;
  * content to be displayed in a single {@link android.view.View}.
  *
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 @DataClass(genBuilder = true, genEqualsHashCode = true)
 public final class RenderingConfig implements Parcelable {
     /**

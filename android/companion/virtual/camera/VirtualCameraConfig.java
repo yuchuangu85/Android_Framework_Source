@@ -18,14 +18,12 @@ package android.companion.virtual.camera;
 
 import static java.util.Objects.requireNonNull;
 
-import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.companion.virtual.VirtualDevice;
-import android.companion.virtual.flags.Flags;
 import android.graphics.ImageFormat;
 import android.graphics.PixelFormat;
 import android.hardware.camera2.CameraMetadata;
@@ -47,7 +45,6 @@ import java.util.concurrent.Executor;
  * @hide
  */
 @SystemApi
-@FlaggedApi(Flags.FLAG_VIRTUAL_CAMERA)
 public final class VirtualCameraConfig implements Parcelable {
 
     private static final int LENS_FACING_UNKNOWN = -1;
@@ -198,7 +195,6 @@ public final class VirtualCameraConfig implements Parcelable {
      *     VirtualCameraCallback)}
      * <li>A lens facing must be set with {@link #setLensFacing(int)}
      */
-    @FlaggedApi(Flags.FLAG_VIRTUAL_CAMERA)
     public static final class Builder {
 
         private final String mName;

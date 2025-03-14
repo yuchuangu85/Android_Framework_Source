@@ -16,11 +16,9 @@
 
 package android.companion.virtual.camera;
 
-import android.annotation.FlaggedApi;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
-import android.companion.virtual.flags.Flags;
 import android.graphics.ImageFormat;
 import android.view.Surface;
 
@@ -34,7 +32,6 @@ import java.util.concurrent.Executor;
  * @hide
  */
 @SystemApi
-@FlaggedApi(Flags.FLAG_VIRTUAL_CAMERA)
 public interface VirtualCameraCallback {
 
     /**

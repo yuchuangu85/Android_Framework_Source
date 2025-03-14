@@ -1,43 +1,42 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.asn1.util;
 
-import java.io.IOException;
-import java.util.Enumeration;
-
-import com.android.org.bouncycastle.asn1.ASN1ApplicationSpecific;
+import com.android.org.bouncycastle.asn1.ASN1BMPString;
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Boolean;
 import com.android.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.org.bouncycastle.asn1.ASN1Enumerated;
 import com.android.org.bouncycastle.asn1.ASN1External;
 import com.android.org.bouncycastle.asn1.ASN1GeneralizedTime;
+import com.android.org.bouncycastle.asn1.ASN1GraphicString;
+import com.android.org.bouncycastle.asn1.ASN1IA5String;
 import com.android.org.bouncycastle.asn1.ASN1Integer;
+import com.android.org.bouncycastle.asn1.ASN1Null;
+import com.android.org.bouncycastle.asn1.ASN1NumericString;
+import com.android.org.bouncycastle.asn1.ASN1ObjectDescriptor;
 import com.android.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.org.bouncycastle.asn1.ASN1OctetString;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
+import com.android.org.bouncycastle.asn1.ASN1PrintableString;
+import com.android.org.bouncycastle.asn1.ASN1RelativeOID;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1Set;
+import com.android.org.bouncycastle.asn1.ASN1T61String;
 import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
 import com.android.org.bouncycastle.asn1.ASN1UTCTime;
-import com.android.org.bouncycastle.asn1.BERApplicationSpecific;
+import com.android.org.bouncycastle.asn1.ASN1UTF8String;
+import com.android.org.bouncycastle.asn1.ASN1Util;
+import com.android.org.bouncycastle.asn1.ASN1VideotexString;
+import com.android.org.bouncycastle.asn1.ASN1VisibleString;
 import com.android.org.bouncycastle.asn1.BEROctetString;
 import com.android.org.bouncycastle.asn1.BERSequence;
 import com.android.org.bouncycastle.asn1.BERSet;
 import com.android.org.bouncycastle.asn1.BERTaggedObject;
-import com.android.org.bouncycastle.asn1.BERTags;
-import com.android.org.bouncycastle.asn1.DERApplicationSpecific;
-import com.android.org.bouncycastle.asn1.DERBMPString;
 import com.android.org.bouncycastle.asn1.DERBitString;
-import com.android.org.bouncycastle.asn1.DERGraphicString;
-import com.android.org.bouncycastle.asn1.DERIA5String;
-import com.android.org.bouncycastle.asn1.DERNull;
-import com.android.org.bouncycastle.asn1.DERPrintableString;
 import com.android.org.bouncycastle.asn1.DERSequence;
 import com.android.org.bouncycastle.asn1.DERSet;
-import com.android.org.bouncycastle.asn1.DERT61String;
-import com.android.org.bouncycastle.asn1.DERUTF8String;
-import com.android.org.bouncycastle.asn1.DERVideotexString;
-import com.android.org.bouncycastle.asn1.DERVisibleString;
-import com.android.org.bouncycastle.asn1.DLApplicationSpecific;
+import com.android.org.bouncycastle.asn1.DERTaggedObject;
+import com.android.org.bouncycastle.asn1.DLBitString;
 import com.android.org.bouncycastle.util.Strings;
 import com.android.org.bouncycastle.util.encoders.Hex;
 
@@ -62,11 +61,14 @@ public class ASN1Dump
         StringBuffer    buf)
     {
         String nl = Strings.lineSeparator();
-        if (obj instanceof ASN1Sequence)
+        if (obj instanceof ASN1Null)
         {
-            Enumeration     e = ((ASN1Sequence)obj).getObjects();
-            String          tab = indent + TAB;
-
+            buf.append(indent);
+            buf.append("NULL");
+            buf.append(nl);
+        }
+        else if (obj instanceof ASN1Sequence)
+        {
             buf.append(indent);
             if (obj instanceof BERSequence)
             {
@@ -80,64 +82,19 @@ public class ASN1Dump
             {
                 buf.append("Sequence");
             }
-
             buf.append(nl);
 
-            while (e.hasMoreElements())
+            ASN1Sequence sequence = (ASN1Sequence)obj;
+            String elementsIndent = indent + TAB;
+
+            for (int i = 0, count = sequence.size(); i < count; ++i)
             {
-                Object  o = e.nextElement();
-
-                if (o == null || o.equals(DERNull.INSTANCE))
-                {
-                    buf.append(tab);
-                    buf.append("NULL");
-                    buf.append(nl);
-                }
-                else if (o instanceof ASN1Primitive)
-                {
-                    _dumpAsString(tab, verbose, (ASN1Primitive)o, buf);
-                }
-                else
-                {
-                    _dumpAsString(tab, verbose, ((ASN1Encodable)o).toASN1Primitive(), buf);
-                }
+                _dumpAsString(elementsIndent, verbose, sequence.getObjectAt(i).toASN1Primitive(), buf);
             }
-        }
-        else if (obj instanceof ASN1TaggedObject)
-        {
-            String          tab = indent + TAB;
-
-            buf.append(indent);
-            if (obj instanceof BERTaggedObject)
-            {
-                buf.append("BER Tagged [");
-            }
-            else
-            {
-                buf.append("Tagged [");
-            }
-
-            ASN1TaggedObject o = (ASN1TaggedObject)obj;
-
-            buf.append(Integer.toString(o.getTagNo()));
-            buf.append(']');
-
-            if (!o.isExplicit())
-            {
-                buf.append(" IMPLICIT ");
-            }
-
-            buf.append(nl);
-
-            _dumpAsString(tab, verbose, o.getObject(), buf);
         }
         else if (obj instanceof ASN1Set)
         {
-            Enumeration     e = ((ASN1Set)obj).getObjects();
-            String          tab = indent + TAB;
-
             buf.append(indent);
-
             if (obj instanceof BERSet)
             {
                 buf.append("BER Set");
@@ -152,25 +109,44 @@ public class ASN1Dump
             }
             buf.append(nl);
 
-            while (e.hasMoreElements())
-            {
-                Object  o = e.nextElement();
+            ASN1Set set = (ASN1Set)obj;
+            String elementsIndent = indent + TAB;
 
-                if (o == null)
-                {
-                    buf.append(tab);
-                    buf.append("NULL");
-                    buf.append(nl);
-                }
-                else if (o instanceof ASN1Primitive)
-                {
-                    _dumpAsString(tab, verbose, (ASN1Primitive)o, buf);
-                }
-                else
-                {
-                    _dumpAsString(tab, verbose, ((ASN1Encodable)o).toASN1Primitive(), buf);
-                }
+            for (int i = 0, count = set.size(); i < count; ++i)
+            {
+                _dumpAsString(elementsIndent, verbose, set.getObjectAt(i).toASN1Primitive(), buf);
             }
+        }
+        else if (obj instanceof ASN1TaggedObject)
+        {
+            buf.append(indent);
+            if (obj instanceof BERTaggedObject)
+            {
+                buf.append("BER Tagged ");
+            }
+            else if (obj instanceof DERTaggedObject)
+            {
+                buf.append("DER Tagged ");
+            }
+            else
+            {
+                buf.append("Tagged ");
+            }
+
+            ASN1TaggedObject o = (ASN1TaggedObject)obj;
+
+            buf.append(ASN1Util.getTagText(o));
+
+            if (!o.isExplicit())
+            {
+                buf.append(" IMPLICIT ");
+            }
+
+            buf.append(nl);
+
+            String baseIndent = indent + TAB;
+
+            _dumpAsString(baseIndent, verbose, o.getBaseObject().toASN1Primitive(), buf);
         }
         else if (obj instanceof ASN1OctetString)
         {
@@ -197,6 +173,10 @@ public class ASN1Dump
         {
             buf.append(indent + "ObjectIdentifier(" + ((ASN1ObjectIdentifier)obj).getId() + ")" + nl);
         }
+        else if (obj instanceof ASN1RelativeOID)
+        {
+            buf.append(indent + "RelativeOID(" + ((ASN1RelativeOID)obj).getId() + ")" + nl);
+        }
         else if (obj instanceof ASN1Boolean)
         {
             buf.append(indent + "Boolean(" + ((ASN1Boolean)obj).isTrue() + ")" + nl);
@@ -205,50 +185,70 @@ public class ASN1Dump
         {
             buf.append(indent + "Integer(" + ((ASN1Integer)obj).getValue() + ")" + nl);
         }
-        else if (obj instanceof DERBitString)
+        else if (obj instanceof ASN1BitString)
         {
-            DERBitString bt = (DERBitString)obj;
-            buf.append(indent + "DER Bit String" + "[" + bt.getBytes().length + ", " + bt.getPadBits() + "] ");
+            ASN1BitString bitString = (ASN1BitString)obj;
+
+            byte[] bytes = bitString.getBytes();
+            int padBits = bitString.getPadBits();
+
+            if (bitString instanceof DERBitString)
+            {
+                buf.append(indent + "DER Bit String" + "[" + bytes.length + ", " + padBits + "] ");
+            }
+            else if (bitString instanceof DLBitString)
+            {
+                buf.append(indent + "DL Bit String" + "[" + bytes.length + ", " + padBits + "] ");
+            }
+            else
+            {
+                buf.append(indent + "BER Bit String" + "[" + bytes.length + ", " + padBits + "] ");
+            }
+
             if (verbose)
             {
-                buf.append(dumpBinaryDataAsString(indent, bt.getBytes()));
+                buf.append(dumpBinaryDataAsString(indent, bytes));
             }
             else
             {
                 buf.append(nl);
             }
         }
-        else if (obj instanceof DERIA5String)
+        else if (obj instanceof ASN1IA5String)
         {
-            buf.append(indent + "IA5String(" + ((DERIA5String)obj).getString() + ") " + nl);
+            buf.append(indent + "IA5String(" + ((ASN1IA5String)obj).getString() + ") " + nl);
         }
-        else if (obj instanceof DERUTF8String)
+        else if (obj instanceof ASN1UTF8String)
         {
-            buf.append(indent + "UTF8String(" + ((DERUTF8String)obj).getString() + ") " + nl);
+            buf.append(indent + "UTF8String(" + ((ASN1UTF8String)obj).getString() + ") " + nl);
         }
-        else if (obj instanceof DERPrintableString)
+        else if (obj instanceof ASN1NumericString)
         {
-            buf.append(indent + "PrintableString(" + ((DERPrintableString)obj).getString() + ") " + nl);
+            buf.append(indent + "NumericString(" + ((ASN1NumericString)obj).getString() + ") " + nl);
         }
-        else if (obj instanceof DERVisibleString)
+        else if (obj instanceof ASN1PrintableString)
         {
-            buf.append(indent + "VisibleString(" + ((DERVisibleString)obj).getString() + ") " + nl);
+            buf.append(indent + "PrintableString(" + ((ASN1PrintableString)obj).getString() + ") " + nl);
         }
-        else if (obj instanceof DERBMPString)
+        else if (obj instanceof ASN1VisibleString)
         {
-            buf.append(indent + "BMPString(" + ((DERBMPString)obj).getString() + ") " + nl);
+            buf.append(indent + "VisibleString(" + ((ASN1VisibleString)obj).getString() + ") " + nl);
         }
-        else if (obj instanceof DERT61String)
+        else if (obj instanceof ASN1BMPString)
         {
-            buf.append(indent + "T61String(" + ((DERT61String)obj).getString() + ") " + nl);
+            buf.append(indent + "BMPString(" + ((ASN1BMPString)obj).getString() + ") " + nl);
         }
-        else if (obj instanceof DERGraphicString)
+        else if (obj instanceof ASN1T61String)
         {
-            buf.append(indent + "GraphicString(" + ((DERGraphicString)obj).getString() + ") " + nl);
+            buf.append(indent + "T61String(" + ((ASN1T61String)obj).getString() + ") " + nl);
         }
-        else if (obj instanceof DERVideotexString)
+        else if (obj instanceof ASN1GraphicString)
         {
-            buf.append(indent + "VideotexString(" + ((DERVideotexString)obj).getString() + ") " + nl);
+            buf.append(indent + "GraphicString(" + ((ASN1GraphicString)obj).getString() + ") " + nl);
+        }
+        else if (obj instanceof ASN1VideotexString)
+        {
+            buf.append(indent + "VideotexString(" + ((ASN1VideotexString)obj).getString() + ") " + nl);
         }
         else if (obj instanceof ASN1UTCTime)
         {
@@ -258,22 +258,15 @@ public class ASN1Dump
         {
             buf.append(indent + "GeneralizedTime(" + ((ASN1GeneralizedTime)obj).getTime() + ") " + nl);
         }
-        else if (obj instanceof BERApplicationSpecific)
-        {
-            buf.append(outputApplicationSpecific("BER", indent, verbose, obj, nl));
-        }
-        else if (obj instanceof DERApplicationSpecific)
-        {
-            buf.append(outputApplicationSpecific("DER", indent, verbose, obj, nl));
-        }
-        else if (obj instanceof DLApplicationSpecific)
-        {
-            buf.append(outputApplicationSpecific("", indent, verbose, obj, nl));
-        }
         else if (obj instanceof ASN1Enumerated)
         {
             ASN1Enumerated en = (ASN1Enumerated) obj;
             buf.append(indent + "DER Enumerated(" + en.getValue() + ")" + nl);
+        }
+        else if (obj instanceof ASN1ObjectDescriptor)
+        {
+            ASN1ObjectDescriptor od = (ASN1ObjectDescriptor)obj;
+            buf.append(indent + "ObjectDescriptor(" + od.getBaseGraphicString().getString() + ") " + nl);
         }
         else if (obj instanceof ASN1External)
         {
@@ -300,32 +293,6 @@ public class ASN1Dump
             buf.append(indent + obj.toString() + nl);
         }
     }
-    
-    private static String outputApplicationSpecific(String type, String indent, boolean verbose, ASN1Primitive obj, String nl)
-    {
-        ASN1ApplicationSpecific app = ASN1ApplicationSpecific.getInstance(obj);
-        StringBuffer buf = new StringBuffer();
-
-        if (app.isConstructed())
-        {
-            try
-            {
-                ASN1Sequence s = ASN1Sequence.getInstance(app.getObject(BERTags.SEQUENCE));
-                buf.append(indent + type + " ApplicationSpecific[" + app.getApplicationTag() + "]" + nl);
-                for (Enumeration e = s.getObjects(); e.hasMoreElements();)
-                {
-                    _dumpAsString(indent + TAB, verbose, (ASN1Primitive)e.nextElement(), buf);
-                }
-            }
-            catch (IOException e)
-            {
-                buf.append(e);
-            }
-            return buf.toString();
-        }
-
-        return indent + type + " ApplicationSpecific[" + app.getApplicationTag() + "] (" + Strings.fromByteArray(Hex.encode(app.getContents())) + ")" + nl;
-    }
 
     /**
      * dump out a DER object as a formatted string, in non-verbose mode.
@@ -350,21 +317,22 @@ public class ASN1Dump
         Object   obj,
         boolean  verbose)
     {
-        StringBuffer buf = new StringBuffer();
-
+        ASN1Primitive primitive;
         if (obj instanceof ASN1Primitive)
         {
-            _dumpAsString("", verbose, (ASN1Primitive)obj, buf);
+            primitive = (ASN1Primitive)obj;
         }
         else if (obj instanceof ASN1Encodable)
         {
-            _dumpAsString("", verbose, ((ASN1Encodable)obj).toASN1Primitive(), buf);
+            primitive = ((ASN1Encodable)obj).toASN1Primitive();
         }
         else
         {
             return "unknown object type " + obj.toString();
         }
 
+        StringBuffer buf = new StringBuffer();
+        _dumpAsString("", verbose, primitive, buf);
         return buf.toString();
     }
 

@@ -42,7 +42,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.database.SQLException;
 import android.hardware.radio.modem.ImeiInfo;
 import android.net.Uri;
@@ -390,8 +389,9 @@ public class GsmCdmaPhone extends Phone {
                 .makeDataNetworkController(this, getLooper(), featureFlags);
 
         mCarrierResolver = mTelephonyComponentFactory.inject(CarrierResolver.class.getName())
-                .makeCarrierResolver(this);
-        mCarrierPrivilegesTracker = new CarrierPrivilegesTracker(Looper.myLooper(), this, context);
+                .makeCarrierResolver(this, featureFlags);
+        mCarrierPrivilegesTracker = new CarrierPrivilegesTracker(
+                Looper.myLooper(), this, context, featureFlags);
 
         getCarrierActionAgent().registerForCarrierAction(
                 CarrierActionAgent.CARRIER_ACTION_SET_METERED_APNS_ENABLED, this,
@@ -469,12 +469,6 @@ public class GsmCdmaPhone extends Phone {
         }
     };
 
-    private boolean hasCalling() {
-        if (!mFeatureFlags.minimalTelephonyCdmCheck()) return true;
-        return mContext.getPackageManager().hasSystemFeature(
-            PackageManager.FEATURE_TELEPHONY_CALLING);
-    }
-
     private void initOnce(CommandsInterface ci) {
         if (ci instanceof SimulatedRadioControl) {
             mSimulatedRadioControl = (SimulatedRadioControl) ci;
@@ -544,37 +538,30 @@ public class GsmCdmaPhone extends Phone {
 
         mCi.registerForImeiMappingChanged(this, EVENT_IMEI_MAPPING_CHANGED, null);
 
-        if (mFeatureFlags.enableIdentifierDisclosureTransparencyUnsolEvents()
-                || mFeatureFlags.enableModemCipherTransparencyUnsolEvents()) {
-            mSafetySource =
-                    mTelephonyComponentFactory.makeCellularNetworkSecuritySafetySource(mContext);
-        }
+        mSafetySource = mTelephonyComponentFactory
+                .makeCellularNetworkSecuritySafetySource(mContext);
 
-        if (mFeatureFlags.enableIdentifierDisclosureTransparencyUnsolEvents()) {
-            logi(
-                    "enable_identifier_disclosure_transparency_unsol_events is on. Registering for "
-                            + "cellular identifier disclosures from phone "
-                            + getPhoneId());
-            mIdentifierDisclosureNotifier =
-                    mTelephonyComponentFactory
-                            .inject(CellularIdentifierDisclosureNotifier.class.getName())
-                            .makeIdentifierDisclosureNotifier(mSafetySource);
-            mCi.registerForCellularIdentifierDisclosures(
-                    this, EVENT_CELL_IDENTIFIER_DISCLOSURE, null);
-        }
+        logi(
+                "enable_identifier_disclosure_transparency_unsol_events is on. Registering for "
+                        + "cellular identifier disclosures from phone "
+                        + getPhoneId());
+        mIdentifierDisclosureNotifier =
+                mTelephonyComponentFactory
+                        .inject(CellularIdentifierDisclosureNotifier.class.getName())
+                        .makeIdentifierDisclosureNotifier(mSafetySource);
+        mCi.registerForCellularIdentifierDisclosures(
+                this, EVENT_CELL_IDENTIFIER_DISCLOSURE, null);
 
-        if (mFeatureFlags.enableModemCipherTransparencyUnsolEvents()) {
-            logi(
-                    "enable_modem_cipher_transparency_unsol_events is on. Registering for security "
-                            + "algorithm updates from phone "
-                            + getPhoneId());
-            mNullCipherNotifier =
-                    mTelephonyComponentFactory
-                            .inject(NullCipherNotifier.class.getName())
-                            .makeNullCipherNotifier(mSafetySource);
-            mCi.registerForSecurityAlgorithmUpdates(
-                    this, EVENT_SECURITY_ALGORITHM_UPDATE, null);
-        }
+        logi(
+                "enable_modem_cipher_transparency_unsol_events is on. Registering for security "
+                        + "algorithm updates from phone "
+                        + getPhoneId());
+        mNullCipherNotifier =
+                mTelephonyComponentFactory
+                        .inject(NullCipherNotifier.class.getName())
+                        .makeNullCipherNotifier(mSafetySource);
+        mCi.registerForSecurityAlgorithmUpdates(
+                this, EVENT_SECURITY_ALGORITHM_UPDATE, null);
 
         initializeCarrierApps();
     }
@@ -781,6 +768,7 @@ public class GsmCdmaPhone extends Phone {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @Override
     public int getPhoneType() {
+        if (mFeatureFlags.cleanupCdma()) return PhoneConstants.PHONE_TYPE_GSM;
         if (mPrecisePhoneType == PhoneConstants.PHONE_TYPE_GSM) {
             return PhoneConstants.PHONE_TYPE_GSM;
         } else {
@@ -1119,6 +1107,7 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public GsmCdmaCall getForegroundCall() {
+        if (!hasCalling()) return null;
         return mCT.mForegroundCall;
     }
 
@@ -1396,6 +1385,8 @@ public class GsmCdmaPhone extends Phone {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public boolean isInCall() {
+        if (!hasCalling()) return false;
+
         GsmCdmaCall.State foregroundCallState = getForegroundCall().getState();
         GsmCdmaCall.State backgroundCallState = getBackgroundCall().getState();
         GsmCdmaCall.State ringingCallState = getRingingCall().getState();
@@ -1713,9 +1704,16 @@ public class GsmCdmaPhone extends Phone {
         String newDialString = PhoneNumberUtils.stripSeparators(dialString);
 
         if (isPhoneTypeGsm()) {
-            // handle in-call MMI first if applicable
-            if (handleInCallMmiCommands(newDialString)) {
-                return null;
+            if (mFeatureFlags.skipMmiCodeCheckForEmergencyCall()) {
+                // If not emergency number, handle in-call MMI first if applicable
+                if (!dialArgs.isEmergency && handleInCallMmiCommands(newDialString)) {
+                    return null;
+                }
+            } else {
+                // handle in-call MMI first if applicable
+                if (handleInCallMmiCommands(newDialString)) {
+                    return null;
+                }
             }
 
             // Only look at the Network portion for mmi
@@ -1896,8 +1894,15 @@ public class GsmCdmaPhone extends Phone {
     @Override
     public void setRadioPowerForReason(boolean power, boolean forEmergencyCall,
             boolean isSelectedPhoneForEmergencyCall, boolean forceApply, int reason) {
-        mSST.setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall,
-                forceApply, reason);
+        if (mFeatureFlags.powerDownRaceFix()) {
+            // setRadioPowerForReason can be called by the binder thread. We need to move that into
+            // the main thread to prevent race condition.
+            post(() -> mSST.setRadioPowerForReason(power, forEmergencyCall,
+                    isSelectedPhoneForEmergencyCall, forceApply, reason));
+        } else {
+            mSST.setRadioPowerForReason(power, forEmergencyCall, isSelectedPhoneForEmergencyCall,
+                    forceApply, reason);
+        }
     }
 
     @Override
@@ -2185,7 +2190,12 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void resetCarrierKeysForImsiEncryption() {
-        mCIM.resetCarrierKeysForImsiEncryption(mContext, mPhoneId);
+        mCIM.resetCarrierKeysForImsiEncryption(mContext, mPhoneId, false);
+    }
+
+    @Override
+    public void resetCarrierKeysForImsiEncryption(boolean forceResetAll) {
+        mCIM.resetCarrierKeysForImsiEncryption(mContext, mPhoneId, forceResetAll);
     }
 
     @Override
@@ -2453,24 +2463,20 @@ public class GsmCdmaPhone extends Phone {
      */
     @Override
     public void setN1ModeEnabled(boolean enable, @Nullable Message result) {
-        if (mFeatureFlags.enableCarrierConfigN1ControlAttempt2()) {
-            // This might be called by IMS on another thread, so to avoid the requirement to
-            // lock, post it through the handler.
-            post(() -> {
-                if (enable) {
-                    mN1ModeDisallowedReasons.remove(N1_MODE_DISALLOWED_REASON_IMS);
-                } else {
-                    mN1ModeDisallowedReasons.add(N1_MODE_DISALLOWED_REASON_IMS);
-                }
-                if (mModemN1Mode == null) {
-                    mCi.isN1ModeEnabled(obtainMessage(EVENT_GET_N1_MODE_ENABLED_DONE, result));
-                } else {
-                    maybeUpdateModemN1Mode(result);
-                }
-            });
-        } else {
-            super.setN1ModeEnabled(enable, result);
-        }
+        // This might be called by IMS on another thread, so to avoid the requirement to
+        // lock, post it through the handler.
+        post(() -> {
+            if (enable) {
+                mN1ModeDisallowedReasons.remove(N1_MODE_DISALLOWED_REASON_IMS);
+            } else {
+                mN1ModeDisallowedReasons.add(N1_MODE_DISALLOWED_REASON_IMS);
+            }
+            if (mModemN1Mode == null) {
+                mCi.isN1ModeEnabled(obtainMessage(EVENT_GET_N1_MODE_ENABLED_DONE, result));
+            } else {
+                maybeUpdateModemN1Mode(result);
+            }
+        });
     }
 
     /** Only called on the handler thread. */
@@ -2494,8 +2500,6 @@ public class GsmCdmaPhone extends Phone {
 
     /** Only called on the handler thread. */
     private void updateCarrierN1ModeSupported(@NonNull PersistableBundle b) {
-        if (!mFeatureFlags.enableCarrierConfigN1ControlAttempt2()) return;
-
         if (!CarrierConfigManager.isConfigForIdentifiedCarrier(b)) return;
 
         final int[] supportedNrModes = b.getIntArray(
@@ -3039,12 +3043,12 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void registerForCallWaiting(Handler h, int what, Object obj) {
-        mCT.registerForCallWaiting(h, what, obj);
+        if (mCT != null) mCT.registerForCallWaiting(h, what, obj);
     }
 
     @Override
     public void unregisterForCallWaiting(Handler h) {
-        mCT.unregisterForCallWaiting(h);
+        if (mCT != null) mCT.unregisterForCallWaiting(h);
     }
 
     /**
@@ -3761,10 +3765,16 @@ public class GsmCdmaPhone extends Phone {
                 }
 
                 CellularIdentifierDisclosure disclosure = (CellularIdentifierDisclosure) ar.result;
-                if (mFeatureFlags.enableIdentifierDisclosureTransparencyUnsolEvents()
-                        && mIdentifierDisclosureNotifier != null
+                if (mIdentifierDisclosureNotifier != null
                         && disclosure != null) {
                     mIdentifierDisclosureNotifier.addDisclosure(mContext, getSubId(), disclosure);
+                }
+                if (mFeatureFlags.cellularIdentifierDisclosureIndications()
+                        && mIdentifierDisclosureNotifier != null
+                        && disclosure != null) {
+                    logd("EVENT_CELL_IDENTIFIER_DISCLOSURE for non-Safety Center listeners "
+                            + "phoneId = " + getPhoneId());
+                    mNotifier.notifyCellularIdentifierDisclosedChanged(this, disclosure);
                 }
                 break;
 
@@ -3776,12 +3786,19 @@ public class GsmCdmaPhone extends Phone {
 
             case EVENT_SECURITY_ALGORITHM_UPDATE:
                 logd("EVENT_SECURITY_ALGORITHM_UPDATE phoneId = " + getPhoneId());
-                if (mFeatureFlags.enableModemCipherTransparencyUnsolEvents()
-                        && mNullCipherNotifier != null) {
-                    ar = (AsyncResult) msg.obj;
-                    SecurityAlgorithmUpdate update = (SecurityAlgorithmUpdate) ar.result;
+
+                ar = (AsyncResult) msg.obj;
+                SecurityAlgorithmUpdate update = (SecurityAlgorithmUpdate) ar.result;
+
+                if (mNullCipherNotifier != null) {
                     mNullCipherNotifier.onSecurityAlgorithmUpdate(mContext, getPhoneId(),
                             getSubId(), update);
+                }
+                if (mFeatureFlags.securityAlgorithmsUpdateIndications()
+                        && mNullCipherNotifier != null) {
+                    logd("EVENT_SECURITY_ALGORITHM_UPDATE for non-Safety Center listeners "
+                              + "phoneId = " + getPhoneId());
+                    mNotifier.notifySecurityAlgorithmsChanged(this, update);
                 }
                 break;
 
@@ -5404,25 +5421,15 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void handleIdentifierDisclosureNotificationPreferenceChange() {
-        if (!mFeatureFlags.enableIdentifierDisclosureTransparency()) {
-            logi("Not handling identifier disclosure preference change. Feature flag "
-                    + "enable_identifier_disclosure_transparency disabled");
-            return;
-        }
         boolean prefEnabled = getIdentifierDisclosureNotificationsPreferenceEnabled();
 
         // The notifier is tied to handling unsolicited updates from the modem, not the
         // enable/disable API, so we only toggle the enable state if the unsol events feature
         // flag is enabled.
-        if (mFeatureFlags.enableIdentifierDisclosureTransparencyUnsolEvents()) {
-            if (prefEnabled) {
-                mIdentifierDisclosureNotifier.enable(mContext);
-            } else {
-                mIdentifierDisclosureNotifier.disable(mContext);
-            }
+        if (prefEnabled) {
+            mIdentifierDisclosureNotifier.enable(mContext);
         } else {
-            logi("Not toggling enable state for disclosure notifier. Feature flag "
-                    + "enable_identifier_disclosure_transparency_unsol_events is disabled");
+            mIdentifierDisclosureNotifier.disable(mContext);
         }
 
         mCi.setCellularIdentifierTransparencyEnabled(prefEnabled,
@@ -5431,25 +5438,14 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void handleNullCipherNotificationPreferenceChanged() {
-        if (!mFeatureFlags.enableModemCipherTransparency()) {
-            logi("Not handling null cipher notification preference change. Feature flag "
-                    + "enable_modem_cipher_transparency disabled");
-            return;
-        }
         boolean prefEnabled = getNullCipherNotificationsPreferenceEnabled();
 
         // The notifier is tied to handling unsolicited updates from the modem, not the
         // enable/disable API.
-        if (mFeatureFlags.enableModemCipherTransparencyUnsolEvents()) {
-            if (prefEnabled) {
-                mNullCipherNotifier.enable(mContext);
-            } else {
-                mNullCipherNotifier.disable(mContext);
-            }
+        if (prefEnabled) {
+            mNullCipherNotifier.enable(mContext);
         } else {
-            logi(
-                    "Not toggling enable state for cipher notifier. Feature flag "
-                            + "enable_modem_cipher_transparency_unsol_events is disabled.");
+            mNullCipherNotifier.disable(mContext);
         }
 
         mCi.setSecurityAlgorithmsUpdatedEnabled(prefEnabled,
@@ -5461,10 +5457,6 @@ public class GsmCdmaPhone extends Phone {
      */
     @VisibleForTesting
     public void updateNullCipherNotifier() {
-        if (!mFeatureFlags.enableModemCipherTransparencyUnsolEvents()) {
-            return;
-        }
-
         SubscriptionInfoInternal subInfo = mSubscriptionManagerService
                 .getSubscriptionInfoInternal(getSubId());
         boolean active = false;
@@ -5492,9 +5484,15 @@ public class GsmCdmaPhone extends Phone {
 
     @Override
     public void refreshSafetySources(String refreshBroadcastId) {
-        if (mFeatureFlags.enableIdentifierDisclosureTransparencyUnsolEvents()
-                || mFeatureFlags.enableModemCipherTransparencyUnsolEvents()) {
-            mSafetySource.refresh(mContext, refreshBroadcastId);
-        }
+        post(() -> mSafetySource.refresh(mContext, refreshBroadcastId));
+    }
+
+    /**
+     * @return The sms dispatchers controller
+     */
+    @Override
+    @Nullable
+    public SmsDispatchersController getSmsDispatchersController() {
+        return mIccSmsInterfaceManager.mDispatchersController;
     }
 }

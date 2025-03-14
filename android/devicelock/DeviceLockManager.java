@@ -16,8 +16,11 @@
 
 package android.devicelock;
 
+import static com.android.devicelock.flags.Flags.FLAG_CLEAR_DEVICE_RESTRICTIONS;
+
 import android.Manifest.permission;
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.RequiresFeature;
@@ -101,10 +104,10 @@ public final class DeviceLockManager {
 
         try {
             mService.lockDevice(
-                    new ILockUnlockDeviceCallback.Stub() {
+                    new IVoidResultCallback.Stub() {
                         @Override
-                        public void onDeviceLockedUnlocked() {
-                            executor.execute(() -> callback.onResult(null));
+                        public void onSuccess() {
+                            executor.execute(() -> callback.onResult(/* result= */ null));
                         }
 
                         @Override
@@ -131,10 +134,10 @@ public final class DeviceLockManager {
 
         try {
             mService.unlockDevice(
-                    new ILockUnlockDeviceCallback.Stub() {
+                    new IVoidResultCallback.Stub() {
                         @Override
-                        public void onDeviceLockedUnlocked() {
-                            executor.execute(() -> callback.onResult(null));
+                        public void onSuccess() {
+                            executor.execute(() -> callback.onResult(/* result= */ null));
                         }
 
                         @Override
@@ -173,6 +176,65 @@ public final class DeviceLockManager {
                                     callback.onError(parcelableException.getException()));
                         }
                     });
+        } catch (RemoteException e) {
+            executor.execute(() -> callback.onError(new RuntimeException(e)));
+        }
+    }
+
+    /**
+     * Clear device restrictions.
+     *
+     * <p>After a device determines that it's part of a program (e.g. financing) by checking in with
+     * the device lock backend, it will go though a provisioning flow and install a kiosk app.
+     *
+     * <p>At this point, the device is "restricted" and the creditor kiosk app is able to lock
+     * the device. For example, a creditor kiosk app in a financing use case may lock the device
+     * (using {@link #lockDevice}) if payments are missed and unlock (using {@link #unlockDevice})
+     * once they are resumed.
+     *
+     * <p>The Device Lock solution will also put in place some additional restrictions when a device
+     * is enrolled in the program, namely:
+     *
+     * <ul>
+     *     <li>Disable debugging features
+     *     ({@link android.os.UserManager#DISALLOW_DEBUGGING_FEATURES})
+     *     <li>Disable installing from unknown sources
+     *     ({@link android.os.UserManager#DISALLOW_INSTALL_UNKNOWN_SOURCES},
+     *     when configured in the backend)
+     *     <li>Disable outgoing calls
+     *     ({@link android.os.UserManager#DISALLOW_OUTGOING_CALLS},
+     *     when configured in the backend and the device is locked)
+     * </ul>
+     *
+     * <p>Once the program is completed (e.g. the device has been fully paid off), the kiosk app
+     * can use the {@link #clearDeviceRestrictions} API to lift the above restrictions.
+     *
+     * <p>At this point, the kiosk app has relinquished its ability to lock the device.
+     *
+     * @param executor the {@link Executor} on which to invoke the callback.
+     * @param callback this returns either success or an exception.
+     */
+    @RequiresPermission(permission.MANAGE_DEVICE_LOCK_STATE)
+    @FlaggedApi(FLAG_CLEAR_DEVICE_RESTRICTIONS)
+    public void clearDeviceRestrictions(@NonNull @CallbackExecutor Executor executor,
+            @NonNull OutcomeReceiver<Void, Exception> callback) {
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(callback);
+
+        try {
+            mService.clearDeviceRestrictions(
+                    new IVoidResultCallback.Stub() {
+                        @Override
+                        public void onSuccess() {
+                            executor.execute(() -> callback.onResult(/* result= */ null));
+                        }
+
+                        @Override
+                        public void onError(ParcelableException parcelableException) {
+                            callback.onError(parcelableException.getException());
+                        }
+                    }
+            );
         } catch (RemoteException e) {
             executor.execute(() -> callback.onError(new RuntimeException(e)));
         }

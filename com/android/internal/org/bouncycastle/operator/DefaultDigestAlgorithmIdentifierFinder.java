@@ -2,7 +2,9 @@
 package com.android.internal.org.bouncycastle.operator;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import com.android.internal.org.bouncycastle.asn1.ASN1Integer;
 import com.android.internal.org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -10,6 +12,7 @@ import com.android.internal.org.bouncycastle.asn1.DERNull;
 // Android-removed: Unsupported algorithms
 // import org.bouncycastle.asn1.bc.BCObjectIdentifiers;
 // import org.bouncycastle.asn1.bsi.BSIObjectIdentifiers;
+// import org.bouncycastle.asn1.cms.CMSObjectIdentifiers;
 // import org.bouncycastle.asn1.cryptopro.CryptoProObjectIdentifiers;
 // import org.bouncycastle.asn1.eac.EACObjectIdentifiers;
 // import org.bouncycastle.asn1.gm.GMObjectIdentifiers;
@@ -31,6 +34,9 @@ public class DefaultDigestAlgorithmIdentifierFinder
 {
     private static Map digestOids = new HashMap();
     private static Map digestNameToOids = new HashMap();
+    private static Map digestOidToAlgIds = new HashMap();
+
+    private static Set shake256oids = new HashSet();  // signatures that use SHAKE-256
 
     static
     {
@@ -41,14 +47,18 @@ public class DefaultDigestAlgorithmIdentifierFinder
         // digestOids.put(OIWObjectIdentifiers.md4WithRSAEncryption, PKCSObjectIdentifiers.md4);
         // digestOids.put(OIWObjectIdentifiers.md4WithRSA, PKCSObjectIdentifiers.md4);
         // digestOids.put(OIWObjectIdentifiers.dsaWithSHA1, OIWObjectIdentifiers.idSHA1);
+        // digestOids.put(OIWObjectIdentifiers.md5WithRSA, PKCSObjectIdentifiers.md5);
         // END Android-removed: Unsupported algorithms
         digestOids.put(OIWObjectIdentifiers.sha1WithRSA, OIWObjectIdentifiers.idSHA1);
 
+        digestOids.put(PKCSObjectIdentifiers.rsaEncryption, NISTObjectIdentifiers.id_sha256);
         digestOids.put(PKCSObjectIdentifiers.sha224WithRSAEncryption, NISTObjectIdentifiers.id_sha224);
         digestOids.put(PKCSObjectIdentifiers.sha256WithRSAEncryption, NISTObjectIdentifiers.id_sha256);
         digestOids.put(PKCSObjectIdentifiers.sha384WithRSAEncryption, NISTObjectIdentifiers.id_sha384);
         digestOids.put(PKCSObjectIdentifiers.sha512WithRSAEncryption, NISTObjectIdentifiers.id_sha512);
         // BEGIN Android-removed: Unsupported algorithms
+        // digestOids.put(PKCSObjectIdentifiers.sha512_224WithRSAEncryption, NISTObjectIdentifiers.id_sha512_224);
+        // digestOids.put(PKCSObjectIdentifiers.sha512_256WithRSAEncryption, NISTObjectIdentifiers.id_sha512_256);
         // digestOids.put(PKCSObjectIdentifiers.md2WithRSAEncryption, PKCSObjectIdentifiers.md2);
         // digestOids.put(PKCSObjectIdentifiers.md4WithRSAEncryption, PKCSObjectIdentifiers.md4);
         // END Android-removed: Unsupported algorithms
@@ -69,6 +79,10 @@ public class DefaultDigestAlgorithmIdentifierFinder
         digestOids.put(BSIObjectIdentifiers.ecdsa_plain_SHA256, NISTObjectIdentifiers.id_sha256);
         digestOids.put(BSIObjectIdentifiers.ecdsa_plain_SHA384, NISTObjectIdentifiers.id_sha384);
         digestOids.put(BSIObjectIdentifiers.ecdsa_plain_SHA512, NISTObjectIdentifiers.id_sha512);
+        digestOids.put(BSIObjectIdentifiers.ecdsa_plain_SHA3_224, NISTObjectIdentifiers.id_sha3_224);
+        digestOids.put(BSIObjectIdentifiers.ecdsa_plain_SHA3_256, NISTObjectIdentifiers.id_sha3_256);
+        digestOids.put(BSIObjectIdentifiers.ecdsa_plain_SHA3_384, NISTObjectIdentifiers.id_sha3_384);
+        digestOids.put(BSIObjectIdentifiers.ecdsa_plain_SHA3_512, NISTObjectIdentifiers.id_sha3_512);
         digestOids.put(BSIObjectIdentifiers.ecdsa_plain_RIPEMD160, TeleTrusTObjectIdentifiers.ripemd160);
 
         digestOids.put(EACObjectIdentifiers.id_TA_ECDSA_SHA_1, OIWObjectIdentifiers.idSHA1);
@@ -118,6 +132,54 @@ public class DefaultDigestAlgorithmIdentifierFinder
         digestOids.put(GMObjectIdentifiers.sm2sign_with_sha384, NISTObjectIdentifiers.id_sha384);
         digestOids.put(GMObjectIdentifiers.sm2sign_with_sha512, NISTObjectIdentifiers.id_sha512);
         digestOids.put(GMObjectIdentifiers.sm2sign_with_sm3, GMObjectIdentifiers.sm3);
+
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_128s_r3, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_128f_r3, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_128s_r3, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_128f_r3, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_192s_r3, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_192f_r3, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_192s_r3, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_192f_r3, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_256s_r3, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_256f_r3, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_256s_r3, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_256f_r3, NISTObjectIdentifiers.id_shake256);
+
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_128s_r3_simple, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_128f_r3_simple, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_128s_r3_simple, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_128f_r3_simple, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_192s_r3_simple, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_192f_r3_simple, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_192s_r3_simple, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_192f_r3_simple, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_256s_r3_simple, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_sha2_256f_r3_simple, NISTObjectIdentifiers.id_sha256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_256s_r3_simple, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.sphincsPlus_shake_256f_r3_simple, NISTObjectIdentifiers.id_shake256);
+
+        digestOids.put(BCObjectIdentifiers.falcon, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.falcon_512, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.falcon_1024, NISTObjectIdentifiers.id_shake256);
+
+        digestOids.put(BCObjectIdentifiers.picnic_signature, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(BCObjectIdentifiers.picnic_with_sha512, NISTObjectIdentifiers.id_sha512);
+        digestOids.put(BCObjectIdentifiers.picnic_with_sha3_512, NISTObjectIdentifiers.id_sha3_512);
+        digestOids.put(BCObjectIdentifiers.picnic_with_shake256, NISTObjectIdentifiers.id_shake256);
+
+//        digestOids.put(GMObjectIdentifiers.sm2sign_with_rmd160, TeleTrusTObjectIdentifiers.ripemd160);
+//        digestOids.put(GMObjectIdentifiers.sm2sign_with_sha1, OIWObjectIdentifiers.idSHA1);
+//        digestOids.put(GMObjectIdentifiers.sm2sign_with_sha224, NISTObjectIdentifiers.id_sha224);
+        digestOids.put(GMObjectIdentifiers.sm2sign_with_sha256, NISTObjectIdentifiers.id_sha256);
+//        digestOids.put(GMObjectIdentifiers.sm2sign_with_sha384, NISTObjectIdentifiers.id_sha384);
+//        digestOids.put(GMObjectIdentifiers.sm2sign_with_sha512, NISTObjectIdentifiers.id_sha512);
+        digestOids.put(GMObjectIdentifiers.sm2sign_with_sm3, GMObjectIdentifiers.sm3);
+
+        digestOids.put(CMSObjectIdentifiers.id_RSASSA_PSS_SHAKE128, NISTObjectIdentifiers.id_shake128);
+        digestOids.put(CMSObjectIdentifiers.id_RSASSA_PSS_SHAKE256, NISTObjectIdentifiers.id_shake256);
+        digestOids.put(CMSObjectIdentifiers.id_ecdsa_with_shake128, NISTObjectIdentifiers.id_shake128);
+        digestOids.put(CMSObjectIdentifiers.id_ecdsa_with_shake256, NISTObjectIdentifiers.id_shake256);
         */
         // END Android-removed: Unsupported algorithms
 
@@ -144,6 +206,8 @@ public class DefaultDigestAlgorithmIdentifierFinder
         digestNameToOids.put("SHA3-384", NISTObjectIdentifiers.id_sha3_384);
         digestNameToOids.put("SHA3-512", NISTObjectIdentifiers.id_sha3_512);
 
+        digestNameToOids.put("SHAKE128", NISTObjectIdentifiers.id_shake128);
+        digestNameToOids.put("SHAKE256", NISTObjectIdentifiers.id_shake256);
         digestNameToOids.put("SHAKE-128", NISTObjectIdentifiers.id_shake128);
         digestNameToOids.put("SHAKE-256", NISTObjectIdentifiers.id_shake256);
 
@@ -164,20 +228,106 @@ public class DefaultDigestAlgorithmIdentifierFinder
         digestNameToOids.put("RIPEMD256", TeleTrusTObjectIdentifiers.ripemd256);
 
         digestNameToOids.put("SM3", GMObjectIdentifiers.sm3);
+
+        // IETF RFC 3370
+        addDigestAlgId(OIWObjectIdentifiers.idSHA1, true);
+        // IETF RFC 5754
+        addDigestAlgId(NISTObjectIdentifiers.id_sha224, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha256, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha384, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha512, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha512_224, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha512_256, false);
+
+        // NIST CSOR
+        addDigestAlgId(NISTObjectIdentifiers.id_sha3_224, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha3_256, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha3_384, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_sha3_512, false);
+
+        // RFC 8702
+        addDigestAlgId(NISTObjectIdentifiers.id_shake128, false);
+        addDigestAlgId(NISTObjectIdentifiers.id_shake256, false);
+
+        // RFC 4357
+        addDigestAlgId(CryptoProObjectIdentifiers.gostR3411, true);
+
+        // draft-deremin-rfc4491
+        addDigestAlgId(RosstandartObjectIdentifiers.id_tc26_gost_3411_12_256, false);
+        addDigestAlgId(RosstandartObjectIdentifiers.id_tc26_gost_3411_12_512, false);
+
+        // IETF RFC 1319
+        addDigestAlgId(PKCSObjectIdentifiers.md2, true);
+        // IETF RFC 1320
+        addDigestAlgId(PKCSObjectIdentifiers.md4, true);
+        // IETF RFC 1321
+        addDigestAlgId(PKCSObjectIdentifiers.md5, true);
+
+        // found no standard which specified the handle of AlgorithmIdentifier.parameters,
+        // so let it as before.
+        addDigestAlgId(TeleTrusTObjectIdentifiers.ripemd128, true);
+        addDigestAlgId(TeleTrusTObjectIdentifiers.ripemd160, true);
+        addDigestAlgId(TeleTrusTObjectIdentifiers.ripemd256, true);
+
+        shake256oids.add(EdECObjectIdentifiers.id_Ed448);
+
+        shake256oids.add(BCObjectIdentifiers.dilithium2);
+        shake256oids.add(BCObjectIdentifiers.dilithium3);
+        shake256oids.add(BCObjectIdentifiers.dilithium5);
+        shake256oids.add(BCObjectIdentifiers.dilithium2_aes);
+        shake256oids.add(BCObjectIdentifiers.dilithium3_aes);
+        shake256oids.add(BCObjectIdentifiers.dilithium5_aes);
+
+        shake256oids.add(BCObjectIdentifiers.falcon_512);
+        shake256oids.add(BCObjectIdentifiers.falcon_1024);
         */
         // END Android-removed: Unsupported algorithms
     }
 
+    private static void addDigestAlgId(ASN1ObjectIdentifier oid, boolean withNullParams)
+    {
+        AlgorithmIdentifier algId;
+        if (withNullParams)
+        {
+            algId = new AlgorithmIdentifier(oid, DERNull.INSTANCE);
+        }
+        else
+        {
+            algId = new AlgorithmIdentifier(oid);
+        }
+        digestOidToAlgIds.put(oid, algId);
+    }
+
     public AlgorithmIdentifier find(AlgorithmIdentifier sigAlgId)
     {
-        AlgorithmIdentifier digAlgId;
+        ASN1ObjectIdentifier sigAlgOid = sigAlgId.getAlgorithm();
 
-        if (sigAlgId.getAlgorithm().equals(PKCSObjectIdentifiers.id_RSASSA_PSS))
+        if (shake256oids.contains(sigAlgOid))
         {
-            digAlgId = RSASSAPSSparams.getInstance(sigAlgId.getParameters()).getHashAlgorithm();
+            // TODO: it seems it's very hard to find people accepting SHAKE256-len at the moment...
+            // Android-removed: unsupported
+            // if (!sigAlgOid.equals(EdECObjectIdentifiers.id_Ed448))
+            // {
+            //     return new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha256);
+            // }
+
+            return new AlgorithmIdentifier(NISTObjectIdentifiers.id_shake256_len, new ASN1Integer(512));
+        }
+
+        ASN1ObjectIdentifier digAlgOid;
+        if (sigAlgOid.equals(PKCSObjectIdentifiers.id_RSASSA_PSS))
+        {
+            digAlgOid = RSASSAPSSparams.getInstance(sigAlgId.getParameters()).getHashAlgorithm().getAlgorithm();
+        }
+        else if (sigAlgOid.equals(PKCSObjectIdentifiers.id_alg_hss_lms_hashsig))
+        {
+            digAlgOid = NISTObjectIdentifiers.id_sha256;
         }
         // BEGIN Android-removed: Unsupported algorithms
-        /*
+        /*        // else if (sigAlgOid.equals(EdECObjectIdentifiers.id_Ed25519))
+        {
+            digAlgOid = NISTObjectIdentifiers.id_sha512;
+        }
         else if (sigAlgId.getAlgorithm().equals(EdECObjectIdentifiers.id_Ed25519))
         {
             digAlgId = new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha512);
@@ -190,14 +340,47 @@ public class DefaultDigestAlgorithmIdentifierFinder
         // END Android-removed: Unsupported algorithms
         else
         {
-            digAlgId = new AlgorithmIdentifier((ASN1ObjectIdentifier)digestOids.get(sigAlgId.getAlgorithm()), DERNull.INSTANCE);
+            digAlgOid = (ASN1ObjectIdentifier)digestOids.get(sigAlgOid);
         }
 
-        return digAlgId;
+        return find(digAlgOid);
+    }
+
+    public AlgorithmIdentifier find(ASN1ObjectIdentifier digAlgOid)
+    {
+        if (digAlgOid == null)
+        {
+            throw new NullPointerException("digest OID is null");
+        }
+
+        AlgorithmIdentifier digAlgId = (AlgorithmIdentifier)digestOidToAlgIds.get(digAlgOid);
+        if (digAlgId == null)
+        {
+            return new AlgorithmIdentifier(digAlgOid);
+        }
+        else
+        {
+            return digAlgId;
+        }
     }
 
     public AlgorithmIdentifier find(String digAlgName)
     {
-        return new AlgorithmIdentifier((ASN1ObjectIdentifier)digestNameToOids.get(digAlgName), DERNull.INSTANCE);
+        ASN1ObjectIdentifier oid = (ASN1ObjectIdentifier)digestNameToOids.get(digAlgName);
+        if (oid != null)
+        {
+            return find(oid);
+        }
+
+        try
+        {
+            return find(new ASN1ObjectIdentifier(digAlgName));
+        }
+        catch (RuntimeException e)
+        {
+            // ignore - tried it but it didn't work...
+        }
+
+        return null;
     }
 }

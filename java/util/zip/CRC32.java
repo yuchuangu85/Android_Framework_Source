@@ -30,6 +30,7 @@ import java.nio.ByteBuffer;
 import java.util.Objects;
 
 import sun.nio.ch.DirectBuffer;
+import dalvik.annotation.optimization.CriticalNative;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
 
 /**
@@ -142,6 +143,7 @@ public class CRC32 implements Checksum {
         return (long)crc & 0xffffffffL;
     }
 
+    @CriticalNative
     @IntrinsicCandidate
     private static native int update(int crc, int b);
 

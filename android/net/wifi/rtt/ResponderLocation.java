@@ -671,9 +671,9 @@ public final class ResponderLocation implements Parcelable {
 
         long zHeightUncertainty =
                 subelementZFields[SUBELEMENT_Z_HEIGHT_ABOVE_FLOOR_UNCERTAINTY_INDEX];
-        if (zHeightUncertainty > 0 && zHeightUncertainty < Z_MAX_HEIGHT_UNCERTAINTY_FACTOR) {
-            mHeightAboveFloorUncertaintyMeters =
-                    Math.pow(2, Z_FLOOR_HEIGHT_FRACTION_BITS - zHeightUncertainty - 1);
+        if (zHeightUncertainty >= 0 && zHeightUncertainty < Z_MAX_HEIGHT_UNCERTAINTY_FACTOR) {
+            mHeightAboveFloorUncertaintyMeters = zHeightUncertainty == 0
+                    ? 0 : Math.pow(2, Z_FLOOR_HEIGHT_FRACTION_BITS - zHeightUncertainty - 1);
         } else {
             return false;
         }

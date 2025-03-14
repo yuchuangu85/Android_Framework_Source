@@ -10,9 +10,9 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1IA5String;
 import com.android.internal.org.bouncycastle.asn1.ASN1OctetString;
 import com.android.internal.org.bouncycastle.asn1.ASN1Sequence;
-import com.android.internal.org.bouncycastle.asn1.DERIA5String;
 import com.android.internal.org.bouncycastle.asn1.x500.RDN;
 import com.android.internal.org.bouncycastle.asn1.x500.X500Name;
 import com.android.internal.org.bouncycastle.asn1.x500.style.IETFUtils;
@@ -1826,22 +1826,22 @@ public class PKIXNameConstraintValidator
     private static String extractHostFromURL(String url)
     {
         // see RFC 1738
-        // remove ':' after protocol, e.g. http:
+        // remove ':' after protocol, e.g. https:
         String sub = url.substring(url.indexOf(':') + 1);
-        // extract host from Common Internet Scheme Syntax, e.g. http://
+        // extract host from Common Internet Scheme Syntax, e.g. https://
         if (sub.indexOf("//") != -1)
         {
             sub = sub.substring(sub.indexOf("//") + 2);
         }
-        // first remove port, e.g. http://test.com:21
+        // first remove port, e.g. https://test.com:21
         if (sub.lastIndexOf(':') != -1)
         {
             sub = sub.substring(0, sub.lastIndexOf(':'));
         }
-        // remove user and password, e.g. http://john:password@test.com
+        // remove user and password, e.g. https://john:password@test.com
         sub = sub.substring(sub.indexOf(':') + 1);
         sub = sub.substring(sub.indexOf('@') + 1);
-        // remove local parts, e.g. http://test.com/bla
+        // remove local parts, e.g. https://test.com/bla
         if (sub.indexOf('/') != -1)
         {
             sub = sub.substring(0, sub.indexOf('/'));
@@ -1851,7 +1851,7 @@ public class PKIXNameConstraintValidator
 
     private String extractNameAsString(GeneralName name)
     {
-        return DERIA5String.getInstance(name.getName()).getString();
+        return ASN1IA5String.getInstance(name.getName()).getString();
     }
 
     /**
@@ -2080,6 +2080,7 @@ public class PKIXNameConstraintValidator
             temp.append(":");
             try
             {
+                // -DM Hex.toHexString
                 temp.append(Hex.toHexString(name.getValue().toASN1Primitive().getEncoded()));
             }
             catch (IOException e)

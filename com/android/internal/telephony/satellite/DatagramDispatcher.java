@@ -16,12 +16,19 @@
 
 package com.android.internal.telephony.satellite;
 
+import static android.telephony.satellite.SatelliteManager.DATAGRAM_TYPE_CHECK_PENDING_INCOMING_SMS;
+import static android.telephony.satellite.SatelliteManager.DATAGRAM_TYPE_SMS;
 import static android.telephony.satellite.SatelliteManager.DATAGRAM_TYPE_UNKNOWN;
 import static android.telephony.satellite.SatelliteManager.SATELLITE_MODEM_STATE_CONNECTED;
+import static android.telephony.satellite.SatelliteManager.SATELLITE_MODEM_STATE_DATAGRAM_TRANSFERRING;
+import static android.telephony.satellite.SatelliteManager.SATELLITE_MODEM_STATE_NOT_CONNECTED;
+import static android.telephony.satellite.SatelliteManager.SATELLITE_MODEM_STATE_UNKNOWN;
 import static android.telephony.satellite.SatelliteManager.SATELLITE_RESULT_MODEM_TIMEOUT;
+import static android.telephony.satellite.SatelliteManager.SATELLITE_RESULT_NETWORK_ERROR;
 import static android.telephony.satellite.SatelliteManager.SATELLITE_RESULT_NOT_REACHABLE;
 import static android.telephony.satellite.SatelliteManager.SATELLITE_RESULT_SUCCESS;
 
+import static com.android.internal.telephony.SmsDispatchersController.PendingRequest;
 import static com.android.internal.telephony.satellite.DatagramController.ROUNDING_UNIT;
 
 import android.annotation.NonNull;
@@ -32,15 +39,20 @@ import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.telephony.PersistentLogger;
 import android.telephony.Rlog;
-import android.telephony.SubscriptionManager;
 import android.telephony.satellite.SatelliteDatagram;
 import android.telephony.satellite.SatelliteManager;
+import android.telephony.satellite.SatelliteSessionStats;
+import android.util.Log;
 
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.os.SomeArgs;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.SmsDispatchersController;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.SatelliteStats;
 import com.android.internal.telephony.satellite.metrics.ControllerMetricsStats;
 import com.android.internal.telephony.satellite.metrics.SessionMetricsStats;
@@ -66,12 +78,16 @@ public class DatagramDispatcher extends Handler {
     private static final int EVENT_WAIT_FOR_DATAGRAM_SENDING_RESPONSE_TIMED_OUT = 5;
     private static final int EVENT_ABORT_SENDING_SATELLITE_DATAGRAMS_DONE = 6;
     private static final int EVENT_WAIT_FOR_SIMULATED_POLL_DATAGRAMS_DELAY_TIMED_OUT = 7;
+    private static final int CMD_SEND_SMS = 8;
+    private static final int EVENT_SEND_SMS_DONE = 9;
+    private static final int EVENT_MT_SMS_POLLING_THROTTLE_TIMED_OUT = 10;
     private static final Long TIMEOUT_DATAGRAM_DELAY_IN_DEMO_MODE = TimeUnit.SECONDS.toMillis(10);
     @NonNull private static DatagramDispatcher sInstance;
     @NonNull private final Context mContext;
     @NonNull private final DatagramController mDatagramController;
     @NonNull private final ControllerMetricsStats mControllerMetricsStats;
     @NonNull private final SessionMetricsStats mSessionMetricsStats;
+    @NonNull private final FeatureFlags mFeatureFlags;
 
     private boolean mIsDemoMode = false;
     private boolean mIsAligned = false;
@@ -84,8 +100,12 @@ public class DatagramDispatcher extends Handler {
     private final Object mLock = new Object();
     private long mDemoTimeoutDuration = TIMEOUT_DATAGRAM_DELAY_IN_DEMO_MODE;
 
+    /** {@code true} if already sent an emergency datagram during a session */
     @GuardedBy("mLock")
-    private boolean mSendingDatagramInProgress;
+    private boolean mIsEmergencyCommunicationEstablished = false;
+
+    @GuardedBy("mLock")
+    private boolean mSendingInProgress;
 
     /**
      * Map key: datagramId, value: SendSatelliteDatagramArgument to retry sending emergency
@@ -103,21 +123,54 @@ public class DatagramDispatcher extends Handler {
     private final LinkedHashMap<Long, SendSatelliteDatagramArgument>
             mPendingNonEmergencyDatagramsMap = new LinkedHashMap<>();
 
+    /**
+     * Map key: messageId, value: {@link PendingRequest} which contains all the information to send
+     * carrier roaming nb iot ntn SMS.
+     */
+    @GuardedBy("mLock")
+    private final LinkedHashMap<Long, PendingRequest> mPendingSmsMap = new LinkedHashMap<>();
+
     private long mWaitTimeForDatagramSendingResponse;
+    private long mWaitTimeForDatagramSendingForLastMessageResponse;
     @SatelliteManager.DatagramType
     private int mLastSendRequestDatagramType = DATAGRAM_TYPE_UNKNOWN;
+    @Nullable private PersistentLogger mPersistentLogger = null;
+
+    @GuardedBy("mLock")
+    private int mModemState = SATELLITE_MODEM_STATE_UNKNOWN;
+    @GuardedBy("mLock")
+    private boolean mHasEnteredConnectedState = false;
+    @GuardedBy("mLock")
+    private boolean mShouldPollMtSms = false;
+    @GuardedBy("mLock")
+    private boolean mIsMtSmsPollingThrottled = false;
+    @GuardedBy("mLock")
+    private int mConnectedStateCounter = 0;
+    private long mSmsTransmissionStartTime = 0;
 
     /**
      * Create the DatagramDispatcher singleton instance.
      * @param context The Context to use to create the DatagramDispatcher.
      * @param looper The looper for the handler.
+     * @param featureFlags The telephony feature flags.
      * @param datagramController DatagramController which is used to update datagram transfer state.
      * @return The singleton instance of DatagramDispatcher.
      */
     public static DatagramDispatcher make(@NonNull Context context, @NonNull Looper looper,
+            @NonNull FeatureFlags featureFlags,
             @NonNull DatagramController datagramController) {
         if (sInstance == null) {
-            sInstance = new DatagramDispatcher(context, looper, datagramController);
+            sInstance = new DatagramDispatcher(context, looper, featureFlags, datagramController);
+        }
+        return sInstance;
+    }
+
+    /**
+     * @return The singleton instance of DatagramDispatcher.
+     */
+    public static DatagramDispatcher getInstance() {
+        if (sInstance == null) {
+            loge("DatagramDispatcher was not yet initialized.");
         }
         return sInstance;
     }
@@ -127,21 +180,27 @@ public class DatagramDispatcher extends Handler {
      *
      * @param context The Context for the DatagramDispatcher.
      * @param looper The looper for the handler.
+     * @param featureFlags The telephony feature flags.
      * @param datagramController DatagramController which is used to update datagram transfer state.
      */
     @VisibleForTesting
     protected DatagramDispatcher(@NonNull Context context, @NonNull Looper looper,
+            @NonNull FeatureFlags featureFlags,
             @NonNull DatagramController datagramController) {
         super(looper);
         mContext = context;
+        mFeatureFlags = featureFlags;
         mDatagramController = datagramController;
         mControllerMetricsStats = ControllerMetricsStats.getInstance();
         mSessionMetricsStats = SessionMetricsStats.getInstance();
+        mPersistentLogger = SatelliteServiceUtils.getPersistentLogger(context);
 
         synchronized (mLock) {
-            mSendingDatagramInProgress = false;
+            mSendingInProgress = false;
         }
         mWaitTimeForDatagramSendingResponse = getWaitForDatagramSendingResponseTimeoutMillis();
+        mWaitTimeForDatagramSendingForLastMessageResponse =
+                getWaitForDatagramSendingResponseForLastMessageTimeoutMillis();
     }
 
     private static final class DatagramDispatcherHandlerRequest {
@@ -206,12 +265,13 @@ public class DatagramDispatcher extends Handler {
 
         switch(msg.what) {
             case CMD_SEND_SATELLITE_DATAGRAM: {
-                logd("CMD_SEND_SATELLITE_DATAGRAM mIsDemoMode=" + mIsDemoMode
+                plogd("CMD_SEND_SATELLITE_DATAGRAM mIsDemoMode=" + mIsDemoMode
                         + ", shouldSendDatagramToModemInDemoMode="
                         + shouldSendDatagramToModemInDemoMode());
                 request = (DatagramDispatcherHandlerRequest) msg.obj;
                 SendSatelliteDatagramArgument argument =
                         (SendSatelliteDatagramArgument) request.argument;
+                argument.setDatagramStartTime();
                 onCompleted = obtainMessage(EVENT_SEND_SATELLITE_DATAGRAM_DONE, request);
 
                 synchronized (mLock) {
@@ -238,14 +298,15 @@ public class DatagramDispatcher extends Handler {
                 synchronized (mLock) {
                     if (mIsDemoMode && (error == SatelliteManager.SATELLITE_RESULT_SUCCESS)) {
                         if (argument.skipCheckingSatelliteAligned) {
-                            logd("Satellite was already aligned. No need to check alignment again");
-                        } else if (!mIsAligned) {
-                            logd("Satellite is not aligned in demo mode, wait for the alignment.");
+                            plogd("Satellite was already aligned. "
+                                + "No need to check alignment again");
+                        } else if (mDatagramController.waitForAligningToSatellite(mIsAligned)) {
+                            plogd("Satellite is not aligned in demo mode, wait for the alignment.");
                             startSatelliteAlignedTimer(request);
                             break;
                         }
                     }
-                    logd("EVENT_SEND_SATELLITE_DATAGRAM_DONE error: " + error
+                    plogd("EVENT_SEND_SATELLITE_DATAGRAM_DONE error: " + error
                             + ", mIsDemoMode=" + mIsDemoMode);
 
                     /*
@@ -256,55 +317,50 @@ public class DatagramDispatcher extends Handler {
                      * 3) All pending send requests have been aborted due to some error.
                      */
                     if (!shouldProcessEventSendSatelliteDatagramDone(argument)) {
-                        logw("The message " + argument.datagramId + " was already processed");
+                        plogw("The message " + argument.datagramId + " was already processed");
                         break;
                     }
 
                     stopWaitForDatagramSendingResponseTimer();
-                    mSendingDatagramInProgress = false;
+                    mSendingInProgress = false;
 
                     // Log metrics about the outgoing datagram
                     reportSendDatagramCompleted(argument, error);
                     // Remove current datagram from pending map.
                     if (SatelliteServiceUtils.isSosMessage(argument.datagramType)) {
                         mPendingEmergencyDatagramsMap.remove(argument.datagramId);
+                        if (error == SATELLITE_RESULT_SUCCESS) {
+                            mIsEmergencyCommunicationEstablished = true;
+                        }
                     } else {
                         mPendingNonEmergencyDatagramsMap.remove(argument.datagramId);
                     }
 
-                    if (error == SatelliteManager.SATELLITE_RESULT_SUCCESS) {
+                    if (error == SATELLITE_RESULT_SUCCESS) {
                         // Update send status for current datagram
                         mDatagramController.updateSendStatus(argument.subId, argument.datagramType,
                                 SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SEND_SUCCESS,
-                                getPendingDatagramCount(), error);
+                                getPendingMessagesCount(), error);
                         startWaitForSimulatedPollDatagramsDelayTimer(request);
-                        if (getPendingDatagramCount() > 0) {
-                            // Send response for current datagram
-                            argument.callback.accept(error);
-                            // Send pending datagrams
-                            sendPendingDatagrams();
-                        } else {
-                            mDatagramController.updateSendStatus(argument.subId,
-                                    argument.datagramType,
-                                    SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE, 0,
-                                    SatelliteManager.SATELLITE_RESULT_SUCCESS);
-                            // Send response for current datagram
-                            argument.callback.accept(error);
-                        }
                     } else {
                         // Update send status
                         mDatagramController.updateSendStatus(argument.subId, argument.datagramType,
                                 SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SEND_FAILED,
-                                getPendingDatagramCount(), error);
-                        mDatagramController.updateSendStatus(argument.subId, argument.datagramType,
-                                SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE,
-                                0, SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                                getPendingMessagesCount(), error);
+                    }
+
+                    if (getPendingMessagesCount() > 0) {
                         // Send response for current datagram
-                        // after updating datagram transfer state internally.
                         argument.callback.accept(error);
-                        // Abort sending all the pending datagrams
-                        abortSendingPendingDatagrams(argument.subId,
-                                SatelliteManager.SATELLITE_RESULT_REQUEST_ABORTED);
+                        // Send pending datagrams
+                        sendPendingMessages();
+                    } else {
+                        mDatagramController.updateSendStatus(argument.subId,
+                                argument.datagramType,
+                                SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE, 0,
+                                SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                        // Send response for current datagram
+                        argument.callback.accept(error);
                     }
                 }
                 break;
@@ -321,8 +377,7 @@ public class DatagramDispatcher extends Handler {
             }
 
             case EVENT_DATAGRAM_WAIT_FOR_CONNECTED_STATE_TIMED_OUT:
-                handleEventDatagramWaitForConnectedStateTimedOut(
-                        (SendSatelliteDatagramArgument) msg.obj);
+                handleEventDatagramWaitForConnectedStateTimedOut((int) msg.obj);
                 break;
 
             case EVENT_WAIT_FOR_SIMULATED_POLL_DATAGRAMS_DELAY_TIMED_OUT:
@@ -331,8 +386,51 @@ public class DatagramDispatcher extends Handler {
                         (SendSatelliteDatagramArgument) request.argument);
                 break;
 
+            case CMD_SEND_SMS: {
+                PendingRequest pendingRequest = (PendingRequest) msg.obj;
+                Phone satellitePhone = SatelliteController.getInstance().getSatellitePhone();
+                if (satellitePhone == null) {
+                    ploge("CMD_SEND_SMS: satellitePhone is null.");
+                    return;
+                }
+
+                SmsDispatchersController smsDispatchersController =
+                        satellitePhone.getSmsDispatchersController();
+                if (smsDispatchersController == null) {
+                    ploge("CMD_SEND_SMS: smsDispatchersController is null.");
+                    return;
+                }
+
+                mSmsTransmissionStartTime = System.currentTimeMillis();
+                smsDispatchersController.sendCarrierRoamingNbIotNtnText(pendingRequest);
+                break;
+            }
+
+            case EVENT_SEND_SMS_DONE: {
+                SomeArgs args = (SomeArgs) msg.obj;
+                int subId = (int) args.arg1;
+                long messageId = (long) args.arg2;
+                boolean success = (boolean) args.arg3;
+                try {
+                    handleEventSendSmsDone(subId, messageId, success);
+                } finally {
+                    args.recycle();
+                }
+                break;
+            }
+
+            case EVENT_MT_SMS_POLLING_THROTTLE_TIMED_OUT: {
+                synchronized (mLock) {
+                    mIsMtSmsPollingThrottled = false;
+                    if (allowMtSmsPolling()) {
+                        sendMtSmsPollingMessage();
+                    }
+                }
+                break;
+            }
+
             default:
-                logw("DatagramDispatcherHandler: unexpected message code: " + msg.what);
+                plogw("DatagramDispatcherHandler: unexpected message code: " + msg.what);
                 break;
         }
     }
@@ -374,31 +472,29 @@ public class DatagramDispatcher extends Handler {
             }
 
             if (mDatagramController.needsWaitingForSatelliteConnected(datagramType)) {
-                logd("sendDatagram: wait for satellite connected");
+                plogd("sendDatagram: wait for satellite connected");
                 mDatagramController.updateSendStatus(subId, datagramType,
                         SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_WAITING_TO_CONNECT,
-                        getPendingDatagramCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
-                startDatagramWaitForConnectedStateTimer(datagramArgs);
-            } else if (!mSendingDatagramInProgress && mDatagramController.isPollingInIdleState()) {
+                        getPendingMessagesCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                startDatagramWaitForConnectedStateTimer(datagramArgs.datagramType);
+            } else if (!mSendingInProgress && mDatagramController.isPollingInIdleState()) {
                 // Modem can be busy receiving datagrams, so send datagram only when modem is
                 // not busy.
-                mSendingDatagramInProgress = true;
-                datagramArgs.setDatagramStartTime();
+                mSendingInProgress = true;
                 mDatagramController.updateSendStatus(subId, datagramType,
                         SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SENDING,
-                        getPendingDatagramCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                        getPendingMessagesCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
                 sendRequestAsync(CMD_SEND_SATELLITE_DATAGRAM, datagramArgs, phone);
             } else {
-                logd("sendDatagram: mSendingDatagramInProgress="
-                        + mSendingDatagramInProgress + ", isPollingInIdleState="
-                        + mDatagramController.isPollingInIdleState());
+                plogd("sendDatagram: mSendingInProgress=" + mSendingInProgress
+                        + ", isPollingInIdleState=" + mDatagramController.isPollingInIdleState());
             }
         }
     }
 
     public void retrySendingDatagrams() {
         synchronized (mLock) {
-            sendPendingDatagrams();
+            sendPendingMessages();
         }
     }
 
@@ -409,7 +505,7 @@ public class DatagramDispatcher extends Handler {
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     protected void setDemoMode(boolean isDemoMode) {
         mIsDemoMode = isDemoMode;
-        logd("setDemoMode: mIsDemoMode=" + mIsDemoMode);
+        plogd("setDemoMode: mIsDemoMode=" + mIsDemoMode);
     }
 
     /**
@@ -419,14 +515,17 @@ public class DatagramDispatcher extends Handler {
     public void setDeviceAlignedWithSatellite(boolean isAligned) {
         synchronized (mLock) {
             mIsAligned = isAligned;
-            logd("setDeviceAlignedWithSatellite: " + mIsAligned);
+            plogd("setDeviceAlignedWithSatellite: " + mIsAligned);
             if (isAligned && mIsDemoMode) handleEventSatelliteAligned();
+            if (allowMtSmsPolling()) {
+                sendMtSmsPollingMessage();
+            }
         }
     }
 
     private void startSatelliteAlignedTimer(@NonNull DatagramDispatcherHandlerRequest request) {
         if (isSatelliteAlignedTimerStarted()) {
-            logd("Satellite aligned timer was already started");
+            plogd("Satellite aligned timer was already started");
             return;
         }
         mSendSatelliteDatagramRequest = request;
@@ -445,7 +544,7 @@ public class DatagramDispatcher extends Handler {
             stopSatelliteAlignedTimer();
 
             if (mSendSatelliteDatagramRequest == null) {
-                loge("handleEventSatelliteAligned: mSendSatelliteDatagramRequest is null");
+                ploge("handleEventSatelliteAligned: mSendSatelliteDatagramRequest is null");
             } else {
                 SendSatelliteDatagramArgument argument =
                         (SendSatelliteDatagramArgument) mSendSatelliteDatagramRequest.argument;
@@ -455,14 +554,14 @@ public class DatagramDispatcher extends Handler {
                 mSendSatelliteDatagramRequest = null;
                 AsyncResult.forMessage(message, null, null);
                 message.sendToTarget();
-                logd("handleEventSatelliteAligned: EVENT_SEND_SATELLITE_DATAGRAM_DONE");
+                plogd("handleEventSatelliteAligned: EVENT_SEND_SATELLITE_DATAGRAM_DONE");
             }
         }
     }
 
     private void handleEventSatelliteAlignedTimeout(
             @NonNull DatagramDispatcherHandlerRequest request) {
-        logd("handleEventSatelliteAlignedTimeout");
+        plogd("handleEventSatelliteAlignedTimeout");
         mSendSatelliteDatagramRequest = null;
         SatelliteManager.SatelliteException exception =
                 new SatelliteManager.SatelliteException(
@@ -480,29 +579,46 @@ public class DatagramDispatcher extends Handler {
         removeMessages(EVENT_WAIT_FOR_DEVICE_ALIGNMENT_IN_DEMO_MODE_TIMED_OUT);
     }
 
+    @GuardedBy("mLock")
+    private void sendPendingMessages() {
+        plogd("sendPendingMessages");
+
+        // Pending datagrams are prioritized over pending SMS.
+        if (getPendingDatagramCount() > 0) {
+            sendPendingDatagrams();
+            return;
+        }
+
+        if (mFeatureFlags.carrierRoamingNbIotNtn()) {
+            if (getPendingSmsCount() > 0) {
+                sendPendingSms();
+            }
+        }
+    }
+
     /**
      * Send pending satellite datagrams. Emergency datagrams are given priority over
      * non-emergency datagrams.
      */
     @GuardedBy("mLock")
     private void sendPendingDatagrams() {
-        logd("sendPendingDatagrams()");
+        plogd("sendPendingDatagrams()");
         if (!mDatagramController.isPollingInIdleState()) {
             // Datagram should be sent to satellite modem when modem is free.
-            logd("sendPendingDatagrams: modem is receiving datagrams");
+            plogd("sendPendingDatagrams: modem is receiving datagrams");
             return;
         }
 
         if (getPendingDatagramCount() <= 0) {
-            logd("sendPendingDatagrams: no pending datagrams to send");
+            plogd("sendPendingDatagrams: no pending datagrams to send");
             return;
         }
 
         Phone phone = SatelliteServiceUtils.getPhone();
         Set<Entry<Long, SendSatelliteDatagramArgument>> pendingDatagram = null;
-        if (!mSendingDatagramInProgress && !mPendingEmergencyDatagramsMap.isEmpty()) {
+        if (!mSendingInProgress && !mPendingEmergencyDatagramsMap.isEmpty()) {
             pendingDatagram = mPendingEmergencyDatagramsMap.entrySet();
-        } else if (!mSendingDatagramInProgress && !mPendingNonEmergencyDatagramsMap.isEmpty()) {
+        } else if (!mSendingInProgress && !mPendingNonEmergencyDatagramsMap.isEmpty()) {
             pendingDatagram = mPendingNonEmergencyDatagramsMap.entrySet();
         }
 
@@ -510,16 +626,22 @@ public class DatagramDispatcher extends Handler {
             SendSatelliteDatagramArgument datagramArg =
                     pendingDatagram.iterator().next().getValue();
             if (mDatagramController.needsWaitingForSatelliteConnected(datagramArg.datagramType)) {
-                logd("sendPendingDatagrams: wait for satellite connected");
+                plogd("sendPendingDatagrams: wait for satellite connected");
+                mDatagramController.updateSendStatus(datagramArg.subId,
+                        datagramArg.datagramType,
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_WAITING_TO_CONNECT,
+                        getPendingMessagesCount(),
+                        SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                startDatagramWaitForConnectedStateTimer(
+                        datagramArg.datagramType);
                 return;
             }
 
-            mSendingDatagramInProgress = true;
+            mSendingInProgress = true;
             // Sets the trigger time for getting pending datagrams
-            datagramArg.setDatagramStartTime();
             mDatagramController.updateSendStatus(datagramArg.subId, datagramArg.datagramType,
                     SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SENDING,
-                    getPendingDatagramCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                    getPendingMessagesCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
             sendRequestAsync(CMD_SEND_SATELLITE_DATAGRAM, datagramArg, phone);
         }
     }
@@ -537,7 +659,7 @@ public class DatagramDispatcher extends Handler {
         if (pendingDatagramsMap.size() == 0) {
             return;
         }
-        loge("sendErrorCodeAndCleanupPendingDatagrams: cleaning up resources");
+        ploge("sendErrorCodeAndCleanupPendingDatagrams: cleaning up resources");
 
         // Send error code to all the pending datagrams
         for (Entry<Long, SendSatelliteDatagramArgument> entry :
@@ -560,9 +682,24 @@ public class DatagramDispatcher extends Handler {
     @GuardedBy("mLock")
     private void abortSendingPendingDatagrams(int subId,
             @SatelliteManager.SatelliteResult int errorCode) {
-        logd("abortSendingPendingDatagrams()");
+        plogd("abortSendingPendingDatagrams()");
         sendErrorCodeAndCleanupPendingDatagrams(mPendingEmergencyDatagramsMap, errorCode);
         sendErrorCodeAndCleanupPendingDatagrams(mPendingNonEmergencyDatagramsMap, errorCode);
+        sendErrorCodeAndCleanupPendingSms(mPendingSmsMap, errorCode);
+    }
+
+    /**
+     * Return pending datagram and SMS count
+     * @return pending messages count
+     */
+    public int getPendingMessagesCount() {
+        synchronized (mLock) {
+            if (mFeatureFlags.carrierRoamingNbIotNtn()) {
+                return getPendingDatagramCount() + getPendingSmsCount();
+            } else {
+                return getPendingDatagramCount();
+            }
+        }
     }
 
     /**
@@ -572,6 +709,32 @@ public class DatagramDispatcher extends Handler {
     public int getPendingDatagramCount() {
         synchronized (mLock) {
             return mPendingEmergencyDatagramsMap.size() + mPendingNonEmergencyDatagramsMap.size();
+        }
+    }
+
+    /**
+     * Return pending SMS count
+     * @return pending SMS count
+     */
+    public int getPendingSmsCount() {
+        synchronized (mLock) {
+            return mPendingSmsMap.size();
+        }
+    }
+
+    /** Return pending user messages count */
+    public int getPendingUserMessagesCount() {
+        synchronized (mLock) {
+            int pendingUserMessagesCount = 0;
+            for (Entry<Long, SendSatelliteDatagramArgument> entry :
+                    mPendingNonEmergencyDatagramsMap.entrySet()) {
+                SendSatelliteDatagramArgument argument = entry.getValue();
+                if (argument.datagramType != SatelliteManager.DATAGRAM_TYPE_KEEP_ALIVE) {
+                    pendingUserMessagesCount += 1;
+                }
+            }
+            pendingUserMessagesCount += mPendingEmergencyDatagramsMap.size();
+            return pendingUserMessagesCount;
         }
     }
 
@@ -589,8 +752,25 @@ public class DatagramDispatcher extends Handler {
         msg.sendToTarget();
     }
 
+    private void reportSendSmsCompleted(@NonNull PendingRequest pendingRequest,
+            @SatelliteManager.SatelliteResult int resultCode) {
+        int datagramType = pendingRequest.isMtSmsPolling
+                ? DATAGRAM_TYPE_CHECK_PENDING_INCOMING_SMS : DATAGRAM_TYPE_SMS;
+        if (resultCode == SATELLITE_RESULT_SUCCESS) {
+            long smsTransmissionTime = mSmsTransmissionStartTime > 0
+                    ? (System.currentTimeMillis() - mSmsTransmissionStartTime) : 0;
+            mSessionMetricsStats.addCountOfSuccessfulOutgoingDatagram(
+                    datagramType, smsTransmissionTime);
+        } else {
+            mSessionMetricsStats.addCountOfFailedOutgoingDatagram(
+                    datagramType, resultCode);
+        }
+    }
+
     private void reportSendDatagramCompleted(@NonNull SendSatelliteDatagramArgument argument,
             @NonNull @SatelliteManager.SatelliteResult int resultCode) {
+        long datagramTransmissionTime = argument.datagramStartTime > 0
+                ? (System.currentTimeMillis() - argument.datagramStartTime) : 0;
         SatelliteStats.getInstance().onSatelliteOutgoingDatagramMetrics(
                 new SatelliteStats.SatelliteOutgoingDatagramParams.Builder()
                         .setDatagramType(argument.datagramType)
@@ -598,18 +778,21 @@ public class DatagramDispatcher extends Handler {
                         .setDatagramSizeBytes(argument.getDatagramRoundedSizeBytes())
                         /* In case pending datagram has not been attempted to send to modem
                         interface. transfer time will be 0. */
-                        .setDatagramTransferTimeMillis(argument.datagramStartTime > 0
-                                ? (System.currentTimeMillis() - argument.datagramStartTime) : 0)
+                        .setDatagramTransferTimeMillis(datagramTransmissionTime)
                         .setIsDemoMode(mIsDemoMode)
+                        .setCarrierId(SatelliteController.getInstance().getSatelliteCarrierId())
+                        .setIsNtnOnlyCarrier(SatelliteController.getInstance().isNtnOnlyCarrier())
                         .build());
         if (resultCode == SatelliteManager.SATELLITE_RESULT_SUCCESS) {
             mControllerMetricsStats.reportOutgoingDatagramSuccessCount(argument.datagramType,
                     mIsDemoMode);
-            mSessionMetricsStats.addCountOfSuccessfulOutgoingDatagram();
+            mSessionMetricsStats.addCountOfSuccessfulOutgoingDatagram(argument.datagramType,
+                    datagramTransmissionTime);
         } else {
             mControllerMetricsStats.reportOutgoingDatagramFailCount(argument.datagramType,
                     mIsDemoMode);
-            mSessionMetricsStats.addCountOfFailedOutgoingDatagram();
+            mSessionMetricsStats.addCountOfFailedOutgoingDatagram(argument.datagramType,
+                    resultCode);
         }
     }
 
@@ -629,37 +812,65 @@ public class DatagramDispatcher extends Handler {
      */
     public void onSatelliteModemStateChanged(@SatelliteManager.SatelliteModemState int state) {
         synchronized (mLock) {
+            mModemState = state;
             if (state == SatelliteManager.SATELLITE_MODEM_STATE_OFF
                     || state == SatelliteManager.SATELLITE_MODEM_STATE_UNAVAILABLE) {
-                logd("onSatelliteModemStateChanged: cleaning up resources");
+                plogd("onSatelliteModemStateChanged: cleaning up resources");
                 cleanUpResources();
             } else if (state == SatelliteManager.SATELLITE_MODEM_STATE_IDLE) {
-                sendPendingDatagrams();
+                sendPendingMessages();
             }
 
-            if (state == SATELLITE_MODEM_STATE_CONNECTED
-                    && isDatagramWaitForConnectedStateTimerStarted()) {
-                stopDatagramWaitForConnectedStateTimer();
-                sendPendingDatagrams();
+            if (state == SATELLITE_MODEM_STATE_CONNECTED) {
+                mHasEnteredConnectedState = true;
+
+                mConnectedStateCounter++;
+                if (isFirstConnected()) {
+                    mShouldPollMtSms = shouldPollMtSms();
+                }
+
+                if (isDatagramWaitForConnectedStateTimerStarted()) {
+                    stopDatagramWaitForConnectedStateTimer();
+                    sendPendingMessages();
+                }
+            }
+
+            if (state == SATELLITE_MODEM_STATE_NOT_CONNECTED) {
+                if (mHasEnteredConnectedState) {
+                    mHasEnteredConnectedState = false;
+                    mShouldPollMtSms = shouldPollMtSms();
+                }
+            }
+
+            if (allowMtSmsPolling()) {
+                sendMtSmsPollingMessage();
             }
         }
     }
 
+    /** Returns true if this is the first time the satellite modem is connected. */
+    private boolean isFirstConnected() {
+        return mConnectedStateCounter == 1;
+    }
+
     @GuardedBy("mLock")
     private void cleanUpResources() {
-        logd("cleanUpResources");
-        mSendingDatagramInProgress = false;
-        if (getPendingDatagramCount() > 0) {
-            mDatagramController.updateSendStatus(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
+        plogd("cleanUpResources");
+        mSendingInProgress = false;
+        mIsEmergencyCommunicationEstablished = false;
+
+        int subId = SatelliteController.getInstance().getSelectedSatelliteSubId();
+        if (getPendingMessagesCount() > 0) {
+            mDatagramController.updateSendStatus(subId,
                     mLastSendRequestDatagramType,
                     SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SEND_FAILED,
-                    getPendingDatagramCount(), SatelliteManager.SATELLITE_RESULT_REQUEST_ABORTED);
+                    getPendingMessagesCount(), SatelliteManager.SATELLITE_RESULT_REQUEST_ABORTED);
         }
-        mDatagramController.updateSendStatus(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
+        mDatagramController.updateSendStatus(subId,
                 mLastSendRequestDatagramType,
                 SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE,
                 0, SatelliteManager.SATELLITE_RESULT_SUCCESS);
-        abortSendingPendingDatagrams(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
+        abortSendingPendingDatagrams(subId,
                 SatelliteManager.SATELLITE_RESULT_REQUEST_ABORTED);
 
         stopSatelliteAlignedTimer();
@@ -670,17 +881,30 @@ public class DatagramDispatcher extends Handler {
         mSendSatelliteDatagramRequest = null;
         mIsAligned = false;
         mLastSendRequestDatagramType = DATAGRAM_TYPE_UNKNOWN;
+        mModemState = SATELLITE_MODEM_STATE_UNKNOWN;
+        mHasEnteredConnectedState = false;
+        mShouldPollMtSms = false;
+        mConnectedStateCounter = 0;
+        stopMtSmsPollingThrottle();
+    }
+
+    /** @return {@code true} if already sent an emergency datagram during a session. */
+    public boolean isEmergencyCommunicationEstablished() {
+        synchronized (mLock) {
+            return mIsEmergencyCommunicationEstablished;
+        }
     }
 
     private void startDatagramWaitForConnectedStateTimer(
-            @NonNull SendSatelliteDatagramArgument datagramArgs) {
+            @SatelliteManager.DatagramType int datagramType) {
         if (isDatagramWaitForConnectedStateTimerStarted()) {
-            logd("DatagramWaitForConnectedStateTimer is already started");
+            plogd("DatagramWaitForConnectedStateTimer is already started");
             return;
         }
         sendMessageDelayed(obtainMessage(
-                        EVENT_DATAGRAM_WAIT_FOR_CONNECTED_STATE_TIMED_OUT, datagramArgs),
-                mDatagramController.getDatagramWaitTimeForConnectedState());
+                        EVENT_DATAGRAM_WAIT_FOR_CONNECTED_STATE_TIMED_OUT, datagramType),
+                mDatagramController.getDatagramWaitTimeForConnectedState(
+                        SatelliteServiceUtils.isLastSosMessage(datagramType)));
     }
 
     private void stopDatagramWaitForConnectedStateTimer() {
@@ -706,12 +930,16 @@ public class DatagramDispatcher extends Handler {
     private void startWaitForDatagramSendingResponseTimer(
             @NonNull SendSatelliteDatagramArgument argument) {
         if (hasMessages(EVENT_WAIT_FOR_DATAGRAM_SENDING_RESPONSE_TIMED_OUT)) {
-            logd("WaitForDatagramSendingResponseTimer was already started");
+            plogd("WaitForDatagramSendingResponseTimer was already started");
             return;
         }
+        long waitTime = SatelliteServiceUtils.isLastSosMessage(argument.datagramType)
+                ? mWaitTimeForDatagramSendingForLastMessageResponse
+                : mWaitTimeForDatagramSendingResponse;
+        logd("startWaitForDatagramSendingResponseTimer: datagramType=" + argument.datagramType
+                + ", waitTime=" + waitTime);
         sendMessageDelayed(obtainMessage(
-                EVENT_WAIT_FOR_DATAGRAM_SENDING_RESPONSE_TIMED_OUT, argument),
-                mWaitTimeForDatagramSendingResponse);
+                EVENT_WAIT_FOR_DATAGRAM_SENDING_RESPONSE_TIMED_OUT, argument), waitTime);
     }
 
     private void stopWaitForDatagramSendingResponseTimer() {
@@ -719,20 +947,21 @@ public class DatagramDispatcher extends Handler {
     }
 
     private void handleEventDatagramWaitForConnectedStateTimedOut(
-            @NonNull SendSatelliteDatagramArgument argument) {
-        logw("Timed out to wait for satellite connected before sending datagrams");
+            @SatelliteManager.DatagramType int datagramType) {
+        plogw("Timed out to wait for satellite connected before sending datagrams");
         synchronized (mLock) {
+            int subId = SatelliteController.getInstance().getSelectedSatelliteSubId();
             // Update send status
-            mDatagramController.updateSendStatus(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
-                    argument.datagramType,
+            mDatagramController.updateSendStatus(subId,
+                    datagramType,
                     SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SEND_FAILED,
-                    getPendingDatagramCount(),
+                    getPendingMessagesCount(),
                     SATELLITE_RESULT_NOT_REACHABLE);
-            mDatagramController.updateSendStatus(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
-                    argument.datagramType,
+            mDatagramController.updateSendStatus(subId,
+                    datagramType,
                     SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE,
                     0, SatelliteManager.SATELLITE_RESULT_SUCCESS);
-            abortSendingPendingDatagrams(SubscriptionManager.DEFAULT_SUBSCRIPTION_ID,
+            abortSendingPendingDatagrams(subId,
                     SATELLITE_RESULT_NOT_REACHABLE);
         }
     }
@@ -749,7 +978,7 @@ public class DatagramDispatcher extends Handler {
             return mShouldSendDatagramToModemInDemoMode.get();
 
         } catch (Resources.NotFoundException ex) {
-            loge("shouldSendDatagramToModemInDemoMode: id= "
+            ploge("shouldSendDatagramToModemInDemoMode: id= "
                     + R.bool.config_send_satellite_datagram_to_modem_in_demo_mode + ", ex=" + ex);
             return false;
         }
@@ -758,6 +987,11 @@ public class DatagramDispatcher extends Handler {
     private long getWaitForDatagramSendingResponseTimeoutMillis() {
         return mContext.getResources().getInteger(
                 R.integer.config_wait_for_datagram_sending_response_timeout_millis);
+    }
+
+    private long getWaitForDatagramSendingResponseForLastMessageTimeoutMillis() {
+        return mContext.getResources().getInteger(R.integer
+                .config_wait_for_datagram_sending_response_for_last_message_timeout_millis);
     }
 
     private boolean shouldProcessEventSendSatelliteDatagramDone(
@@ -774,18 +1008,18 @@ public class DatagramDispatcher extends Handler {
     private void handleEventWaitForDatagramSendingResponseTimedOut(
             @NonNull SendSatelliteDatagramArgument argument) {
         synchronized (mLock) {
-            logw("Timed out to wait for the response of the request to send the datagram "
+            plogw("Timed out to wait for the response of the request to send the datagram "
                     + argument.datagramId);
 
             // Ask vendor service to abort all datagram-sending requests
             SatelliteModemInterface.getInstance().abortSendingSatelliteDatagrams(
                     obtainMessage(EVENT_ABORT_SENDING_SATELLITE_DATAGRAMS_DONE, argument));
-            mSendingDatagramInProgress = false;
+            mSendingInProgress = false;
 
             // Update send status
             mDatagramController.updateSendStatus(argument.subId, argument.datagramType,
                     SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SEND_FAILED,
-                    getPendingDatagramCount(), SATELLITE_RESULT_MODEM_TIMEOUT);
+                    getPendingMessagesCount(), SATELLITE_RESULT_MODEM_TIMEOUT);
             mDatagramController.updateSendStatus(argument.subId, argument.datagramType,
                     SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE,
                     0, SatelliteManager.SATELLITE_RESULT_SUCCESS);
@@ -804,8 +1038,7 @@ public class DatagramDispatcher extends Handler {
             }
 
             // Abort sending all the pending datagrams
-            abortSendingPendingDatagrams(argument.subId,
-                    SatelliteManager.SATELLITE_RESULT_REQUEST_ABORTED);
+            abortSendingPendingDatagrams(argument.subId, SATELLITE_RESULT_MODEM_TIMEOUT);
         }
     }
 
@@ -820,7 +1053,7 @@ public class DatagramDispatcher extends Handler {
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     protected void setShouldSendDatagramToModemInDemoMode(
             @Nullable Boolean shouldSendToModemInDemoMode) {
-        logd("setShouldSendDatagramToModemInDemoMode(" + (shouldSendToModemInDemoMode == null
+        plogd("setShouldSendDatagramToModemInDemoMode(" + (shouldSendToModemInDemoMode == null
                 ? "null" : shouldSendToModemInDemoMode) + ")");
 
         if (shouldSendToModemInDemoMode == null) {
@@ -838,12 +1071,12 @@ public class DatagramDispatcher extends Handler {
     private void startWaitForSimulatedPollDatagramsDelayTimer(
             @NonNull DatagramDispatcherHandlerRequest request) {
         if (mIsDemoMode) {
-            logd("startWaitForSimulatedPollDatagramsDelayTimer");
+            plogd("startWaitForSimulatedPollDatagramsDelayTimer");
             sendMessageDelayed(
                     obtainMessage(EVENT_WAIT_FOR_SIMULATED_POLL_DATAGRAMS_DELAY_TIMED_OUT, request),
                     getDemoTimeoutDuration());
         } else {
-            logd("Should not start WaitForSimulatedPollDatagramsDelayTimer in non-demo mode");
+            plogd("Should not start WaitForSimulatedPollDatagramsDelayTimer in non-demo mode");
         }
     }
 
@@ -854,17 +1087,17 @@ public class DatagramDispatcher extends Handler {
     private void handleEventWaitForSimulatedPollDatagramsDelayTimedOut(
             @NonNull SendSatelliteDatagramArgument argument) {
         if (mIsDemoMode) {
-            logd("handleEventWaitForSimulatedPollDatagramsDelayTimedOut");
+            plogd("handleEventWaitForSimulatedPollDatagramsDelayTimedOut");
             mDatagramController.pushDemoModeDatagram(argument.datagramType, argument.datagram);
             Consumer<Integer> internalCallback = new Consumer<Integer>() {
                 @Override
                 public void accept(Integer result) {
-                    logd("pollPendingSatelliteDatagrams result: " + result);
+                    plogd("pollPendingSatelliteDatagrams result: " + result);
                 }
             };
             mDatagramController.pollPendingSatelliteDatagrams(argument.subId, internalCallback);
         } else {
-            logd("Unexpected EVENT_WAIT_FOR_SIMULATED_POLL_DATAGRAMS_DELAY_TIMED_OUT in "
+            plogd("Unexpected EVENT_WAIT_FOR_SIMULATED_POLL_DATAGRAMS_DELAY_TIMED_OUT in "
                     + "non-demo mode");
         }
     }
@@ -885,7 +1118,281 @@ public class DatagramDispatcher extends Handler {
         } else {
             mDemoTimeoutDuration = timeoutMillis;
         }
-        logd("setTimeoutDatagramDelayInDemoMode " + mDemoTimeoutDuration + " reset=" + reset);
+        plogd("setTimeoutDatagramDelayInDemoMode " + mDemoTimeoutDuration + " reset=" + reset);
+    }
+
+    /**
+     * Send carrier roaming nb iot ntn sms.
+     *
+     * Store SMS in a pending list until following conditions are met:
+     * - If messages can be sent only when satellite is connected, then wait until modem state
+     * becomes {@link SatelliteManager#SATELLITE_MODEM_STATE_CONNECTED}
+     * - If modem is already sending datagrms/SMS or receiving datagrams, then wait until modem
+     * becomes IDLE to send current SMS.
+     *
+     * @param pendingSms {@link PendingRequest} that contains all the information required to send
+     *                    carrier roaming nb iot ntn SMS.
+     */
+    public void sendSms(@NonNull PendingRequest pendingSms) {
+        SatelliteController.getInstance().startPointingUI();
+
+        int subId = SatelliteController.getInstance().getSelectedSatelliteSubId();
+        long messageId = pendingSms.uniqueMessageId;
+        plogd("sendSms: subId=" + subId + " messageId:" + messageId);
+
+        synchronized (mLock) {
+            // Add SMS to pending list
+            mPendingSmsMap.put(messageId, pendingSms);
+            int datagramType = pendingSms.isMtSmsPolling ?
+                    DATAGRAM_TYPE_CHECK_PENDING_INCOMING_SMS : DATAGRAM_TYPE_SMS;
+            mLastSendRequestDatagramType = datagramType;
+
+            if (mDatagramController.needsWaitingForSatelliteConnected(datagramType)) {
+                plogd("sendSms: wait for satellite connected");
+                mDatagramController.updateSendStatus(subId, datagramType,
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_WAITING_TO_CONNECT,
+                        getPendingMessagesCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                startDatagramWaitForConnectedStateTimer(datagramType);
+            } else if (!mSendingInProgress && mDatagramController.isPollingInIdleState()) {
+                mSendingInProgress = true;
+                mDatagramController.updateSendStatus(subId, datagramType,
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SENDING,
+                        getPendingMessagesCount(), SatelliteManager.SATELLITE_RESULT_SUCCESS);
+
+                sendMessage(obtainMessage(CMD_SEND_SMS, pendingSms));
+            } else {
+                plogd("sendSms: mSendingInProgress=" + mSendingInProgress
+                        + ", isPollingInIdleState=" + mDatagramController.isPollingInIdleState());
+            }
+        }
+    }
+
+    @GuardedBy("mLock")
+    private void sendPendingSms() {
+        plogd("sendPendingSms");
+        if (!mDatagramController.isPollingInIdleState()) {
+            // Datagram or SMS should be sent to satellite modem when modem is free.
+            plogd("sendPendingSms: modem is receiving datagrams");
+            return;
+        }
+
+        int subId = SatelliteController.getInstance().getSelectedSatelliteSubId();
+        Set<Entry<Long, PendingRequest>> pendingSms = null;
+        if (!mSendingInProgress) {
+            pendingSms = mPendingSmsMap.entrySet();
+        }
+
+        if (pendingSms != null && pendingSms.iterator().hasNext()) {
+            PendingRequest pendingRequest = pendingSms.iterator().next().getValue();
+            int datagramType = pendingRequest.isMtSmsPolling
+                    ? DATAGRAM_TYPE_CHECK_PENDING_INCOMING_SMS : DATAGRAM_TYPE_SMS;
+            if (mDatagramController.needsWaitingForSatelliteConnected(DATAGRAM_TYPE_SMS)) {
+                plogd("sendPendingSms: wait for satellite connected");
+                mDatagramController.updateSendStatus(subId,
+                        datagramType,
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_WAITING_TO_CONNECT,
+                        getPendingMessagesCount(),
+                        SatelliteManager.SATELLITE_RESULT_SUCCESS);
+                startDatagramWaitForConnectedStateTimer(datagramType);
+                return;
+            }
+
+            mSendingInProgress = true;
+            mDatagramController.updateSendStatus(subId,
+                    datagramType,
+                    SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SENDING,
+                    getPendingMessagesCount(), SATELLITE_RESULT_SUCCESS);
+            sendMessage(obtainMessage(CMD_SEND_SMS, pendingRequest));
+        } else {
+            plogd("sendPendingSms: mSendingInProgress=" + mSendingInProgress
+                    + " pendingSmsCount=" + getPendingSmsCount());
+        }
+    }
+
+    /**
+     * Sending MO SMS is completed.
+     * @param subId subscription ID
+     * @param messageId message ID of MO SMS
+     * @param success boolean specifying whether MO SMS is successfully sent or not.
+     */
+    public void onSendSmsDone(int subId, long messageId, boolean success) {
+        SomeArgs args = SomeArgs.obtain();
+        args.arg1 = subId;
+        args.arg2 = messageId;
+        args.arg3 = success;
+        sendMessage(obtainMessage(EVENT_SEND_SMS_DONE, args));
+    }
+
+    @GuardedBy("mLock")
+    private void sendErrorCodeAndCleanupPendingSms(
+            LinkedHashMap<Long, PendingRequest> pendingSmsMap,
+            @SatelliteManager.SatelliteResult int errorCode) {
+        if (pendingSmsMap.size() == 0) {
+            plogd("sendErrorCodeAndCleanupPendingSms: pendingSmsMap is empty.");
+            return;
+        }
+        ploge("sendErrorCodeAndCleanupPendingSms: cleaning up resources. "
+                + "pendingSmsMap size=" + getPendingSmsCount());
+
+        Phone satellitePhone = SatelliteController.getInstance().getSatellitePhone();
+        if (satellitePhone == null) {
+            ploge("sendErrorCodeAndCleanupPendingSms: satellitePhone is null.");
+            pendingSmsMap.clear();
+            return;
+        }
+
+        SmsDispatchersController smsDispatchersController =
+                satellitePhone.getSmsDispatchersController();
+        if (smsDispatchersController == null) {
+            ploge("sendErrorCodeAndCleanupPendingSms: smsDispatchersController is null.");
+            pendingSmsMap.clear();
+            return;
+        }
+
+        // Send error code to all the pending text
+        for (Entry<Long, PendingRequest> entry : pendingSmsMap.entrySet()) {
+            PendingRequest pendingRequest = entry.getValue();
+            smsDispatchersController.onSendCarrierRoamingNbIotNtnTextError(
+                    pendingRequest, errorCode);
+            reportSendSmsCompleted(pendingRequest, errorCode);
+        }
+
+        // Clear pending text map
+        pendingSmsMap.clear();
+    }
+
+    private void handleEventSendSmsDone(int subId, long messageId, boolean success) {
+        synchronized (mLock) {
+            PendingRequest pendingSms = mPendingSmsMap.remove(messageId);
+            if (pendingSms == null) {
+                // Just return, the SMS is not sent by DatagramDispatcher such as Data SMS
+                plogd("handleEventSendSmsDone there is no pendingSms for messageId=" + messageId);
+                return;
+            }
+
+            mSendingInProgress = false;
+            int datagramType = pendingSms.isMtSmsPolling
+                    ? DATAGRAM_TYPE_CHECK_PENDING_INCOMING_SMS  : DATAGRAM_TYPE_SMS;
+
+            plogd("handleEventSendSmsDone subId=" + subId + " messageId=" + messageId
+                    + " success=" + success + " datagramType=" + datagramType);
+
+            if (success) {
+                // Update send status
+                mDatagramController.updateSendStatus(subId, datagramType,
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SEND_SUCCESS,
+                        getPendingMessagesCount(), SATELLITE_RESULT_SUCCESS);
+                reportSendSmsCompleted(pendingSms, SATELLITE_RESULT_SUCCESS);
+                if (datagramType == DATAGRAM_TYPE_CHECK_PENDING_INCOMING_SMS) {
+                    startMtSmsPollingThrottle();
+                    mShouldPollMtSms = false;
+                }
+            } else {
+                // Update send status
+                mDatagramController.updateSendStatus(subId, datagramType,
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SEND_FAILED,
+                        getPendingMessagesCount(), SATELLITE_RESULT_NETWORK_ERROR);
+                reportSendSmsCompleted(pendingSms, SATELLITE_RESULT_NETWORK_ERROR);
+            }
+
+            if (getPendingMessagesCount() > 0) {
+                sendPendingMessages();
+            } else {
+                mDatagramController.updateSendStatus(subId, datagramType,
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE, 0,
+                        SatelliteManager.SATELLITE_RESULT_SUCCESS);
+            }
+        }
+    }
+
+    private boolean isEnabledMtSmsPolling() {
+        return mContext.getResources().getBoolean(R.bool.config_enabled_mt_sms_polling);
+    }
+
+    private long getMtSmsPollingThrottleMillis() {
+        return mContext.getResources().getInteger(
+                R.integer.config_mt_sms_polling_throttle_millis);
+    }
+
+    private boolean shouldPollMtSms() {
+        SatelliteController satelliteController = SatelliteController.getInstance();
+        Phone satellitePhone = satelliteController.getSatellitePhone();
+        return isEnabledMtSmsPolling()
+                && satelliteController.shouldSendSmsToDatagramDispatcher(satellitePhone);
+    }
+
+    @GuardedBy("mLock")
+    private void sendMtSmsPollingMessage() {
+        if (!mShouldPollMtSms) {
+            return;
+        }
+
+        plogd("sendMtSmsPollingMessage");
+        if (!allowCheckMessageInNotConnected()) {
+            mShouldPollMtSms = false;
+        }
+
+        for (Entry<Long, PendingRequest> entry : mPendingSmsMap.entrySet()) {
+            PendingRequest pendingRequest = entry.getValue();
+            if (pendingRequest.isMtSmsPolling) {
+                plogd("sendMtSmsPollingMessage: mPendingSmsMap already has the polling message.");
+                return;
+            }
+        }
+
+        Phone satellitePhone = SatelliteController.getInstance().getSatellitePhone();
+        if (satellitePhone == null) {
+            ploge("sendMtSmsPollingMessage: satellitePhone is null.");
+            return;
+        }
+
+        SmsDispatchersController smsDispatchersController =
+                satellitePhone.getSmsDispatchersController();
+        if (smsDispatchersController == null) {
+            ploge("sendMtSmsPollingMessage: smsDispatchersController is null.");
+            return;
+        }
+
+        smsDispatchersController.sendMtSmsPollingMessage();
+    }
+
+    @GuardedBy("mLock")
+    private void startMtSmsPollingThrottle() {
+        plogd("startMtSmsPollingThrottle");
+        mIsMtSmsPollingThrottled = true;
+        sendMessageDelayed(obtainMessage(EVENT_MT_SMS_POLLING_THROTTLE_TIMED_OUT),
+                getMtSmsPollingThrottleMillis());
+    }
+
+    @GuardedBy("mLock")
+    private void stopMtSmsPollingThrottle() {
+        mIsMtSmsPollingThrottled = false;
+        removeMessages(EVENT_MT_SMS_POLLING_THROTTLE_TIMED_OUT);
+    }
+
+    @GuardedBy("mLock")
+    private boolean allowMtSmsPolling() {
+        if (!mFeatureFlags.carrierRoamingNbIotNtn()) return false;
+
+        if (mIsMtSmsPollingThrottled) return false;
+
+        if (!mIsAligned) return false;
+
+        boolean isModemStateConnectedOrTransferring =
+                mModemState == SATELLITE_MODEM_STATE_CONNECTED
+                        || mModemState == SATELLITE_MODEM_STATE_DATAGRAM_TRANSFERRING;
+        if (!isModemStateConnectedOrTransferring && !allowCheckMessageInNotConnected()) {
+            plogd("EVENT_MT_SMS_POLLING_THROTTLE_TIMED_OUT:"
+                    + " allow_check_message_in_not_connected is disabled");
+            return false;
+        }
+
+        return true;
+    }
+
+    private boolean allowCheckMessageInNotConnected() {
+        return mContext.getResources()
+                .getBoolean(R.bool.config_satellite_allow_check_message_in_not_connected);
     }
 
     private static void logd(@NonNull String log) {
@@ -897,4 +1404,58 @@ public class DatagramDispatcher extends Handler {
     }
 
     private static void logw(@NonNull String log) { Rlog.w(TAG, log); }
+
+    private void plogd(@NonNull String log) {
+        Rlog.d(TAG, log);
+        if (mPersistentLogger != null) {
+            mPersistentLogger.debug(TAG, log);
+        }
+    }
+
+    private void plogw(@NonNull String log) {
+        Rlog.w(TAG, log);
+        if (mPersistentLogger != null) {
+            mPersistentLogger.warn(TAG, log);
+        }
+    }
+
+    private void ploge(@NonNull String log) {
+        Rlog.e(TAG, log);
+        if (mPersistentLogger != null) {
+            mPersistentLogger.error(TAG, log);
+        }
+    }
+
+    public void updateSessionStatsWithPendingUserMsgCount(SatelliteSessionStats datagramStats) {
+        synchronized (mLock) {
+            Log.d("SessionMetricsStats1",
+                    " mPendingEmergencyDatagramsMap size = "
+                            + mPendingEmergencyDatagramsMap.size());
+            Log.d("SessionMetricsStats1", " mPendingNonEmergencyDatagramsMap size = "
+                    + mPendingNonEmergencyDatagramsMap.size());
+            Log.d("SessionMetricsStats1", " mPendingSmsMap size = "
+                    + mPendingSmsMap.size());
+            for (Entry<Long, SendSatelliteDatagramArgument> entry :
+                    mPendingEmergencyDatagramsMap.entrySet()) {
+                SendSatelliteDatagramArgument argument = entry.getValue();
+                Log.d("SessionMetricsStats1", "DataGramType1 =  "
+                        + argument.datagramType);
+                datagramStats.updateCountOfUserMessagesInQueueToBeSent(argument.datagramType);
+            }
+            for (Entry<Long, SendSatelliteDatagramArgument> entry :
+                    mPendingNonEmergencyDatagramsMap.entrySet()) {
+                SendSatelliteDatagramArgument argument = entry.getValue();
+                Log.d("SessionMetricsStats1", "DataGramType2 =  "
+                        + argument.datagramType);
+                datagramStats.updateCountOfUserMessagesInQueueToBeSent(argument.datagramType);
+            }
+            for (Entry<Long, PendingRequest> entry : mPendingSmsMap.entrySet()) {
+                PendingRequest pendingRequest = entry.getValue();
+                int datagramType = pendingRequest.isMtSmsPolling
+                        ? DATAGRAM_TYPE_CHECK_PENDING_INCOMING_SMS : DATAGRAM_TYPE_SMS;
+                Log.d("SessionMetricsStats1", "DataGramType3 =  " + datagramType);
+                datagramStats.updateCountOfUserMessagesInQueueToBeSent(datagramType);
+            }
+        }
+    }
 }

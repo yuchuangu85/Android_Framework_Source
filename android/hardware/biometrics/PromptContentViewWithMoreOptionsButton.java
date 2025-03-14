@@ -17,10 +17,8 @@
 package android.hardware.biometrics;
 
 import static android.Manifest.permission.SET_BIOMETRIC_DIALOG_ADVANCED;
-import static android.hardware.biometrics.Flags.FLAG_CUSTOM_BIOMETRIC_PROMPT;
 
 import android.annotation.CallbackExecutor;
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
@@ -28,6 +26,7 @@ import android.content.DialogInterface;
 import android.hardware.biometrics.BiometricPrompt.ButtonInfo;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 
@@ -60,8 +59,8 @@ import java.util.concurrent.Executor;
  *     .build();
  * </pre>
  */
-@FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
 public final class PromptContentViewWithMoreOptionsButton implements PromptContentViewParcelable {
+    private static final String TAG = "PromptContentViewWithMoreOptionsButton";
     @VisibleForTesting
     static final int MAX_DESCRIPTION_CHARACTER_NUMBER = 225;
 
@@ -149,13 +148,12 @@ public final class PromptContentViewWithMoreOptionsButton implements PromptConte
          *
          * @param description The description to display.
          * @return This builder.
-         * @throws IllegalArgumentException If description exceeds certain character limit.
          */
         @NonNull
         @RequiresPermission(SET_BIOMETRIC_DIALOG_ADVANCED)
         public Builder setDescription(@NonNull String description) {
             if (description.length() > MAX_DESCRIPTION_CHARACTER_NUMBER) {
-                throw new IllegalArgumentException("The character number of description exceeds "
+                Log.w(TAG, "The character number of description exceeds "
                         + MAX_DESCRIPTION_CHARACTER_NUMBER);
             }
             mDescription = description;

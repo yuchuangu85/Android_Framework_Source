@@ -158,10 +158,12 @@ class ReverseOrderSortedMapView<K, V> extends AbstractMap<K, V> implements Sorte
         return base.pollFirstEntry();
     }
 
+    @SuppressWarnings("DoNotCall")
     public V putFirst(K k, V v) {
         return base.putLast(k, v);
     }
 
+    @SuppressWarnings("DoNotCall")
     public V putLast(K k, V v) {
         return base.putFirst(k, v);
     }

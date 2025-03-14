@@ -366,8 +366,8 @@ public class AidlConversion {
                             return AudioFormat.CHANNEL_OUT_9POINT1POINT4;
                         case AudioChannelLayout.LAYOUT_9POINT1POINT6:
                             return AudioFormat.CHANNEL_OUT_9POINT1POINT6;
-                        case AudioChannelLayout.LAYOUT_13POINT_360RA:
-                            return AudioFormat.CHANNEL_OUT_13POINT_360RA;
+                        case AudioChannelLayout.LAYOUT_13POINT0:
+                            return AudioFormat.CHANNEL_OUT_13POINT0;
                         case AudioChannelLayout.LAYOUT_22POINT2:
                             return AudioFormat.CHANNEL_OUT_22POINT2;
                         case AudioChannelLayout.LAYOUT_MONO_HAPTIC_A:
@@ -705,6 +705,10 @@ public class AidlConversion {
                 aidl.type = AudioDeviceType.OUT_BROADCAST;
                 aidl.connection = AudioDeviceDescription.CONNECTION_BT_LE;
                 break;
+            case AudioSystem.DEVICE_OUT_MULTICHANNEL_GROUP:
+                aidl.type = AudioDeviceType.OUT_MULTICHANNEL_GROUP;
+                aidl.connection = AudioDeviceDescription.CONNECTION_VIRTUAL;
+                break;
             case AudioSystem.DEVICE_IN_BUILTIN_MIC:
                 aidl.type = AudioDeviceType.IN_MICROPHONE;
                 break;
@@ -753,9 +757,11 @@ public class AidlConversion {
                 break;
             case AudioSystem.DEVICE_IN_REMOTE_SUBMIX:
                 aidl.type = AudioDeviceType.IN_SUBMIX;
+                aidl.connection = AudioDeviceDescription.CONNECTION_VIRTUAL;
                 break;
             case AudioSystem.DEVICE_OUT_REMOTE_SUBMIX:
                 aidl.type = AudioDeviceType.OUT_SUBMIX;
+                aidl.connection = AudioDeviceDescription.CONNECTION_VIRTUAL;
                 break;
             case AudioSystem.DEVICE_IN_ANLG_DOCK_HEADSET:
                 aidl.type = AudioDeviceType.IN_DOCK;

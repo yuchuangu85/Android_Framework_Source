@@ -27,7 +27,6 @@ package jdk.internal.vm.annotation;
 
 import java.lang.annotation.*;
 
-// Android-removed: HotSpot-specific implementation notes not relevant for Android.
 /**
  * A field may be annotated as stable if all of its component variables
  * changes value at most once.
@@ -72,9 +71,6 @@ import java.lang.annotation.*;
  * are ignored.
  */
 @Target(ElementType.FIELD)
-// Android-changed: SOURCE is enough, as we do not use the annotation in the
-// runtime
-// @Retention(RetentionPolicy.RUNTIME)
-@Retention(RetentionPolicy.SOURCE)
+@Retention(RetentionPolicy.RUNTIME)
 public @interface Stable {
 }

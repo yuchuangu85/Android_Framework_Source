@@ -297,6 +297,14 @@ public final class InputMethodDebug {
                 return "SHOW_SOFT_INPUT_IME_TOGGLE_SOFT_INPUT";
             case SoftInputShowHideReason.SHOW_SOFT_INPUT_IMM_DEPRECATION:
                 return "SHOW_SOFT_INPUT_IMM_DEPRECATION";
+            case SoftInputShowHideReason.CONTROL_WINDOW_INSETS_ANIMATION:
+                return "CONTROL_WINDOW_INSETS_ANIMATION";
+            case SoftInputShowHideReason.SHOW_INPUT_TARGET_CHANGED:
+                return "SHOW_INPUT_TARGET_CHANGED";
+            case SoftInputShowHideReason.HIDE_INPUT_TARGET_CHANGED:
+                return "HIDE_INPUT_TARGET_CHANGED";
+            case SoftInputShowHideReason.HIDE_WINDOW_LOST_FOCUS:
+                return "HIDE_WINDOW_LOST_FOCUS";
             default:
                 return "Unknown=" + reason;
         }

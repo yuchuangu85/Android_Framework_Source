@@ -93,9 +93,12 @@ public final class FrameInfo {
     // Interval between two consecutive frames
     public static final int FRAME_INTERVAL = 11;
 
+    // Workload target deadline for a frame
+    public static final int WORKLOAD_TARGET = 12;
+
     // Must be the last one
     // This value must be in sync with `UI_THREAD_FRAME_INFO_SIZE` in FrameInfo.h
-    private static final int FRAME_INFO_SIZE = FRAME_INTERVAL + 1;
+    private static final int FRAME_INFO_SIZE = WORKLOAD_TARGET + 1;
 
     /** checkstyle */
     public void setVsync(long intendedVsync, long usedVsync, long frameTimelineVsyncId,
@@ -107,6 +110,7 @@ public final class FrameInfo {
         frameInfo[FRAME_DEADLINE] = frameDeadline;
         frameInfo[FRAME_START_TIME] = frameStartTime;
         frameInfo[FRAME_INTERVAL] = frameInterval;
+        frameInfo[WORKLOAD_TARGET] = frameDeadline - intendedVsync;
     }
 
     /** checkstyle */

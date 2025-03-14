@@ -21,7 +21,6 @@ import android.adservices.ondevicepersonalization.aidl.IFederatedComputeService;
 import android.adservices.ondevicepersonalization.aidl.IIsolatedModelService;
 import android.adservices.ondevicepersonalization.aidl.IIsolatedService;
 import android.adservices.ondevicepersonalization.aidl.IIsolatedServiceCallback;
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.Service;
@@ -34,7 +33,7 @@ import android.os.Parcelable;
 import android.os.RemoteException;
 import android.os.SystemClock;
 
-import com.android.adservices.ondevicepersonalization.flags.Flags;
+import com.android.ondevicepersonalization.internal.util.ExceptionInfo;
 import com.android.ondevicepersonalization.internal.util.LoggerFactory;
 import com.android.ondevicepersonalization.internal.util.OdpParceledListSlice;
 
@@ -55,10 +54,10 @@ import java.util.function.Function;
  * Client apps use {@link OnDevicePersonalizationManager} to interact with an {@link
  * IsolatedService}.
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public abstract class IsolatedService extends Service {
     private static final String TAG = IsolatedService.class.getSimpleName();
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
+    private static final int MAX_EXCEPTION_CHAIN_DEPTH = 3;
     private IBinder mBinder;
 
     /** Creates a binder for an {@link IsolatedService}. */
@@ -179,8 +178,8 @@ public abstract class IsolatedService extends Service {
 
     /**
      * Returns an {@link FederatedComputeScheduler} for the current request. The {@link
-     * FederatedComputeScheduler} can be used to schedule and cancel federated computation jobs.
-     * The federated computation includes federated learning and federated analytic jobs.
+     * FederatedComputeScheduler} can be used to schedule and cancel federated computation jobs. The
+     * federated computation includes federated learning and federated analytics jobs.
      *
      * @param requestToken an opaque token that identifies the current request to the service.
      * @return An {@link FederatedComputeScheduler} that returns a federated computation job
@@ -272,11 +271,7 @@ public abstract class IsolatedService extends Service {
                                 resultCallback, requestToken, v -> new WebTriggerOutputParcel(v)));
             } catch (Exception e) {
                 sLogger.e(e, TAG + ": Exception during Isolated Service web trigger operation.");
-                try {
-                    resultCallback.onError(Constants.STATUS_INTERNAL_ERROR, 0);
-                } catch (RemoteException re) {
-                    sLogger.e(re, TAG + ": Isolated Service Callback failed.");
-                }
+                sendError(resultCallback, Constants.STATUS_INTERNAL_ERROR, e);
             }
         }
 
@@ -311,11 +306,7 @@ public abstract class IsolatedService extends Service {
             } catch (Exception e) {
                 sLogger.e(e,
                         TAG + ": Exception during Isolated Service training example operation.");
-                try {
-                    resultCallback.onError(Constants.STATUS_INTERNAL_ERROR, 0);
-                } catch (RemoteException re) {
-                    sLogger.e(re, TAG + ": Isolated Service Callback failed.");
-                }
+                sendError(resultCallback, Constants.STATUS_INTERNAL_ERROR, e);
             }
         }
 
@@ -340,11 +331,7 @@ public abstract class IsolatedService extends Service {
                                 resultCallback, requestToken, v -> new EventOutputParcel(v)));
             } catch (Exception e) {
                 sLogger.e(e, TAG + ": Exception during Isolated Service web view event operation.");
-                try {
-                    resultCallback.onError(Constants.STATUS_INTERNAL_ERROR, 0);
-                } catch (RemoteException re) {
-                    sLogger.e(re, TAG + ": Isolated Service Callback failed.");
-                }
+                sendError(resultCallback, Constants.STATUS_INTERNAL_ERROR, e);
             }
         }
 
@@ -370,11 +357,7 @@ public abstract class IsolatedService extends Service {
                                 resultCallback, requestToken, v -> new RenderOutputParcel(v)));
             } catch (Exception e) {
                 sLogger.e(e, TAG + ": Exception during Isolated Service render operation.");
-                try {
-                    resultCallback.onError(Constants.STATUS_INTERNAL_ERROR, 0);
-                } catch (RemoteException re) {
-                    sLogger.e(re, TAG + ": Isolated Service Callback failed.");
-                }
+                sendError(resultCallback, Constants.STATUS_INTERNAL_ERROR, e);
             }
         }
 
@@ -397,9 +380,7 @@ public abstract class IsolatedService extends Service {
                             "Failed to get IDataAccessService binder from the input params!")));
 
                 DownloadCompletedInput input =
-                        new DownloadCompletedInput.Builder()
-                                .setDownloadedContents(downloadedContents)
-                                .build();
+                        new DownloadCompletedInput(downloadedContents);
 
                 IDataAccessService binder = getDataAccessService(params);
 
@@ -415,11 +396,7 @@ public abstract class IsolatedService extends Service {
                                 v -> new DownloadCompletedOutputParcel(v)));
             } catch (Exception e) {
                 sLogger.e(e, TAG + ": Exception during Isolated Service download operation.");
-                try {
-                    resultCallback.onError(Constants.STATUS_INTERNAL_ERROR, 0);
-                } catch (RemoteException re) {
-                    sLogger.e(re, TAG + ": Isolated Service Callback failed.");
-                }
+                sendError(resultCallback, Constants.STATUS_INTERNAL_ERROR, e);
             }
         }
 
@@ -497,12 +474,17 @@ public abstract class IsolatedService extends Service {
                                 resultCallback, requestToken, v -> new ExecuteOutputParcel(v)));
             } catch (Exception e) {
                 sLogger.e(e, TAG + ": Exception during Isolated Service execute operation.");
-                try {
-                    resultCallback.onError(Constants.STATUS_INTERNAL_ERROR, 0);
-                } catch (RemoteException re) {
-                    sLogger.e(re, TAG + ": Isolated Service Callback failed.");
-                }
+                sendError(resultCallback, Constants.STATUS_INTERNAL_ERROR, e);
             }
+        }
+    }
+
+    private void sendError(IIsolatedServiceCallback resultCallback, int errorCode, Throwable t) {
+        try {
+            resultCallback.onError(
+                    errorCode, 0, ExceptionInfo.toByteArray(t, MAX_EXCEPTION_CHAIN_DEPTH));
+        } catch (RemoteException re) {
+            sLogger.e(re, TAG + ": Isolated Service Callback failed.");
         }
     }
 
@@ -526,11 +508,7 @@ public abstract class IsolatedService extends Service {
             long elapsedTimeMillis =
                     SystemClock.elapsedRealtime() - mRequestToken.getStartTimeMillis();
             if (result == null) {
-                try {
-                    mCallback.onError(Constants.STATUS_SERVICE_FAILED, 0);
-                } catch (RemoteException e) {
-                    sLogger.w(TAG + ": Callback failed.", e);
-                }
+                sendError(0, new IllegalArgumentException("missing result"));
             } else {
                 Bundle bundle = new Bundle();
                 U wrappedResult = mConverter.apply(result);
@@ -549,9 +527,16 @@ public abstract class IsolatedService extends Service {
 
         @Override
         public void onError(IsolatedServiceException e) {
+            sendError(e.getErrorCode(), e);
+        }
+
+        private void sendError(int isolatedServiceErrorCode, Throwable t) {
             try {
                 // TODO(b/324478256): Log and report the error code from e.
-                mCallback.onError(Constants.STATUS_SERVICE_FAILED, e.getErrorCode());
+                mCallback.onError(
+                        Constants.STATUS_SERVICE_FAILED,
+                        isolatedServiceErrorCode,
+                        ExceptionInfo.toByteArray(t, MAX_EXCEPTION_CHAIN_DEPTH));
             } catch (RemoteException re) {
                 sLogger.w(TAG + ": Callback failed.", re);
             }

@@ -16,17 +16,14 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.FlaggedApi;
 import android.annotation.Nullable;
 import android.os.Parcelable;
 
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 import com.android.ondevicepersonalization.internal.util.DataClass;
 
 /**
  * One record of {@link TrainingExamplesOutput}.
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 @DataClass(genBuilder = true, genAidl = false)
 public final class TrainingExampleRecord implements Parcelable {
     /**

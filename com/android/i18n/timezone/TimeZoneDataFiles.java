@@ -39,7 +39,10 @@ public final class TimeZoneDataFiles {
      * Returns time zone file paths for the specified file name in an array in the order they
      * should be tried. See {@link AndroidDataFiles#generateIcuDataPath()} for ICU files instead.
      * <ul>
-     * <li>[0] - the location of the file from the time zone module under /apex (must exist).</li>
+     * <li>[0] - the location of the versioned file from the time zone module under /apex
+     * (must exist).</li>
+     * <li>[1] - old, unversioned location of the file from the time zone module under /apex. Will
+     * be removed once prebuilts are updated.</>
      * </ul>
      */
     // VisibleForTesting
@@ -48,7 +51,8 @@ public final class TimeZoneDataFiles {
     }
 
     public static String getTimeZoneModuleTzFile(String fileName) {
-        return getTimeZoneModuleFile("tz/" + fileName);
+        return getTimeZoneModuleFile("tz/versioned/"
+                + TzDataSetVersion.currentFormatMajorVersion() + "/" + fileName);
     }
 
     // Remove from CorePlatformApi when all users in platform code are removed. http://b/123398797

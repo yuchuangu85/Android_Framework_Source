@@ -35,6 +35,8 @@ import android.adservices.signals.ProtectedSignalsManager;
 import android.adservices.topics.TopicsManager;
 import android.annotation.SystemApi;
 import android.app.SystemServiceRegistry;
+import android.app.adservices.AdServicesManager;
+import android.app.adservices.IAdServicesManager;
 import android.app.sdksandbox.SdkSandboxSystemServiceRegistry;
 import android.content.Context;
 import android.os.Build;
@@ -48,7 +50,6 @@ import com.android.adservices.LogUtil;
  *
  * @hide
  */
-// TODO(b/269798827): Enable for R.
 @RequiresApi(Build.VERSION_CODES.S)
 @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
 public class AdServicesFrameworkInitializer {
@@ -133,5 +134,14 @@ public class AdServicesFrameworkInitializer {
         SystemServiceRegistry.registerContextAwareService(AD_SERVICES_COMMON_SERVICE,
                 AdServicesCommonManager.class,
                 (c) -> new AdServicesCommonManager(c));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            LogUtil.d("Registering Adservices's AdServicesManager.");
+            SystemServiceRegistry.registerContextAwareService(
+                    AdServicesManager.AD_SERVICES_SYSTEM_SERVICE,
+                    AdServicesManager.class,
+                    (context, service) ->
+                            new AdServicesManager(IAdServicesManager.Stub.asInterface(service)));
+        }
     }
 }

@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -211,7 +213,7 @@ public final class BluetoothLeBroadcastSubgroupSettings implements Parcelable {
         @NonNull
         public Builder setContentMetadata(
                 @NonNull BluetoothLeAudioContentMetadata contentMetadata) {
-            Objects.requireNonNull(contentMetadata, "contentMetadata cannot be null");
+            requireNonNull(contentMetadata);
             mContentMetadata = contentMetadata;
             return this;
         }
@@ -227,7 +229,7 @@ public final class BluetoothLeBroadcastSubgroupSettings implements Parcelable {
         @SystemApi
         @NonNull
         public BluetoothLeBroadcastSubgroupSettings build() {
-            Objects.requireNonNull(mContentMetadata, "ContentMetadata is null");
+            requireNonNull(mContentMetadata);
             if (mPreferredQuality != QUALITY_STANDARD && mPreferredQuality != QUALITY_HIGH) {
                 throw new IllegalArgumentException(
                         "Must set audio quality to either Standard or High");

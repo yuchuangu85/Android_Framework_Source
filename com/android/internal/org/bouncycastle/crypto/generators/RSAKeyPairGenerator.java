@@ -5,7 +5,11 @@ import java.math.BigInteger;
 
 import com.android.internal.org.bouncycastle.crypto.AsymmetricCipherKeyPair;
 import com.android.internal.org.bouncycastle.crypto.AsymmetricCipherKeyPairGenerator;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicePurpose;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicesRegistrar;
 import com.android.internal.org.bouncycastle.crypto.KeyGenerationParameters;
+import com.android.internal.org.bouncycastle.crypto.constraints.ConstraintUtils;
+import com.android.internal.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
 import com.android.internal.org.bouncycastle.crypto.params.RSAKeyGenerationParameters;
 import com.android.internal.org.bouncycastle.crypto.params.RSAKeyParameters;
 import com.android.internal.org.bouncycastle.crypto.params.RSAPrivateCrtKeyParameters;
@@ -27,6 +31,8 @@ public class RSAKeyPairGenerator
     public void init(KeyGenerationParameters param)
     {
         this.param = (RSAKeyGenerationParameters)param;
+
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties("RSAKeyGen", ConstraintUtils.bitsOfSecurityForFF(param.getStrength()), null, CryptoServicePurpose.KEYGEN));
     }
 
     public AsymmetricCipherKeyPair generateKeyPair()
@@ -93,12 +99,12 @@ public class RSAKeyPairGenerator
                     continue;
                 }
 
-	            /*
+                /*
                  * Require a minimum weight of the NAF representation, since low-weight composites may
-	             * be weak against a version of the number-field-sieve for factoring.
-	             *
-	             * See "The number field sieve for integers of low weight", Oliver Schirokauer.
-	             */
+                 * be weak against a version of the number-field-sieve for factoring.
+                 *
+                 * See "The number field sieve for integers of low weight", Oliver Schirokauer.
+                 */
                 if (WNafUtil.getNafWeight(n) < minWeight)
                 {
                     p = chooseRandomPrime(pbitlength, e, squaredBound);
@@ -144,8 +150,8 @@ public class RSAKeyPairGenerator
             qInv = BigIntegers.modOddInverse(p, q);
 
             result = new AsymmetricCipherKeyPair(
-                new RSAKeyParameters(false, n, e),
-                new RSAPrivateCrtKeyParameters(n, e, d, p, q, dP, dQ, qInv));
+                new RSAKeyParameters(false, n, e, true),
+                new RSAPrivateCrtKeyParameters(n, e, d, p, q, dP, dQ, qInv, true));
         }
 
         return result;

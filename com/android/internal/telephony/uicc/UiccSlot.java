@@ -38,6 +38,7 @@ import android.util.Log;
 import android.view.WindowManager;
 
 import com.android.internal.R;
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.IccCardConstants;
 import com.android.internal.telephony.Phone;
@@ -391,6 +392,13 @@ public class UiccSlot extends Handler {
         }
     }
 
+    /**
+     * Release resources. Must be called each time this class is used.
+     */
+    public void dispose() {
+        nullifyUiccCard(false);
+    }
+
     public boolean isStateUnknown() {
         // CardState is not specific to any port index, use default port.
         CardState cardState = mCardState.get(TelephonyManager.DEFAULT_PORT_INDEX);
@@ -488,7 +496,9 @@ public class UiccSlot extends Handler {
      *  Use this API to get the iccId of the inactive port only.
      */
     public String getIccId(int portIdx) {
-        return mIccIds.get(portIdx);
+        synchronized (mLock) {
+            return mIccIds.get(portIdx);
+        }
     }
 
     public String getEid() {
@@ -653,10 +663,13 @@ public class UiccSlot extends Handler {
     }
 
     private Map<Integer, String> getPrintableIccIds() {
-        Map<Integer, String> printableIccIds = mIccIds.entrySet().stream()
+        Map<Integer, String> copyOfIccIdMap;
+        synchronized (mLock) {
+            copyOfIccIdMap = new HashMap<>(mIccIds);
+        }
+        return copyOfIccIdMap.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey,
                         e -> SubscriptionInfo.getPrintableId(e.getValue())));
-        return printableIccIds;
     }
 
     /**

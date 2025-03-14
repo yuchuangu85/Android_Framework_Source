@@ -11,11 +11,11 @@ import java.security.spec.ECPoint;
 import java.security.spec.ECPublicKeySpec;
 import java.security.spec.EllipticCurve;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.org.bouncycastle.asn1.ASN1OctetString;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
-import com.android.org.bouncycastle.asn1.DERBitString;
 import com.android.org.bouncycastle.asn1.DERNull;
 import com.android.org.bouncycastle.asn1.DEROctetString;
 // Android-removed: Unsupported algorithms
@@ -192,7 +192,7 @@ public class JCEECPublicKey
 
         if (algID.getAlgorithm().equals(CryptoProObjectIdentifiers.gostR3410_2001))
         {
-            DERBitString bits = info.getPublicKeyData();
+            ASN1BitString bits = info.getPublicKeyData();
             ASN1OctetString key;
             this.algorithm = "ECGOST3410";
 
@@ -273,7 +273,7 @@ public class JCEECPublicKey
                     ecP.getH().intValue());
             }
 
-            DERBitString    bits = info.getPublicKeyData();
+            ASN1BitString   bits = info.getPublicKeyData();
             byte[]          data = bits.getBytes();
             ASN1OctetString key = new DEROctetString(data);
 

@@ -16,6 +16,8 @@
 
 package android.adservices.adselection;
 
+import static com.android.adservices.flags.Flags.FLAG_FLEDGE_GET_AD_SELECTION_DATA_SELLER_CONFIGURATION_ENABLED;
+
 import android.adservices.common.AdTechIdentifier;
 import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
@@ -35,10 +37,15 @@ public final class GetAdSelectionDataRequest {
 
     @Nullable private final Uri mCoordinatorOriginUri;
 
+    @Nullable private final SellerConfiguration mSellerConfiguration;
+
     private GetAdSelectionDataRequest(
-            @Nullable AdTechIdentifier seller, @Nullable Uri coordinatorOriginUri) {
+            @Nullable AdTechIdentifier seller,
+            @Nullable Uri coordinatorOriginUri,
+            @Nullable SellerConfiguration sellerConfiguration) {
         this.mSeller = seller;
         this.mCoordinatorOriginUri = coordinatorOriginUri;
+        this.mSellerConfiguration = sellerConfiguration;
     }
 
     /**
@@ -61,12 +68,26 @@ public final class GetAdSelectionDataRequest {
     }
 
     /**
+     * Returns the seller ad tech's requested payload configuration, set by the calling SDK, to
+     * optimize the payload.
+     *
+     * <p>If this is {@code null}, the service will send all data available.
+     */
+    @FlaggedApi(FLAG_FLEDGE_GET_AD_SELECTION_DATA_SELLER_CONFIGURATION_ENABLED)
+    @Nullable
+    public SellerConfiguration getSellerConfiguration() {
+        return mSellerConfiguration;
+    }
+
+    /**
      * Builder for {@link GetAdSelectionDataRequest} objects.
      */
     public static final class Builder {
         @Nullable private AdTechIdentifier mSeller;
 
         @Nullable private Uri mCoordinatorOriginUri;
+
+        @Nullable private SellerConfiguration mSellerConfiguration;
 
         public Builder() {}
 
@@ -100,7 +121,20 @@ public final class GetAdSelectionDataRequest {
          */
         @NonNull
         public GetAdSelectionDataRequest build() {
-            return new GetAdSelectionDataRequest(mSeller, mCoordinatorOriginUri);
+            return new GetAdSelectionDataRequest(
+                    mSeller, mCoordinatorOriginUri, mSellerConfiguration);
+        }
+
+        /**
+         * Sets the {@link SellerConfiguration}. See {@link #getSellerConfiguration()} for more
+         * details.
+         */
+        @FlaggedApi(FLAG_FLEDGE_GET_AD_SELECTION_DATA_SELLER_CONFIGURATION_ENABLED)
+        @NonNull
+        public GetAdSelectionDataRequest.Builder setSellerConfiguration(
+                @Nullable SellerConfiguration sellerConfiguration) {
+            this.mSellerConfiguration = sellerConfiguration;
+            return this;
         }
     }
 }

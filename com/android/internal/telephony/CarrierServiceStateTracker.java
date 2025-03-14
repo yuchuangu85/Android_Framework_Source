@@ -75,7 +75,8 @@ public class CarrierServiceStateTracker extends Handler {
 
 
     @VisibleForTesting
-    public static final String ACTION_NEVER_ASK_AGAIN = "SilenceNoWifiEmrgCallingNotification";
+    public static final String ACTION_NEVER_ASK_AGAIN =
+            "com.android.internal.telephony.action.SILENCE_WIFI_CALLING_NOTIFICATION";
     public final NotificationActionReceiver mActionReceiver = new NotificationActionReceiver();
 
     @VisibleForTesting
@@ -116,7 +117,8 @@ public class CarrierServiceStateTracker extends Handler {
         mTelephonyManager = mPhone.getContext().getSystemService(
                 TelephonyManager.class).createForSubscriptionId(mPhone.getSubId());
         CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
-        ccm.registerCarrierConfigChangeListener(
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(
                 mPhone.getContext().getMainExecutor(),
                 (slotIndex, subId, carrierId, specificCarrierId) -> {
                     if (slotIndex != mPhone.getPhoneId()) return;
@@ -143,6 +145,7 @@ public class CarrierServiceStateTracker extends Handler {
                     }
                     handleConfigChanges();
                 });
+        }
 
         // Listen for subscriber changes
         SubscriptionManager.from(mPhone.getContext()).addOnSubscriptionsChangedListener(
@@ -711,14 +714,17 @@ public class CarrierServiceStateTracker extends Handler {
          * add a button to the notification that has a broadcast intent embedded to silence the
          * notification
          */
-        private Notification.Action createDoNotShowAgainAction(Context context) {
+        private Notification.Action createDoNotShowAgainAction(Context c) {
             final PendingIntent pendingIntent = PendingIntent.getBroadcast(
-                    context,
+                    c,
                     0,
                     new Intent(ACTION_NEVER_ASK_AGAIN),
                     PendingIntent.FLAG_IMMUTABLE);
-            return new Notification.Action.Builder(null, "Do Not Show Again",
-                    pendingIntent).build();
+            CharSequence text = "Do Not Ask Again";
+            if (c != null && mFeatureFlags.dynamicDoNotAskAgainText()) {
+                text = c.getText(com.android.internal.R.string.emergency_calling_do_not_show_again);
+            }
+            return new Notification.Action.Builder(null, text, pendingIntent).build();
         }
     }
 
@@ -731,6 +737,7 @@ public class CarrierServiceStateTracker extends Handler {
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(ACTION_NEVER_ASK_AGAIN)) {
                 Rlog.i(LOG_TAG, "NotificationActionReceiver: ACTION_NEVER_ASK_AGAIN");
+                dismissEmergencyCallingNotification();
                 // insert a key to silence future notifications
                 SharedPreferences.Editor editor =
                         PreferenceManager.getDefaultSharedPreferences(context).edit();
@@ -739,6 +746,23 @@ public class CarrierServiceStateTracker extends Handler {
                 // Note: If another action is added, unregistering here should be removed. However,
                 // since there is no longer a reason to broadcasts, cleanup mActionReceiver.
                 context.unregisterReceiver(mActionReceiver);
+            }
+        }
+
+        /**
+         * Dismiss the notification when the "Do Not Ask Again" button is clicked
+         */
+        private void dismissEmergencyCallingNotification() {
+            if (!mFeatureFlags.stopSpammingEmergencyNotification()) {
+                return;
+            }
+            try {
+                NotificationType t = mNotificationTypeMap.get(NOTIFICATION_EMERGENCY_NETWORK);
+                if (t != null) {
+                    cancelNotification(t);
+                }
+            } catch (Exception e) {
+                Rlog.e(LOG_TAG, "dismissEmergencyCallingNotification", e);
             }
         }
     }

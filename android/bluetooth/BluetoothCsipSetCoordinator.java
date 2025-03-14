@@ -17,15 +17,22 @@
 
 package android.bluetooth;
 
-import android.Manifest;
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+import static android.bluetooth.BluetoothUtils.executeFromBinder;
+
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresNoPermission;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SystemApi;
+import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
 import android.content.AttributionSource;
 import android.content.Context;
 import android.os.IBinder;
@@ -34,7 +41,6 @@ import android.os.RemoteException;
 import android.util.CloseGuard;
 import android.util.Log;
 
-
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Arrays;
@@ -42,7 +48,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 
@@ -55,6 +60,7 @@ import java.util.concurrent.Executor;
  */
 public final class BluetoothCsipSetCoordinator implements BluetoothProfile, AutoCloseable {
     private static final String TAG = "BluetoothCsipSetCoordinator";
+
     private static final boolean DBG = false;
     private static final boolean VDBG = false;
 
@@ -100,8 +106,10 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
         }
 
         @Override
+        @RequiresNoPermission
         public void onGroupLockSet(int groupId, int opStatus, boolean isLocked) {
-            mExecutor.execute(() -> mCallback.onGroupLockSet(groupId, opStatus, isLocked));
+            executeFromBinder(
+                    mExecutor, () -> mCallback.onGroupLockSet(groupId, opStatus, isLocked));
         }
     }
     ;
@@ -121,7 +129,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * #STATE_DISCONNECTED}, {@link #STATE_CONNECTING}, {@link #STATE_CONNECTED}, {@link
      * #STATE_DISCONNECTING}.
      */
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_CSIS_CONNECTION_STATE_CHANGED =
             "android.bluetooth.action.CSIS_CONNECTION_STATE_CHANGED";
@@ -141,7 +149,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresPermission(BLUETOOTH_PRIVILEGED)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_CSIS_DEVICE_AVAILABLE =
             "android.bluetooth.action.CSIS_DEVICE_AVAILABLE";
@@ -187,7 +195,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresPermission(BLUETOOTH_PRIVILEGED)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     public static final String ACTION_CSIS_SET_MEMBER_AVAILABLE =
             "android.bluetooth.action.CSIS_SET_MEMBER_AVAILABLE";
@@ -234,12 +242,14 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public void onServiceConnected(IBinder service) {
         mService = IBluetoothCsipSetCoordinator.Stub.asInterface(service);
     }
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public void onServiceDisconnected() {
         mService = null;
     }
@@ -250,6 +260,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public BluetoothAdapter getAdapter() {
         return mAdapter;
     }
@@ -267,14 +278,15 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public @Nullable UUID lockGroup(
             int groupId,
             @NonNull @CallbackExecutor Executor executor,
             @NonNull ClientLockCallback callback) {
         if (VDBG) log("lockGroup()");
-        Objects.requireNonNull(executor, "executor cannot be null");
-        Objects.requireNonNull(callback, "callback cannot be null");
+        requireNonNull(executor);
+        requireNonNull(callback);
         final IBluetoothCsipSetCoordinator service = getService();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
@@ -286,7 +298,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
                 final ParcelUuid ret = service.lockGroup(groupId, delegate, mAttributionSource);
                 return ret == null ? null : ret.getUuid();
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return null;
@@ -301,10 +313,11 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public boolean unlockGroup(@NonNull UUID lockUuid) {
         if (VDBG) log("unlockGroup()");
-        Objects.requireNonNull(lockUuid, "lockUuid cannot be null");
+        requireNonNull(lockUuid);
         final IBluetoothCsipSetCoordinator service = getService();
         if (service == null) {
             Log.w(TAG, "Proxy not attached to service");
@@ -314,7 +327,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
                 service.unlockGroup(new ParcelUuid(lockUuid), mAttributionSource);
                 return true;
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return false;
@@ -328,7 +341,8 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     @NonNull
     public Map<Integer, ParcelUuid> getGroupUuidMapByDevice(@Nullable BluetoothDevice device) {
         if (VDBG) log("getGroupUuidMapByDevice()");
@@ -340,7 +354,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
             try {
                 return service.getGroupUuidMapByDevice(device, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return new HashMap<>();
@@ -353,7 +367,8 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public @NonNull List<Integer> getAllGroupIds(@Nullable ParcelUuid uuid) {
         if (VDBG) log("getAllGroupIds()");
         final IBluetoothCsipSetCoordinator service = getService();
@@ -364,7 +379,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
             try {
                 return service.getAllGroupIds(uuid, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return Collections.emptyList();
@@ -372,6 +387,8 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
 
     /** {@inheritDoc} */
     @Override
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public @NonNull List<BluetoothDevice> getConnectedDevices() {
         if (VDBG) log("getConnectedDevices()");
         final IBluetoothCsipSetCoordinator service = getService();
@@ -382,7 +399,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
             try {
                 return service.getConnectedDevices(mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return Collections.emptyList();
@@ -390,6 +407,8 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
 
     /** {@inheritDoc} */
     @Override
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     @NonNull
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(@NonNull int[] states) {
         if (VDBG) log("getDevicesMatchingStates(states=" + Arrays.toString(states) + ")");
@@ -401,7 +420,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
             try {
                 return service.getDevicesMatchingConnectionStates(states, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return Collections.emptyList();
@@ -409,6 +428,8 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
 
     /** {@inheritDoc} */
     @Override
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     @BluetoothProfile.BtProfileState
     public int getConnectionState(@Nullable BluetoothDevice device) {
         if (VDBG) log("getState(" + device + ")");
@@ -420,7 +441,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
             try {
                 return service.getConnectionState(device, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return BluetoothProfile.STATE_DISCONNECTED;
@@ -439,7 +460,8 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public boolean setConnectionPolicy(
             @Nullable BluetoothDevice device, @ConnectionPolicy int connectionPolicy) {
         if (DBG) log("setConnectionPolicy(" + device + ", " + connectionPolicy + ")");
@@ -454,7 +476,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
             try {
                 return service.setConnectionPolicy(device, connectionPolicy, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return false;
@@ -471,7 +493,8 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
      * @hide
      */
     @SystemApi
-    @RequiresPermission(Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public @ConnectionPolicy int getConnectionPolicy(@Nullable BluetoothDevice device) {
         if (VDBG) log("getConnectionPolicy(" + device + ")");
         final IBluetoothCsipSetCoordinator service = getService();
@@ -482,7 +505,7 @@ public final class BluetoothCsipSetCoordinator implements BluetoothProfile, Auto
             try {
                 return service.getConnectionPolicy(device, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return BluetoothProfile.CONNECTION_POLICY_FORBIDDEN;

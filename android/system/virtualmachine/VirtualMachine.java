@@ -42,7 +42,6 @@ import static android.system.virtualmachine.VirtualMachineCallback.STOP_REASON_V
 
 import static java.util.Objects.requireNonNull;
 
-import android.annotation.FlaggedApi;
 import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
@@ -63,28 +62,31 @@ import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
-import android.view.KeyEvent;
-import android.view.MotionEvent;
+import android.system.ErrnoException;
+import android.system.OsConstants;
 import android.system.virtualizationcommon.DeathReason;
 import android.system.virtualizationcommon.ErrorCode;
 import android.system.virtualizationservice.IVirtualMachine;
 import android.system.virtualizationservice.IVirtualMachineCallback;
 import android.system.virtualizationservice.IVirtualizationService;
 import android.system.virtualizationservice.InputDevice;
-import android.system.virtualizationservice.MemoryTrimLevel;
 import android.system.virtualizationservice.PartitionType;
 import android.system.virtualizationservice.VirtualMachineAppConfig;
 import android.system.virtualizationservice.VirtualMachineRawConfig;
 import android.system.virtualizationservice.VirtualMachineState;
 import android.util.JsonReader;
 import android.util.Log;
+import android.util.Pair;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.system.virtualmachine.flags.Flags;
 
 import libcore.io.IoBridge;
+import libcore.io.IoUtils;
 
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -97,17 +99,23 @@ import java.lang.annotation.RetentionPolicy;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.zip.ZipFile;
@@ -122,7 +130,7 @@ import java.util.zip.ZipFile;
  * #connectToVsockServer} or {@link #connectVsock}.
  *
  * <p>The payload code running inside the VM has access to a set of native APIs; see the <a
- * href="https://cs.android.com/android/platform/superproject/+/master:packages/modules/Virtualization/vm_payload/README.md">README
+ * href="https://cs.android.com/android/platform/superproject/main/+/main:packages/modules/Virtualization/libs/libvm_payload/README.md">README
  * file</a> for details.
  *
  * <p>Each VM has a unique secret, computed from the APK that contains the code running in it, the
@@ -164,6 +172,18 @@ public class VirtualMachine implements AutoCloseable {
 
     private ParcelFileDescriptor mTouchSock;
     private ParcelFileDescriptor mKeySock;
+    private ParcelFileDescriptor mMouseSock;
+    private ParcelFileDescriptor mSwitchesSock;
+    private ParcelFileDescriptor mTrackpadSock;
+
+    private enum InputEventType {
+        TOUCH,
+        MOUSE,
+        TRACKPAD
+    }
+
+    private BlockingQueue<Pair<InputEventType, MotionEvent>> mInputEventQueue =
+            new LinkedBlockingQueue<>();
 
     /**
      * Status of a virtual machine
@@ -171,11 +191,9 @@ public class VirtualMachine implements AutoCloseable {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = "STATUS_", value = {
-            STATUS_STOPPED,
-            STATUS_RUNNING,
-            STATUS_DELETED
-    })
+    @IntDef(
+            prefix = "STATUS_",
+            value = {STATUS_STOPPED, STATUS_RUNNING, STATUS_DELETED})
     public @interface Status {}
 
     /** The virtual machine has just been created, or {@link #stop} was called on it. */
@@ -223,9 +241,7 @@ public class VirtualMachine implements AutoCloseable {
     /** Name of this VM within the package. The name should be unique in the package. */
     @NonNull private final String mName;
 
-    /**
-     * Path to the directory containing all the files related to this VM.
-     */
+    /** Path to the directory containing all the files related to this VM. */
     @NonNull private final File mVmRootPath;
 
     /**
@@ -260,34 +276,23 @@ public class VirtualMachine implements AutoCloseable {
 
         @Override
         public void onTrimMemory(int level) {
-            @MemoryTrimLevel int vmTrimLevel;
+            /* Treat level < TRIM_MEMORY_UI_HIDDEN as generic low-memory warnings */
+            int percent = 10;
 
-            switch (level) {
-                case ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL:
-                    vmTrimLevel = MemoryTrimLevel.TRIM_MEMORY_RUNNING_CRITICAL;
-                    break;
-                case ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW:
-                    vmTrimLevel = MemoryTrimLevel.TRIM_MEMORY_RUNNING_LOW;
-                    break;
-                case ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE:
-                    vmTrimLevel = MemoryTrimLevel.TRIM_MEMORY_RUNNING_MODERATE;
-                    break;
-                case ComponentCallbacks2.TRIM_MEMORY_BACKGROUND:
-                case ComponentCallbacks2.TRIM_MEMORY_MODERATE:
-                case ComponentCallbacks2.TRIM_MEMORY_COMPLETE:
-                    /* Release as much memory as we can. The app is on the LMKD LRU kill list. */
-                    vmTrimLevel = MemoryTrimLevel.TRIM_MEMORY_RUNNING_CRITICAL;
-                    break;
-                default:
-                    /* Treat unrecognised messages as generic low-memory warnings. */
-                    vmTrimLevel = MemoryTrimLevel.TRIM_MEMORY_RUNNING_LOW;
-                    break;
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+                percent = 30;
+            }
+
+            if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
+                /* Release as much memory as we can. The app is on the LMKD LRU kill list. */
+                percent = 50;
             }
 
             synchronized (mLock) {
                 try {
                     if (mVirtualMachine != null) {
-                        mVirtualMachine.onTrimMemory(vmTrimLevel);
+                        long bytes = mConfig.getMemoryBytes();
+                        mVirtualMachine.setMemoryBalloon(bytes * percent / 100);
                     }
                 } catch (Exception e) {
                     /* Caller doesn't want our exceptions. Log them instead. */
@@ -300,7 +305,7 @@ public class VirtualMachine implements AutoCloseable {
     /** Running instance of virtmgr that hosts VirtualizationService for this VM. */
     @NonNull private final VirtualizationService mVirtualizationService;
 
-    @NonNull private final MemoryManagementCallbacks mMemoryManagementCallbacks;
+    private final MemoryManagementCallbacks mMemoryManagementCallbacks;
 
     @NonNull private final Context mContext;
 
@@ -318,6 +323,12 @@ public class VirtualMachine implements AutoCloseable {
     private final boolean mVmOutputCaptured;
 
     private final boolean mVmConsoleInputSupported;
+
+    private final boolean mConnectVmConsole;
+
+    private final Executor mConsoleExecutor = Executors.newSingleThreadExecutor();
+
+    private ExecutorService mInputEventExecutor;
 
     /** The configuration that is currently associated with this VM. */
     @GuardedBy("mLock")
@@ -344,6 +355,26 @@ public class VirtualMachine implements AutoCloseable {
     @GuardedBy("mLock")
     @Nullable
     private ParcelFileDescriptor mConsoleInWriter;
+
+    @GuardedBy("mLock")
+    @Nullable
+    private ParcelFileDescriptor mTeeConsoleOutReader;
+
+    @GuardedBy("mLock")
+    @Nullable
+    private ParcelFileDescriptor mTeeConsoleOutWriter;
+
+    @GuardedBy("mLock")
+    @Nullable
+    private ParcelFileDescriptor mPtyFd;
+
+    @GuardedBy("mLock")
+    @Nullable
+    private ParcelFileDescriptor mPtsFd;
+
+    @GuardedBy("mLock")
+    @Nullable
+    private String mPtsName;
 
     @GuardedBy("mLock")
     @Nullable
@@ -407,7 +438,6 @@ public class VirtualMachine implements AutoCloseable {
         mInstanceFilePath = new File(thisVmDir, INSTANCE_IMAGE_FILE);
         mIdsigFilePath = new File(thisVmDir, IDSIG_FILE);
         mExtraApks = setupExtraApks(context, config, thisVmDir);
-        mMemoryManagementCallbacks = new MemoryManagementCallbacks();
         mContext = context;
         mEncryptedStoreFilePath =
                 (config.isEncryptedStorageEnabled())
@@ -416,6 +446,15 @@ public class VirtualMachine implements AutoCloseable {
 
         mVmOutputCaptured = config.isVmOutputCaptured();
         mVmConsoleInputSupported = config.isVmConsoleInputSupported();
+        mConnectVmConsole = config.isConnectVmConsole();
+
+        VirtualMachineCustomImageConfig customImageConfig;
+        customImageConfig = config.getCustomImageConfig();
+        if (customImageConfig == null || customImageConfig.useAutoMemoryBalloon()) {
+            mMemoryManagementCallbacks = new MemoryManagementCallbacks();
+        } else {
+            mMemoryManagementCallbacks = null;
+        }
     }
 
     /**
@@ -634,8 +673,7 @@ public class VirtualMachine implements AutoCloseable {
             try {
                 byte[] instanceId = Files.readAllBytes(mInstanceIdPath.toPath());
                 service.claimVmInstance(instanceId);
-            }
-            catch (IOException e) {
+            } catch (IOException e) {
                 throw new VirtualMachineException("failed to read instance_id", e);
             } catch (RemoteException e) {
                 throw e.rethrowAsRuntimeException();
@@ -785,7 +823,9 @@ public class VirtualMachine implements AutoCloseable {
      */
     @GuardedBy("mLock")
     private void dropVm() {
-        mContext.unregisterComponentCallbacks(mMemoryManagementCallbacks);
+        if (mMemoryManagementCallbacks != null) {
+            mContext.unregisterComponentCallbacks(mMemoryManagementCallbacks);
+        }
         mVirtualMachine = null;
     }
 
@@ -863,16 +903,15 @@ public class VirtualMachine implements AutoCloseable {
 
         // Handle input devices here
         List<InputDevice> inputDevices = new ArrayList<>();
-        if (vmConfig.getCustomImageConfig() != null
-                && rawConfig.displayConfig != null) {
+        if (vmConfig.getCustomImageConfig() != null && rawConfig.displayConfig != null) {
             if (vmConfig.getCustomImageConfig().useTouch()) {
                 ParcelFileDescriptor[] pfds = ParcelFileDescriptor.createSocketPair();
                 mTouchSock = pfds[0];
-                InputDevice.SingleTouch t = new InputDevice.SingleTouch();
+                InputDevice.MultiTouch t = new InputDevice.MultiTouch();
                 t.width = rawConfig.displayConfig.width;
                 t.height = rawConfig.displayConfig.height;
                 t.pfd = pfds[1];
-                inputDevices.add(InputDevice.singleTouch(t));
+                inputDevices.add(InputDevice.multiTouch(t));
             }
             if (vmConfig.getCustomImageConfig().useKeyboard()) {
                 ParcelFileDescriptor[] pfds = ParcelFileDescriptor.createSocketPair();
@@ -881,8 +920,37 @@ public class VirtualMachine implements AutoCloseable {
                 k.pfd = pfds[1];
                 inputDevices.add(InputDevice.keyboard(k));
             }
+            if (vmConfig.getCustomImageConfig().useMouse()) {
+                ParcelFileDescriptor[] pfds = ParcelFileDescriptor.createSocketPair();
+                mMouseSock = pfds[0];
+                InputDevice.Mouse m = new InputDevice.Mouse();
+                m.pfd = pfds[1];
+                inputDevices.add(InputDevice.mouse(m));
+            }
+            if (vmConfig.getCustomImageConfig().useSwitches()) {
+                ParcelFileDescriptor[] pfds = ParcelFileDescriptor.createSocketPair();
+                mSwitchesSock = pfds[0];
+                InputDevice.Switches s = new InputDevice.Switches();
+                s.pfd = pfds[1];
+                inputDevices.add(InputDevice.switches(s));
+            }
+            if (vmConfig.getCustomImageConfig().useTrackpad()) {
+                ParcelFileDescriptor[] pfds = ParcelFileDescriptor.createSocketPair();
+                mTrackpadSock = pfds[0];
+                InputDevice.Trackpad t = new InputDevice.Trackpad();
+                // TODO(b/347253952): make it configurable
+                t.width = 2380;
+                t.height = 1369;
+                t.pfd = pfds[1];
+                inputDevices.add(InputDevice.trackpad(t));
+            }
         }
         rawConfig.inputDevices = inputDevices.toArray(new InputDevice[0]);
+
+        // Handle network support
+        if (vmConfig.getCustomImageConfig() != null) {
+            rawConfig.networkSupported = vmConfig.getCustomImageConfig().useNetwork();
+        }
 
         return android.system.virtualizationservice.VirtualMachineConfig.rawConfig(rawConfig);
     }
@@ -909,7 +977,119 @@ public class VirtualMachine implements AutoCloseable {
     }
 
     /** @hide */
-    public boolean sendSingleTouchEvent(MotionEvent event) {
+    public boolean sendMouseEvent(MotionEvent event) {
+        try {
+            mInputEventQueue.add(
+                    Pair.create(InputEventType.MOUSE, MotionEvent.obtainNoHistory(event)));
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, e.toString());
+            return false;
+        }
+    }
+
+    /** @hide */
+    private boolean sendMouseEventInternal(MotionEvent event) {
+        if (mMouseSock == null) {
+            Log.d(TAG, "mMouseSock == null");
+            return false;
+        }
+        // from include/uapi/linux/input-event-codes.h in the kernel.
+        short EV_SYN = 0x00;
+        short EV_REL = 0x02;
+        short EV_KEY = 0x01;
+        short REL_X = 0x00;
+        short REL_Y = 0x01;
+        short SYN_REPORT = 0x00;
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_MOVE:
+                int x = (int) event.getX();
+                int y = (int) event.getY();
+                return writeEventsToSock(
+                        mMouseSock,
+                        Arrays.asList(
+                                new InputEvent(EV_REL, REL_X, x),
+                                new InputEvent(EV_REL, REL_Y, y),
+                                new InputEvent(EV_SYN, SYN_REPORT, 0)));
+            case MotionEvent.ACTION_BUTTON_PRESS:
+            case MotionEvent.ACTION_BUTTON_RELEASE:
+                short BTN_LEFT = 0x110;
+                short BTN_RIGHT = 0x111;
+                short BTN_MIDDLE = 0x112;
+                short keyCode;
+                switch (event.getActionButton()) {
+                    case MotionEvent.BUTTON_PRIMARY:
+                        keyCode = BTN_LEFT;
+                        break;
+                    case MotionEvent.BUTTON_SECONDARY:
+                        keyCode = BTN_RIGHT;
+                        break;
+                    case MotionEvent.BUTTON_TERTIARY:
+                        keyCode = BTN_MIDDLE;
+                        break;
+                    default:
+                        Log.d(TAG, event.toString());
+                        return false;
+                }
+                return writeEventsToSock(
+                        mMouseSock,
+                        Arrays.asList(
+                                new InputEvent(
+                                        EV_KEY,
+                                        keyCode,
+                                        event.getAction() == MotionEvent.ACTION_BUTTON_PRESS
+                                                ? 1
+                                                : 0),
+                                new InputEvent(EV_SYN, SYN_REPORT, 0)));
+            case MotionEvent.ACTION_SCROLL:
+                short REL_HWHEEL = 0x06;
+                short REL_WHEEL = 0x08;
+                int scrollX = (int) event.getAxisValue(MotionEvent.AXIS_HSCROLL);
+                int scrollY = (int) event.getAxisValue(MotionEvent.AXIS_VSCROLL);
+                boolean status = true;
+                if (scrollX != 0) {
+                    status &=
+                            writeEventsToSock(
+                                    mMouseSock,
+                                    Arrays.asList(
+                                            new InputEvent(EV_REL, REL_HWHEEL, scrollX),
+                                            new InputEvent(EV_SYN, SYN_REPORT, 0)));
+                } else if (scrollY != 0) {
+                    status &=
+                            writeEventsToSock(
+                                    mMouseSock,
+                                    Arrays.asList(
+                                            new InputEvent(EV_REL, REL_WHEEL, scrollY),
+                                            new InputEvent(EV_SYN, SYN_REPORT, 0)));
+                } else {
+                    Log.d(TAG, event.toString());
+                    return false;
+                }
+                return status;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_DOWN:
+                // Ignored because it's handled by ACTION_BUTTON_PRESS and ACTION_BUTTON_RELEASE
+                return true;
+            default:
+                Log.d(TAG, event.toString());
+                return false;
+        }
+    }
+
+    /** @hide */
+    public boolean sendMultiTouchEvent(MotionEvent event) {
+        try {
+            mInputEventQueue.add(
+                    Pair.create(InputEventType.TOUCH, MotionEvent.obtainNoHistory(event)));
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, e.toString());
+            return false;
+        }
+    }
+
+    /** @hide */
+    private boolean sendMultiTouchEventInternal(MotionEvent event) {
         if (mTouchSock == null) {
             Log.d(TAG, "mTouchSock == null");
             return false;
@@ -922,18 +1102,294 @@ public class VirtualMachine implements AutoCloseable {
         short ABS_X = 0x00;
         short ABS_Y = 0x01;
         short SYN_REPORT = 0x00;
+        short ABS_MT_SLOT = 0x2f;
+        short ABS_MT_POSITION_X = 0x35;
+        short ABS_MT_POSITION_Y = 0x36;
+        short ABS_MT_TRACKING_ID = 0x39;
 
-        int x = (int) event.getX();
-        int y = (int) event.getY();
-        boolean down = event.getAction() != MotionEvent.ACTION_UP;
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_MOVE:
+                List<InputEvent> events =
+                        new ArrayList<>(
+                                event.getPointerCount() * 6 /*InputEvent per a pointer*/
+                                        + 1 /*SYN*/);
+                for (int actionIdx = 0; actionIdx < event.getPointerCount(); actionIdx++) {
+                    int pointerId = event.getPointerId(actionIdx);
+                    int x = (int) event.getRawX(actionIdx);
+                    int y = (int) event.getRawY(actionIdx);
+                    events.add(new InputEvent(EV_ABS, ABS_MT_SLOT, pointerId));
+                    events.add(new InputEvent(EV_ABS, ABS_MT_TRACKING_ID, pointerId));
+                    events.add(new InputEvent(EV_ABS, ABS_MT_POSITION_X, x));
+                    events.add(new InputEvent(EV_ABS, ABS_MT_POSITION_Y, y));
+                    events.add(new InputEvent(EV_ABS, ABS_X, x));
+                    events.add(new InputEvent(EV_ABS, ABS_Y, y));
+                }
+                events.add(new InputEvent(EV_SYN, SYN_REPORT, 0));
+                return writeEventsToSock(mTouchSock, events);
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN:
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_POINTER_UP:
+                break;
+            default:
+                return false;
+        }
 
+        boolean down =
+                event.getActionMasked() == MotionEvent.ACTION_DOWN
+                        || event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN;
+        int actionIdx = event.getActionIndex();
+        int pointerId = event.getPointerId(actionIdx);
+        int x = (int) event.getRawX(actionIdx);
+        int y = (int) event.getRawY(actionIdx);
         return writeEventsToSock(
                 mTouchSock,
                 Arrays.asList(
+                        new InputEvent(EV_KEY, BTN_TOUCH, down ? 1 : 0),
+                        new InputEvent(EV_ABS, ABS_MT_SLOT, pointerId),
+                        new InputEvent(EV_ABS, ABS_MT_TRACKING_ID, down ? pointerId : -1),
+                        new InputEvent(EV_ABS, ABS_MT_POSITION_X, x),
+                        new InputEvent(EV_ABS, ABS_MT_POSITION_Y, y),
                         new InputEvent(EV_ABS, ABS_X, x),
                         new InputEvent(EV_ABS, ABS_Y, y),
-                        new InputEvent(EV_KEY, BTN_TOUCH, down ? 1 : 0),
                         new InputEvent(EV_SYN, SYN_REPORT, 0)));
+    }
+
+    /** @hide */
+    public boolean sendLidEvent(boolean close) {
+        if (mSwitchesSock == null) {
+            Log.d(TAG, "mSwitcheSock == null");
+            return false;
+        }
+
+        // from include/uapi/linux/input-event-codes.h in the kernel.
+        short EV_SYN = 0x00;
+        short EV_SW = 0x05;
+        short SW_LID = 0x00;
+        short SYN_REPORT = 0x00;
+        return writeEventsToSock(
+                mSwitchesSock,
+                Arrays.asList(
+                        new InputEvent(EV_SW, SW_LID, close ? 1 : 0),
+                        new InputEvent(EV_SYN, SYN_REPORT, 0)));
+    }
+
+    /** @hide */
+    public boolean sendTabletModeEvent(boolean tabletMode) {
+        if (mSwitchesSock == null) {
+            Log.d(TAG, "mSwitcheSock == null");
+            return false;
+        }
+
+        // from include/uapi/linux/input-event-codes.h in the kernel.
+        short EV_SYN = 0x00;
+        short EV_SW = 0x05;
+        short SW_TABLET_MODE = 0x01;
+        short SYN_REPORT = 0x00;
+        return writeEventsToSock(
+                mSwitchesSock,
+                Arrays.asList(
+                        new InputEvent(EV_SW, SW_TABLET_MODE, tabletMode ? 1 : 0),
+                        new InputEvent(EV_SYN, SYN_REPORT, 0)));
+    }
+
+    /** @hide */
+    public boolean sendTrackpadEvent(MotionEvent event) {
+        try {
+            mInputEventQueue.add(
+                    Pair.create(InputEventType.TRACKPAD, MotionEvent.obtainNoHistory(event)));
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, e.toString());
+            return false;
+        }
+    }
+
+    /** @hide */
+    private boolean sendTrackpadEventInternal(MotionEvent event) {
+        if (mTrackpadSock == null) {
+            Log.d(TAG, "mTrackpadSock == null");
+            return false;
+        }
+        // from include/uapi/linux/input-event-codes.h in the kernel.
+        short EV_SYN = 0x00;
+        short EV_ABS = 0x03;
+        short EV_KEY = 0x01;
+        short BTN_TOUCH = 0x14a;
+        short BTN_TOOL_FINGER = 0x145;
+        short BTN_TOOL_DOUBLETAP = 0x14d;
+        short BTN_TOOL_TRIPLETAP = 0x14e;
+        short BTN_TOOL_QUADTAP = 0x14f;
+        short ABS_X = 0x00;
+        short ABS_Y = 0x01;
+        short SYN_REPORT = 0x00;
+        short ABS_MT_SLOT = 0x2f;
+        short ABS_MT_TOUCH_MAJOR = 0x30;
+        short ABS_MT_TOUCH_MINOR = 0x31;
+        short ABS_MT_WIDTH_MAJOR = 0x32;
+        short ABS_MT_WIDTH_MINOR = 0x33;
+        short ABS_MT_ORIENTATION = 0x34;
+        short ABS_MT_POSITION_X = 0x35;
+        short ABS_MT_POSITION_Y = 0x36;
+        short ABS_MT_TOOL_TYPE = 0x37;
+        short ABS_MT_BLOB_ID = 0x38;
+        short ABS_MT_TRACKING_ID = 0x39;
+        short ABS_MT_PRESSURE = 0x3a;
+        short ABS_MT_DISTANCE = 0x3b;
+        short ABS_MT_TOOL_X = 0x3c;
+        short ABS_MT_TOOL_Y = 0x3d;
+        short ABS_PRESSURE = 0x18;
+        short ABS_TOOL_WIDTH = 0x1c;
+
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_BUTTON_PRESS:
+            case MotionEvent.ACTION_BUTTON_RELEASE:
+                short BTN_LEFT = 0x110;
+                short keyCode;
+                switch (event.getActionButton()) {
+                    case MotionEvent.BUTTON_PRIMARY:
+                        keyCode = BTN_LEFT;
+                        break;
+                    default:
+                        Log.d(TAG, event.toString());
+                        return false;
+                }
+                return writeEventsToSock(
+                        mMouseSock,
+                        Arrays.asList(
+                                new InputEvent(
+                                        EV_KEY,
+                                        keyCode,
+                                        event.getAction() == MotionEvent.ACTION_BUTTON_PRESS
+                                                ? 1
+                                                : 0),
+                                new InputEvent(EV_SYN, SYN_REPORT, 0)));
+            case MotionEvent.ACTION_MOVE:
+                List<InputEvent> events =
+                        new ArrayList<>(
+                                event.getPointerCount() * 10 /*InputEvent per a pointer*/
+                                        + 1 /*SYN*/);
+                for (int actionIdx = 0; actionIdx < event.getPointerCount(); actionIdx++) {
+                    int pointerId = event.getPointerId(actionIdx);
+                    int x = (int) event.getRawX(actionIdx);
+                    int y = (int) event.getRawY(actionIdx);
+                    events.add(new InputEvent(EV_ABS, ABS_MT_SLOT, pointerId));
+                    events.add(new InputEvent(EV_ABS, ABS_MT_TRACKING_ID, pointerId));
+                    events.add(new InputEvent(EV_ABS, ABS_MT_POSITION_X, x));
+                    events.add(new InputEvent(EV_ABS, ABS_MT_POSITION_Y, y));
+                    events.add(
+                            new InputEvent(
+                                    EV_ABS,
+                                    ABS_MT_TOUCH_MAJOR,
+                                    (short) event.getTouchMajor(actionIdx)));
+                    events.add(
+                            new InputEvent(
+                                    EV_ABS,
+                                    ABS_MT_TOUCH_MINOR,
+                                    (short) event.getTouchMinor(actionIdx)));
+                    events.add(new InputEvent(EV_ABS, ABS_X, x));
+                    events.add(new InputEvent(EV_ABS, ABS_Y, y));
+                    events.add(
+                            new InputEvent(
+                                    EV_ABS,
+                                    ABS_PRESSURE,
+                                    (short) (255 * event.getPressure(actionIdx))));
+                    events.add(
+                            new InputEvent(
+                                    EV_ABS,
+                                    ABS_MT_PRESSURE,
+                                    (short) (255 * event.getPressure(actionIdx))));
+                }
+                events.add(new InputEvent(EV_SYN, SYN_REPORT, 0));
+                return writeEventsToSock(mTrackpadSock, events);
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN:
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_POINTER_UP:
+                break;
+            default:
+                return false;
+        }
+
+        boolean down =
+                event.getActionMasked() == MotionEvent.ACTION_DOWN
+                        || event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN;
+        int actionIdx = event.getActionIndex();
+        int pointerId = event.getPointerId(actionIdx);
+        int x = (int) event.getRawX(actionIdx);
+        int y = (int) event.getRawY(actionIdx);
+        return writeEventsToSock(
+                mTrackpadSock,
+                Arrays.asList(
+                        new InputEvent(EV_KEY, BTN_TOUCH, down ? 1 : 0),
+                        new InputEvent(
+                                EV_KEY,
+                                BTN_TOOL_FINGER,
+                                down && event.getPointerCount() == 1 ? 1 : 0),
+                        new InputEvent(
+                                EV_KEY, BTN_TOOL_DOUBLETAP, event.getPointerCount() == 2 ? 1 : 0),
+                        new InputEvent(
+                                EV_KEY, BTN_TOOL_TRIPLETAP, event.getPointerCount() == 3 ? 1 : 0),
+                        new InputEvent(
+                                EV_KEY, BTN_TOOL_QUADTAP, event.getPointerCount() > 4 ? 1 : 0),
+                        new InputEvent(EV_ABS, ABS_MT_SLOT, pointerId),
+                        new InputEvent(EV_ABS, ABS_MT_TRACKING_ID, down ? pointerId : -1),
+                        new InputEvent(EV_ABS, ABS_MT_TOOL_TYPE, 0 /* MT_TOOL_FINGER */),
+                        new InputEvent(EV_ABS, ABS_MT_POSITION_X, x),
+                        new InputEvent(EV_ABS, ABS_MT_POSITION_Y, y),
+                        new InputEvent(
+                                EV_ABS, ABS_MT_TOUCH_MAJOR, (short) event.getTouchMajor(actionIdx)),
+                        new InputEvent(
+                                EV_ABS, ABS_MT_TOUCH_MINOR, (short) event.getTouchMinor(actionIdx)),
+                        new InputEvent(EV_ABS, ABS_X, x),
+                        new InputEvent(EV_ABS, ABS_Y, y),
+                        new InputEvent(
+                                EV_ABS, ABS_PRESSURE, (short) (255 * event.getPressure(actionIdx))),
+                        new InputEvent(
+                                EV_ABS,
+                                ABS_MT_PRESSURE,
+                                (short) (255 * event.getPressure(actionIdx))),
+                        new InputEvent(EV_SYN, SYN_REPORT, 0)));
+    }
+
+    /** @hide */
+    public long getMemoryBalloon() {
+        long bytes = 0;
+
+        if (mMemoryManagementCallbacks != null) {
+            Log.d(TAG, "Auto balloon enabled in getMemoryBalloon");
+            return bytes;
+        }
+
+        synchronized (mLock) {
+            try {
+                if (mVirtualMachine != null) {
+                    bytes = mVirtualMachine.getMemoryBalloon();
+                }
+            } catch (RemoteException e) {
+                Log.w(TAG, "Cannot getMemoryBalloon", e);
+            }
+        }
+
+        return bytes;
+    }
+
+    /** @hide */
+    public void setMemoryBalloon(long bytes) {
+        if (mMemoryManagementCallbacks != null) {
+            Log.d(TAG, "Auto balloon enabled in setMemoryBalloon");
+            return;
+        }
+
+        synchronized (mLock) {
+            try {
+                if (mVirtualMachine != null) {
+                    mVirtualMachine.setMemoryBalloon(bytes);
+                }
+            } catch (RemoteException e) {
+                Log.w(TAG, "Cannot setMemoryBalloon", e);
+            }
+        }
     }
 
     private boolean writeEventsToSock(ParcelFileDescriptor sock, List<InputEvent> evtList) {
@@ -1004,7 +1460,9 @@ public class VirtualMachine implements AutoCloseable {
     /**
      * Runs this virtual machine. The returning of this method however doesn't mean that the VM has
      * actually started running or the OS has booted there. Such events can be notified by
-     * registering a callback using {@link #setCallback} before calling {@code run()}.
+     * registering a callback using {@link #setCallback} before calling {@code run()}. There is no
+     * limit other than available memory that limits the number of virtual machines that can run at
+     * the same time.
      *
      * <p>NOTE: This method may block and should not be called on the main thread.
      *
@@ -1032,12 +1490,71 @@ public class VirtualMachine implements AutoCloseable {
             IVirtualizationService service = mVirtualizationService.getBinder();
 
             try {
+                if (mConnectVmConsole) {
+                    createPtyConsole();
+                }
+
                 if (mVmOutputCaptured) {
                     createVmOutputPipes();
                 }
 
                 if (mVmConsoleInputSupported) {
                     createVmInputPipes();
+                }
+
+                ParcelFileDescriptor consoleOutFd = null;
+                if (mConnectVmConsole && mVmOutputCaptured) {
+                    // If we are enabling output pipes AND the host console, then we tee the console
+                    // output to both.
+                    ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
+                    mTeeConsoleOutReader = pipe[0];
+                    mTeeConsoleOutWriter = pipe[1];
+                    consoleOutFd = mTeeConsoleOutWriter;
+                    TeeWorker tee =
+                            new TeeWorker(
+                                    mName + " console",
+                                    new FileInputStream(mTeeConsoleOutReader.getFileDescriptor()),
+                                    List.of(
+                                            new FileOutputStream(mPtyFd.getFileDescriptor()),
+                                            new FileOutputStream(
+                                                    mConsoleOutWriter.getFileDescriptor())));
+                    // If the VM is stopped then the tee worker thread would get an EOF or read()
+                    // error which would tear down itself.
+                    mConsoleExecutor.execute(tee);
+                } else if (mConnectVmConsole) {
+                    consoleOutFd = mPtyFd;
+                } else if (mVmOutputCaptured) {
+                    consoleOutFd = mConsoleOutWriter;
+                }
+                mInputEventExecutor = Executors.newSingleThreadExecutor();
+                mInputEventExecutor.execute(
+                        () -> {
+                            while (true) {
+                                try {
+                                    Pair<InputEventType, MotionEvent> event =
+                                            mInputEventQueue.take();
+                                    switch (event.first) {
+                                        case TOUCH:
+                                            sendMultiTouchEventInternal(event.second);
+                                            break;
+                                        case TRACKPAD:
+                                            sendTrackpadEventInternal(event.second);
+                                            break;
+                                        case MOUSE:
+                                            sendMouseEventInternal(event.second);
+                                            break;
+                                    }
+                                    event.second.recycle();
+                                } catch (Exception e) {
+                                    Log.e(TAG, e.toString());
+                                }
+                            }
+                        });
+                ParcelFileDescriptor consoleInFd = null;
+                if (mConnectVmConsole) {
+                    consoleInFd = mPtyFd;
+                } else if (mVmConsoleInputSupported) {
+                    consoleInFd = mConsoleInReader;
                 }
 
                 VirtualMachineConfig vmConfig = getConfig();
@@ -1048,9 +1565,14 @@ public class VirtualMachine implements AutoCloseable {
 
                 mVirtualMachine =
                         service.createVm(
-                                vmConfigParcel, mConsoleOutWriter, mConsoleInReader, mLogWriter);
+                                vmConfigParcel, consoleOutFd, consoleInFd, mLogWriter, null);
                 mVirtualMachine.registerCallback(new CallbackTranslator(service));
-                mContext.registerComponentCallbacks(mMemoryManagementCallbacks);
+                if (mMemoryManagementCallbacks != null) {
+                    mContext.registerComponentCallbacks(mMemoryManagementCallbacks);
+                }
+                if (mConnectVmConsole) {
+                    mVirtualMachine.setHostConsoleName(getHostConsoleName());
+                }
                 mVirtualMachine.start();
             } catch (IOException e) {
                 throw new VirtualMachineException("failed to persist files", e);
@@ -1107,12 +1629,78 @@ public class VirtualMachine implements AutoCloseable {
     private void createVmInputPipes() throws VirtualMachineException {
         try {
             if (mConsoleInReader == null || mConsoleInWriter == null) {
-                ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
-                mConsoleInReader = pipe[0];
-                mConsoleInWriter = pipe[1];
+                if (mConnectVmConsole) {
+                    // If we are enabling input pipes AND the host console, then we should just use
+                    // the host pty peer end as the console write end.
+                    createPtyConsole();
+                    mConsoleInReader = mPtyFd.dup();
+                    mConsoleInWriter = mPtsFd.dup();
+                } else {
+                    ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
+                    mConsoleInReader = pipe[0];
+                    mConsoleInWriter = pipe[1];
+                }
             }
         } catch (IOException e) {
             throw new VirtualMachineException("Failed to create input stream for VM", e);
+        }
+    }
+
+    @FunctionalInterface
+    private static interface OpenPtyCallback {
+        public void apply(FileDescriptor mfd, FileDescriptor sfd, byte[] name);
+    }
+
+    // Opens a pty and set the master end to raw mode and O_NONBLOCK.
+    private static native void nativeOpenPtyRawNonblock(OpenPtyCallback resultCallback)
+            throws IOException;
+
+    @GuardedBy("mLock")
+    private void createPtyConsole() throws VirtualMachineException {
+        if (mPtyFd != null && mPtsFd != null) {
+            return;
+        }
+        List<FileDescriptor> fd = new ArrayList<>(2);
+        StringBuilder nameBuilder = new StringBuilder();
+        try {
+            try {
+                nativeOpenPtyRawNonblock(
+                        (FileDescriptor mfd, FileDescriptor sfd, byte[] ptsName) -> {
+                            fd.add(mfd);
+                            fd.add(sfd);
+                            nameBuilder.append(new String(ptsName, StandardCharsets.UTF_8));
+                        });
+            } catch (Exception e) {
+                fd.forEach(IoUtils::closeQuietly);
+                throw e;
+            }
+        } catch (IOException e) {
+            throw new VirtualMachineException(
+                    "Failed to create host console to connect to the VM console", e);
+        }
+        mPtyFd = new ParcelFileDescriptor(fd.get(0));
+        mPtsFd = new ParcelFileDescriptor(fd.get(1));
+        mPtsName = nameBuilder.toString();
+        Log.d(TAG, "Serial console device: " + mPtsName);
+    }
+
+    /**
+     * Returns the name of the peer end (ptsname) of the host console. The host console is only
+     * available if the {@link VirtualMachineConfig} specifies that a host console should
+     * {@linkplain VirtualMachineConfig#isConnectVmConsole connect} to the VM console.
+     *
+     * @throws VirtualMachineException if the host pseudoterminal could not be created, or
+     *     connecting to the VM console is not enabled.
+     * @hide
+     */
+    @NonNull
+    private String getHostConsoleName() throws VirtualMachineException {
+        if (!mConnectVmConsole) {
+            throw new VirtualMachineException("Host console is not enabled");
+        }
+        synchronized (mLock) {
+            createPtyConsole();
+            return mPtsName;
         }
     }
 
@@ -1166,7 +1754,6 @@ public class VirtualMachine implements AutoCloseable {
             return new FileOutputStream(mConsoleInWriter.getFileDescriptor());
         }
     }
-
 
     /**
      * Returns the stream object representing the log output from the virtual machine. The log
@@ -1224,6 +1811,41 @@ public class VirtualMachine implements AutoCloseable {
             try {
                 mVirtualMachine.stop();
                 dropVm();
+                if (mInputEventExecutor != null) {
+                    mInputEventExecutor.shutdownNow();
+                }
+            } catch (RemoteException e) {
+                throw e.rethrowAsRuntimeException();
+            } catch (ServiceSpecificException e) {
+                throw new VirtualMachineException(e);
+            }
+        }
+    }
+
+    /** @hide */
+    public void suspend() throws VirtualMachineException {
+        synchronized (mLock) {
+            if (mVirtualMachine == null) {
+                throw new VirtualMachineException("VM is not running");
+            }
+            try {
+                mVirtualMachine.suspend();
+            } catch (RemoteException e) {
+                throw e.rethrowAsRuntimeException();
+            } catch (ServiceSpecificException e) {
+                throw new VirtualMachineException(e);
+            }
+        }
+    }
+
+    /** @hide */
+    public void resume() throws VirtualMachineException {
+        synchronized (mLock) {
+            if (mVirtualMachine == null) {
+                throw new VirtualMachineException("VM is not running");
+            }
+            try {
+                mVirtualMachine.resume();
             } catch (RemoteException e) {
                 throw e.rethrowAsRuntimeException();
             } catch (ServiceSpecificException e) {
@@ -1266,22 +1888,26 @@ public class VirtualMachine implements AutoCloseable {
     private static void deleteRecursively(File dir) throws IOException {
         // Note: This doesn't follow symlinks, which is important. Instead they are just deleted
         // (and Files.delete deletes the link not the target).
-        Files.walkFileTree(dir.toPath(), new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                    throws IOException {
-                Files.delete(file);
-                return FileVisitResult.CONTINUE;
-            }
+        Files.walkFileTree(
+                dir.toPath(),
+                new SimpleFileVisitor<>() {
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                            throws IOException {
+                        Files.delete(file);
+                        return FileVisitResult.CONTINUE;
+                    }
 
-            @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException e) throws IOException {
-                // Directory is deleted after we've visited (deleted) all its contents, so it
-                // should be empty by now.
-                Files.delete(dir);
-                return FileVisitResult.CONTINUE;
-            }
-        });
+                    @Override
+                    public FileVisitResult postVisitDirectory(Path dir, IOException e)
+                            throws IOException {
+                        // Directory is deleted after we've visited (deleted) all its contents, so
+                        // it
+                        // should be empty by now.
+                        Files.delete(dir);
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
     }
 
     /**
@@ -1416,7 +2042,6 @@ public class VirtualMachine implements AutoCloseable {
      */
     @TestApi
     @RequiresPermission(USE_CUSTOM_VIRTUAL_MACHINE_PERMISSION)
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     public void enableTestAttestation() throws VirtualMachineException {
         try {
             mVirtualizationService.getBinder().enableTestAttestation();
@@ -1469,21 +2094,14 @@ public class VirtualMachine implements AutoCloseable {
         String payloadBinaryName = config.getPayloadBinaryName();
 
         StringBuilder result = new StringBuilder();
-        result.append("VirtualMachine(")
-                .append("name:")
-                .append(getName())
-                .append(", ");
+        result.append("VirtualMachine(").append("name:").append(getName()).append(", ");
         if (payloadBinaryName != null) {
             result.append("payload:").append(payloadBinaryName).append(", ");
         }
         if (payloadConfigPath != null) {
-            result.append("config:")
-                    .append(payloadConfigPath)
-                    .append(", ");
+            result.append("config:").append(payloadConfigPath).append(", ");
         }
-        result.append("package: ")
-                .append(mPackageName)
-                .append(")");
+        result.append("package: ").append(mPackageName).append(")");
         return result.toString();
     }
 
@@ -1530,7 +2148,7 @@ public class VirtualMachine implements AutoCloseable {
     private static List<String> parseExtraApkListFromPayloadConfig(JsonReader reader)
             throws VirtualMachineException {
         /*
-         * JSON schema from packages/modules/Virtualization/microdroid/payload/config/src/lib.rs:
+         * JSON schema from packages/modules/Virtualization/microdroid/libs/libmicrodroid_payload_metadata/config/src/lib.rs:
          *
          * <p>{ "extra_apks": [ { "path": "/system/app/foo.apk", }, ... ], ... }
          */
@@ -1591,7 +2209,7 @@ public class VirtualMachine implements AutoCloseable {
             throws VirtualMachineException {
         try (FileChannel idOutput = new FileOutputStream(mInstanceIdPath).getChannel();
                 FileChannel idInput = new AutoCloseInputStream(instanceIdFd).getChannel()) {
-            idOutput.transferFrom(idInput, /*position=*/ 0, idInput.size());
+            idOutput.transferFrom(idInput, /* position= */ 0, idInput.size());
         } catch (IOException e) {
             throw new VirtualMachineException("failed to copy instance_id", e);
         }
@@ -1601,7 +2219,7 @@ public class VirtualMachine implements AutoCloseable {
             throws VirtualMachineException {
         try (FileChannel instance = new FileOutputStream(mInstanceFilePath).getChannel();
                 FileChannel instanceInput = new AutoCloseInputStream(instanceFd).getChannel()) {
-            instance.transferFrom(instanceInput, /*position=*/ 0, instanceInput.size());
+            instance.transferFrom(instanceInput, /* position= */ 0, instanceInput.size());
         } catch (IOException e) {
             throw new VirtualMachineException("failed to transfer instance image", e);
         }
@@ -1611,7 +2229,7 @@ public class VirtualMachine implements AutoCloseable {
             throws VirtualMachineException {
         try (FileChannel storeOutput = new FileOutputStream(mEncryptedStoreFilePath).getChannel();
                 FileChannel storeInput = new AutoCloseInputStream(encryptedStoreFd).getChannel()) {
-            storeOutput.transferFrom(storeInput, /*position=*/ 0, storeInput.size());
+            storeOutput.transferFrom(storeInput, /* position= */ 0, storeInput.size());
         } catch (IOException e) {
             throw new VirtualMachineException("failed to transfer encryptedstore image", e);
         }
@@ -1713,6 +2331,63 @@ public class VirtualMachine implements AutoCloseable {
                 default:
                     return STOP_REASON_UNKNOWN;
             }
+        }
+    }
+
+    /**
+     * Duplicates {@code InputStream} data to multiple {@code OutputStream}. Like the "tee" command.
+     *
+     * <p>Supports non-blocking writes to the output streams by ignoring EAGAIN error.
+     */
+    private static class TeeWorker implements Runnable {
+        private final String mName;
+        private final InputStream mIn;
+        private final List<OutputStream> mOuts;
+
+        TeeWorker(String name, InputStream in, Collection<OutputStream> outs) {
+            mName = name;
+            mIn = in;
+            mOuts = new ArrayList<>(outs);
+        }
+
+        @Override
+        public void run() {
+            byte[] buffer = new byte[2048];
+            try {
+                while (!Thread.interrupted()) {
+                    int len = mIn.read(buffer);
+                    if (len < 0) {
+                        break;
+                    }
+                    for (OutputStream out : mOuts) {
+                        try {
+                            out.write(buffer, 0, len);
+                        } catch (IOException e) {
+                            // EAGAIN is expected because the file description has O_NONBLOCK flag.
+                            if (!isErrnoError(e, OsConstants.EAGAIN)) {
+                                throw e;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Tee " + mName, e);
+            }
+        }
+
+        private static ErrnoException asErrnoException(Throwable e) {
+            if (e instanceof ErrnoException) {
+                return (ErrnoException) e;
+            } else if (e instanceof IOException) {
+                // Try to unwrap ErrnoException#rethrowAsIOException()
+                return asErrnoException(e.getCause());
+            }
+            return null;
+        }
+
+        private static boolean isErrnoError(Exception e, int expectedValue) {
+            ErrnoException errno = asErrnoException(e);
+            return errno != null && errno.errno == expectedValue;
         }
     }
 }

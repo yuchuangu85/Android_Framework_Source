@@ -16,17 +16,23 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.NonNull;
+
+import static com.android.internal.telephony.util.TelephonyUtils.FORCE_VERBOSE_STATE_LOGGING;
+
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.content.Intent;
 import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Message;
+import android.os.UserHandle;
 import android.telephony.SubscriptionManager;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CommandsInterface;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.gsm.SimTlv;
 import com.android.telephony.Rlog;
 
@@ -43,7 +49,6 @@ public class IsimUiccRecords extends IccRecords implements IsimRecords {
     protected static final String LOG_TAG = "IsimUiccRecords";
 
     private static final boolean DBG = true;
-    private static final boolean FORCE_VERBOSE_STATE_LOGGING = false; /* stopship if true */
     private static final boolean VDBG =  FORCE_VERBOSE_STATE_LOGGING ||
             Rlog.isLoggable(LOG_TAG, Log.VERBOSE);
     private static final boolean DUMP_RECORDS = false;  // Note: PII is logged when this is true
@@ -64,6 +69,9 @@ public class IsimUiccRecords extends IccRecords implements IsimRecords {
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private String auth_rsp;
 
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
+
     private static final int TAG_ISIM_VALUE = 0x80;     // From 3GPP TS 31.103
 
     @Override
@@ -78,9 +86,10 @@ public class IsimUiccRecords extends IccRecords implements IsimRecords {
                 + " mSmss TPMR=" + getSmssTpmrValue()) : "");
     }
 
-    public IsimUiccRecords(UiccCardApplication app, Context c, CommandsInterface ci) {
+    public IsimUiccRecords(@NonNull UiccCardApplication app, @NonNull Context c,
+            @NonNull CommandsInterface ci, @NonNull FeatureFlags flags) {
         super(app, c, ci);
-
+        mFeatureFlags = flags;
         mRecordsRequested = false;  // No load request is made till SIM ready
         //todo: currently locked state for ISIM is not handled well and may cause app state to not
         //be broadcast
@@ -387,7 +396,11 @@ public class IsimUiccRecords extends IccRecords implements IsimRecords {
         Intent intent = new Intent(INTENT_ISIM_REFRESH);
         log("send ISim REFRESH: " + INTENT_ISIM_REFRESH);
         SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mParentApp.getPhoneId());
-        mContext.sendBroadcast(intent);
+        if (mFeatureFlags.hsumBroadcast()) {
+            mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+        } else {
+            mContext.sendBroadcast(intent);
+        }
     }
 
     /**

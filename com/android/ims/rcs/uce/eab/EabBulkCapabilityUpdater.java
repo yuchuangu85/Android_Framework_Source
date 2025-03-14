@@ -397,6 +397,7 @@ public final class EabBulkCapabilityUpdater {
         cancelTimeAlert(mContext);
         unRegisterContactProviderListener();
         unRegisterEabUserSettings();
+        mIsCarrierConfigEnabled = false;
     }
 
     private void registerContactProviderListener() {

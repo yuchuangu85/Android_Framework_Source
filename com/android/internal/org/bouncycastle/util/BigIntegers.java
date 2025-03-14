@@ -3,6 +3,11 @@ package com.android.internal.org.bouncycastle.util;
 
 import java.math.BigInteger;
 import java.security.SecureRandom;
+import java.util.Map;
+import java.util.WeakHashMap;
+
+import com.android.internal.org.bouncycastle.math.raw.Mod;
+import com.android.internal.org.bouncycastle.math.raw.Nat;
 
 import com.android.internal.org.bouncycastle.math.raw.Mod;
 import com.android.internal.org.bouncycastle.math.raw.Nat;
@@ -23,7 +28,7 @@ public final class BigIntegers
 
     /**
      * Return the passed in value as an unsigned byte array.
-     * 
+     *
      * @param value the value to be converted.
      * @return a byte array without a leading zero byte if present in the signed encoding.
      */
@@ -31,16 +36,15 @@ public final class BigIntegers
         BigInteger value)
     {
         byte[] bytes = value.toByteArray();
-        
         if (bytes[0] == 0 && bytes.length != 1)
         {
             byte[] tmp = new byte[bytes.length - 1];
-            
+
             System.arraycopy(bytes, 1, tmp, 0, tmp.length);
-            
+
             return tmp;
         }
-        
+
         return bytes;
     }
 
@@ -48,10 +52,8 @@ public final class BigIntegers
      * Return the passed in value as an unsigned byte array of the specified length, padded with
      * leading zeros as necessary..
      *
-     * @param length
-     *            the fixed length of the result
-     * @param value
-     *            the value to be converted.
+     * @param length the fixed length of the result
+     * @param value  the value to be converted.
      * @return a byte array padded to a fixed length with leading zeros.
      */
     public static byte[] asUnsignedByteArray(int length, BigInteger value)
@@ -79,14 +81,10 @@ public final class BigIntegers
      * Write the passed in value as unsigned bytes to the specified buffer range, padded with
      * leading zeros as necessary.
      *
-     * @param value
-     *            the value to be converted.
-     * @param buf
-     *            the buffer to which the value is written.
-     * @param off
-     *            the start offset in array <code>buf</code> at which the data is written.
-     * @param len
-     *            the fixed length of data written (possibly padded with leading zeros).
+     * @param value the value to be converted.
+     * @param buf   the buffer to which the value is written.
+     * @param off   the start offset in array <code>buf</code> at which the data is written.
+     * @param len   the fixed length of data written (possibly padded with leading zeros).
      */
     public static void asUnsignedByteArray(BigInteger value, byte[] buf, int off, int len)
     {
@@ -106,22 +104,23 @@ public final class BigIntegers
         }
 
         int padLen = len - count;
-        Arrays.fill(buf,  off, off + padLen, (byte)0x00);
+        Arrays.fill(buf, off, off + padLen, (byte)0x00);
         System.arraycopy(bytes, start, buf, off + padLen, count);
     }
 
+
     /**
      * Return a random BigInteger not less than 'min' and not greater than 'max'
-     * 
-     * @param min the least value that may be generated
-     * @param max the greatest value that may be generated
+     *
+     * @param min    the least value that may be generated
+     * @param max    the greatest value that may be generated
      * @param random the source of randomness
      * @return a random BigInteger value in the range [min,max]
      */
     public static BigInteger createRandomInRange(
-        BigInteger      min,
-        BigInteger      max,
-        SecureRandom    random)
+        BigInteger min,
+        BigInteger max,
+        SecureRandom random)
     {
         int cmp = min.compareTo(max);
         if (cmp >= 0)
@@ -152,6 +151,7 @@ public final class BigIntegers
         return createRandomBigInteger(max.subtract(min).bitLength() - 1, random).add(min);
     }
 
+
     public static BigInteger fromUnsignedByteArray(byte[] buf)
     {
         return new BigInteger(1, buf);
@@ -168,6 +168,28 @@ public final class BigIntegers
         return new BigInteger(1, mag);
     }
 
+    public static byte byteValueExact(BigInteger x)
+    {
+        // Since Java 1.8 could use BigInteger.byteValueExact instead
+        if (x.bitLength() > 7)
+        {
+            throw new ArithmeticException("BigInteger out of int range");
+        }
+
+        return x.byteValue();
+    }
+
+    public static short shortValueExact(BigInteger x)
+    {
+        // Since Java 1.8 could use BigInteger.shortValueExact instead
+        if (x.bitLength() > 15)
+        {
+            throw new ArithmeticException("BigInteger out of int range");
+        }
+
+        return x.shortValue();
+    }
+
     public static int intValueExact(BigInteger x)
     {
         // Since Java 1.8 could use BigInteger.intValueExact instead
@@ -176,7 +198,7 @@ public final class BigIntegers
             throw new ArithmeticException("BigInteger out of int range");
         }
 
-        return x.intValue(); 
+        return x.intValue();
     }
 
     public static long longValueExact(BigInteger x)
@@ -187,7 +209,7 @@ public final class BigIntegers
             throw new ArithmeticException("BigInteger out of long range");
         }
 
-        return x.longValue(); 
+        return x.longValue();
     }
 
     public static BigInteger modOddInverse(BigInteger M, BigInteger X)
@@ -266,7 +288,7 @@ public final class BigIntegers
      * Return a positive BigInteger in the range of 0 to 2**bitLength - 1.
      *
      * @param bitLength maximum bit length for the generated BigInteger.
-     * @param random a source of randomness.
+     * @param random    a source of randomness.
      * @return a positive BigInteger
      */
     public static BigInteger createRandomBigInteger(int bitLength, SecureRandom random)
@@ -276,7 +298,7 @@ public final class BigIntegers
 
     // Hexadecimal value of the product of the 131 smallest odd primes from 3 to 743
     private static final BigInteger SMALL_PRIMES_PRODUCT = new BigInteger(
-              "8138e8a0fcf3a4e84a771d40fd305d7f4aa59306d7251de54d98af8fe95729a1f"
+        "8138e8a0fcf3a4e84a771d40fd305d7f4aa59306d7251de54d98af8fe95729a1f"
             + "73d893fa424cd2edc8636a6c3285e022b0e3866a565ae8108eed8591cd4fe8d2"
             + "ce86165a978d719ebf647f362d33fca29cd179fb42401cbaf3df0c614056f9c8"
             + "f3cfd51e474afb6bc6974f78db8aba8e9e517fded658591ab7502bd41849462f",
@@ -287,7 +309,7 @@ public final class BigIntegers
      * Return a prime number candidate of the specified bit length.
      *
      * @param bitLength bit length for the generated BigInteger.
-     * @param random a source of randomness.
+     * @param random    a source of randomness.
      * @return a positive BigInteger of numBits length
      */
     public static BigInteger createRandomPrime(int bitLength, int certainty, SecureRandom random)
@@ -348,5 +370,42 @@ public final class BigIntegers
         rv[0] &= (byte)(255 >>> xBits);
 
         return rv;
+    }
+
+    /**
+     * @hide This class is not part of the Android public SDK API
+     */
+    public static class Cache
+    {
+        private final Map<BigInteger, Boolean> values = new WeakHashMap<BigInteger, Boolean>();
+        private final BigInteger[] preserve = new BigInteger[8];
+
+        private int preserveCounter = 0;
+
+        public synchronized void add(BigInteger value)
+        {
+            values.put(value, Boolean.TRUE);
+            preserve[preserveCounter] = value;
+            preserveCounter = (preserveCounter + 1) % preserve.length;
+        }
+
+        public synchronized boolean contains(BigInteger value)
+        {
+            return values.containsKey(value);
+        }
+
+        public synchronized int size()
+        {
+            return values.size();
+        }
+
+        public synchronized void clear()
+        {
+            values.clear();
+            for (int i = 0; i != preserve.length; i++)
+            {
+                preserve[i] = null;
+            }
+        }
     }
 }

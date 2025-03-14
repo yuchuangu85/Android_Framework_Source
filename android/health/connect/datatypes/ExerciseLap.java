@@ -108,7 +108,7 @@ public final class ExerciseLap implements TimeInterval.TimeIntervalHolder {
     public ExerciseLapInternal toExerciseLapInternal() {
         ExerciseLapInternal internalLap =
                 new ExerciseLapInternal()
-                        .setStarTime(getStartTime().toEpochMilli())
+                        .setStartTime(getStartTime().toEpochMilli())
                         .setEndTime(getEndTime().toEpochMilli());
         if (getLength() != null) {
             internalLap.setLength(getLength().getInMeters());

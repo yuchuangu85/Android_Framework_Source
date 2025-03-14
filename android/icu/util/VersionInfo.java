@@ -12,6 +12,8 @@ package android.icu.util;
 
 import java.util.concurrent.ConcurrentHashMap;
 
+import android.icu.impl.ICUData;
+
 /**
  * Class to store version numbers of the form major.minor.milli.micro.
  * @author synwee
@@ -180,8 +182,13 @@ public final class VersionInfo implements Comparable<VersionInfo>
     /**
      * Unicode 15.1 version
      */
-    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
     public static final VersionInfo UNICODE_15_1;
+
+    /**
+     * Unicode 16.0 version
+     */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final VersionInfo UNICODE_16_0;
 
     /**
      * ICU4J current release version
@@ -189,14 +196,15 @@ public final class VersionInfo implements Comparable<VersionInfo>
     public static final VersionInfo ICU_VERSION;
 
     /**
-     * Data version string for ICU's internal data.
+     * Data version string for ICU's data file.
+     * Not used when loading from resources packaged in the .jar.
      * Used for appending to data path (e.g. icudt43b)
      * @deprecated This API is ICU internal only.
      * @hide original deprecated declaration
      * @hide draft / provisional / internal are hidden on Android
      */
     @Deprecated
-    public static final String ICU_DATA_VERSION_PATH = "75b";
+    public static final String ICU_DATA_VERSION_PATH = "76b";
 
     /**
      * Data version in ICU4J.
@@ -526,10 +534,11 @@ public final class VersionInfo implements Comparable<VersionInfo>
         UNICODE_14_0   = getInstance(14, 0, 0, 0);
         UNICODE_15_0   = getInstance(15, 0, 0, 0);
         UNICODE_15_1   = getInstance(15, 1, 0, 0);
+        UNICODE_16_0   = getInstance(16, 0, 0, 0);
 
-        ICU_VERSION   = getInstance(75, 1, 0, 0);
+        ICU_VERSION   = getInstance(76, 1, 0, 0);
         ICU_DATA_VERSION = ICU_VERSION;
-        UNICODE_VERSION = UNICODE_15_1;
+        UNICODE_VERSION = UNICODE_16_0;
 
         UCOL_RUNTIME_VERSION = getInstance(9);
         UCOL_BUILDER_VERSION = getInstance(9);
@@ -650,8 +659,8 @@ public final class VersionInfo implements Comparable<VersionInfo>
         if (TZDATA_VERSION == null) {
             synchronized (VersionInfo.class) {
                 if (TZDATA_VERSION == null) {
-                    UResourceBundle tzbundle = UResourceBundle.getBundleInstance("android/icu/impl/data/icudt"
-                            + VersionInfo.ICU_DATA_VERSION_PATH, "zoneinfo64");
+                    UResourceBundle tzbundle =
+                            UResourceBundle.getBundleInstance("android/icu/impl/" + ICUData.ICU_BUNDLE, "zoneinfo64");
                     TZDATA_VERSION = tzbundle.getString("TZVersion");
                 }
             }

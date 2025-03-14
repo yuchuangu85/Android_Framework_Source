@@ -18,6 +18,7 @@ import com.android.org.bouncycastle.crypto.Digest;
 // Android-changed: Use Android digests
 // import org.bouncycastle.crypto.digests.SHA1Digest;
 import com.android.org.bouncycastle.crypto.digests.AndroidDigestFactory;
+import com.android.org.bouncycastle.util.Arrays;
 import com.android.org.bouncycastle.util.encoders.Hex;
 
 /**
@@ -175,7 +176,7 @@ public class AuthorityKeyIdentifier
         GeneralNames            name,
         BigInteger              serialNumber)
     {
-        this.keyidentifier = (keyIdentifier != null) ? new DEROctetString(keyIdentifier) : null;
+        this.keyidentifier = (keyIdentifier != null) ? new DEROctetString(Arrays.clone(keyIdentifier)) : null;
         this.certissuer = name;
         this.certserno = (serialNumber != null) ? new ASN1Integer(serialNumber) : null;
     }
@@ -232,6 +233,7 @@ public class AuthorityKeyIdentifier
 
     public String toString()
     {
+        // -DM Hex.toHexString
         String keyID = (keyidentifier != null) ? Hex.toHexString(keyidentifier.getOctets()) : "null";
 
         return "AuthorityKeyIdentifier: KeyID(" + keyID + ")";

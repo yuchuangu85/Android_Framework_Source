@@ -19,12 +19,9 @@ package android.adservices.ondevicepersonalization;
 import android.adservices.ondevicepersonalization.aidl.IDataAccessService;
 import android.adservices.ondevicepersonalization.aidl.IFederatedComputeService;
 import android.adservices.ondevicepersonalization.aidl.IIsolatedModelService;
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.SystemClock;
-
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 
 import java.util.Objects;
 
@@ -32,7 +29,6 @@ import java.util.Objects;
  * An opaque token that identifies the current request to an {@link IsolatedService}. This token
  * must be passed as a parameter to all service methods that depend on per-request state.
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public class RequestToken {
     @NonNull
     private final IDataAccessService mDataAccessService;

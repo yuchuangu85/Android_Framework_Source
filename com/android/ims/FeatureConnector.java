@@ -260,7 +260,9 @@ public class FeatureConnector<U extends FeatureUpdates> {
 
     // Check if this ImsFeature is supported or not.
     private boolean isSupported() {
-        return mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEPHONY_IMS);
+        PackageManager pm = mContext.getPackageManager();
+        if (pm == null) return false;
+        return pm.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_IMS);
     }
 
     /**

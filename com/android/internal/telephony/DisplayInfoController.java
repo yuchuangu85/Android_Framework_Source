@@ -87,31 +87,39 @@ public class DisplayInfoController extends Handler {
         mLogTag = "DIC-" + mPhone.getPhoneId();
         mServiceState = mPhone.getServiceStateTracker().getServiceState();
         mConfigs = new PersistableBundle();
+        CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
         try {
-            mConfigs = mPhone.getContext().getSystemService(CarrierConfigManager.class)
-                    .getConfigForSubId(mPhone.getSubId(),
-                            CarrierConfigManager.KEY_SHOW_ROAMING_INDICATOR_BOOL);
+            if (ccm != null) {
+                mConfigs = ccm.getConfigForSubId(mPhone.getSubId(),
+                        CarrierConfigManager.KEY_SHOW_ROAMING_INDICATOR_BOOL);
+            }
         } catch (Exception ignored) {
             // CarrierConfigLoader might not be available yet.
             // Once it's available, configs will be updated through the listener.
         }
         mPhone.getServiceStateTracker()
                 .registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
-        mPhone.getContext().getSystemService(CarrierConfigManager.class)
-                .registerCarrierConfigChangeListener(Runnable::run,
-                        (slotIndex, subId, carrierId, specificCarrierId) -> {
-                            if (slotIndex == mPhone.getPhoneId()) {
-                                obtainMessage(EVENT_CARRIER_CONFIG_CHANGED).sendToTarget();
-                            }
-                        });
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(Runnable::run,
+                    (slotIndex, subId, carrierId, specificCarrierId) -> {
+                        if (slotIndex == mPhone.getPhoneId()) {
+                            obtainMessage(EVENT_CARRIER_CONFIG_CHANGED).sendToTarget();
+                        }
+                    });
+        }
         mTelephonyDisplayInfo = new TelephonyDisplayInfo(
                 TelephonyManager.NETWORK_TYPE_UNKNOWN,
                 TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NONE,
-                false);
+                false, false, false);
         mNetworkTypeController = new NetworkTypeController(phone, this, featureFlags);
         // EVENT_UPDATE will transition from DefaultState to the current state
         // and update the TelephonyDisplayInfo based on the current state.
         mNetworkTypeController.sendMessage(NetworkTypeController.EVENT_UPDATE);
+
+        // To Support Satellite bandwidth constrained data capability status at telephony
+        // display info
+        log("register for satellite network callback");
+        mNetworkTypeController.registerForSatelliteNetwork();
     }
 
     /**
@@ -126,17 +134,23 @@ public class DisplayInfoController extends Handler {
      * NetworkTypeController.
      */
     public void updateTelephonyDisplayInfo() {
-        TelephonyDisplayInfo newDisplayInfo = new TelephonyDisplayInfo(
-                mNetworkTypeController.getDataNetworkType(),
-                mNetworkTypeController.getOverrideNetworkType(),
-                isRoaming());
-        if (!newDisplayInfo.equals(mTelephonyDisplayInfo)) {
-            logl("TelephonyDisplayInfo changed from " + mTelephonyDisplayInfo + " to "
-                    + newDisplayInfo);
-            validateDisplayInfo(newDisplayInfo);
-            mTelephonyDisplayInfo = newDisplayInfo;
-            mTelephonyDisplayInfoChangedRegistrants.notifyRegistrants();
-            mPhone.notifyDisplayInfoChanged(mTelephonyDisplayInfo);
+        if (mNetworkTypeController != null && mServiceState != null) {
+            TelephonyDisplayInfo newDisplayInfo = new TelephonyDisplayInfo(
+                    mNetworkTypeController.getDataNetworkType(),
+                    mNetworkTypeController.getOverrideNetworkType(),
+                    isRoaming(),
+                    mServiceState.isUsingNonTerrestrialNetwork(),
+                    mNetworkTypeController.getSatelliteConstrainedData());
+            if (!newDisplayInfo.equals(mTelephonyDisplayInfo)) {
+                logl("TelephonyDisplayInfo changed from " + mTelephonyDisplayInfo + " to "
+                        + newDisplayInfo);
+                validateDisplayInfo(newDisplayInfo);
+                mTelephonyDisplayInfo = newDisplayInfo;
+                mTelephonyDisplayInfoChangedRegistrants.notifyRegistrants();
+                mPhone.notifyDisplayInfoChanged(mTelephonyDisplayInfo);
+            }
+        } else {
+            loge("Found null object");
         }
     }
 
@@ -150,8 +164,7 @@ public class DisplayInfoController extends Handler {
      */
     private boolean isRoaming() {
         boolean roaming = mServiceState.getRoaming();
-        if (roaming && mFeatureFlags.hideRoamingIcon()
-                && !mConfigs.getBoolean(CarrierConfigManager.KEY_SHOW_ROAMING_INDICATOR_BOOL)) {
+        if (roaming && !mConfigs.getBoolean(CarrierConfigManager.KEY_SHOW_ROAMING_INDICATOR_BOOL)) {
             logl("Override roaming for display due to carrier configs.");
             roaming = false;
         }

@@ -16,9 +16,11 @@
 package android.adservices.measurement;
 
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_ATTRIBUTION;
+import static android.adservices.common.AndroidRCommonUtil.invokeCallbackOnErrorOnRvc;
 
 import android.adservices.common.AdServicesOutcomeReceiver;
 import android.adservices.common.OutcomeReceiverConverter;
+import android.adservices.exceptions.AdServicesException;
 import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
@@ -43,6 +45,7 @@ import java.util.Objects;
 import java.util.concurrent.Executor;
 
 /** MeasurementManager provides APIs to manage source and trigger registrations. */
+@SuppressWarnings("NewApi")
 public class MeasurementManager {
     /** @hide */
     public static final String MEASUREMENT_SERVICE = "measurement_service";
@@ -96,7 +99,7 @@ public class MeasurementManager {
     }
 
     /**
-     * Create MeasurementManager
+     * Creates MeasurementManager
      *
      * @param compatibleManager the underlying implementation that can be mocked for tests
      * @hide
@@ -123,7 +126,7 @@ public class MeasurementManager {
     }
 
     /**
-     * Register an attribution source (click or view).
+     * Registers an attribution source (click or view).
      *
      * @param attributionSource the platform issues a request to this URI in order to fetch metadata
      *     associated with the attribution source. The source metadata is stored on device, making
@@ -141,15 +144,11 @@ public class MeasurementManager {
             @Nullable InputEvent inputEvent,
             @Nullable @CallbackExecutor Executor executor,
             @Nullable OutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerSource(
-                attributionSource,
-                inputEvent,
-                executor,
-                OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
+        mImpl.registerSource(attributionSource, inputEvent, executor, callback);
     }
 
     /**
-     * Register an attribution source (click or view). For use on Android R or lower.
+     * Registers an attribution source (click or view). For use on Android R or lower.
      *
      * @param attributionSource the platform issues a request to this URI in order to fetch metadata
      *     associated with the attribution source. The source metadata is stored on device, making
@@ -158,20 +157,33 @@ public class MeasurementManager {
      *     event).
      * @param executor used by callback to dispatch results.
      * @param callback intended to notify asynchronously the API result.
+     * @deprecated use {@link #registerSource(Uri, InputEvent, Executor, OutcomeReceiver)} instead.
+     *     Android R is no longer supported.
      */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
     @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
     public void registerSource(
             @NonNull Uri attributionSource,
             @Nullable InputEvent inputEvent,
             @Nullable @CallbackExecutor Executor executor,
             @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerSource(attributionSource, inputEvent, executor, callback);
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            return;
+        }
+
+        mImpl.registerSource(
+                attributionSource,
+                inputEvent,
+                executor,
+                OutcomeReceiverConverter.toOutcomeReceiver(callback));
     }
 
     /**
-     * Register attribution sources(click or view) from an app context. This API will not process
-     * any redirects, all registration URLs should be supplied with the request.
+     * Registers attribution sources(click or view) from an app context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request.
      *
      * @param request app source registration request
      * @param executor used by callback to dispatch results
@@ -183,36 +195,46 @@ public class MeasurementManager {
             @NonNull SourceRegistrationRequest request,
             @Nullable @CallbackExecutor Executor executor,
             @Nullable OutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerSource(
-                request, executor, OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
-    }
-
-    /**
-     * Register attribution sources(click or view) from an app context. This API will not process
-     * any redirects, all registration URLs should be supplied with the request. For use on Android
-     * R or lower.
-     *
-     * @param request app source registration request
-     * @param executor used by callback to dispatch results
-     * @param callback intended to notify asynchronously the API result
-     */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
-    @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
-    public void registerSource(
-            @NonNull SourceRegistrationRequest request,
-            @Nullable @CallbackExecutor Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
         mImpl.registerSource(request, executor, callback);
     }
 
     /**
-     * Register an attribution source(click or view) from web context. This API will not process any
-     * redirects, all registration URLs should be supplied with the request. At least one of
-     * appDestination or webDestination parameters are required to be provided. If the registration
-     * is successful, {@code callback}'s {@link OutcomeReceiver#onResult} is invoked with null. In
-     * case of failure, a {@link Exception} is sent through {@code callback}'s {@link
-     * OutcomeReceiver#onError}. Both success and failure feedback are executed on the provided
-     * {@link Executor}.
+     * Registers attribution sources(click or view) from an app context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request. For use on Android R or lower.
+     *
+     * @param request app source registration request
+     * @param executor used by callback to dispatch results
+     * @param callback intended to notify asynchronously the API result
+     * @deprecated use {@link #registerSource(SourceRegistrationRequest, Executor, OutcomeReceiver)}
+     *     instead. Android R is no longer supported.
+     */
+    @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
+    public void registerSource(
+            @NonNull SourceRegistrationRequest request,
+            @Nullable @CallbackExecutor Executor executor,
+            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            callback.onError(new AdServicesException("AdServices is not supported on Android R"));
+            return;
+        }
+
+        mImpl.registerSource(
+                request, executor, OutcomeReceiverConverter.toOutcomeReceiver(callback));
+    }
+
+    /**
+     * Registers an attribution source(click or view) from web context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request. At least one of appDestination or webDestination parameters are required to be
+     * provided. If the registration is successful, {@code callback}'s {@link
+     * OutcomeReceiver#onResult} is invoked with null. In case of failure, a {@link Exception} is
+     * sent through {@code callback}'s {@link OutcomeReceiver#onError}. Both success and failure
+     * feedback are executed on the provided {@link Executor}.
      *
      * @param request source registration request
      * @param executor used by callback to dispatch results.
@@ -224,41 +246,50 @@ public class MeasurementManager {
             @NonNull WebSourceRegistrationRequest request,
             @Nullable Executor executor,
             @Nullable OutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerWebSource(
-                request, executor, OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
-    }
-
-    /**
-     * Register an attribution source(click or view) from web context. This API will not process any
-     * redirects, all registration URLs should be supplied with the request. At least one of
-     * appDestination or webDestination parameters are required to be provided. If the registration
-     * is successful, {@code callback}'s {@link OutcomeReceiver#onResult} is invoked with null. In
-     * case of failure, a {@link Exception} is sent through {@code callback}'s {@link
-     * OutcomeReceiver#onError}. Both success and failure feedback are executed on the provided
-     * {@link Executor}.
-     *
-     * <p>For use on Android R or lower.
-     *
-     * @param request source registration request
-     * @param executor used by callback to dispatch results.
-     * @param callback intended to notify asynchronously the API result.
-     */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
-    @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
-    public void registerWebSource(
-            @NonNull WebSourceRegistrationRequest request,
-            @Nullable Executor executor,
-            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
         mImpl.registerWebSource(request, executor, callback);
     }
 
     /**
-     * Register an attribution trigger(click or view) from web context. This API will not process
-     * any redirects, all registration URLs should be supplied with the request. If the registration
-     * is successful, {@code callback}'s {@link OutcomeReceiver#onResult} is invoked with null. In
-     * case of failure, a {@link Exception} is sent through {@code callback}'s {@link
-     * OutcomeReceiver#onError}. Both success and failure feedback are executed on the provided
-     * {@link Executor}.
+     * Registers an attribution source(click or view) from web context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request. At least one of appDestination or webDestination parameters are required to be
+     * provided. If the registration is successful, {@code callback}'s {@link
+     * OutcomeReceiver#onResult} is invoked with null. In case of failure, a {@link Exception} is
+     * sent through {@code callback}'s {@link OutcomeReceiver#onError}. Both success and failure
+     * feedback are executed on the provided {@link Executor}.
+     *
+     * <p>For use on Android R or lower.
+     *
+     * @param request source registration request
+     * @param executor used by callback to dispatch results.
+     * @param callback intended to notify asynchronously the API result.
+     * @deprecated use {@link #registerWebSource(WebSourceRegistrationRequest, Executor,
+     *     OutcomeReceiver)} instead. Android R is no longer supported.
+     */
+    @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
+    public void registerWebSource(
+            @NonNull WebSourceRegistrationRequest request,
+            @Nullable Executor executor,
+            @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            return;
+        }
+
+        mImpl.registerWebSource(
+                request, executor, OutcomeReceiverConverter.toOutcomeReceiver(callback));
+    }
+
+    /**
+     * Registers an attribution trigger(click or view) from web context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request. If the registration is successful, {@code callback}'s {@link
+     * OutcomeReceiver#onResult} is invoked with null. In case of failure, a {@link Exception} is
+     * sent through {@code callback}'s {@link OutcomeReceiver#onError}. Both success and failure
+     * feedback are executed on the provided {@link Executor}.
      *
      * @param request trigger registration request
      * @param executor used by callback to dispatch results
@@ -270,35 +301,43 @@ public class MeasurementManager {
             @NonNull WebTriggerRegistrationRequest request,
             @Nullable Executor executor,
             @Nullable OutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerWebTrigger(
-                request, executor, OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
+        mImpl.registerWebTrigger(request, executor, callback);
     }
 
     /**
-     * Register an attribution trigger(click or view) from web context. This API will not process
-     * any redirects, all registration URLs should be supplied with the request. If the registration
-     * is successful, {@code callback}'s {@link OutcomeReceiver#onResult} is invoked with null. In
-     * case of failure, a {@link Exception} is sent through {@code callback}'s {@link
-     * OutcomeReceiver#onError}. Both success and failure feedback are executed on the provided
-     * {@link Executor}.
+     * Registers an attribution trigger(click or view) from web context.
+     *
+     * <p>This API will not process any redirects, all registration URLs should be supplied with the
+     * request. If the registration is successful, {@code callback}'s {@link
+     * OutcomeReceiver#onResult} is invoked with null. In case of failure, a {@link Exception} is
+     * sent through {@code callback}'s {@link OutcomeReceiver#onError}. Both success and failure
+     * feedback are executed on the provided {@link Executor}.
      *
      * <p>For use on Android R or lower.
      *
      * @param request trigger registration request
      * @param executor used by callback to dispatch results
      * @param callback intended to notify asynchronously the API result
+     * @deprecated use {@link #registerWebTrigger(WebTriggerRegistrationRequest, Executor,
+     *     OutcomeReceiver)} instead. Anrdoid R is no longer supported.
      */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
     @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
     public void registerWebTrigger(
             @NonNull WebTriggerRegistrationRequest request,
             @Nullable Executor executor,
             @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerWebTrigger(request, executor, callback);
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            return;
+        }
+
+        mImpl.registerWebTrigger(
+                request, executor, OutcomeReceiverConverter.toOutcomeReceiver(callback));
     }
 
     /**
-     * Register a trigger (conversion).
+     * Registers a trigger (conversion).
      *
      * @param trigger the API issues a request to this URI to fetch metadata associated with the
      *     trigger. The trigger metadata is stored on-device, and is eligible to be matched with
@@ -313,33 +352,42 @@ public class MeasurementManager {
             @NonNull Uri trigger,
             @Nullable @CallbackExecutor Executor executor,
             @Nullable OutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerTrigger(
-                trigger, executor, OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
+        mImpl.registerTrigger(trigger, executor, callback);
     }
 
     /**
-     * Register a trigger (conversion). For use on Android R or lower.
+     * Registers a trigger (conversion). For use on Android R or lower.
      *
      * @param trigger the API issues a request to this URI to fetch metadata associated with the
      *     trigger. The trigger metadata is stored on-device, and is eligible to be matched with
      *     sources during the attribution process.
      * @param executor used by callback to dispatch results.
      * @param callback intended to notify asynchronously the API result.
+     * @deprecated use {@link #registerTrigger(Uri, Executor, OutcomeReceiver)} instead. Android R
+     *     is no longer supported.
      */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
     @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
     public void registerTrigger(
             @NonNull Uri trigger,
             @Nullable @CallbackExecutor Executor executor,
             @Nullable AdServicesOutcomeReceiver<Object, Exception> callback) {
-        mImpl.registerTrigger(trigger, executor, callback);
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            return;
+        }
+
+        mImpl.registerTrigger(
+                trigger, executor, OutcomeReceiverConverter.toOutcomeReceiver(callback));
     }
 
     /**
-     * Delete previous registrations. If the deletion is successful, the callback's {@link
-     * OutcomeReceiver#onResult} is invoked with null. In case of failure, a {@link Exception} is
-     * sent through the callback's {@link OutcomeReceiver#onError}. Both success and failure
-     * feedback are executed on the provided {@link Executor}.
+     * Deletes previous registrations.
+     *
+     * <p>If the deletion is successful, the callback's {@link OutcomeReceiver#onResult} is invoked
+     * with null. In case of failure, a {@link Exception} is sent through the callback's {@link
+     * OutcomeReceiver#onError}. Both success and failure feedback are executed on the provided
+     * {@link Executor}.
      *
      * @param deletionRequest The request for deleting data.
      * @param executor The executor to run callback.
@@ -350,34 +398,41 @@ public class MeasurementManager {
             @NonNull DeletionRequest deletionRequest,
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Object, Exception> callback) {
-        mImpl.deleteRegistrations(
-                deletionRequest,
-                executor,
-                OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
+        mImpl.deleteRegistrations(deletionRequest, executor, callback);
     }
 
     /**
-     * Delete previous registrations. If the deletion is successful, the callback's {@link
-     * OutcomeReceiver#onResult} is invoked with null. In case of failure, a {@link Exception} is
-     * sent through the callback's {@link OutcomeReceiver#onError}. Both success and failure
-     * feedback are executed on the provided {@link Executor}.
+     * Deletes previous registrations.
+     *
+     * <p>If the deletion is successful, the callback's {@link OutcomeReceiver#onResult} is invoked
+     * with null. In case of failure, a {@link Exception} is sent through the callback's {@link
+     * OutcomeReceiver#onError}. Both success and failure feedback are executed on the provided
+     * {@link Executor}.
      *
      * <p>For use on Android R or lower.
      *
      * @param deletionRequest The request for deleting data.
      * @param executor The executor to run callback.
      * @param callback intended to notify asynchronously the API result.
+     * @deprecated use {@link #deleteRegistrations(DeletionRequest, Executor, OutcomeReceiver)}
+     *     instead. Android R is no longer supported.
      */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
     public void deleteRegistrations(
             @NonNull DeletionRequest deletionRequest,
             @NonNull @CallbackExecutor Executor executor,
             @NonNull AdServicesOutcomeReceiver<Object, Exception> callback) {
-        mImpl.deleteRegistrations(deletionRequest, executor, callback);
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            return;
+        }
+
+        mImpl.deleteRegistrations(
+                deletionRequest, executor, OutcomeReceiverConverter.toOutcomeReceiver(callback));
     }
 
     /**
-     * Get Measurement API status.
+     * Gets Measurement API status.
      *
      * <p>The callback's {@code Integer} value is one of {@code MeasurementApiState}.
      *
@@ -389,12 +444,11 @@ public class MeasurementManager {
     public void getMeasurementApiStatus(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Integer, Exception> callback) {
-        mImpl.getMeasurementApiStatus(
-                executor, OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
+        mImpl.getMeasurementApiStatus(executor, callback);
     }
 
     /**
-     * Get Measurement API status.
+     * Gets Measurement API status.
      *
      * <p>The callback's {@code Integer} value is one of {@code MeasurementApiState}.
      *
@@ -402,13 +456,21 @@ public class MeasurementManager {
      *
      * @param executor used by callback to dispatch results.
      * @param callback intended to notify asynchronously the API result.
+     * @deprecated use {@link #getMeasurementApiStatus(Executor, OutcomeReceiver)} instead. Android
+     *     R is no longer supported.
      */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
     @RequiresPermission(ACCESS_ADSERVICES_ATTRIBUTION)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
     public void getMeasurementApiStatus(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull AdServicesOutcomeReceiver<Integer, Exception> callback) {
-        mImpl.getMeasurementApiStatus(executor, callback);
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            return;
+        }
+
+        mImpl.getMeasurementApiStatus(
+                executor, OutcomeReceiverConverter.toOutcomeReceiver(callback));
     }
 
     /**

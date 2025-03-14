@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash 2f49c78011338b42b43d5d0e250d9b520850cc1f -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen/android/hardware/thermal/IThermalChangedCallback.java.d -o out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen -Nhardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2 hardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2/android/hardware/thermal/IThermalChangedCallback.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 4c4fc474c40b64963eb8d78b713b1095fecd72f0 -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V3-java-source/gen/android/hardware/thermal/IThermalChangedCallback.java.d -o out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V3-java-source/gen -Nhardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/3 hardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/3/android/hardware/thermal/IThermalChangedCallback.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.thermal;
 /** @hide */
@@ -12,12 +16,15 @@ public interface IThermalChangedCallback extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "2f49c78011338b42b43d5d0e250d9b520850cc1f";
+  public static final int VERSION = 3;
+  public static final String HASH = "4c4fc474c40b64963eb8d78b713b1095fecd72f0";
   /** Default implementation for IThermalChangedCallback. */
   public static class Default implements android.hardware.thermal.IThermalChangedCallback
   {
     @Override public void notifyThrottling(android.hardware.thermal.Temperature temperature) throws android.os.RemoteException
+    {
+    }
+    @Override public void notifyThresholdChanged(android.hardware.thermal.TemperatureThreshold threshold) throws android.os.RemoteException
     {
     }
     @Override
@@ -36,7 +43,7 @@ public interface IThermalChangedCallback extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.thermal.IThermalChangedCallback
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -70,6 +77,10 @@ public interface IThermalChangedCallback extends android.os.IInterface
         case TRANSACTION_notifyThrottling:
         {
           return "notifyThrottling";
+        }
+        case TRANSACTION_notifyThresholdChanged:
+        {
+          return "notifyThresholdChanged";
         }
         case TRANSACTION_getInterfaceVersion:
         {
@@ -120,6 +131,14 @@ public interface IThermalChangedCallback extends android.os.IInterface
           this.notifyThrottling(_arg0);
           break;
         }
+        case TRANSACTION_notifyThresholdChanged:
+        {
+          android.hardware.thermal.TemperatureThreshold _arg0;
+          _arg0 = data.readTypedObject(android.hardware.thermal.TemperatureThreshold.CREATOR);
+          data.enforceNoDataAvail();
+          this.notifyThresholdChanged(_arg0);
+          break;
+        }
         default:
         {
           return super.onTransact(code, data, reply, flags);
@@ -153,6 +172,21 @@ public interface IThermalChangedCallback extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_notifyThrottling, _data, null, android.os.IBinder.FLAG_ONEWAY);
           if (!_status) {
             throw new android.os.RemoteException("Method notifyThrottling is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void notifyThresholdChanged(android.hardware.thermal.TemperatureThreshold threshold) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(threshold, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_notifyThresholdChanged, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method notifyThresholdChanged is unimplemented.");
           }
         }
         finally {
@@ -195,6 +229,7 @@ public interface IThermalChangedCallback extends android.os.IInterface
       }
     }
     static final int TRANSACTION_notifyThrottling = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
+    static final int TRANSACTION_notifyThresholdChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
     /** @hide */
@@ -206,6 +241,7 @@ public interface IThermalChangedCallback extends android.os.IInterface
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$thermal$IThermalChangedCallback".replace('$', '.');
   public void notifyThrottling(android.hardware.thermal.Temperature temperature) throws android.os.RemoteException;
+  public void notifyThresholdChanged(android.hardware.thermal.TemperatureThreshold threshold) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

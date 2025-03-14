@@ -87,7 +87,7 @@ public final class SkinTemperatureRecordInternal
 
     @NonNull
     @Override
-    public Set<? extends Sample> getSamples() {
+    public Set<SkinTemperatureDeltaSample> getSamples() {
         return mDeltaSamples;
     }
 
@@ -131,8 +131,40 @@ public final class SkinTemperatureRecordInternal
         return this;
     }
 
-    public record SkinTemperatureDeltaSample(double mTemperatureDeltaInCelsius, long mEpochMillis)
-            implements Sample {}
+    // TODO: b/378992079 - Use "java record" class when supported by ApiDocs.
+    public static final class SkinTemperatureDeltaSample implements Sample {
+        private final double mTemperatureDeltaInCelsius;
+        private final long mEpochMillis;
+
+        public SkinTemperatureDeltaSample(double temperatureDeltaInCelsius, long epochMillis) {
+            mTemperatureDeltaInCelsius = temperatureDeltaInCelsius;
+            mEpochMillis = epochMillis;
+        }
+
+        public double mTemperatureDeltaInCelsius() {
+            return mTemperatureDeltaInCelsius;
+        }
+
+        public long mEpochMillis() {
+            return mEpochMillis;
+        }
+
+        @Override
+        public boolean equals(@Nullable Object object) {
+            if (super.equals(object)
+                    && object instanceof SkinTemperatureRecordInternal.SkinTemperatureDeltaSample) {
+                SkinTemperatureRecordInternal.SkinTemperatureDeltaSample other =
+                        (SkinTemperatureRecordInternal.SkinTemperatureDeltaSample) object;
+                return mEpochMillis() == other.mEpochMillis();
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(mEpochMillis());
+        }
+    }
 
     private List<SkinTemperatureRecord.Delta> getExternalDeltas() {
         List<SkinTemperatureRecord.Delta> skinTemperatureDeltas =

@@ -36,6 +36,20 @@ import java.util.UUID;
  * <p>See {@link android.media.MediaPlayer#getAudioSessionId()} for details on audio sessions.
  * <p>See {@link android.media.audiofx.AudioEffect} class for more details on controlling audio
  * effects.
+ *
+ * <pre>{@code
+ * AudioManager audioManager = context.getSystemService(AudioManager.class);
+ * player = MediaPlayer.create(
+ *         context,
+ *         audioUri,
+ *         new AudioAttributes.Builder().setHapticChannelsMuted(false).build(),
+ *         audioManager.generateAudioSessionId()
+ * );
+ * if (HapticGenerator.isAvailable()) {
+ *     HapticGenerator.create(player.getAudioSessionId()).setEnabled(true);
+ * }
+ * player.start();
+ * }</pre>
  */
 public class HapticGenerator extends AudioEffect implements AutoCloseable {
 

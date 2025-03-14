@@ -22,12 +22,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.org.bouncycastle.asn1.ASN1Encoding;
 import com.android.org.bouncycastle.asn1.ASN1InputStream;
 import com.android.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
-import com.android.org.bouncycastle.asn1.DERBitString;
 import com.android.org.bouncycastle.asn1.x509.AttributeCertificate;
 import com.android.org.bouncycastle.asn1.x509.Extension;
 import com.android.org.bouncycastle.asn1.x509.Extensions;
@@ -125,7 +125,7 @@ public class X509V2AttributeCertificate
     
     public boolean[] getIssuerUniqueID()
     {
-        DERBitString    id = cert.getAcinfo().getIssuerUniqueID();
+        ASN1BitString id = cert.getAcinfo().getIssuerUniqueID();
 
         if (id != null)
         {

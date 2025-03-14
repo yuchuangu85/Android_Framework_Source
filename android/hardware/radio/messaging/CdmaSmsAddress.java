@@ -1,15 +1,29 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 30b0bc0e84679bc3b5ccb3a52da34c47cda6b7eb --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V3-java-source/gen/android/hardware/radio/messaging/CdmaSmsAddress.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/3/android/hardware/radio/messaging/CdmaSmsAddress.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash b28416394e6595c08e97c0473855eb05eed1baed --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V4-java-source/gen/android/hardware/radio/messaging/CdmaSmsAddress.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/4/android/hardware/radio/messaging/CdmaSmsAddress.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.messaging;
 /** @hide */
 public class CdmaSmsAddress implements android.os.Parcelable
 {
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public int digitMode = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public boolean isNumberModeDataNetwork = false;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public int numberType = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public int numberPlan = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public byte[] digits;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
@@ -62,31 +76,83 @@ public class CdmaSmsAddress implements android.os.Parcelable
       _aidl_parcel.setDataPosition(_aidl_start_pos + _aidl_parcelable_size);
     }
   }
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int DIGIT_MODE_FOUR_BIT = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int DIGIT_MODE_EIGHT_BIT = 1;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_UNKNOWN = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_TELEPHONY = 1;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_2 = 2;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_DATA = 3;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_TELEX = 4;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_5 = 5;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_6 = 6;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_7 = 7;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_8 = 8;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_PRIVATE = 9;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_10 = 10;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_11 = 11;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_12 = 12;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_13 = 13;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_14 = 14;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_PLAN_RESERVED_15 = 15;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_UNKNOWN = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_INTERNATIONAL_OR_DATA_IP = 1;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_NATIONAL_OR_INTERNET_MAIL = 2;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_NETWORK = 3;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_SUBSCRIBER = 4;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_ALPHANUMERIC = 5;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_ABBREVIATED = 6;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NUMBER_TYPE_RESERVED_7 = 7;
   @Override
   public String toString() {

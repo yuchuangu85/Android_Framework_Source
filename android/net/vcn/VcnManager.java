@@ -28,13 +28,13 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.LinkProperties;
 import android.net.NetworkCapabilities;
-import android.os.Binder;
 import android.os.ParcelUuid;
 import android.os.RemoteException;
 import android.os.ServiceSpecificException;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.annotations.VisibleForTesting.Visibility;
+import com.android.net.module.util.BinderUtils;
 
 import java.io.IOException;
 import java.lang.annotation.Retention;
@@ -76,10 +76,14 @@ import java.util.concurrent.Executor;
  * PackageManager#FEATURE_TELEPHONY_SUBSCRIPTION} before querying the service. If the feature is
  * absent, {@link Context#getSystemService} may return null.
  */
-@SystemService(Context.VCN_MANAGEMENT_SERVICE)
+@SystemService(VcnManager.VCN_MANAGEMENT_SERVICE_STRING)
 @RequiresFeature(PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION)
 public class VcnManager {
     @NonNull private static final String TAG = VcnManager.class.getSimpleName();
+
+    // TODO: b/366598445: Expose and use Context.VCN_MANAGEMENT_SERVICE
+    /** @hide */
+    public static final String VCN_MANAGEMENT_SERVICE_STRING = "vcn_management";
 
     /**
      * Key for WiFi entry RSSI thresholds
@@ -330,7 +334,7 @@ public class VcnManager {
      * @param executor the Executor that will be used for invoking all calls to the specified
      *     Listener
      * @param listener the VcnUnderlyingNetworkPolicyListener to be added
-     * @throws SecurityException if the caller does not have permission NETWORK_FACTORY
+     * @throws SecurityException if the caller does not have the required permission
      * @throws IllegalStateException if the specified VcnUnderlyingNetworkPolicyListener is already
      *     registered
      * @hide
@@ -419,7 +423,7 @@ public class VcnManager {
      * @param executor the Executor that will be used for invoking all calls to the specified
      *     Listener
      * @param listener the VcnNetworkPolicyChangeListener to be added
-     * @throws SecurityException if the caller does not have permission NETWORK_FACTORY
+     * @throws SecurityException if the caller does not have the required permission
      * @throws IllegalStateException if the specified VcnNetworkPolicyChangeListener is already
      *     registered
      * @hide
@@ -451,7 +455,7 @@ public class VcnManager {
      * <p>If the specified listener is not currently registered, this is a no-op.
      *
      * @param listener the VcnNetworkPolicyChangeListener that will be removed
-     * @throws SecurityException if the caller does not have permission NETWORK_FACTORY
+     * @throws SecurityException if the caller does not have the required permission
      * @hide
      */
     @SystemApi
@@ -485,7 +489,7 @@ public class VcnManager {
      *     policy result for this Network.
      * @param linkProperties the LinkProperties to be used in determining the Network policy result
      *     for this Network.
-     * @throws SecurityException if the caller does not have permission NETWORK_FACTORY
+     * @throws SecurityException if the caller does not have the required permission
      * @return the {@link VcnNetworkPolicyResult} to be used for this Network.
      * @hide
      */
@@ -707,7 +711,7 @@ public class VcnManager {
 
         @Override
         public void onPolicyChanged() {
-            Binder.withCleanCallingIdentity(
+            BinderUtils.withCleanCallingIdentity(
                     () -> mExecutor.execute(() -> mListener.onPolicyChanged()));
         }
     }
@@ -730,7 +734,7 @@ public class VcnManager {
 
         @Override
         public void onVcnStatusChanged(@VcnStatusCode int statusCode) {
-            Binder.withCleanCallingIdentity(
+            BinderUtils.withCleanCallingIdentity(
                     () -> mExecutor.execute(() -> mCallback.onStatusChanged(statusCode)));
         }
 
@@ -743,7 +747,7 @@ public class VcnManager {
                 @Nullable String exceptionMessage) {
             final Throwable cause = createThrowableByClassName(exceptionClass, exceptionMessage);
 
-            Binder.withCleanCallingIdentity(
+            BinderUtils.withCleanCallingIdentity(
                     () ->
                             mExecutor.execute(
                                     () ->

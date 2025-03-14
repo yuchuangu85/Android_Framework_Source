@@ -21,6 +21,9 @@ import android.health.connect.HealthConnectException;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+
 /** @hide */
 public final class HealthConnectExceptionParcel implements Parcelable {
 
@@ -58,5 +61,15 @@ public final class HealthConnectExceptionParcel implements Parcelable {
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeInt(mHealthConnectException.getErrorCode());
         dest.writeString(mHealthConnectException.getMessage());
+    }
+
+    @Override
+    public String toString() {
+        StringWriter sw = new StringWriter();
+        if (mHealthConnectException != null) {
+            PrintWriter pw = new PrintWriter(sw);
+            mHealthConnectException.printStackTrace(pw);
+        }
+        return "HealthConnectExceptionParcel: " + mHealthConnectException + "\n" + sw;
     }
 }

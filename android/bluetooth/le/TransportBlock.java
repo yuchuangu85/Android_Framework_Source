@@ -35,6 +35,7 @@ import java.util.Arrays;
  */
 public final class TransportBlock implements Parcelable {
     private static final String TAG = "TransportBlock";
+
     private final int mOrgId;
     private final int mTdsFlags;
     private final int mTransportDataLength;

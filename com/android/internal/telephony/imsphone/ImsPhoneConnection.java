@@ -286,13 +286,13 @@ public class ImsPhoneConnection extends Connection implements
 
         mIsEmergency = isEmergency;
         if (isEmergency) {
-            setEmergencyCallInfo(mOwner);
+            setEmergencyCallInfo(mOwner, dialArgs);
 
             if (getEmergencyNumberInfo() == null) {
                 // There was no emergency number info found for this call, however it is
                 // still marked as an emergency number. This may happen if it was a redialed
                 // non-detectable emergency call from IMS.
-                setNonDetectableEmergencyCallInfo(dialArgs.eccCategory);
+                setNonDetectableEmergencyCallInfo(dialArgs.eccCategory, new ArrayList<String>());
             }
         }
 

@@ -23,6 +23,7 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.database.ContentObserver;
 import android.os.Handler;
+import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.provider.DeviceConfig;
 import android.provider.Settings;
@@ -36,11 +37,13 @@ public class GestureNavigationSettingsObserver extends ContentObserver {
     private Context mContext;
     private Runnable mOnChangeRunnable;
     private Handler mMainHandler;
+    private Handler mBgHandler;
 
-    public GestureNavigationSettingsObserver(Handler handler, Context context,
-            Runnable onChangeRunnable) {
-        super(handler);
-        mMainHandler = handler;
+    public GestureNavigationSettingsObserver(
+            Handler mainHandler, Handler bgHandler, Context context, Runnable onChangeRunnable) {
+        super(mainHandler);
+        mMainHandler = mainHandler;
+        mBgHandler = bgHandler;
         mContext = context;
         mOnChangeRunnable = onChangeRunnable;
     }
@@ -60,45 +63,51 @@ public class GestureNavigationSettingsObserver extends ContentObserver {
      * Registers the observer for all users.
      */
     public void register() {
-        ContentResolver r = mContext.getContentResolver();
-        r.registerContentObserver(
-                Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_LEFT),
-                false, this, UserHandle.USER_ALL);
-        r.registerContentObserver(
-                Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_RIGHT),
-                false, this, UserHandle.USER_ALL);
-        r.registerContentObserver(
-                Settings.Secure.getUriFor(Settings.Secure.USER_SETUP_COMPLETE),
-                false, this, UserHandle.USER_ALL);
-        DeviceConfig.addOnPropertiesChangedListener(
-                DeviceConfig.NAMESPACE_SYSTEMUI,
-                runnable -> mMainHandler.post(runnable),
-                mOnPropertiesChangedListener);
+        mBgHandler.post(() -> {
+            ContentResolver r = mContext.getContentResolver();
+            r.registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_LEFT),
+                    false, this, UserHandle.USER_ALL);
+            r.registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_RIGHT),
+                    false, this, UserHandle.USER_ALL);
+            r.registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.USER_SETUP_COMPLETE),
+                    false, this, UserHandle.USER_ALL);
+            DeviceConfig.addOnPropertiesChangedListener(
+                    DeviceConfig.NAMESPACE_SYSTEMUI,
+                    runnable -> mMainHandler.post(runnable),
+                    mOnPropertiesChangedListener);
+        });
     }
 
     /**
      * Registers the observer for the calling user.
      */
     public void registerForCallingUser() {
-        ContentResolver r = mContext.getContentResolver();
-        r.registerContentObserver(
-                Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_LEFT),
-                false, this);
-        r.registerContentObserver(
-                Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_RIGHT),
-                false, this);
-        r.registerContentObserver(
-                Settings.Secure.getUriFor(Settings.Secure.USER_SETUP_COMPLETE),
-                false, this);
-        DeviceConfig.addOnPropertiesChangedListener(
-                DeviceConfig.NAMESPACE_SYSTEMUI,
-                runnable -> mMainHandler.post(runnable),
-                mOnPropertiesChangedListener);
+        mBgHandler.post(() -> {
+            ContentResolver r = mContext.getContentResolver();
+            r.registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_LEFT),
+                    false, this);
+            r.registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.BACK_GESTURE_INSET_SCALE_RIGHT),
+                    false, this);
+            r.registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.USER_SETUP_COMPLETE),
+                    false, this);
+            DeviceConfig.addOnPropertiesChangedListener(
+                    DeviceConfig.NAMESPACE_SYSTEMUI,
+                    runnable -> mMainHandler.post(runnable),
+                    mOnPropertiesChangedListener);
+        });
     }
 
     public void unregister() {
-        mContext.getContentResolver().unregisterContentObserver(this);
-        DeviceConfig.removeOnPropertiesChangedListener(mOnPropertiesChangedListener);
+        mBgHandler.post(() -> {
+            mContext.getContentResolver().unregisterContentObserver(this);
+            DeviceConfig.removeOnPropertiesChangedListener(mOnPropertiesChangedListener);
+        });
     }
 
     @Override
@@ -152,8 +161,13 @@ public class GestureNavigationSettingsObserver extends ContentObserver {
     }
 
     public boolean areNavigationButtonForcedVisible() {
-        return Settings.Secure.getIntForUser(mContext.getContentResolver(),
-                Settings.Secure.USER_SETUP_COMPLETE, 0, UserHandle.USER_CURRENT) == 0;
+        String SUWTheme = SystemProperties.get("setupwizard.theme", "");
+        boolean isExpressiveThemeEnabled = SUWTheme.equals("glif_expressive")
+                || SUWTheme.equals("glif_expressive_light");
+        // The back gesture is enabled if using the expressive theme
+        return !isExpressiveThemeEnabled
+                && Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                    Settings.Secure.USER_SETUP_COMPLETE, 0, UserHandle.USER_CURRENT) == 0;
     }
 
     private float getUnscaledInset(Resources userRes) {

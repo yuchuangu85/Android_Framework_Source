@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash ea8742d6993e1a82917da38b9938e537aa7fcb54 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen/android/hardware/vibrator/IVibratorManager.java.d -o out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen -Nhardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2 hardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2/android/hardware/vibrator/IVibratorManager.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 720a16b521507c378f14c516749ae178a60dfc44 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V3-java-source/gen/android/hardware/vibrator/IVibratorManager.java.d -o out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V3-java-source/gen -Iframeworks/native/aidl/binder -Nhardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/3 hardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/3/android/hardware/vibrator/IVibratorManager.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.vibrator;
 public interface IVibratorManager extends android.os.IInterface
@@ -11,8 +15,8 @@ public interface IVibratorManager extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "ea8742d6993e1a82917da38b9938e537aa7fcb54";
+  public static final int VERSION = 3;
+  public static final String HASH = "720a16b521507c378f14c516749ae178a60dfc44";
   /** Default implementation for IVibratorManager. */
   public static class Default implements android.hardware.vibrator.IVibratorManager
   {
@@ -37,6 +41,13 @@ public interface IVibratorManager extends android.os.IInterface
     @Override public void cancelSynced() throws android.os.RemoteException
     {
     }
+    @Override public android.hardware.vibrator.IVibrationSession startSession(int[] vibratorIds, android.hardware.vibrator.VibrationSessionConfig config, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public void clearSessions() throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -53,7 +64,7 @@ public interface IVibratorManager extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.vibrator.IVibratorManager
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -146,6 +157,26 @@ public interface IVibratorManager extends android.os.IInterface
         case TRANSACTION_cancelSynced:
         {
           this.cancelSynced();
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_startSession:
+        {
+          int[] _arg0;
+          _arg0 = data.createIntArray();
+          android.hardware.vibrator.VibrationSessionConfig _arg1;
+          _arg1 = data.readTypedObject(android.hardware.vibrator.VibrationSessionConfig.CREATOR);
+          android.hardware.vibrator.IVibratorCallback _arg2;
+          _arg2 = android.hardware.vibrator.IVibratorCallback.Stub.asInterface(data.readStrongBinder());
+          data.enforceNoDataAvail();
+          android.hardware.vibrator.IVibrationSession _result = this.startSession(_arg0, _arg1, _arg2);
+          reply.writeNoException();
+          reply.writeStrongInterface(_result);
+          break;
+        }
+        case TRANSACTION_clearSessions:
+        {
+          this.clearSessions();
           reply.writeNoException();
           break;
         }
@@ -287,6 +318,46 @@ public interface IVibratorManager extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public android.hardware.vibrator.IVibrationSession startSession(int[] vibratorIds, android.hardware.vibrator.VibrationSessionConfig config, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        android.hardware.vibrator.IVibrationSession _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeIntArray(vibratorIds);
+          _data.writeTypedObject(config, 0);
+          _data.writeStrongInterface(callback);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_startSession, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method startSession is unimplemented.");
+          }
+          _reply.readException();
+          _result = android.hardware.vibrator.IVibrationSession.Stub.asInterface(_reply.readStrongBinder());
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public void clearSessions() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_clearSessions, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method clearSessions is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -328,6 +399,8 @@ public interface IVibratorManager extends android.os.IInterface
     static final int TRANSACTION_prepareSynced = (android.os.IBinder.FIRST_CALL_TRANSACTION + 3);
     static final int TRANSACTION_triggerSynced = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
     static final int TRANSACTION_cancelSynced = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
+    static final int TRANSACTION_startSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
+    static final int TRANSACTION_clearSessions = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
@@ -341,12 +414,15 @@ public interface IVibratorManager extends android.os.IInterface
   public static final int CAP_MIXED_TRIGGER_PERFORM = 32;
   public static final int CAP_MIXED_TRIGGER_COMPOSE = 64;
   public static final int CAP_TRIGGER_CALLBACK = 128;
+  public static final int CAP_START_SESSIONS = 256;
   public int getCapabilities() throws android.os.RemoteException;
   public int[] getVibratorIds() throws android.os.RemoteException;
   public android.hardware.vibrator.IVibrator getVibrator(int vibratorId) throws android.os.RemoteException;
   public void prepareSynced(int[] vibratorIds) throws android.os.RemoteException;
   public void triggerSynced(android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException;
   public void cancelSynced() throws android.os.RemoteException;
+  public android.hardware.vibrator.IVibrationSession startSession(int[] vibratorIds, android.hardware.vibrator.VibrationSessionConfig config, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException;
+  public void clearSessions() throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

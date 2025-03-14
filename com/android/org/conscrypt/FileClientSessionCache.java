@@ -18,6 +18,7 @@
 package com.android.org.conscrypt;
 
 import com.android.org.conscrypt.io.IoUtils;
+
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -33,6 +34,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
 import javax.net.ssl.SSLSession;
 
 /**

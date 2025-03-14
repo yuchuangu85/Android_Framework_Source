@@ -3,6 +3,7 @@ package com.android.org.bouncycastle.jcajce.provider.keystore;
 
 import com.android.org.bouncycastle.jcajce.provider.config.ConfigurableProvider;
 import com.android.org.bouncycastle.jcajce.provider.util.AsymmetricAlgorithmProvider;
+import com.android.org.bouncycastle.util.Properties;
 
 /**
  * @hide This class is not part of the Android public SDK API

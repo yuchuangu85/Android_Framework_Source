@@ -302,12 +302,14 @@ public final class MediaRouter2Manager {
             routes = new ArrayList<>(mRoutes.values());
         }
         // take the negative for descending order
-        routes.sort(Comparator.comparingInt(
-                r -> -packagePriority.getOrDefault(r.getPackageName(), 0)));
+        routes.sort(
+                Comparator.comparingInt(
+                        r -> -packagePriority.getOrDefault(r.getProviderPackageName(), 0)));
         return routes;
     }
 
-    private List<MediaRoute2Info> getFilteredRoutes(@NonNull RoutingSessionInfo sessionInfo,
+    private List<MediaRoute2Info> getFilteredRoutes(
+            @NonNull RoutingSessionInfo sessionInfo,
             boolean includeSelectedRoutes,
             @Nullable Predicate<MediaRoute2Info> additionalFilter) {
         Objects.requireNonNull(sessionInfo, "sessionInfo must not be null");
@@ -336,9 +338,10 @@ public final class MediaRouter2Manager {
                 continue;
             }
             if (!discoveryPreference.getAllowedPackages().isEmpty()
-                    && (route.getPackageName() == null
-                    || !discoveryPreference.getAllowedPackages()
-                    .contains(route.getPackageName()))) {
+                    && (route.getProviderPackageName() == null
+                            || !discoveryPreference
+                                    .getAllowedPackages()
+                                    .contains(route.getProviderPackageName()))) {
                 continue;
             }
             if (additionalFilter != null && !additionalFilter.test(route)) {
@@ -402,9 +405,6 @@ public final class MediaRouter2Manager {
     @Nullable
     public RoutingSessionInfo getRoutingSessionForMediaController(MediaController mediaController) {
         MediaController.PlaybackInfo playbackInfo = mediaController.getPlaybackInfo();
-        if (playbackInfo == null) {
-            return null;
-        }
         if (playbackInfo.getPlaybackType() == MediaController.PlaybackInfo.PLAYBACK_TYPE_LOCAL) {
             return getSystemRoutingSession(mediaController.getPackageName());
         }
@@ -527,8 +527,7 @@ public final class MediaRouter2Manager {
             transferToRoute(
                     sessionInfo, route, transferInitiatorUserHandle, transferInitiatorPackageName);
         } else {
-            requestCreateSession(sessionInfo, route, transferInitiatorUserHandle,
-                    transferInitiatorPackageName);
+            requestCreateSession(sessionInfo, route);
         }
     }
 
@@ -917,9 +916,7 @@ public final class MediaRouter2Manager {
         }
     }
 
-    private void requestCreateSession(RoutingSessionInfo oldSession, MediaRoute2Info route,
-            @NonNull UserHandle transferInitiatorUserHandle,
-            @NonNull String transferInitiationPackageName) {
+    private void requestCreateSession(RoutingSessionInfo oldSession, MediaRoute2Info route) {
         if (TextUtils.isEmpty(oldSession.getClientPackageName())) {
             Log.w(TAG, "requestCreateSession: Can't create a session without package name.");
             notifyTransferFailed(oldSession, route);
@@ -930,8 +927,7 @@ public final class MediaRouter2Manager {
 
         try {
             mMediaRouterService.requestCreateSessionWithManager(
-                    mClient, requestId, oldSession, route, transferInitiatorUserHandle,
-                    transferInitiationPackageName);
+                    mClient, requestId, oldSession, route);
         } catch (RemoteException ex) {
             throw ex.rethrowFromSystemServer();
         }
@@ -959,10 +955,6 @@ public final class MediaRouter2Manager {
     private boolean areSessionsMatched(MediaController mediaController,
             RoutingSessionInfo sessionInfo) {
         MediaController.PlaybackInfo playbackInfo = mediaController.getPlaybackInfo();
-        if (playbackInfo == null) {
-            return false;
-        }
-
         String volumeControlId = playbackInfo.getVolumeControlId();
         if (volumeControlId == null) {
             return false;

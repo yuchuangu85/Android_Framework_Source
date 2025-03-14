@@ -28,6 +28,7 @@ import java.util.Arrays;
  *
  * @hide
  */
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class AppCompatCallbacks implements Compatibility.BehaviorChangeDelegate {
     private final long[] mDisabledChanges;
     private final long[] mLoggableChanges;
@@ -82,7 +83,7 @@ public final class AppCompatCallbacks implements Compatibility.BehaviorChangeDel
 
     private void reportChange(long changeId, int state, boolean isLoggable) {
         int uid = Process.myUid();
-        mChangeReporter.reportChange(uid, changeId, state, isLoggable);
+        mChangeReporter.reportChange(uid, changeId, state, false, isLoggable);
     }
 
 }

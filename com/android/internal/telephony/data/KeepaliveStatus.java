@@ -23,7 +23,7 @@ import android.os.Parcelable;
 /**
  * This class serves to pass around the parameters of Keepalive session
  * status within the telephony framework.
- *
+ * <p>
  * {@hide}
  */
 public class KeepaliveStatus implements Parcelable {
@@ -54,7 +54,8 @@ public class KeepaliveStatus implements Parcelable {
      * A status code indicating whether this Keepalive session is
      * active, inactive, or pending activation
      */
-    public final @KeepaliveStatusCode int statusCode;
+    @KeepaliveStatusCode
+    public final int statusCode;
 
     /** An error code indicating a lower layer failure, if any */
     public final int errorCode;
@@ -98,7 +99,7 @@ public class KeepaliveStatus implements Parcelable {
     }
 
     public static final Parcelable.Creator<KeepaliveStatus> CREATOR =
-            new Parcelable.Creator<KeepaliveStatus>() {
+            new Parcelable.Creator<>() {
                 @Override
                 public KeepaliveStatus createFromParcel(Parcel source) {
                     return new KeepaliveStatus(source);

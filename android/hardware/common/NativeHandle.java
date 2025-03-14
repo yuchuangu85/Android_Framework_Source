@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash c32ddfdeb69c6e4a8a45519e6f9a39c4b66fd99f --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common-V2-java-source/gen/android/hardware/common/NativeHandle.java.d -o out/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common-V2-java-source/gen -Nhardware/interfaces/common/aidl/aidl_api/android.hardware.common/2 hardware/interfaces/common/aidl/aidl_api/android.hardware.common/2/android/hardware/common/NativeHandle.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.common;
 public class NativeHandle implements android.os.Parcelable

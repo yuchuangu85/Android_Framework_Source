@@ -53,7 +53,9 @@ import com.android.internal.telephony.uicc.UiccPort;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
     private static final String TAG = "PhoneSubInfoController";
@@ -477,39 +479,37 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
      *
      * @param subId subscriptionId
      * @param callingPackage package name of the caller
-     * @param callingFeatureId feature Id of the caller
      * @return List of public user identities of type android.net.Uri or empty list  if
      * EF_IMPU is not available.
      * @throws IllegalArgumentException if the subscriptionId is not valid
      * @throws IllegalStateException in case the ISIM hasn’t been loaded.
      * @throws SecurityException if the caller does not have the required permission
      */
-    public List<Uri> getImsPublicUserIdentities(int subId, String callingPackage,
-            String callingFeatureId) {
-        if (TelephonyPermissions.
-                checkCallingOrSelfReadPrivilegedPhoneStatePermissionOrReadPhoneNumber(
-                mContext, subId, callingPackage, callingFeatureId, "getImsPublicUserIdentities")) {
-
-            enforceTelephonyFeatureWithException(callingPackage,
-                    PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getImsPublicUserIdentities");
-
-            Phone phone = getPhone(subId);
-            assert phone != null;
-            IsimRecords isimRecords = phone.getIsimRecords();
-            if (isimRecords != null) {
-                String[] impus = isimRecords.getIsimImpu();
-                List<Uri> impuList = new ArrayList<>();
-                for (String impu : impus) {
-                    if (impu != null && impu.trim().length() > 0) {
-                        impuList.add(Uri.parse(impu));
-                    }
-                }
-                return impuList;
-            }
-            throw new IllegalStateException("ISIM is not loaded");
-        } else {
-            throw new IllegalArgumentException("Invalid SubscriptionID  = " + subId);
+    public List<Uri> getImsPublicUserIdentities(int subId, String callingPackage) {
+        if (!SubscriptionManager.isValidSubscriptionId(subId)) {
+            throw new IllegalArgumentException("Invalid subscription: " + subId);
         }
+
+        TelephonyPermissions
+                .enforceCallingOrSelfReadPrivilegedPhoneStatePermissionOrCarrierPrivilege(
+                        mContext, subId, "getImsPublicUserIdentities");
+        enforceTelephonyFeatureWithException(callingPackage,
+                PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getImsPublicUserIdentities");
+
+        Phone phone = getPhone(subId);
+        assert phone != null;
+        IsimRecords isimRecords = phone.getIsimRecords();
+        if (isimRecords != null) {
+            String[] impus = isimRecords.getIsimImpu();
+            List<Uri> impuList = new ArrayList<>();
+            for (String impu : impus) {
+                if (impu != null && impu.trim().length() > 0) {
+                    impuList.add(Uri.parse(impu));
+                }
+            }
+            return impuList;
+        }
+        throw new IllegalStateException("ISIM is not loaded");
     }
 
     /**
@@ -543,6 +543,45 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
                         return null;
                     }
                 });
+    }
+
+    /**
+     * Fetches the IMS Proxy Call Session Control Function(P-CSCF) based on the subscription.
+     *
+     * @param subId subscriptionId
+     * @param callingPackage package name of the caller
+     * @return List of IMS Proxy Call Session Control Function strings.
+     * @throws IllegalArgumentException if the subscriptionId is not valid
+     * @throws IllegalStateException in case the ISIM hasn’t been loaded.
+     * @throws SecurityException if the caller does not have the required permission
+     */
+    public List<String> getImsPcscfAddresses(int subId, String callingPackage) {
+        if (!mFeatureFlags.supportIsimRecord()) {
+            return new ArrayList<>();
+        }
+        if (!SubscriptionManager.isValidSubscriptionId(subId)) {
+            throw new IllegalArgumentException("Invalid subscription: " + subId);
+        }
+
+        TelephonyPermissions
+                .enforceCallingOrSelfReadPrivilegedPhoneStatePermissionOrCarrierPrivilege(
+                        mContext, subId, "getImsPcscfAddresses");
+        enforceTelephonyFeatureWithException(callingPackage,
+                PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION, "getImsPcscfAddresses");
+
+        Phone phone = getPhone(subId);
+        assert phone != null;
+        IsimRecords isimRecords = phone.getIsimRecords();
+        if (isimRecords != null) {
+            String[] pcscfs = isimRecords.getIsimPcscf();
+            List<String> pcscfList = Arrays.stream(pcscfs)
+                    .filter(u -> u != null)
+                    .map(u -> u.trim())
+                    .filter(u -> u.length() > 0)
+                    .collect(Collectors.toList());
+            return pcscfList;
+        }
+        throw new IllegalStateException("ISIM is not loaded");
     }
 
     /**
@@ -617,6 +656,20 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
                             "getGroupIdLevel1ForSubscriber");
 
                     return phone.getGroupIdLevel1();
+                });
+    }
+
+    /**
+     * Return GroupIdLevel2 for the subscriber
+     */
+    public String getGroupIdLevel2ForSubscriber(int subId, String callingPackage,
+            String callingFeatureId) {
+        return callPhoneMethodForSubIdWithPrivilegedCheck(subId,
+                "getGroupIdLevel2", (phone)-> {
+                    enforceTelephonyFeatureWithException(callingPackage,
+                            PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION,
+                            "getGroupIdLevel2ForSubscriber");
+                    return phone.getGroupIdLevel2();
                 });
     }
 
@@ -785,9 +838,16 @@ public class PhoneSubInfoController extends IPhoneSubInfo.Stub {
      */
     @Nullable
     private String getCurrentPackageName() {
+        if (mFeatureFlags.hsumPackageManager()) {
+            PackageManager pm = mContext.createContextAsUser(Binder.getCallingUserHandle(), 0)
+                    .getPackageManager();
+            if (pm == null) return null;
+            String[] callingPackageNames = pm.getPackagesForUid(Binder.getCallingUid());
+            return (callingPackageNames == null) ? null : callingPackageNames[0];
+        }
         if (mPackageManager == null) return null;
-        String[] callingUids = mPackageManager.getPackagesForUid(Binder.getCallingUid());
-        return (callingUids == null) ? null : callingUids[0];
+        String[] callingPackageNames = mPackageManager.getPackagesForUid(Binder.getCallingUid());
+        return (callingPackageNames == null) ? null : callingPackageNames[0];
     }
 
     /**

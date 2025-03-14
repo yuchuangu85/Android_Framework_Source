@@ -749,10 +749,12 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         @Override
         public boolean processMessage(Message message) {
             if (message.what == CMD_SERVICE_DISCONNECTED) {
+                EuiccSession.get().endAllSessions();
                 mEuiccService = null;
                 transitionTo(mDisconnectedState);
                 return HANDLED;
             } else if (message.what == CMD_LINGER_TIMEOUT) {
+                EuiccSession.get().endAllSessions();
                 unbind();
                 transitionTo(mAvailableState);
                 return HANDLED;
@@ -831,6 +833,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                         }
                         case CMD_DOWNLOAD_SUBSCRIPTION: {
                             DownloadRequest request = (DownloadRequest) message.obj;
+                            EuiccSession.get().startSession(EuiccSession.DOWNLOAD);
                             mEuiccService.downloadSubscription(slotId,
                                     request.mPortIndex,
                                     request.mSubscription,
@@ -845,6 +848,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                                     .onDownloadComplete(result);
                                                 onCommandEnd(callback);
                                             });
+                                            EuiccSession.get().endSession(EuiccSession.DOWNLOAD);
                                         }
                                     });
                             break;

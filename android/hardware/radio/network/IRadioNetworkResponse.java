@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/IRadioNetworkResponse.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/IRadioNetworkResponse.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 5867b4f5be491ec815fafea8a3f268b0295427df --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V4-java-source/gen/android/hardware/radio/network/IRadioNetworkResponse.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/4/android/hardware/radio/network/IRadioNetworkResponse.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.network;
 /** @hide */
@@ -12,8 +16,8 @@ public interface IRadioNetworkResponse extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "c45c122528c07c449ea08f6eacaace17bb7abc38";
+  public static final int VERSION = 4;
+  public static final String HASH = "5867b4f5be491ec815fafea8a3f268b0295427df";
   /** Default implementation for IRadioNetworkResponse. */
   public static class Default implements android.hardware.radio.network.IRadioNetworkResponse
   {
@@ -23,6 +27,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
     @Override public void getAllowedNetworkTypesBitmapResponse(android.hardware.radio.RadioResponseInfo info, int networkTypeBitmap) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void getAvailableBandModesResponse(android.hardware.radio.RadioResponseInfo info, int[] bandModes) throws android.os.RemoteException
     {
     }
@@ -32,6 +37,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
     @Override public void getBarringInfoResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.network.CellIdentity cellIdentity, android.hardware.radio.network.BarringInfo[] barringInfos) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void getCdmaRoamingPreferenceResponse(android.hardware.radio.RadioResponseInfo info, int type) throws android.os.RemoteException
     {
     }
@@ -69,12 +75,14 @@ public interface IRadioNetworkResponse extends android.os.IInterface
     @Override public void setAllowedNetworkTypesBitmapResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setBandModeResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
     @Override public void setBarringPasswordResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void setCdmaRoamingPreferenceResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
@@ -87,6 +95,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
     @Override public void setLinkCapacityReportingCriteriaResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setLocationUpdatesResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
@@ -102,6 +111,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
     @Override public void setSignalStrengthReportingCriteriaResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setSuppServiceNotificationsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
@@ -159,6 +169,15 @@ public interface IRadioNetworkResponse extends android.os.IInterface
     @Override public void isSecurityAlgorithmsUpdatedEnabledResponse(android.hardware.radio.RadioResponseInfo info, boolean isEnabled) throws android.os.RemoteException
     {
     }
+    @Override public void setSatellitePlmnResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
+    {
+    }
+    @Override public void setSatelliteEnabledForCarrierResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
+    {
+    }
+    @Override public void isSatelliteEnabledForCarrierResponse(android.hardware.radio.RadioResponseInfo info, boolean isEnabled) throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -175,7 +194,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.network.IRadioNetworkResponse
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -651,6 +670,32 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           this.isSecurityAlgorithmsUpdatedEnabledResponse(_arg0, _arg1);
           break;
         }
+        case TRANSACTION_setSatellitePlmnResponse:
+        {
+          android.hardware.radio.RadioResponseInfo _arg0;
+          _arg0 = data.readTypedObject(android.hardware.radio.RadioResponseInfo.CREATOR);
+          data.enforceNoDataAvail();
+          this.setSatellitePlmnResponse(_arg0);
+          break;
+        }
+        case TRANSACTION_setSatelliteEnabledForCarrierResponse:
+        {
+          android.hardware.radio.RadioResponseInfo _arg0;
+          _arg0 = data.readTypedObject(android.hardware.radio.RadioResponseInfo.CREATOR);
+          data.enforceNoDataAvail();
+          this.setSatelliteEnabledForCarrierResponse(_arg0);
+          break;
+        }
+        case TRANSACTION_isSatelliteEnabledForCarrierResponse:
+        {
+          android.hardware.radio.RadioResponseInfo _arg0;
+          _arg0 = data.readTypedObject(android.hardware.radio.RadioResponseInfo.CREATOR);
+          boolean _arg1;
+          _arg1 = data.readBoolean();
+          data.enforceNoDataAvail();
+          this.isSatelliteEnabledForCarrierResponse(_arg0, _arg1);
+          break;
+        }
         default:
         {
           return super.onTransact(code, data, reply, flags);
@@ -706,6 +751,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void getAvailableBandModesResponse(android.hardware.radio.RadioResponseInfo info, int[] bandModes) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -755,6 +801,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void getCdmaRoamingPreferenceResponse(android.hardware.radio.RadioResponseInfo info, int type) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -950,6 +997,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setBandModeResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -980,6 +1028,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void setCdmaRoamingPreferenceResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1040,6 +1089,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setLocationUpdatesResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1115,6 +1165,7 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setSuppServiceNotificationsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1407,6 +1458,52 @@ public interface IRadioNetworkResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void setSatellitePlmnResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(info, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setSatellitePlmnResponse, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method setSatellitePlmnResponse is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void setSatelliteEnabledForCarrierResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(info, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setSatelliteEnabledForCarrierResponse, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method setSatelliteEnabledForCarrierResponse is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void isSatelliteEnabledForCarrierResponse(android.hardware.radio.RadioResponseInfo info, boolean isEnabled) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(info, 0);
+          _data.writeBoolean(isEnabled);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_isSatelliteEnabledForCarrierResponse, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method isSatelliteEnabledForCarrierResponse is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -1489,6 +1586,9 @@ public interface IRadioNetworkResponse extends android.os.IInterface
     static final int TRANSACTION_setCellularIdentifierTransparencyEnabledResponse = (android.os.IBinder.FIRST_CALL_TRANSACTION + 44);
     static final int TRANSACTION_setSecurityAlgorithmsUpdatedEnabledResponse = (android.os.IBinder.FIRST_CALL_TRANSACTION + 45);
     static final int TRANSACTION_isSecurityAlgorithmsUpdatedEnabledResponse = (android.os.IBinder.FIRST_CALL_TRANSACTION + 46);
+    static final int TRANSACTION_setSatellitePlmnResponse = (android.os.IBinder.FIRST_CALL_TRANSACTION + 47);
+    static final int TRANSACTION_setSatelliteEnabledForCarrierResponse = (android.os.IBinder.FIRST_CALL_TRANSACTION + 48);
+    static final int TRANSACTION_isSatelliteEnabledForCarrierResponse = (android.os.IBinder.FIRST_CALL_TRANSACTION + 49);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
@@ -1496,9 +1596,13 @@ public interface IRadioNetworkResponse extends android.os.IInterface
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$network$IRadioNetworkResponse".replace('$', '.');
   public void acknowledgeRequest(int serial) throws android.os.RemoteException;
   public void getAllowedNetworkTypesBitmapResponse(android.hardware.radio.RadioResponseInfo info, int networkTypeBitmap) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void getAvailableBandModesResponse(android.hardware.radio.RadioResponseInfo info, int[] bandModes) throws android.os.RemoteException;
   public void getAvailableNetworksResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.network.OperatorInfo[] networkInfos) throws android.os.RemoteException;
   public void getBarringInfoResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.network.CellIdentity cellIdentity, android.hardware.radio.network.BarringInfo[] barringInfos) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void getCdmaRoamingPreferenceResponse(android.hardware.radio.RadioResponseInfo info, int type) throws android.os.RemoteException;
   public void getCellInfoListResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.network.CellInfo[] cellInfo) throws android.os.RemoteException;
   public void getDataRegistrationStateResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.network.RegStateResult dataRegResponse) throws android.os.RemoteException;
@@ -1513,17 +1617,25 @@ public interface IRadioNetworkResponse extends android.os.IInterface
   public void getVoiceRegistrationStateResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.network.RegStateResult voiceRegResponse) throws android.os.RemoteException;
   public void isNrDualConnectivityEnabledResponse(android.hardware.radio.RadioResponseInfo info, boolean isEnabled) throws android.os.RemoteException;
   public void setAllowedNetworkTypesBitmapResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setBandModeResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setBarringPasswordResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void setCdmaRoamingPreferenceResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setCellInfoListRateResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setIndicationFilterResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setLinkCapacityReportingCriteriaResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setLocationUpdatesResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setNetworkSelectionModeAutomaticResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setNetworkSelectionModeManualResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setNrDualConnectivityStateResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setSignalStrengthReportingCriteriaResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setSuppServiceNotificationsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setSystemSelectionChannelsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void startNetworkScanResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
@@ -1543,6 +1655,9 @@ public interface IRadioNetworkResponse extends android.os.IInterface
   public void setCellularIdentifierTransparencyEnabledResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setSecurityAlgorithmsUpdatedEnabledResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void isSecurityAlgorithmsUpdatedEnabledResponse(android.hardware.radio.RadioResponseInfo info, boolean isEnabled) throws android.os.RemoteException;
+  public void setSatellitePlmnResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  public void setSatelliteEnabledForCarrierResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  public void isSatelliteEnabledForCarrierResponse(android.hardware.radio.RadioResponseInfo info, boolean isEnabled) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

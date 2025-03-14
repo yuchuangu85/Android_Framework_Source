@@ -33,6 +33,7 @@ import android.os.Message;
 import android.os.Messenger;
 import android.os.Process;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.telephony.CellInfo;
 import android.telephony.LocationAccessPolicy;
 import android.telephony.NetworkScan;
@@ -567,8 +568,8 @@ public final class NetworkScanRequestTracker {
         //   3. The live scan is not requested by mobile network setting menu
         private synchronized boolean interruptLiveScan(NetworkScanRequestInfo nsri) {
             if (mLiveRequestInfo != null && mPendingRequestInfo == null
-                    && nsri.mUid == Process.SYSTEM_UID
-                            && mLiveRequestInfo.mUid != Process.SYSTEM_UID) {
+                    && UserHandle.isSameApp(nsri.mUid, Process.SYSTEM_UID)
+                            && !UserHandle.isSameApp(mLiveRequestInfo.mUid, Process.SYSTEM_UID)) {
                 doInterruptScan(mLiveRequestInfo.mScanId);
                 mPendingRequestInfo = nsri;
                 notifyMessenger(mLiveRequestInfo, TelephonyScanManager.CALLBACK_SCAN_ERROR,

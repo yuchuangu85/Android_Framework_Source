@@ -160,7 +160,7 @@ public class GsmCdmaCallTracker extends CallTracker {
     public GsmCdmaCallTracker(GsmCdmaPhone phone, FeatureFlags featureFlags) {
         super(featureFlags);
 
-        if (mFeatureFlags.minimalTelephonyCdmCheck()
+        if (TelephonyCapabilities.minimalTelephonyCdmCheck(mFeatureFlags)
                 && !phone.getContext().getPackageManager().hasSystemFeature(
                     PackageManager.FEATURE_TELEPHONY_CALLING)) {
             throw new UnsupportedOperationException("GsmCdmaCallTracker requires calling");
@@ -509,7 +509,8 @@ public class GsmCdmaCallTracker extends CallTracker {
                         obtainCompleteMessage());
                     }
                 };
-                EmergencyStateTracker.getInstance().exitEmergencyCallbackMode(onComplete);
+                EmergencyStateTracker.getInstance().exitEmergencyCallbackMode(onComplete,
+                        TelephonyManager.STOP_REASON_OUTGOING_NORMAL_CALL_INITIATED);
             } else {
                 mPhone.exitEmergencyCallbackMode();
                 mPhone.setOnEcbModeExitResponse(this, EVENT_EXIT_ECM_RESPONSE_CDMA, null);

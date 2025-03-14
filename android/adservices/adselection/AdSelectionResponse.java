@@ -19,6 +19,7 @@ package android.adservices.adselection;
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID;
 import static android.adservices.adselection.AdSelectionOutcome.UNSET_AD_SELECTION_ID_MESSAGE;
 
+import android.adservices.common.AdTechIdentifier;
 import android.annotation.NonNull;
 import android.net.Uri;
 import android.os.Parcel;
@@ -36,27 +37,30 @@ import java.util.Objects;
  */
 public final class AdSelectionResponse implements Parcelable {
     private final long mAdSelectionId;
-    @NonNull private final Uri mRenderUri;
+    private final Uri mRenderUri;
+    private final AdTechIdentifier mWinningSeller;
 
-    private AdSelectionResponse(long adSelectionId, @NonNull Uri renderUri) {
+    private AdSelectionResponse(long adSelectionId, Uri renderUri, AdTechIdentifier winningSeller) {
         Objects.requireNonNull(renderUri);
 
         mAdSelectionId = adSelectionId;
         mRenderUri = renderUri;
+        mWinningSeller = Objects.requireNonNull(winningSeller, "Winning seller cannot be null");
     }
 
-    private AdSelectionResponse(@NonNull Parcel in) {
+    private AdSelectionResponse(Parcel in) {
         Objects.requireNonNull(in);
 
         mAdSelectionId = in.readLong();
         mRenderUri = Uri.CREATOR.createFromParcel(in);
+        mWinningSeller = AdTechIdentifier.CREATOR.createFromParcel(in);
     }
 
     @NonNull
     public static final Creator<AdSelectionResponse> CREATOR =
             new Parcelable.Creator<AdSelectionResponse>() {
                 @Override
-                public AdSelectionResponse createFromParcel(@NonNull Parcel in) {
+                public AdSelectionResponse createFromParcel(Parcel in) {
                     Objects.requireNonNull(in);
                     return new AdSelectionResponse(in);
                 }
@@ -68,15 +72,18 @@ public final class AdSelectionResponse implements Parcelable {
             };
 
     /** Returns the renderUri that the AdSelection returns. */
-    @NonNull
     public Uri getRenderUri() {
         return mRenderUri;
     }
 
     /** Returns the adSelectionId that identifies the AdSelection. */
-    @NonNull
     public long getAdSelectionId() {
         return mAdSelectionId;
+    }
+
+    /** Returns the winning seller . */
+    public AdTechIdentifier getWinningSeller() {
+        return mWinningSeller;
     }
 
     @Override
@@ -84,14 +91,15 @@ public final class AdSelectionResponse implements Parcelable {
         if (o instanceof AdSelectionResponse) {
             AdSelectionResponse adSelectionResponse = (AdSelectionResponse) o;
             return mAdSelectionId == adSelectionResponse.mAdSelectionId
-                    && Objects.equals(mRenderUri, adSelectionResponse.mRenderUri);
+                    && Objects.equals(mRenderUri, adSelectionResponse.mRenderUri)
+                    && Objects.equals(mWinningSeller, adSelectionResponse.mWinningSeller);
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mAdSelectionId, mRenderUri);
+        return Objects.hash(mAdSelectionId, mRenderUri, mWinningSeller);
     }
 
     @Override
@@ -100,11 +108,14 @@ public final class AdSelectionResponse implements Parcelable {
     }
 
     @Override
-    public void writeToParcel(@NonNull Parcel dest, int flags) {
+    public void writeToParcel(Parcel dest, int flags) {
         Objects.requireNonNull(dest);
+        Objects.requireNonNull(mRenderUri, "Render uri cannot be null");
+        Objects.requireNonNull(mWinningSeller, "Winning seller cannot be null");
 
         dest.writeLong(mAdSelectionId);
         mRenderUri.writeToParcel(dest, flags);
+        mWinningSeller.writeToParcel(dest, flags);
     }
 
     @Override
@@ -114,6 +125,8 @@ public final class AdSelectionResponse implements Parcelable {
                 + mAdSelectionId
                 + ", mRenderUri="
                 + mRenderUri
+                + ", mWinningSeller="
+                + mWinningSeller
                 + '}';
     }
 
@@ -123,24 +136,36 @@ public final class AdSelectionResponse implements Parcelable {
      * @hide
      */
     public static final class Builder {
-        private long mAdSelectionId = UNSET_AD_SELECTION_ID;
-        @NonNull private Uri mRenderUri;
+        private long mAdSelectionId;
+        private Uri mRenderUri;
+        private AdTechIdentifier mWinningSeller;
 
-        public Builder() {}
+        public Builder() {
+            mAdSelectionId = UNSET_AD_SELECTION_ID;
+            mWinningSeller = AdTechIdentifier.UNSET_AD_TECH_IDENTIFIER;
+        }
 
         /** Sets the mAdSelectionId. */
-        @NonNull
         public AdSelectionResponse.Builder setAdSelectionId(long adSelectionId) {
             this.mAdSelectionId = adSelectionId;
             return this;
         }
 
         /** Sets the RenderUri. */
-        @NonNull
-        public AdSelectionResponse.Builder setRenderUri(@NonNull Uri renderUri) {
+        public AdSelectionResponse.Builder setRenderUri(Uri renderUri) {
             Objects.requireNonNull(renderUri);
 
             mRenderUri = renderUri;
+            return this;
+        }
+
+        /** Sets the winning seller. */
+        public AdSelectionResponse.Builder setWinningSeller(AdTechIdentifier winningSeller) {
+            Objects.requireNonNull(winningSeller, "Winning seller cannot be null");
+            Preconditions.checkArgument(
+                    !winningSeller.equals(AdTechIdentifier.UNSET_AD_TECH_IDENTIFIER),
+                    "Winning seller cannot be empty");
+            mWinningSeller = winningSeller;
             return this;
         }
 
@@ -150,14 +175,13 @@ public final class AdSelectionResponse implements Parcelable {
          * @throws IllegalArgumentException if the adSelectionIid is not set
          * @throws NullPointerException if the RenderUri is null
          */
-        @NonNull
         public AdSelectionResponse build() {
             Objects.requireNonNull(mRenderUri);
 
             Preconditions.checkArgument(
                     mAdSelectionId != UNSET_AD_SELECTION_ID, UNSET_AD_SELECTION_ID_MESSAGE);
 
-            return new AdSelectionResponse(mAdSelectionId, mRenderUri);
+            return new AdSelectionResponse(mAdSelectionId, mRenderUri, mWinningSeller);
         }
     }
 }

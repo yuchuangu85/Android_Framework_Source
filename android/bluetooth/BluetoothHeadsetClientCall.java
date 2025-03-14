@@ -295,7 +295,7 @@ public final class BluetoothHeadsetClientCall implements Parcelable, Attributabl
                 @Override
                 public BluetoothHeadsetClientCall createFromParcel(Parcel in) {
                     return new BluetoothHeadsetClientCall(
-                            (BluetoothDevice) in.readParcelable(null),
+                            BluetoothDevice.CREATOR.createFromParcel(in),
                             in.readInt(),
                             UUID.fromString(in.readString()),
                             in.readInt(),
@@ -313,11 +313,11 @@ public final class BluetoothHeadsetClientCall implements Parcelable, Attributabl
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeParcelable(mDevice, 0);
+        mDevice.writeToParcel(out, flags);
         out.writeInt(mId);
-        out.writeString(mUUID.toString());
+        BluetoothUtils.writeStringToParcel(out, mUUID.toString());
         out.writeInt(mState);
-        out.writeString(mNumber);
+        BluetoothUtils.writeStringToParcel(out, mNumber);
         out.writeInt(mMultiParty ? 1 : 0);
         out.writeInt(mOutgoing ? 1 : 0);
         out.writeInt(mInBandRing ? 1 : 0);

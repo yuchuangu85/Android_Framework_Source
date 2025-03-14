@@ -24,6 +24,7 @@ import static android.view.DisplayInfoProto.FLAGS;
 import static android.view.DisplayInfoProto.LOGICAL_HEIGHT;
 import static android.view.DisplayInfoProto.LOGICAL_WIDTH;
 import static android.view.DisplayInfoProto.NAME;
+import static android.view.DisplayInfoProto.TYPE;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -43,6 +44,7 @@ import android.util.SparseArray;
 import android.util.proto.ProtoOutputStream;
 
 import com.android.internal.display.BrightnessSynchronizer;
+import com.android.server.display.feature.flags.Flags;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -197,6 +199,23 @@ public final class DisplayInfo implements Parcelable {
     public float renderFrameRate;
 
     /**
+     * If {@code true} this Display supports adaptive refresh rates.
+     * // TODO(b/372526856) Add a link to the documentation for ARR.
+     */
+    public boolean hasArrSupport;
+
+    /**
+     * Represents frame rate for the FrameRateCategory Normal and High.
+     * @see android.view.Display#getSuggestedFrameRate(int) for more details.
+     */
+    public FrameRateCategoryRate frameRateCategoryRate;
+
+    /**
+     * All the refresh rates supported in the active mode.
+     */
+    public float[] supportedRefreshRates = new float[0];
+
+    /**
      * The default display mode.
      */
     public int defaultModeId;
@@ -211,6 +230,12 @@ public final class DisplayInfo implements Parcelable {
      */
     public Display.Mode[] supportedModes = Display.Mode.EMPTY_ARRAY;
 
+    /**
+     * The supported modes that will be exposed externally.
+     * Might have different set of modes than supportedModes for VRR displays
+     */
+    public Display.Mode[] appsSupportedModes = Display.Mode.EMPTY_ARRAY;
+
     /** The active color mode. */
     public int colorMode;
 
@@ -222,6 +247,9 @@ public final class DisplayInfo implements Parcelable {
 
     /** The formats disabled by user **/
     public int[] userDisabledHdrTypes = {};
+
+    /** When true, all HDR capabilities are disabled **/
+    public boolean isForceSdr;
 
     /**
      * Indicates whether the display can be switched into a mode with minimal post
@@ -334,6 +362,12 @@ public final class DisplayInfo implements Parcelable {
     public float brightnessDefault;
 
     /**
+     * The current dim brightness of the display. Value between 0.0 and 1.0,
+     * derived from the configuration of the display device of this logical display.
+     */
+    public float brightnessDim;
+
+    /**
      * The {@link RoundedCorners} if present, otherwise {@code null}.
      */
     @Nullable
@@ -375,6 +409,15 @@ public final class DisplayInfo implements Parcelable {
     @Nullable
     public String thermalBrightnessThrottlingDataId;
 
+    /**
+     * Indicates whether the display is eligible for hosting tasks.
+     *
+     * For example, if the display is used for mirroring, this will be {@code false}.
+     *
+     * @hide
+     */
+    public boolean canHostTasks;
+
     public static final @android.annotation.NonNull Creator<DisplayInfo> CREATOR = new Creator<DisplayInfo>() {
         @Override
         public DisplayInfo createFromParcel(Parcel source) {
@@ -405,7 +448,20 @@ public final class DisplayInfo implements Parcelable {
     }
 
     public boolean equals(DisplayInfo other) {
-        return other != null
+        return equals(other, /* compareOnlyBasicChanges */ false);
+    }
+
+    /**
+     * Compares if the two DisplayInfo objects are equal or not
+     * @param other The other DisplayInfo against which the comparison is to be done
+     * @param compareOnlyBasicChanges Indicates if the changes to be compared are the ones which
+     *                               could lead to an emission of
+     *                    {@link android.hardware.display.DisplayManager.EVENT_TYPE_DISPLAY_CHANGED}
+     *                                event
+     * @return
+     */
+    public boolean equals(DisplayInfo other, boolean compareOnlyBasicChanges) {
+        boolean isEqualWithOnlyBasicChanges =  other != null
                 && layerStack == other.layerStack
                 && flags == other.flags
                 && type == other.type
@@ -424,30 +480,30 @@ public final class DisplayInfo implements Parcelable {
                 && logicalHeight == other.logicalHeight
                 && Objects.equals(displayCutout, other.displayCutout)
                 && rotation == other.rotation
-                && modeId == other.modeId
-                && renderFrameRate == other.renderFrameRate
+                && hasArrSupport == other.hasArrSupport
+                && Objects.equals(frameRateCategoryRate, other.frameRateCategoryRate)
+                && Arrays.equals(supportedRefreshRates, other.supportedRefreshRates)
                 && defaultModeId == other.defaultModeId
                 && userPreferredModeId == other.userPreferredModeId
                 && Arrays.equals(supportedModes, other.supportedModes)
+                && Arrays.equals(appsSupportedModes, other.appsSupportedModes)
                 && colorMode == other.colorMode
                 && Arrays.equals(supportedColorModes, other.supportedColorModes)
                 && Objects.equals(hdrCapabilities, other.hdrCapabilities)
+                && isForceSdr == other.isForceSdr
                 && Arrays.equals(userDisabledHdrTypes, other.userDisabledHdrTypes)
                 && minimalPostProcessingSupported == other.minimalPostProcessingSupported
                 && logicalDensityDpi == other.logicalDensityDpi
                 && physicalXDpi == other.physicalXDpi
                 && physicalYDpi == other.physicalYDpi
-                && appVsyncOffsetNanos == other.appVsyncOffsetNanos
-                && presentationDeadlineNanos == other.presentationDeadlineNanos
                 && state == other.state
-                && committedState == other.committedState
                 && ownerUid == other.ownerUid
                 && Objects.equals(ownerPackageName, other.ownerPackageName)
                 && removeMode == other.removeMode
-                && getRefreshRate() == other.getRefreshRate()
                 && brightnessMinimum == other.brightnessMinimum
                 && brightnessMaximum == other.brightnessMaximum
                 && brightnessDefault == other.brightnessDefault
+                && brightnessDim == other.brightnessDim
                 && Objects.equals(roundedCorners, other.roundedCorners)
                 && installOrientation == other.installOrientation
                 && Objects.equals(displayShape, other.displayShape)
@@ -455,7 +511,22 @@ public final class DisplayInfo implements Parcelable {
                 && BrightnessSynchronizer.floatEquals(hdrSdrRatio, other.hdrSdrRatio)
                 && thermalRefreshRateThrottling.contentEquals(other.thermalRefreshRateThrottling)
                 && Objects.equals(
-                thermalBrightnessThrottlingDataId, other.thermalBrightnessThrottlingDataId);
+                thermalBrightnessThrottlingDataId, other.thermalBrightnessThrottlingDataId)
+                && canHostTasks == other.canHostTasks;
+
+        if (!Flags.committedStateSeparateEvent()) {
+            isEqualWithOnlyBasicChanges = isEqualWithOnlyBasicChanges
+                    && (committedState == other.committedState);
+        }
+        if (!compareOnlyBasicChanges) {
+            return isEqualWithOnlyBasicChanges
+                    && (getRefreshRate() == other.getRefreshRate())
+                    && appVsyncOffsetNanos == other.appVsyncOffsetNanos
+                    && presentationDeadlineNanos == other.presentationDeadlineNanos
+                    && (modeId == other.modeId)
+                    && (committedState == other.committedState);
+        }
+        return isEqualWithOnlyBasicChanges;
     }
 
     @Override
@@ -485,13 +556,20 @@ public final class DisplayInfo implements Parcelable {
         rotation = other.rotation;
         modeId = other.modeId;
         renderFrameRate = other.renderFrameRate;
+        hasArrSupport = other.hasArrSupport;
+        frameRateCategoryRate = other.frameRateCategoryRate;
+        supportedRefreshRates = Arrays.copyOf(
+                other.supportedRefreshRates, other.supportedRefreshRates.length);
         defaultModeId = other.defaultModeId;
         userPreferredModeId = other.userPreferredModeId;
         supportedModes = Arrays.copyOf(other.supportedModes, other.supportedModes.length);
+        appsSupportedModes = Arrays.copyOf(
+                other.appsSupportedModes, other.appsSupportedModes.length);
         colorMode = other.colorMode;
         supportedColorModes = Arrays.copyOf(
                 other.supportedColorModes, other.supportedColorModes.length);
         hdrCapabilities = other.hdrCapabilities;
+        isForceSdr = other.isForceSdr;
         userDisabledHdrTypes = other.userDisabledHdrTypes;
         minimalPostProcessingSupported = other.minimalPostProcessingSupported;
         logicalDensityDpi = other.logicalDensityDpi;
@@ -508,6 +586,7 @@ public final class DisplayInfo implements Parcelable {
         brightnessMinimum = other.brightnessMinimum;
         brightnessMaximum = other.brightnessMaximum;
         brightnessDefault = other.brightnessDefault;
+        brightnessDim = other.brightnessDim;
         roundedCorners = other.roundedCorners;
         installOrientation = other.installOrientation;
         displayShape = other.displayShape;
@@ -515,6 +594,7 @@ public final class DisplayInfo implements Parcelable {
         hdrSdrRatio = other.hdrSdrRatio;
         thermalRefreshRateThrottling = other.thermalRefreshRateThrottling;
         thermalBrightnessThrottlingDataId = other.thermalBrightnessThrottlingDataId;
+        canHostTasks = other.canHostTasks;
     }
 
     public void readFromParcel(Parcel source) {
@@ -538,12 +618,25 @@ public final class DisplayInfo implements Parcelable {
         rotation = source.readInt();
         modeId = source.readInt();
         renderFrameRate = source.readFloat();
+        hasArrSupport = source.readBoolean();
+        frameRateCategoryRate = source.readParcelable(null,
+                android.view.FrameRateCategoryRate.class);
+        int numOfSupportedRefreshRates = source.readInt();
+        supportedRefreshRates = new float[numOfSupportedRefreshRates];
+        for (int i = 0; i < numOfSupportedRefreshRates; i++) {
+            supportedRefreshRates[i] = source.readFloat();
+        }
         defaultModeId = source.readInt();
         userPreferredModeId = source.readInt();
         int nModes = source.readInt();
         supportedModes = new Display.Mode[nModes];
         for (int i = 0; i < nModes; i++) {
             supportedModes[i] = Display.Mode.CREATOR.createFromParcel(source);
+        }
+        int nAppModes = source.readInt();
+        appsSupportedModes = new Display.Mode[nAppModes];
+        for (int i = 0; i < nAppModes; i++) {
+            appsSupportedModes[i] = Display.Mode.CREATOR.createFromParcel(source);
         }
         colorMode = source.readInt();
         int nColorModes = source.readInt();
@@ -552,6 +645,7 @@ public final class DisplayInfo implements Parcelable {
             supportedColorModes[i] = source.readInt();
         }
         hdrCapabilities = source.readParcelable(null, android.view.Display.HdrCapabilities.class);
+        isForceSdr = source.readBoolean();
         minimalPostProcessingSupported = source.readBoolean();
         logicalDensityDpi = source.readInt();
         physicalXDpi = source.readFloat();
@@ -568,6 +662,7 @@ public final class DisplayInfo implements Parcelable {
         brightnessMinimum = source.readFloat();
         brightnessMaximum = source.readFloat();
         brightnessDefault = source.readFloat();
+        brightnessDim = source.readFloat();
         roundedCorners = source.readTypedObject(RoundedCorners.CREATOR);
         int numUserDisabledFormats = source.readInt();
         userDisabledHdrTypes = new int[numUserDisabledFormats];
@@ -581,6 +676,7 @@ public final class DisplayInfo implements Parcelable {
         thermalRefreshRateThrottling = source.readSparseArray(null,
                 SurfaceControl.RefreshRateRange.class);
         thermalBrightnessThrottlingDataId = source.readString8();
+        canHostTasks = source.readBoolean();
     }
 
     @Override
@@ -605,11 +701,21 @@ public final class DisplayInfo implements Parcelable {
         dest.writeInt(rotation);
         dest.writeInt(modeId);
         dest.writeFloat(renderFrameRate);
+        dest.writeBoolean(hasArrSupport);
+        dest.writeParcelable(frameRateCategoryRate, flags);
+        dest.writeInt(supportedRefreshRates.length);
+        for (float supportedRefreshRate : supportedRefreshRates) {
+            dest.writeFloat(supportedRefreshRate);
+        }
         dest.writeInt(defaultModeId);
         dest.writeInt(userPreferredModeId);
         dest.writeInt(supportedModes.length);
         for (int i = 0; i < supportedModes.length; i++) {
             supportedModes[i].writeToParcel(dest, flags);
+        }
+        dest.writeInt(appsSupportedModes.length);
+        for (int i = 0; i < appsSupportedModes.length; i++) {
+            appsSupportedModes[i].writeToParcel(dest, flags);
         }
         dest.writeInt(colorMode);
         dest.writeInt(supportedColorModes.length);
@@ -617,6 +723,7 @@ public final class DisplayInfo implements Parcelable {
             dest.writeInt(supportedColorModes[i]);
         }
         dest.writeParcelable(hdrCapabilities, flags);
+        dest.writeBoolean(isForceSdr);
         dest.writeBoolean(minimalPostProcessingSupported);
         dest.writeInt(logicalDensityDpi);
         dest.writeFloat(physicalXDpi);
@@ -633,6 +740,7 @@ public final class DisplayInfo implements Parcelable {
         dest.writeFloat(brightnessMinimum);
         dest.writeFloat(brightnessMaximum);
         dest.writeFloat(brightnessDefault);
+        dest.writeFloat(brightnessDim);
         dest.writeTypedObject(roundedCorners, flags);
         dest.writeInt(userDisabledHdrTypes.length);
         for (int i = 0; i < userDisabledHdrTypes.length; i++) {
@@ -644,6 +752,7 @@ public final class DisplayInfo implements Parcelable {
         dest.writeFloat(hdrSdrRatio);
         dest.writeSparseArray(thermalRefreshRateThrottling);
         dest.writeString8(thermalBrightnessThrottlingDataId);
+        dest.writeBoolean(canHostTasks);
     }
 
     @Override
@@ -657,6 +766,9 @@ public final class DisplayInfo implements Parcelable {
     public float getRefreshRate() {
         if (refreshRateOverride > 0) {
             return refreshRateOverride;
+        }
+        if (renderFrameRate > 0) {
+            return renderFrameRate;
         }
         if (supportedModes.length == 0) {
             return 0;
@@ -689,7 +801,7 @@ public final class DisplayInfo implements Parcelable {
      */
     @Nullable
     public Display.Mode findDefaultModeByRefreshRate(float refreshRate) {
-        Display.Mode[] modes = supportedModes;
+        Display.Mode[] modes = appsSupportedModes;
         Display.Mode defaultMode = getDefaultMode();
         for (int i = 0; i < modes.length; i++) {
             if (modes[i].matches(
@@ -701,10 +813,20 @@ public final class DisplayInfo implements Parcelable {
     }
 
     /**
-     * Returns the list of supported refresh rates in the default mode.
+     * Returns the list of supported refresh rates in the active mode.
      */
     public float[] getDefaultRefreshRates() {
-        Display.Mode[] modes = supportedModes;
+        if (supportedRefreshRates.length == 0) {
+            return getDefaultRefreshRatesLegacy();
+        }
+        return Arrays.copyOf(supportedRefreshRates, supportedRefreshRates.length);
+    }
+
+    /**
+     * Returns the list of supported refresh rates in the default mode.
+     */
+    public float[] getDefaultRefreshRatesLegacy() {
+        Display.Mode[] modes = appsSupportedModes;
         ArraySet<Float> rates = new ArraySet<>();
         Display.Mode defaultMode = getDefaultMode();
         for (int i = 0; i < modes.length; i++) {
@@ -845,14 +967,24 @@ public final class DisplayInfo implements Parcelable {
         sb.append(modeId);
         sb.append(", renderFrameRate ");
         sb.append(renderFrameRate);
+        sb.append(", hasArrSupport ");
+        sb.append(hasArrSupport);
+        sb.append(", frameRateCategoryRate ");
+        sb.append(frameRateCategoryRate);
+        sb.append(", supportedRefreshRates ");
+        sb.append(Arrays.toString(supportedRefreshRates));
         sb.append(", defaultMode ");
         sb.append(defaultModeId);
         sb.append(", userPreferredModeId ");
         sb.append(userPreferredModeId);
-        sb.append(", modes ");
+        sb.append(", supportedModes ");
         sb.append(Arrays.toString(supportedModes));
+        sb.append(", appsSupportedModes ");
+        sb.append(Arrays.toString(appsSupportedModes));
         sb.append(", hdrCapabilities ");
         sb.append(hdrCapabilities);
+        sb.append(", isForceSdr ");
+        sb.append(isForceSdr);
         sb.append(", userDisabledHdrTypes ");
         sb.append(Arrays.toString(userDisabledHdrTypes));
         sb.append(", minimalPostProcessingSupported ");
@@ -908,6 +1040,8 @@ public final class DisplayInfo implements Parcelable {
         sb.append(brightnessMaximum);
         sb.append(", brightnessDefault ");
         sb.append(brightnessDefault);
+        sb.append(", brightnessDim ");
+        sb.append(brightnessDim);
         sb.append(", installOrientation ");
         sb.append(Surface.rotationToString(installOrientation));
         sb.append(", layoutLimitedRefreshRate ");
@@ -922,6 +1056,8 @@ public final class DisplayInfo implements Parcelable {
         sb.append(thermalRefreshRateThrottling);
         sb.append(", thermalBrightnessThrottlingDataId ");
         sb.append(thermalBrightnessThrottlingDataId);
+        sb.append(", canHostTasks ");
+        sb.append(canHostTasks);
         sb.append("}");
         return sb.toString();
     }
@@ -941,6 +1077,7 @@ public final class DisplayInfo implements Parcelable {
         protoOutputStream.write(APP_HEIGHT, appHeight);
         protoOutputStream.write(NAME, name);
         protoOutputStream.write(FLAGS, flags);
+        protoOutputStream.write(TYPE, type);
         if (displayCutout != null) {
             displayCutout.dumpDebug(protoOutputStream, CUTOUT);
         }

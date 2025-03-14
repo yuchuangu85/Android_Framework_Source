@@ -17,8 +17,10 @@
 package android.net.wifi.rtt;
 
 import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.net.MacAddress;
 import android.net.wifi.OuiKeyedData;
@@ -33,14 +35,18 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.Log;
 
 import androidx.annotation.RequiresApi;
 
 import com.android.modules.utils.build.SdkLevel;
 import com.android.wifi.flags.Flags;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
 import java.util.StringJoiner;
@@ -56,10 +62,49 @@ import java.util.StringJoiner;
  * {@link RangingRequest.Builder#addAccessPoints(List)}).
  */
 public final class RangingRequest implements Parcelable {
+    private static final String TAG = "RangingRequest";
     private static final int MAX_PEERS = 10;
     private static final int DEFAULT_RTT_BURST_SIZE = 8;
     private static final int MIN_RTT_BURST_SIZE = 2;
     private static final int MAX_RTT_BURST_SIZE = 31;
+
+    /**
+     * In this mode, the ranging is performed with all available responders in open mode. If a
+     * responder does not allow open mode ranging, the responder will be skipped from the
+     * ranging request.
+     *<p>
+     * Note: If {@link ScanResult#isRangingFrameProtectionRequired()} is {@code true}, then open
+     * mode ranging is not supported by the AP.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public static final int SECURITY_MODE_OPEN = 0;
+
+    /**
+     * In this mode, secure ranging is enabled automatically for compatible responders,
+     * simplifying the user experience and requiring no configuration. If the secure ranging is not
+     * possible for any of the responders, open mode ranging is used instead as in
+     * {@link #SECURITY_MODE_OPEN}. This mode is backward compatible with existing applications.
+     *
+     * Note: This is the default mode
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public static final int SECURITY_MODE_OPPORTUNISTIC = 1;
+
+    /**
+     * To ensure maximum security, this mode only ranges with responders using PASN with base AKM
+     * (Authenticated). This necessitates an authenticated PASN handshake with a shared key
+     * between the initiator and responder. Consequently, all responders in the ranging request
+     * must support secure authentication. If not supported, the responder will be skipped from the
+     * ranging request.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public static final int SECURITY_MODE_SECURE_AUTH = 2;
+
+    /** @hide */
+    @IntDef(prefix = {"SECURITY_MODE_"}, value = {SECURITY_MODE_OPEN, SECURITY_MODE_OPPORTUNISTIC,
+            SECURITY_MODE_SECURE_AUTH})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SecurityMode {}
 
     /**
      * Returns the maximum number of peers to range which can be specified in a single {@code
@@ -106,6 +151,9 @@ public final class RangingRequest implements Parcelable {
     /** @hide */
     public final int mRttBurstSize;
 
+    /** @hide */
+    public final int mSecurityMode;
+
     /**
      * List of {@link OuiKeyedData} providing vendor-specific configuration data.
      */
@@ -113,9 +161,10 @@ public final class RangingRequest implements Parcelable {
 
     /** @hide */
     private RangingRequest(List<ResponderConfig> rttPeers, int rttBurstSize,
-            @NonNull List<OuiKeyedData> vendorData) {
+            @SecurityMode int securityMode, @NonNull List<OuiKeyedData> vendorData) {
         mRttPeers = rttPeers;
         mRttBurstSize = rttBurstSize;
+        mSecurityMode = securityMode;
         mVendorData = new ArrayList<>(vendorData);
     }
 
@@ -139,6 +188,16 @@ public final class RangingRequest implements Parcelable {
      */
     public int getRttBurstSize() {
         return mRttBurstSize;
+    }
+
+    /**
+     * Returns security mode for the ranging request. See {@code SECURITY_MODE_*} for more details.
+     *
+     * @return security mode for the ranging request
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public @SecurityMode int getSecurityMode() {
+        return mSecurityMode;
     }
 
     /**
@@ -168,6 +227,7 @@ public final class RangingRequest implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeList(mRttPeers);
         dest.writeInt(mRttBurstSize);
+        dest.writeInt(mSecurityMode);
         dest.writeList(mVendorData);
     }
 
@@ -179,7 +239,7 @@ public final class RangingRequest implements Parcelable {
 
         @Override
         public RangingRequest createFromParcel(Parcel in) {
-            return new RangingRequest(in.readArrayList(null), in.readInt(),
+            return new RangingRequest(in.readArrayList(null), in.readInt(), in.readInt(),
                 ParcelUtil.readOuiKeyedDataList(in));
         }
     };
@@ -192,6 +252,7 @@ public final class RangingRequest implements Parcelable {
             sj.add(rc.toString());
         }
         sj.add("mRttBurstSize=" + mRttBurstSize);
+        sj.add("mSecurityMode=" + mSecurityMode);
         sj.add("mVendorData=" + mVendorData);
         return sj.toString();
     }
@@ -222,6 +283,7 @@ public final class RangingRequest implements Parcelable {
         private List<ResponderConfig> mRttPeers = new ArrayList<>();
         private int mRttBurstSize = DEFAULT_RTT_BURST_SIZE;
         private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
+        private @SecurityMode int mSecurityMode = SECURITY_MODE_OPPORTUNISTIC;
 
         /**
          * Set the RTT Burst size for the ranging request.
@@ -524,11 +586,64 @@ public final class RangingRequest implements Parcelable {
         }
 
         /**
+         * Sets the overall security mode for ranging, determining if secure ranging is attempted
+         * with each responder and if fallback to unauthenticated secure ranging is permitted. The
+         * mode also permits retry with no security when secure ranging fails. If not set, default
+         * mode will be {@link #SECURITY_MODE_OPPORTUNISTIC}.
+         * <p>
+         * See {@code SECURITY_MODE_*} for different modes of operation.
+         *
+         * @param securityMode security mode for ranging
+         * @return The builder, to facilitate chaining {@code builder.setXXX(..).setXXX(..)}.
+         */
+        @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+        @NonNull
+        public Builder setSecurityMode(@SecurityMode int securityMode) {
+            mSecurityMode = securityMode;
+            return this;
+        }
+
+
+        /**
+         * Filter the peer list for the security modes SECURITY_MODE_SECURE_AUTH and
+         * SECURITY_MODE_OPEN.
+         */
+        @SuppressLint("NewApi")
+        private void filterRttPeersBasedOnSecurityMode() {
+            Iterator<ResponderConfig> peers = mRttPeers.iterator();
+            while (peers.hasNext()) {
+                ResponderConfig peer = peers.next();
+                SecureRangingConfig config = peer.getSecureRangingConfig();
+                // For SECURITY_MODE_SECURE_AUTH, remove any non-authenticated peer.
+                if (mSecurityMode == SECURITY_MODE_SECURE_AUTH) {
+                    PasnConfig pasn = (config != null) ? config.getPasnConfig() : null;
+                    if (pasn == null || pasn.getBaseAkms() == PasnConfig.AKM_PASN) {
+                        peers.remove();
+                        Log.i(TAG, "SECURITY_MODE_SECURE_AUTH is set, removing non-secure peer: "
+                                + peer.getMacAddress());
+                    }
+                } else if (mSecurityMode == SECURITY_MODE_OPEN) {
+                    // For SECURITY_MODE_OPEN, remove any frame protection enabled peer.
+                    // At AIDL level, secure config will not be passed to HAL.
+                    if (config.isRangingFrameProtectionEnabled()) {
+                        peers.remove();
+                        Log.i(TAG, "SECURITY_MODE_OPEN is set, removing secure peer: "
+                                + peer.getMacAddress());
+                    }
+                }
+            }
+        }
+
+
+        /**
          * Build {@link RangingRequest} given the current configurations made on the
          * builder.
          */
         public RangingRequest build() {
-            return new RangingRequest(mRttPeers, mRttBurstSize, mVendorData);
+            if (mSecurityMode != SECURITY_MODE_OPPORTUNISTIC) {
+                filterRttPeersBasedOnSecurityMode();
+            }
+            return new RangingRequest(mRttPeers, mRttBurstSize, mSecurityMode, mVendorData);
         }
     }
 
@@ -547,11 +662,12 @@ public final class RangingRequest implements Parcelable {
         return mRttPeers.size() == lhs.mRttPeers.size()
                 && mRttPeers.containsAll(lhs.mRttPeers)
                 && mRttBurstSize == lhs.mRttBurstSize
+                && mSecurityMode == lhs.mSecurityMode
                 && Objects.equals(mVendorData, lhs.mVendorData);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mRttPeers, mRttBurstSize, mVendorData);
+        return Objects.hash(mRttPeers, mRttBurstSize, mSecurityMode, mVendorData);
     }
 }

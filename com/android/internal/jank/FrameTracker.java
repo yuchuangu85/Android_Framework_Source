@@ -16,13 +16,9 @@
 
 package com.android.internal.jank;
 
-import static android.view.SurfaceControl.JankData.DISPLAY_HAL;
-import static android.view.SurfaceControl.JankData.JANK_APP_DEADLINE_MISSED;
+import static android.view.SurfaceControl.JankData.JANK_APPLICATION;
+import static android.view.SurfaceControl.JankData.JANK_COMPOSER;
 import static android.view.SurfaceControl.JankData.JANK_NONE;
-import static android.view.SurfaceControl.JankData.JANK_SURFACEFLINGER_DEADLINE_MISSED;
-import static android.view.SurfaceControl.JankData.JANK_SURFACEFLINGER_GPU_DEADLINE_MISSED;
-import static android.view.SurfaceControl.JankData.PREDICTION_ERROR;
-import static android.view.SurfaceControl.JankData.SURFACE_FLINGER_SCHEDULING;
 
 import static com.android.internal.jank.DisplayRefreshRate.UNKNOWN_REFRESH_RATE;
 import static com.android.internal.jank.DisplayRefreshRate.VARIABLE_REFRESH_RATE;
@@ -30,6 +26,7 @@ import static com.android.internal.jank.InteractionJankMonitor.ACTION_SESSION_CA
 import static com.android.internal.jank.InteractionJankMonitor.ACTION_SESSION_END;
 import static com.android.internal.jank.InteractionJankMonitor.EXECUTOR_TASK_TIMEOUT;
 
+import android.animation.AnimationHandler;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -57,14 +54,15 @@ import com.android.internal.util.FrameworkStatsLog;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
  * A class that allows the app to get the frame metrics from HardwareRendererObserver.
  * @hide
  */
-public class FrameTracker extends SurfaceControl.OnJankDataListener
-        implements HardwareRendererObserver.OnFrameMetricsAvailableListener {
+public class FrameTracker implements HardwareRendererObserver.OnFrameMetricsAvailableListener,
+         SurfaceControl.OnJankDataListener {
     private static final String TAG = "FrameTracker";
 
     private static final long INVALID_ID = -1;
@@ -118,6 +116,7 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
     public final boolean mSurfaceOnly;
 
     private SurfaceControl mSurfaceControl;
+    private SurfaceControl.OnJankDataListenerRegistration mJankDataListenerRegistration;
     private long mBeginVsyncId = INVALID_ID;
     private long mEndVsyncId = INVALID_ID;
     private boolean mMetricsFinalized;
@@ -126,7 +125,7 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
     private Runnable mWaitForFinishTimedOut;
 
     private static class JankInfo {
-        long frameVsyncId;
+        final long frameVsyncId;
         long totalDurationNanos;
         boolean isFirstFrame;
         boolean hwuiCallbackFired;
@@ -134,29 +133,42 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
         @JankType int jankType;
         @RefreshRate int refreshRate;
 
-        static JankInfo createFromHwuiCallback(long frameVsyncId, long totalDurationNanos,
-                boolean isFirstFrame) {
-            return new JankInfo(frameVsyncId, true, false, JANK_NONE, UNKNOWN_REFRESH_RATE,
-                    totalDurationNanos, isFirstFrame);
+        static JankInfo createFromHwuiCallback(
+                long frameVsyncId, long totalDurationNanos, boolean isFirstFrame) {
+            return new JankInfo(frameVsyncId).update(totalDurationNanos, isFirstFrame);
         }
 
-        static JankInfo createFromSurfaceControlCallback(long frameVsyncId,
-                @JankType int jankType, @RefreshRate int refreshRate) {
-            return new JankInfo(
-                    frameVsyncId, false, true, jankType, refreshRate, 0, false /* isFirstFrame */);
+        static JankInfo createFromSurfaceControlCallback(SurfaceControl.JankData jankStat) {
+            return new JankInfo(jankStat.getVsyncId()).update(jankStat);
         }
 
-        private JankInfo(long frameVsyncId, boolean hwuiCallbackFired,
-                boolean surfaceControlCallbackFired, @JankType int jankType,
-                @RefreshRate int refreshRate,
-                long totalDurationNanos, boolean isFirstFrame) {
+        private JankInfo(long frameVsyncId) {
             this.frameVsyncId = frameVsyncId;
-            this.hwuiCallbackFired = hwuiCallbackFired;
-            this.surfaceControlCallbackFired = surfaceControlCallbackFired;
-            this.jankType = jankType;
-            this.refreshRate = refreshRate;
-            this.totalDurationNanos = totalDurationNanos;
+            this.hwuiCallbackFired = false;
+            this.surfaceControlCallbackFired = false;
+            this.jankType = JANK_NONE;
+            this.refreshRate = UNKNOWN_REFRESH_RATE;
+            this.totalDurationNanos = 0;
+            this.isFirstFrame = false;
+        }
+
+        private JankInfo update(SurfaceControl.JankData jankStat) {
+            this.surfaceControlCallbackFired = true;
+            this.jankType = jankStat.getJankType();
+            this.refreshRate = DisplayRefreshRate.getRefreshRate(jankStat.getFrameIntervalNanos());
+            if (Flags.useSfFrameDuration()) {
+                this.totalDurationNanos = jankStat.getActualAppFrameTimeNanos();
+            }
+            return this;
+        }
+
+        private JankInfo update(long totalDurationNanos, boolean isFirstFrame) {
+            this.hwuiCallbackFired = true;
+            if (!Flags.useSfFrameDuration()) {
+                this.totalDurationNanos = totalDurationNanos;
+            }
             this.isFirstFrame = isFirstFrame;
+            return this;
         }
 
         @Override
@@ -166,23 +178,11 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
                 case JANK_NONE:
                     str.append("JANK_NONE");
                     break;
-                case JANK_APP_DEADLINE_MISSED:
-                    str.append("JANK_APP_DEADLINE_MISSED");
+                case JANK_APPLICATION:
+                    str.append("JANK_APPLICATION");
                     break;
-                case JANK_SURFACEFLINGER_DEADLINE_MISSED:
-                    str.append("JANK_SURFACEFLINGER_DEADLINE_MISSED");
-                    break;
-                case JANK_SURFACEFLINGER_GPU_DEADLINE_MISSED:
-                    str.append("JANK_SURFACEFLINGER_GPU_DEADLINE_MISSED");
-                    break;
-                case DISPLAY_HAL:
-                    str.append("DISPLAY_HAL");
-                    break;
-                case PREDICTION_ERROR:
-                    str.append("PREDICTION_ERROR");
-                    break;
-                case SURFACE_FLINGER_SCHEDULING:
-                    str.append("SURFACE_FLINGER_SCHEDULING");
+                case JANK_COMPOSER:
+                    str.append("JANK_COMPOSER");
                     break;
                 default:
                     str.append("UNKNOWN: ").append(jankType);
@@ -215,7 +215,7 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
         mRendererWrapper = mSurfaceOnly ? null : renderer;
         mMetricsWrapper = mSurfaceOnly ? null : metrics;
         mViewRoot = mSurfaceOnly ? null : viewRootWrapper;
-        mObserver = mSurfaceOnly
+        mObserver = mSurfaceOnly || (Flags.useSfFrameDuration() && Flags.ignoreHwuiIsFirstFrame())
                 ? null
                 : new HardwareRendererObserver(this, mMetricsWrapper.getTiming(),
                         mHandler, /* waitForPresentTime= */ false);
@@ -238,6 +238,7 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
             mSurfaceChangedCallback = new ViewRootImpl.SurfaceChangedCallback() {
                 @Override
                 public void surfaceCreated(SurfaceControl.Transaction t) {
+                    Trace.beginSection("FrameTracker#surfaceCreated");
                     mHandler.runWithScissors(() -> {
                         if (mSurfaceControl == null) {
                             mSurfaceControl = mViewRoot.getSurfaceControl();
@@ -247,6 +248,7 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
                             }
                         }
                     }, EXECUTOR_TASK_TIMEOUT);
+                    Trace.endSection();
                 }
 
                 @Override
@@ -255,15 +257,11 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
 
                 @Override
                 public void surfaceDestroyed() {
-
-                    // Wait a while to give the system a chance for the remaining
-                    // frames to arrive, then force finish the session.
-                    mHandler.postDelayed(() -> {
+                    mHandler.post(() -> {
                         if (!mMetricsFinalized) {
                             end(REASON_END_SURFACE_DESTROYED);
-                            finish();
                         }
-                    }, 50);
+                    });
                 }
             };
             // This callback has a reference to FrameTracker,
@@ -316,7 +314,9 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
         Trace.asyncTraceForTrackBegin(Trace.TRACE_TAG_APP, name, name, (int) mBeginVsyncId);
         markEvent("FT#beginVsync", mBeginVsyncId);
         markEvent("FT#layerId", mSurfaceControl.getLayerId());
-        mSurfaceControlWrapper.addJankStatsListener(this, mSurfaceControl);
+        markCujUiThread();
+        mJankDataListenerRegistration =
+                mSurfaceControlWrapper.addJankStatsListener(this, mSurfaceControl);
         if (!mSurfaceOnly) {
             mRendererWrapper.addObserver(mObserver);
         }
@@ -328,7 +328,8 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
     @UiThread
     public boolean end(@Reasons int reason) {
         if (mCancelled || mEndVsyncId != INVALID_ID) return false;
-        mEndVsyncId = mChoreographer.getVsyncId();
+        mEndVsyncId = AnimationHandler.getInstance().getLastAnimationFrameVsyncId(
+                mChoreographer.getVsyncId());
         // Cancel the session if:
         // 1. The session begins and ends at the same vsync id.
         // 2. The session never begun.
@@ -341,6 +342,10 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
             markEvent("FT#end", reason);
             markEvent("FT#endVsync", mEndVsyncId);
             Trace.asyncTraceForTrackEnd(Trace.TRACE_TAG_APP, name, (int) mBeginVsyncId);
+
+            if (mJankDataListenerRegistration != null) {
+                mJankDataListenerRegistration.removeAfter(mEndVsyncId);
+            }
 
             // We don't remove observer here,
             // will remove it when all the frame metrics in this duration are called back.
@@ -358,6 +363,9 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
                     // Send a flush jank data transaction.
                     if (mSurfaceControl != null && mSurfaceControl.isValid()) {
                         SurfaceControl.Transaction.sendSurfaceFlushJankData(mSurfaceControl);
+                    }
+                    if (mJankDataListenerRegistration != null) {
+                        mJankDataListenerRegistration.flush();
                     }
 
                     long delay;
@@ -424,35 +432,43 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
         }
     }
 
+    private void markCujUiThread() {
+        if (Trace.isTagEnabled(Trace.TRACE_TAG_APP)) {
+            // This is being called from the CUJ ui thread.
+            Trace.instant(Trace.TRACE_TAG_APP, mConfig.getSessionName() + "#UIThread");
+        }
+    }
+
     private void notifyCujEvent(String action, @Reasons int reason) {
         if (mListener == null) return;
         mListener.onCujEvents(this, action, reason);
     }
 
     @Override
-    public void onJankDataAvailable(SurfaceControl.JankData[] jankData) {
+    public void onJankDataAvailable(List<SurfaceControl.JankData> jankData) {
         postCallback(() -> {
-            if (mCancelled || mMetricsFinalized) {
-                return;
-            }
+            try {
+                Trace.beginSection("FrameTracker#onJankDataAvailable");
+                if (mCancelled || mMetricsFinalized) {
+                    return;
+                }
 
-            for (SurfaceControl.JankData jankStat : jankData) {
-                if (!isInRange(jankStat.frameVsyncId)) {
-                    continue;
+                for (SurfaceControl.JankData jankStat : jankData) {
+                    if (!isInRange(jankStat.getVsyncId())) {
+                        continue;
+                    }
+                    JankInfo info = findJankInfo(jankStat.getVsyncId());
+                    if (info != null) {
+                        info.update(jankStat);
+                    } else {
+                        mJankInfos.put((int) jankStat.getVsyncId(),
+                                JankInfo.createFromSurfaceControlCallback(jankStat));
+                    }
                 }
-                int refreshRate = DisplayRefreshRate.getRefreshRate(jankStat.frameIntervalNs);
-                JankInfo info = findJankInfo(jankStat.frameVsyncId);
-                if (info != null) {
-                    info.surfaceControlCallbackFired = true;
-                    info.jankType = jankStat.jankType;
-                    info.refreshRate = refreshRate;
-                } else {
-                    mJankInfos.put((int) jankStat.frameVsyncId,
-                            JankInfo.createFromSurfaceControlCallback(
-                                    jankStat.frameVsyncId, jankStat.jankType, refreshRate));
-                }
+                processJankInfos();
+            } finally {
+                Trace.endSection();
             }
-            processJankInfos();
         });
     }
 
@@ -479,31 +495,35 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
     @Override
     public void onFrameMetricsAvailable(int dropCountSinceLastInvocation) {
         postCallback(() -> {
-            if (mCancelled || mMetricsFinalized) {
-                return;
-            }
+            try {
+                Trace.beginSection("FrameTracker#onFrameMetricsAvailable");
+                if (mCancelled || mMetricsFinalized) {
+                    return;
+                }
 
-            // Since this callback might come a little bit late after the end() call.
-            // We should keep tracking the begin / end timestamp that we can compare with
-            // vsync timestamp to check if the frame is in the duration of the CUJ.
-            long totalDurationNanos = mMetricsWrapper.getMetric(FrameMetrics.TOTAL_DURATION);
-            boolean isFirstFrame = mMetricsWrapper.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1;
-            long frameVsyncId =
-                    mMetricsWrapper.getTiming()[FrameMetrics.Index.FRAME_TIMELINE_VSYNC_ID];
+                // Since this callback might come a little bit late after the end() call.
+                // We should keep tracking the begin / end timestamp that we can compare with
+                // vsync timestamp to check if the frame is in the duration of the CUJ.
+                long totalDurationNanos = mMetricsWrapper.getMetric(FrameMetrics.TOTAL_DURATION);
+                boolean isFirstFrame =
+                    mMetricsWrapper.getMetric(FrameMetrics.FIRST_DRAW_FRAME) == 1;
+                long frameVsyncId =
+                        mMetricsWrapper.getTiming()[FrameMetrics.Index.FRAME_TIMELINE_VSYNC_ID];
 
-            if (!isInRange(frameVsyncId)) {
-                return;
+                if (!isInRange(frameVsyncId)) {
+                    return;
+                }
+                JankInfo info = findJankInfo(frameVsyncId);
+                if (info != null) {
+                    info.update(totalDurationNanos, isFirstFrame);
+                } else {
+                    mJankInfos.put((int) frameVsyncId, JankInfo.createFromHwuiCallback(
+                            frameVsyncId, totalDurationNanos, isFirstFrame));
+                }
+                processJankInfos();
+            } finally {
+                Trace.endSection();
             }
-            JankInfo info = findJankInfo(frameVsyncId);
-            if (info != null) {
-                info.hwuiCallbackFired = true;
-                info.totalDurationNanos = totalDurationNanos;
-                info.isFirstFrame = isFirstFrame;
-            } else {
-                mJankInfos.put((int) frameVsyncId, JankInfo.createFromHwuiCallback(
-                        frameVsyncId, totalDurationNanos, isFirstFrame));
-            }
-            processJankInfos();
         });
     }
 
@@ -542,13 +562,20 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
     }
 
     private boolean callbacksReceived(JankInfo info) {
-        return mSurfaceOnly
+        return mObserver == null
                 ? info.surfaceControlCallbackFired
                 : info.hwuiCallbackFired && info.surfaceControlCallbackFired;
     }
 
     @UiThread
     private void finish() {
+        Trace.beginSection("FrameTracker#finish");
+        finishTraced();
+        Trace.endSection();
+    }
+
+    @UiThread
+    private void finishTraced() {
         if (mMetricsFinalized || mCancelled) return;
         mMetricsFinalized = true;
 
@@ -573,7 +600,7 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
         for (int i = 0; i < mJankInfos.size(); i++) {
             JankInfo info = mJankInfos.valueAt(i);
             final boolean isFirstDrawn = !mSurfaceOnly && info.isFirstFrame;
-            if (isFirstDrawn) {
+            if (isFirstDrawn && !Flags.ignoreHwuiIsFirstFrame()) {
                 continue;
             }
             if (info.frameVsyncId > mEndVsyncId) {
@@ -582,16 +609,12 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
             if (info.surfaceControlCallbackFired) {
                 totalFramesCount++;
                 boolean missedFrame = false;
-                if ((info.jankType & JANK_APP_DEADLINE_MISSED) != 0) {
+                if ((info.jankType & JANK_APPLICATION) != 0) {
                     Log.w(TAG, "Missed App frame:" + info + ", CUJ=" + name);
                     missedAppFramesCount++;
                     missedFrame = true;
                 }
-                if ((info.jankType & DISPLAY_HAL) != 0
-                        || (info.jankType & JANK_SURFACEFLINGER_DEADLINE_MISSED) != 0
-                        || (info.jankType & JANK_SURFACEFLINGER_GPU_DEADLINE_MISSED) != 0
-                        || (info.jankType & SURFACE_FLINGER_SCHEDULING) != 0
-                        || (info.jankType & PREDICTION_ERROR) != 0) {
+                if ((info.jankType & JANK_COMPOSER) != 0) {
                     Log.w(TAG, "Missed SF frame:" + info + ", CUJ=" + name);
                     missedSfFramesCount++;
                     missedFrame = true;
@@ -610,7 +633,7 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
                 }
                 // TODO (b/174755489): Early latch currently gets fired way too often, so we have
                 // to ignore it for now.
-                if (!mSurfaceOnly && !info.hwuiCallbackFired) {
+                if (mObserver != null && !info.hwuiCallbackFired) {
                     markEvent("FT#MissedHWUICallback", info.frameVsyncId);
                     Log.w(TAG, "Missing HWUI jank callback for vsyncId: " + info.frameVsyncId
                             + ", CUJ=" + name);
@@ -623,6 +646,8 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
                     Log.w(TAG, "Missing SF jank callback for vsyncId: " + info.frameVsyncId
                             + ", CUJ=" + name);
                 }
+            } else if (Flags.useSfFrameDuration() && info.surfaceControlCallbackFired) {
+                maxFrameTimeNanos = Math.max(info.totalDurationNanos, maxFrameTimeNanos);
             }
         }
         maxSuccessiveMissedFramesCount = Math.max(
@@ -658,14 +683,6 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
         }
     }
 
-    ThreadedRendererWrapper getThreadedRenderer() {
-        return mRendererWrapper;
-    }
-
-    ViewRootWrapper getViewRoot() {
-        return mViewRoot;
-    }
-
     private boolean shouldTriggerPerfetto(int missedFramesCount, int maxFrameTimeNanos) {
         boolean overMissedFramesThreshold = mTraceThresholdMissedFrames != -1
                 && missedFramesCount >= mTraceThresholdMissedFrames;
@@ -680,7 +697,10 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
     @VisibleForTesting
     @UiThread
     public void removeObservers() {
-        mSurfaceControlWrapper.removeJankStatsListener(this);
+        if (mJankDataListenerRegistration != null) {
+            mJankDataListenerRegistration.release();
+            mJankDataListenerRegistration = null;
+        }
         if (!mSurfaceOnly) {
             // HWUI part.
             mRendererWrapper.removeObserver(mObserver);
@@ -733,7 +753,9 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
          * @param observer observer
          */
         public void addObserver(HardwareRendererObserver observer) {
-            mRenderer.addObserver(observer);
+            if (observer != null) {
+                mRenderer.addObserver(observer);
+            }
         }
 
         /**
@@ -741,7 +763,9 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
          * @param observer observer
          */
         public void removeObserver(HardwareRendererObserver observer) {
-            mRenderer.removeObserver(observer);
+            if (observer != null) {
+                mRenderer.removeObserver(observer);
+            }
         }
     }
 
@@ -796,14 +820,10 @@ public class FrameTracker extends SurfaceControl.OnJankDataListener
     }
 
     public static class SurfaceControlWrapper {
-
-        public void addJankStatsListener(SurfaceControl.OnJankDataListener listener,
-                SurfaceControl surfaceControl) {
-            SurfaceControl.addJankDataListener(listener, surfaceControl);
-        }
-
-        public void removeJankStatsListener(SurfaceControl.OnJankDataListener listener) {
-            SurfaceControl.removeJankDataListener(listener);
+        /** adds the jank listener to the given surface */
+        public SurfaceControl.OnJankDataListenerRegistration addJankStatsListener(
+                SurfaceControl.OnJankDataListener listener, SurfaceControl surfaceControl) {
+            return surfaceControl.addOnJankDataListener(listener);
         }
     }
 

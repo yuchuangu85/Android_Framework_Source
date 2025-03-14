@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/capture_state_listener-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen/android/media/GetOutputForAttrResponse.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/GetOutputForAttrResponse.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/4/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/audio-permission-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/capture_state_listener-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen/android/media/GetOutputForAttrResponse.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/GetOutputForAttrResponse.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.media;
 /** {@hide} */
@@ -9,8 +13,8 @@ public class GetOutputForAttrResponse implements android.os.Parcelable
   /** Interpreted as audio_io_handle_t. */
   public int output = 0;
   public int stream;
-  /** Interpreted as audio_port_handle_t. */
-  public int selectedDeviceId = 0;
+  /** Interpreted as audio_port_handle_t[]. */
+  public int[] selectedDeviceIds;
   /** Interpreted as audio_port_handle_t. */
   public int portId = 0;
   /** Interpreted as audio_io_handle_t[]. */
@@ -22,6 +26,10 @@ public class GetOutputForAttrResponse implements android.os.Parcelable
   public boolean isBitPerfect = false;
   /** The corrected audio attributes. * */
   public android.media.audio.common.AudioAttributes attr;
+  /** initial port volume for the new audio track */
+  public float volume = 0.000000f;
+  /** initial port muted state for the new audio track */
+  public boolean muted = false;
   public static final android.os.Parcelable.Creator<GetOutputForAttrResponse> CREATOR = new android.os.Parcelable.Creator<GetOutputForAttrResponse>() {
     @Override
     public GetOutputForAttrResponse createFromParcel(android.os.Parcel _aidl_source) {
@@ -40,13 +48,15 @@ public class GetOutputForAttrResponse implements android.os.Parcelable
     _aidl_parcel.writeInt(0);
     _aidl_parcel.writeInt(output);
     _aidl_parcel.writeInt(stream);
-    _aidl_parcel.writeInt(selectedDeviceId);
+    _aidl_parcel.writeIntArray(selectedDeviceIds);
     _aidl_parcel.writeInt(portId);
     _aidl_parcel.writeIntArray(secondaryOutputs);
     _aidl_parcel.writeBoolean(isSpatialized);
     _aidl_parcel.writeTypedObject(configBase, _aidl_flag);
     _aidl_parcel.writeBoolean(isBitPerfect);
     _aidl_parcel.writeTypedObject(attr, _aidl_flag);
+    _aidl_parcel.writeFloat(volume);
+    _aidl_parcel.writeBoolean(muted);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -63,7 +73,7 @@ public class GetOutputForAttrResponse implements android.os.Parcelable
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       stream = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
-      selectedDeviceId = _aidl_parcel.readInt();
+      selectedDeviceIds = _aidl_parcel.createIntArray();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       portId = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
@@ -76,6 +86,10 @@ public class GetOutputForAttrResponse implements android.os.Parcelable
       isBitPerfect = _aidl_parcel.readBoolean();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       attr = _aidl_parcel.readTypedObject(android.media.audio.common.AudioAttributes.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      volume = _aidl_parcel.readFloat();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      muted = _aidl_parcel.readBoolean();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");

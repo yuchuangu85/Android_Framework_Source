@@ -65,10 +65,11 @@ public class CertificateFactory
     }
 
     private java.security.cert.Certificate readPEMCertificate(
-        InputStream in)
+        InputStream in,
+        boolean isFirst)
         throws IOException, CertificateParsingException
     {
-        return getCertificate(PEM_CERT_PARSER.readPEMObject(in));
+        return getCertificate(PEM_CERT_PARSER.readPEMObject(in, isFirst));
     }
 
     private java.security.cert.Certificate getCertificate(ASN1Sequence seq)
@@ -123,10 +124,11 @@ public class CertificateFactory
     }
     
     private CRL readPEMCRL(
-        InputStream in)
+        InputStream in,
+        boolean isFirst)
         throws IOException, CRLException
     {
-        return getCRL(PEM_CRL_PARSER.readPEMObject(in));
+        return getCRL(PEM_CRL_PARSER.readPEMObject(in, isFirst));
     }
 
     private CRL readDERCRL(
@@ -181,6 +183,14 @@ public class CertificateFactory
         InputStream in)
         throws CertificateException
     {
+        return doGenerateCertificate(in, true);
+    }
+
+   private java.security.cert.Certificate doGenerateCertificate(
+            InputStream in,
+            boolean isFirst)
+            throws CertificateException
+   {
         if (currentStream == null)
         {
             currentStream = in;
@@ -254,7 +264,7 @@ public class CertificateFactory
 
             if (tag != 0x30)  // assume ascii PEM encoded.
             {
-                return readPEMCertificate(pis);
+                return readPEMCertificate(pis, isFirst);
             }
             else
             {
@@ -286,7 +296,8 @@ public class CertificateFactory
 
         // Android-changed: Read from original stream
         // while ((cert = engineGenerateCertificate(in)) != null)
-        while ((cert = engineGenerateCertificate(inStream)) != null)
+        // if we do read some certificates we'll return them even if junk at end of file
+        while ((cert = doGenerateCertificate(inStream, certs.isEmpty())) != null)
         {
             certs.add(cert);
         }
@@ -300,6 +311,18 @@ public class CertificateFactory
      */
     public CRL engineGenerateCRL(
         InputStream in)
+        throws CRLException
+    {
+        return doGenerateCRL(in, true);
+    }
+
+    /**
+     * Generates a certificate revocation list (CRL) object and initializes
+     * it with the data read from the input stream inStream.
+     */
+    private CRL doGenerateCRL(
+        InputStream in,
+        boolean     isFirst)
         throws CRLException
     {
         if (currentCrlStream == null)
@@ -353,7 +376,7 @@ public class CertificateFactory
             pis.reset();
             if (tag != 0x30)  // assume ascii PEM encoded.
             {
-                return readPEMCRL(pis);
+                return readPEMCRL(pis, isFirst);
             }
             else
             {       // lazy evaluate to help processing of large CRLs
@@ -387,7 +410,8 @@ public class CertificateFactory
         List crls = new ArrayList();
         BufferedInputStream in = new BufferedInputStream(inStream);
 
-        while ((crl = engineGenerateCRL(in)) != null)
+        // if we do read some certificates we'll return them even if junk at end of file
+        while ((crl = doGenerateCRL(in, crls.isEmpty())) != null)
         {
             crls.add(crl);
         }
@@ -435,7 +459,7 @@ public class CertificateFactory
         return new PKIXCertPath(certificates);
     }
 
-    private class ExCertificateException
+    private static class ExCertificateException
         extends CertificateException
     {
         private Throwable cause;

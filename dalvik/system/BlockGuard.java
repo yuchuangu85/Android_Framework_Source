@@ -162,7 +162,6 @@ public final class BlockGuard {
             mPolicyState = policyState;
             mPolicyViolated = policyViolated;
             mMessage = message;
-            fillInStackTrace();
         }
 
         public int getPolicy() {

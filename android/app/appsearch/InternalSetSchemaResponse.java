@@ -17,13 +17,15 @@
 package android.app.appsearch;
 
 import android.annotation.FlaggedApi;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.app.appsearch.flags.Flags;
 import android.app.appsearch.safeparcel.AbstractSafeParcelable;
 import android.app.appsearch.safeparcel.SafeParcelable;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.appsearch.flags.Flags;
+
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 
@@ -41,8 +43,7 @@ import java.util.Objects;
 public class InternalSetSchemaResponse extends AbstractSafeParcelable {
 
     @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
-    @NonNull
-    public static final Parcelable.Creator<InternalSetSchemaResponse> CREATOR =
+    public static final Parcelable.@NonNull Creator<InternalSetSchemaResponse> CREATOR =
             new InternalSetSchemaResponseCreator();
 
     @Field(id = 1, getter = "isSuccess")
@@ -52,8 +53,7 @@ public class InternalSetSchemaResponse extends AbstractSafeParcelable {
     private final SetSchemaResponse mSetSchemaResponse;
 
     @Field(id = 3, getter = "getErrorMessage")
-    @Nullable
-    private final String mErrorMessage;
+    private final @Nullable String mErrorMessage;
 
     @Constructor
     public InternalSetSchemaResponse(
@@ -71,8 +71,7 @@ public class InternalSetSchemaResponse extends AbstractSafeParcelable {
      *
      * @param setSchemaResponse The object this internal object represents.
      */
-    @NonNull
-    public static InternalSetSchemaResponse newSuccessfulSetSchemaResponse(
+    public static @NonNull InternalSetSchemaResponse newSuccessfulSetSchemaResponse(
             @NonNull SetSchemaResponse setSchemaResponse) {
         return new InternalSetSchemaResponse(
                 /* isSuccess= */ true, setSchemaResponse, /* errorMessage= */ null);
@@ -84,8 +83,7 @@ public class InternalSetSchemaResponse extends AbstractSafeParcelable {
      * @param setSchemaResponse The object this internal object represents.
      * @param errorMessage An string describing the reason or nature of the failure.
      */
-    @NonNull
-    public static InternalSetSchemaResponse newFailedSetSchemaResponse(
+    public static @NonNull InternalSetSchemaResponse newFailedSetSchemaResponse(
             @NonNull SetSchemaResponse setSchemaResponse, @NonNull String errorMessage) {
         return new InternalSetSchemaResponse(
                 /* isSuccess= */ false, setSchemaResponse, errorMessage);
@@ -101,8 +99,7 @@ public class InternalSetSchemaResponse extends AbstractSafeParcelable {
      *
      * <p>The call may or may not success. Check {@link #isSuccess()} before call this method.
      */
-    @NonNull
-    public SetSchemaResponse getSetSchemaResponse() {
+    public @NonNull SetSchemaResponse getSetSchemaResponse() {
         return mSetSchemaResponse;
     }
 
@@ -111,8 +108,7 @@ public class InternalSetSchemaResponse extends AbstractSafeParcelable {
      *
      * <p>If {@link #isSuccess} is {@code true}, the error message is always {@code null}.
      */
-    @Nullable
-    public String getErrorMessage() {
+    public @Nullable String getErrorMessage() {
         return mErrorMessage;
     }
 

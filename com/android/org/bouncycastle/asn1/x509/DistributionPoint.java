@@ -1,12 +1,12 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.asn1.x509;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.org.bouncycastle.asn1.ASN1Object;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
-import com.android.org.bouncycastle.asn1.DERBitString;
 import com.android.org.bouncycastle.asn1.DERSequence;
 import com.android.org.bouncycastle.asn1.DERTaggedObject;
 import com.android.org.bouncycastle.util.Strings;
@@ -61,10 +61,11 @@ public class DistributionPoint
             switch (t.getTagNo())
             {
             case 0:
+                // CHOICE so explicit
                 distributionPoint = DistributionPointName.getInstance(t, true);
                 break;
             case 1:
-                reasons = new ReasonFlags(DERBitString.getInstance(t, false));
+                reasons = new ReasonFlags(ASN1BitString.getInstance(t, false));
                 break;
             case 2:
                 cRLIssuer = GeneralNames.getInstance(t, false);

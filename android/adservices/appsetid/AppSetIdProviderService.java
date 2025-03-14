@@ -18,6 +18,7 @@ package android.adservices.appsetid;
 
 import static android.adservices.common.AdServicesStatusUtils.STATUS_SUCCESS;
 
+import android.adservices.AdServicesFrameworkHelper;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
@@ -71,7 +72,8 @@ public abstract class AppSetIdProviderService extends Service {
 
                         resultCallback.onResult(appsetIdInternal);
                     } catch (Throwable e) {
-                        resultCallback.onError(e.getMessage());
+                        resultCallback.onError(
+                                AdServicesFrameworkHelper.getExceptionStackTraceString(e));
                     }
                 }
             };

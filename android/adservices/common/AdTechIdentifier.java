@@ -24,6 +24,9 @@ import java.util.Objects;
 
 /** An Identifier representing an ad buyer or seller. */
 public final class AdTechIdentifier implements Parcelable {
+    /** @hide */
+    public static final AdTechIdentifier UNSET_AD_TECH_IDENTIFIER =
+            AdTechIdentifier.fromString("", false);
 
     @NonNull private final String mIdentifier;
 
@@ -36,7 +39,7 @@ public final class AdTechIdentifier implements Parcelable {
     }
 
     private AdTechIdentifier(@NonNull String adTechIdentifier, boolean validate) {
-        Objects.requireNonNull(adTechIdentifier);
+        Objects.requireNonNull(adTechIdentifier, "Input ad tech identifier must not be null");
         if (validate) {
             validate(adTechIdentifier);
         }
@@ -109,9 +112,8 @@ public final class AdTechIdentifier implements Parcelable {
     /**
      * Construct an instance of this class from a String.
      *
-     * @param source A valid eTLD+1 domain of an ad buyer or seller or null.
-     * @return An {@link AdTechIdentifier} class wrapping the given domain or null if the input was
-     *     null.
+     * @param source A valid eTLD+1 domain of an ad buyer or seller
+     * @return An {@link AdTechIdentifier} object wrapping the given domain
      */
     @NonNull
     public static AdTechIdentifier fromString(@NonNull String source) {

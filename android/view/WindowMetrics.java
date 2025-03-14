@@ -101,10 +101,14 @@ public final class WindowMetrics {
      * Returns the bounds of the area associated with this window or {@code UiContext}.
      * <p>
      * <b>Note that the size of the reported bounds can have different size than
-     * {@link Display#getSize(Point)}.</b> This method reports the window size including all system
-     * bar areas, while {@link Display#getSize(Point)} reports the area excluding navigation bars
-     * and display cutout areas. The value reported by {@link Display#getSize(Point)} can be
-     * obtained by using:
+     * {@link Display#getSize(Point)} based on your target API level and calling context.</b>
+     * This method reports the window size including all system
+     * bar areas, while {@link Display#getSize(Point)} can report the area excluding navigation bars
+     * and display cutout areas depending on the calling context and target SDK level. Please refer
+     * to {@link Display#getSize(Point)} for details.
+     * <p>
+     * The following code snippet shows how to get the bounds excluding navigation bars and display
+     * cutout:
      * <pre class="prettyprint">
      * final WindowMetrics metrics = windowManager.getCurrentWindowMetrics();
      * // Gets all excluding insets

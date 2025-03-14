@@ -3,6 +3,8 @@ package com.android.org.bouncycastle.crypto;
 
 import java.security.SecureRandom;
 
+import com.android.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
+
 /**
  * The base class for symmetric, or secret, cipher key generators.
  * @hide This class is not part of the Android public SDK API
@@ -22,6 +24,8 @@ public class CipherKeyGenerator
     {
         this.random = param.getRandom();
         this.strength = (param.getStrength() + 7) / 8;
+
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties("SymKeyGen", param.getStrength()));
     }
 
     /**

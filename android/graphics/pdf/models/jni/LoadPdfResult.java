@@ -32,7 +32,9 @@ public class LoadPdfResult {
     @Nullable
     public final PdfDocumentProxy pdfDocument;
 
-    public LoadPdfResult(int status, @Nullable PdfDocumentProxy pdfDocument) {
+    public final float pdfSizeInKb;
+
+    public LoadPdfResult(int status, @Nullable PdfDocumentProxy pdfDocument, float pdfSizeInKb) {
         if (status == PdfStatus.LOADED.getNumber()) {
             Preconditions.checkArgument(pdfDocument != null, "Missing PdfDocumentProxy");
         } else {
@@ -42,5 +44,6 @@ public class LoadPdfResult {
         // TODO(b/324910716): Potentially error-prone as is dependent on Status in document.h
         this.status = PdfStatus.values()[status];
         this.pdfDocument = pdfDocument;
+        this.pdfSizeInKb = pdfSizeInKb;
     }
 }

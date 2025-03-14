@@ -17,6 +17,7 @@
 package com.android.org.conscrypt.metrics;
 
 import com.android.org.conscrypt.Internal;
+import com.android.org.conscrypt.Platform;
 
 /**
  * Reflection wrapper around android.util.StatsEvent.
@@ -26,14 +27,12 @@ import com.android.org.conscrypt.Internal;
 public class ReflexiveStatsEvent {
     private static final OptionalMethod newBuilder;
     private static final Class<?> c_statsEvent;
-    private static final Object sdkVersion;
     private static final boolean sdkVersionBiggerThan32;
 
     static {
-        sdkVersion = getSdkVersion();
         c_statsEvent = initStatsEventClass();
         newBuilder = new OptionalMethod(c_statsEvent, "newBuilder");
-        sdkVersionBiggerThan32 = (sdkVersion != null) && ((int) sdkVersion > 32);
+        sdkVersionBiggerThan32 = Platform.isSdkGreater(32);
     }
 
     private static Class<?> initStatsEventClass() {
@@ -58,6 +57,8 @@ public class ReflexiveStatsEvent {
         return new ReflexiveStatsEvent.Builder();
     }
 
+    /* Used by older CTS test */
+    @Deprecated
     public static ReflexiveStatsEvent buildEvent(int atomId, boolean success, int protocol,
             int cipherSuite, int duration, int source, int[] uids) {
         ReflexiveStatsEvent.Builder builder = ReflexiveStatsEvent.newBuilder();
@@ -67,15 +68,15 @@ public class ReflexiveStatsEvent {
         builder.writeInt(cipherSuite);
         builder.writeInt(duration);
         builder.writeInt(source);
-        if (sdkVersionBiggerThan32) {
-          builder.writeIntArray(uids);
-        }
+        builder.writeIntArray(uids);
         builder.usePooledBuffer();
         return builder.build();
     }
 
-    public static ReflexiveStatsEvent buildEvent(int atomId, boolean success, int protocol,
-            int cipherSuite, int duration, int source) {
+    /* Used by older CTS test */
+    @Deprecated
+    public static ReflexiveStatsEvent buildEvent(
+            int atomId, boolean success, int protocol, int cipherSuite, int duration, int source) {
         ReflexiveStatsEvent.Builder builder = ReflexiveStatsEvent.newBuilder();
         builder.setAtomId(atomId);
         builder.writeBoolean(success);
@@ -85,17 +86,6 @@ public class ReflexiveStatsEvent {
         builder.writeInt(source);
         builder.usePooledBuffer();
         return builder.build();
-    }
-
-    static Object getSdkVersion() {
-        try {
-            OptionalMethod getSdkVersion =
-                    new OptionalMethod(Class.forName("dalvik.system.VMRuntime"),
-                                        "getSdkVersion");
-            return getSdkVersion.invokeStatic();
-        } catch (ClassNotFoundException e) {
-            return null;
-        }
     }
 
     /**
@@ -154,7 +144,9 @@ public class ReflexiveStatsEvent {
         }
 
         public Builder writeIntArray(final int[] values) {
-            writeIntArray.invoke(this.builder, values);
+            if (sdkVersionBiggerThan32) {
+                writeIntArray.invoke(this.builder, values);
+            }
             return this;
         }
 

@@ -4,6 +4,7 @@ package com.android.org.bouncycastle.asn1.sec;
 import java.math.BigInteger;
 import java.util.Enumeration;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.org.bouncycastle.asn1.ASN1Integer;
@@ -12,7 +13,6 @@ import com.android.org.bouncycastle.asn1.ASN1OctetString;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
-import com.android.org.bouncycastle.asn1.DERBitString;
 import com.android.org.bouncycastle.asn1.DEROctetString;
 import com.android.org.bouncycastle.asn1.DERSequence;
 import com.android.org.bouncycastle.asn1.DERTaggedObject;
@@ -56,7 +56,7 @@ public class ECPrivateKeyStructure
 
     public ECPrivateKeyStructure(
         BigInteger    key,
-        DERBitString  publicKey,
+        ASN1BitString  publicKey,
         ASN1Encodable parameters)
     {
         byte[] bytes = BigIntegers.asUnsignedByteArray(key);
@@ -86,9 +86,9 @@ public class ECPrivateKeyStructure
         return new BigInteger(1, octs.getOctets());
     }
 
-    public DERBitString getPublicKey()
+    public ASN1BitString getPublicKey()
     {
-        return (DERBitString)getObjectInTag(1);
+        return (ASN1BitString)getObjectInTag(1);
     }
 
     public ASN1Primitive getParameters()
@@ -109,7 +109,7 @@ public class ECPrivateKeyStructure
                 ASN1TaggedObject tag = (ASN1TaggedObject)obj;
                 if (tag.getTagNo() == tagNo)
                 {
-                    return (ASN1Primitive)((ASN1Encodable)tag.getObject()).toASN1Primitive();
+                    return (ASN1Primitive)((ASN1Encodable)tag.getExplicitBaseObject()).toASN1Primitive();
                 }
             }
         }

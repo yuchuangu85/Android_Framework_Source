@@ -18,6 +18,7 @@ package com.android.internal.telephony.cdnr;
 
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.telephony.Rlog;
 
 import java.util.Objects;
 
@@ -25,6 +26,9 @@ import java.util.Objects;
  * A container of carrier display name.
  */
 public class CarrierDisplayNameData implements Parcelable {
+
+    private static final String LOG_TAG = "CarrierDisplayNameData";
+
     /** Service provider name. */
     private final String mSpn;
 
@@ -40,8 +44,18 @@ public class CarrierDisplayNameData implements Parcelable {
     /** {@code True} if display PLMN network name is required. */
     private final boolean mShowPlmn;
 
-    private CarrierDisplayNameData(String spn, String dataSpn, boolean showSpn, String plmn,
-            boolean showPlmn) {
+    private CarrierDisplayNameData(
+            String spn, String dataSpn, boolean showSpn, String plmn, boolean showPlmn) {
+        final String logString = "Data SPN must be provided if SPN is provided";
+        if (spn != null && dataSpn == null) {
+            Rlog.e(LOG_TAG, logString);
+            if (android.os.Build.isDebuggable()) {
+                throw new IllegalArgumentException(logString);
+            } else {
+                dataSpn = spn;
+            }
+        }
+
         this.mSpn = spn;
         this.mDataSpn = dataSpn;
         this.mShowSpn = showSpn;

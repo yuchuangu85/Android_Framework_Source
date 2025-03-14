@@ -25,6 +25,8 @@ import java.util.concurrent.Executor;
 public class UrlRequestBuilderWrapper extends android.net.http.UrlRequest.Builder {
 
     private final org.chromium.net.ExperimentalUrlRequest.Builder backend;
+    private boolean isCacheDisabled;
+    private boolean isDirectExecutorAllowed;
 
     public UrlRequestBuilderWrapper(org.chromium.net.ExperimentalUrlRequest.Builder backend) {
         this.backend = backend;
@@ -44,7 +46,7 @@ public class UrlRequestBuilderWrapper extends android.net.http.UrlRequest.Builde
 
     @Override
     public android.net.http.UrlRequest.Builder setCacheDisabled(boolean disableCache) {
-        backend.disableCache();
+        isCacheDisabled = disableCache;
         return this;
     }
 
@@ -65,7 +67,7 @@ public class UrlRequestBuilderWrapper extends android.net.http.UrlRequest.Builde
     @Override
     public android.net.http.UrlRequest.Builder setDirectExecutorAllowed(
             boolean allowDirectExecutor) {
-        backend.allowDirectExecutor();
+        isDirectExecutorAllowed = allowDirectExecutor;
         return this;
     }
 
@@ -93,6 +95,18 @@ public class UrlRequestBuilderWrapper extends android.net.http.UrlRequest.Builde
 
     @Override
     public android.net.http.UrlRequest build() {
+        // Cronet API is not equal to HttpEngine's API which is why
+        // we have to delay the calling of the methods below until
+        // we are sure that there will be no more changes.
+        // Note that this implementation has a subtle edge case that
+        // is not handled correctly if the caller interleaves `setCacheDisabled(false)`
+        // or setDirectExecutorAllowed(false) with `build`.
+        if (isCacheDisabled) {
+            backend.disableCache();
+        }
+        if (isDirectExecutorAllowed) {
+            backend.allowDirectExecutor();
+        }
         return new UrlRequestWrapper(backend.build());
     }
 }

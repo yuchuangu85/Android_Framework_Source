@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/IVirtualizationService.java.d -o out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/virtualizationservice/aidl packages/modules/Virtualization/virtualizationservice/aidl/android/system/virtualizationservice/IVirtualizationService.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/IVirtualizationService.java.d -o out/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/android/virtualizationservice/aidl packages/modules/Virtualization/android/virtualizationservice/aidl/android/system/virtualizationservice/IVirtualizationService.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.system.virtualizationservice;
 public interface IVirtualizationService extends android.os.IInterface
@@ -14,8 +18,10 @@ public interface IVirtualizationService extends android.os.IInterface
      * `consoleInFd` is provided then console input to the VM will be read from it. If `osLogFd` is
      * provided then the OS-level logs will be sent to it. `osLogFd` is supported only when the OS
      * running in the VM has the logging system. In case of Microdroid, the logging system is logd.
+     * `dumpDtFd` is the file where to dump the VM's device tree. It is only used in
+     * debugging/testing.
      */
-    @Override public android.system.virtualizationservice.IVirtualMachine createVm(android.system.virtualizationservice.VirtualMachineConfig config, android.os.ParcelFileDescriptor consoleOutFd, android.os.ParcelFileDescriptor consoleInFd, android.os.ParcelFileDescriptor osLogFd) throws android.os.RemoteException
+    @Override public android.system.virtualizationservice.IVirtualMachine createVm(android.system.virtualizationservice.VirtualMachineConfig config, android.os.ParcelFileDescriptor consoleOutFd, android.os.ParcelFileDescriptor consoleInFd, android.os.ParcelFileDescriptor osLogFd, android.os.ParcelFileDescriptor dumpDtFd) throws android.os.RemoteException
     {
       return null;
     }
@@ -57,6 +63,11 @@ public interface IVirtualizationService extends android.os.IInterface
     }
     /** Get a list of supported OSes. */
     @Override public java.lang.String[] getSupportedOSList() throws android.os.RemoteException
+    {
+      return null;
+    }
+    /** Get installed debug policy for test and debugging purpose. */
+    @Override public java.lang.String getDebugPolicy() throws android.os.RemoteException
     {
       return null;
     }
@@ -111,7 +122,7 @@ public interface IVirtualizationService extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.system.virtualizationservice.IVirtualizationService
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -158,8 +169,10 @@ public interface IVirtualizationService extends android.os.IInterface
           _arg2 = data.readTypedObject(android.os.ParcelFileDescriptor.CREATOR);
           android.os.ParcelFileDescriptor _arg3;
           _arg3 = data.readTypedObject(android.os.ParcelFileDescriptor.CREATOR);
+          android.os.ParcelFileDescriptor _arg4;
+          _arg4 = data.readTypedObject(android.os.ParcelFileDescriptor.CREATOR);
           data.enforceNoDataAvail();
-          android.system.virtualizationservice.IVirtualMachine _result = this.createVm(_arg0, _arg1, _arg2, _arg3);
+          android.system.virtualizationservice.IVirtualMachine _result = this.createVm(_arg0, _arg1, _arg2, _arg3, _arg4);
           reply.writeNoException();
           reply.writeStrongInterface(_result);
           break;
@@ -214,6 +227,13 @@ public interface IVirtualizationService extends android.os.IInterface
           java.lang.String[] _result = this.getSupportedOSList();
           reply.writeNoException();
           reply.writeStringArray(_result);
+          break;
+        }
+        case TRANSACTION_getDebugPolicy:
+        {
+          java.lang.String _result = this.getDebugPolicy();
+          reply.writeNoException();
+          reply.writeString(_result);
           break;
         }
         case TRANSACTION_isFeatureEnabled:
@@ -292,8 +312,10 @@ public interface IVirtualizationService extends android.os.IInterface
        * `consoleInFd` is provided then console input to the VM will be read from it. If `osLogFd` is
        * provided then the OS-level logs will be sent to it. `osLogFd` is supported only when the OS
        * running in the VM has the logging system. In case of Microdroid, the logging system is logd.
+       * `dumpDtFd` is the file where to dump the VM's device tree. It is only used in
+       * debugging/testing.
        */
-      @Override public android.system.virtualizationservice.IVirtualMachine createVm(android.system.virtualizationservice.VirtualMachineConfig config, android.os.ParcelFileDescriptor consoleOutFd, android.os.ParcelFileDescriptor consoleInFd, android.os.ParcelFileDescriptor osLogFd) throws android.os.RemoteException
+      @Override public android.system.virtualizationservice.IVirtualMachine createVm(android.system.virtualizationservice.VirtualMachineConfig config, android.os.ParcelFileDescriptor consoleOutFd, android.os.ParcelFileDescriptor consoleInFd, android.os.ParcelFileDescriptor osLogFd, android.os.ParcelFileDescriptor dumpDtFd) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -304,6 +326,7 @@ public interface IVirtualizationService extends android.os.IInterface
           _data.writeTypedObject(consoleOutFd, 0);
           _data.writeTypedObject(consoleInFd, 0);
           _data.writeTypedObject(osLogFd, 0);
+          _data.writeTypedObject(dumpDtFd, 0);
           boolean _status = mRemote.transact(Stub.TRANSACTION_createVm, _data, _reply, 0);
           _reply.readException();
           _result = android.system.virtualizationservice.IVirtualMachine.Stub.asInterface(_reply.readStrongBinder());
@@ -427,6 +450,24 @@ public interface IVirtualizationService extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_getSupportedOSList, _data, _reply, 0);
           _reply.readException();
           _result = _reply.createStringArray();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      /** Get installed debug policy for test and debugging purpose. */
+      @Override public java.lang.String getDebugPolicy() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        java.lang.String _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getDebugPolicy, _data, _reply, 0);
+          _reply.readException();
+          _result = _reply.readString();
         }
         finally {
           _reply.recycle();
@@ -560,18 +601,20 @@ public interface IVirtualizationService extends android.os.IInterface
     static final int TRANSACTION_debugListVms = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
     static final int TRANSACTION_getAssignableDevices = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
     static final int TRANSACTION_getSupportedOSList = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
-    static final int TRANSACTION_isFeatureEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
-    static final int TRANSACTION_enableTestAttestation = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
-    static final int TRANSACTION_isRemoteAttestationSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
-    static final int TRANSACTION_isUpdatableVmSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
-    static final int TRANSACTION_removeVmInstance = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
-    static final int TRANSACTION_claimVmInstance = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
+    static final int TRANSACTION_getDebugPolicy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
+    static final int TRANSACTION_isFeatureEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
+    static final int TRANSACTION_enableTestAttestation = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
+    static final int TRANSACTION_isRemoteAttestationSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
+    static final int TRANSACTION_isUpdatableVmSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
+    static final int TRANSACTION_removeVmInstance = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
+    static final int TRANSACTION_claimVmInstance = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
   }
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android.system.virtualizationservice.IVirtualizationService";
   public static final String FEATURE_DICE_CHANGES = "com.android.kvm.DICE_CHANGES";
   public static final String FEATURE_LLPVM_CHANGES = "com.android.kvm.LLPVM_CHANGES";
   public static final String FEATURE_MULTI_TENANT = "com.android.kvm.MULTI_TENANT";
+  public static final String FEATURE_NETWORK = "com.android.kvm.NETWORK";
   public static final String FEATURE_REMOTE_ATTESTATION = "com.android.kvm.REMOTE_ATTESTATION";
   public static final String FEATURE_VENDOR_MODULES = "com.android.kvm.VENDOR_MODULES";
   /**
@@ -580,8 +623,10 @@ public interface IVirtualizationService extends android.os.IInterface
    * `consoleInFd` is provided then console input to the VM will be read from it. If `osLogFd` is
    * provided then the OS-level logs will be sent to it. `osLogFd` is supported only when the OS
    * running in the VM has the logging system. In case of Microdroid, the logging system is logd.
+   * `dumpDtFd` is the file where to dump the VM's device tree. It is only used in
+   * debugging/testing.
    */
-  public android.system.virtualizationservice.IVirtualMachine createVm(android.system.virtualizationservice.VirtualMachineConfig config, android.os.ParcelFileDescriptor consoleOutFd, android.os.ParcelFileDescriptor consoleInFd, android.os.ParcelFileDescriptor osLogFd) throws android.os.RemoteException;
+  public android.system.virtualizationservice.IVirtualMachine createVm(android.system.virtualizationservice.VirtualMachineConfig config, android.os.ParcelFileDescriptor consoleOutFd, android.os.ParcelFileDescriptor consoleInFd, android.os.ParcelFileDescriptor osLogFd, android.os.ParcelFileDescriptor dumpDtFd) throws android.os.RemoteException;
   /** Allocate an instance_id to the (newly created) VM. */
   public byte[] allocateInstanceId() throws android.os.RemoteException;
   /**
@@ -607,6 +652,8 @@ public interface IVirtualizationService extends android.os.IInterface
   public android.system.virtualizationservice.AssignableDevice[] getAssignableDevices() throws android.os.RemoteException;
   /** Get a list of supported OSes. */
   public java.lang.String[] getSupportedOSList() throws android.os.RemoteException;
+  /** Get installed debug policy for test and debugging purpose. */
+  public java.lang.String getDebugPolicy() throws android.os.RemoteException;
   /** Returns whether given feature is enabled. */
   public boolean isFeatureEnabled(java.lang.String feature) throws android.os.RemoteException;
   /**

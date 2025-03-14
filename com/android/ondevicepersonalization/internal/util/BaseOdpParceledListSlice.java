@@ -21,7 +21,6 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.RemoteException;
-import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,13 +38,9 @@ import java.util.List;
  * See b/17671747.
  */
 abstract class BaseOdpParceledListSlice<T> implements Parcelable {
-    private static final String TAG = "OdpParceledListSlice";
+    private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
     private static final boolean DEBUG = false;
-
-    /*
-     * TODO get this number from somewhere else. For now set it to a quarter of
-     * the 1MB limit.
-     */
+    private static final String TAG = BaseOdpParceledListSlice.class.getSimpleName();
     private static final int MAX_IPC_SIZE = IBinder.getSuggestedMaxIpcSizeBytes();
 
     private final List<T> mList;
@@ -60,7 +55,7 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
     BaseOdpParceledListSlice(Parcel p, ClassLoader loader) {
         final int numItems = p.readInt();
         mList = new ArrayList<T>(numItems);
-        if (DEBUG) Log.d(TAG, "Retrieving " + numItems + " items");
+        if (DEBUG) sLogger.d(TAG + ": Retrieving " + numItems + " items");
         if (numItems <= 0) {
             return;
         }
@@ -83,7 +78,7 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
 
             mList.add(parcelable);
 
-            if (DEBUG) Log.d(TAG, "Read inline #" + i + ": " + mList.get(mList.size() - 1));
+            if (DEBUG) sLogger.d(TAG + ": Read inline #" + i + ": " + mList.get(mList.size() - 1));
             i++;
         }
         if (i >= numItems) {
@@ -92,8 +87,8 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
         final IBinder retriever = p.readStrongBinder();
         while (i < numItems) {
             if (DEBUG) {
-                Log.d(TAG,
-                        "Reading more @" + i + " of " + numItems + ": retriever=" + retriever);
+                sLogger.d(TAG
+                        + ": Reading more @" + i + " of " + numItems + ": retriever=" + retriever);
             }
             Parcel data = Parcel.obtain();
             Parcel reply = Parcel.obtain();
@@ -101,7 +96,8 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
             try {
                 retriever.transact(IBinder.FIRST_CALL_TRANSACTION, data, reply, 0);
             } catch (RemoteException e) {
-                Log.w(TAG, "Failure retrieving array; only received " + i + " of " + numItems, e);
+                sLogger.w(e, TAG + ": Failure retrieving array; only received " + i + " of "
+                        + numItems);
                 return;
             }
             while (i < numItems && reply.readInt() != 0) {
@@ -110,7 +106,9 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
 
                 mList.add(parcelable);
 
-                if (DEBUG) Log.d(TAG, "Read extra #" + i + ": " + mList.get(mList.size() - 1));
+                if (DEBUG) {
+                    sLogger.d(TAG + ": Read extra #" + i + ": " + mList.get(mList.size() - 1));
+                }
                 i++;
             }
             reply.recycle();
@@ -157,7 +155,7 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
         final int numItems = mList.size();
         final int callFlags = flags;
         dest.writeInt(numItems);
-        if (DEBUG) Log.d(TAG, "Writing " + numItems + " items");
+        if (DEBUG) sLogger.d(TAG + ": Writing " + numItems + " items");
         if (numItems > 0) {
             final Class<?> listElementClass = mList.get(0).getClass();
             writeParcelableCreator(mList.get(0), dest);
@@ -169,7 +167,7 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
                 verifySameType(listElementClass, parcelable.getClass());
                 writeElement(parcelable, dest, callFlags);
 
-                if (DEBUG) Log.d(TAG, "Wrote inline #" + i + ": " + mList.get(i));
+                if (DEBUG) sLogger.d(TAG + ": Wrote inline #" + i + ": " + mList.get(i));
                 i++;
             }
             if (i < numItems) {
@@ -182,7 +180,7 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
                             return super.onTransact(code, data, reply, flags);
                         }
                         int i = data.readInt();
-                        if (DEBUG) Log.d(TAG, "Writing more @" + i + " of " + numItems);
+                        if (DEBUG) sLogger.d(TAG + ": Writing more @" + i + " of " + numItems);
                         while (i < numItems && reply.dataSize() < MAX_IPC_SIZE) {
                             reply.writeInt(1);
 
@@ -190,19 +188,21 @@ abstract class BaseOdpParceledListSlice<T> implements Parcelable {
                             verifySameType(listElementClass, parcelable.getClass());
                             writeElement(parcelable, reply, callFlags);
 
-                            if (DEBUG) Log.d(TAG, "Wrote extra #" + i + ": " + mList.get(i));
+                            if (DEBUG) {
+                                sLogger.d(TAG + ": Wrote extra #" + i + ": " + mList.get(i));
+                            }
                             i++;
                         }
                         if (i < numItems) {
-                            if (DEBUG) Log.d(TAG, "Breaking @" + i + " of " + numItems);
+                            if (DEBUG) sLogger.d(TAG + ": Breaking @" + i + " of " + numItems);
                             reply.writeInt(0);
                         }
                         return true;
                     }
                 };
                 if (DEBUG) {
-                    Log.d(TAG,
-                            "Breaking @" + i + " of " + numItems + ": retriever=" + retriever);
+                    sLogger.d(TAG
+                            + ": Breaking @" + i + " of " + numItems + ": retriever=" + retriever);
                 }
                 dest.writeStrongBinder(retriever);
             }

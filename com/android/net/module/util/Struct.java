@@ -105,6 +105,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class Struct {
     public enum Type {
+        Bool,        // bool,           size = 1 byte
         U8,          // unsigned byte,  size = 1 byte
         U16,         // unsigned short, size = 2 bytes
         U32,         // unsigned int,   size = 4 bytes
@@ -169,6 +170,9 @@ public class Struct {
 
     private static void checkAnnotationType(final Field annotation, final Class fieldType) {
         switch (annotation.type()) {
+            case Bool:
+                if (fieldType == Boolean.TYPE) return;
+                break;
             case U8:
             case S16:
                 if (fieldType == Short.TYPE) return;
@@ -218,6 +222,7 @@ public class Struct {
     private static int getFieldLength(final Field annotation) {
         int length = 0;
         switch (annotation.type()) {
+            case Bool:
             case U8:
             case S8:
                 length = 1;
@@ -357,6 +362,9 @@ public class Struct {
         final Object value;
         checkAnnotationType(fieldInfo.annotation, fieldInfo.field.getType());
         switch (fieldInfo.annotation.type()) {
+            case Bool:
+                value = buf.get() != 0;
+                break;
             case U8:
                 value = (short) (buf.get() & 0xFF);
                 break;
@@ -457,6 +465,9 @@ public class Struct {
     private static void putFieldValue(final ByteBuffer output, final FieldInfo fieldInfo,
             final Object value) throws BufferUnderflowException {
         switch (fieldInfo.annotation.type()) {
+            case Bool:
+                output.put((byte) (value != null && (boolean) value ? 1 : 0));
+                break;
             case U8:
                 output.put((byte) (((short) value) & 0xFF));
                 break;
@@ -746,6 +757,16 @@ public class Struct {
             if (i != fieldInfos.length - 1) sb.append(", ");
         }
         return sb.toString();
+    }
+
+    /** A simple Struct which only contains a bool field. */
+    public static class Bool extends Struct {
+        @Struct.Field(order = 0, type = Struct.Type.Bool)
+        public final boolean val;
+
+        public Bool(final boolean val) {
+            this.val = val;
+        }
     }
 
     /** A simple Struct which only contains a u8 field. */

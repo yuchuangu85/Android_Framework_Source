@@ -28,6 +28,7 @@ import android.provider.Settings;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.flags.Flags;
 import com.android.telephony.Rlog;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -63,6 +64,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
 
     // Constructor
     private CdmaSubscriptionSourceManager(Context context, CommandsInterface ci) {
+        if (Flags.cleanupCdma()) return;
         mCi = ci;
         mCi.registerForCdmaSubscriptionChanged(this, EVENT_CDMA_SUBSCRIPTION_SOURCE_CHANGED, null);
         mCi.registerForOn(this, EVENT_RADIO_ON, null);
@@ -97,7 +99,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
         mCdmaSubscriptionSourceChangedRegistrants.remove(h);
         synchronized (sReferenceCountMonitor) {
             sReferenceCount--;
-            if (sReferenceCount <= 0) {
+            if (sReferenceCount <= 0 && mCi != null) {
                 mCi.unregisterForCdmaSubscriptionChanged(this);
                 mCi.unregisterForOn(this);
                 mCi.unregisterForSubscriptionStatusChanged(this);
@@ -112,6 +114,7 @@ public class CdmaSubscriptionSourceManager extends Handler {
      */
     @Override
     public void handleMessage(Message msg) {
+        if (Flags.cleanupCdma()) return;
         AsyncResult ar;
         switch (msg.what) {
             case EVENT_CDMA_SUBSCRIPTION_SOURCE_CHANGED:
@@ -165,6 +168,8 @@ public class CdmaSubscriptionSourceManager extends Handler {
      * @return Default CDMA subscription source from Settings DB if present.
      */
     public static int getDefault(Context context) {
+        if (Flags.cleanupCdma()) return Phone.CDMA_SUBSCRIPTION_UNKNOWN;
+
         // Get the default value from the Settings
         int subscriptionSource = Settings.Global.getInt(context.getContentResolver(),
                 Settings.Global.CDMA_SUBSCRIPTION_MODE, Phone.PREFERRED_CDMA_SUBSCRIPTION);

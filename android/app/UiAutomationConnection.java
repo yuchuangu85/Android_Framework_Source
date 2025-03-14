@@ -16,8 +16,6 @@
 
 package android.app;
 
-import static android.view.Display.DEFAULT_DISPLAY;
-
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.accessibilityservice.IAccessibilityServiceClient;
 import android.annotation.NonNull;
@@ -228,7 +226,8 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
     }
 
     @Override
-    public boolean takeScreenshot(Rect crop, ScreenCapture.ScreenCaptureListener listener) {
+    public boolean takeScreenshot(Rect crop, ScreenCapture.ScreenCaptureListener listener,
+            int displayId) {
         synchronized (mLock) {
             throwIfCalledByNotTrustedUidLocked();
             throwIfShutdownLocked();
@@ -240,7 +239,7 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
             final CaptureArgs captureArgs = new CaptureArgs.Builder<>()
                     .setSourceCrop(crop)
                     .build();
-            mWindowManager.captureDisplay(DEFAULT_DISPLAY, captureArgs, listener);
+            mWindowManager.captureDisplay(displayId, captureArgs, listener);
         } catch (RemoteException re) {
             re.rethrowAsRuntimeException();
         } finally {
@@ -550,10 +549,28 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
 
         try {
             process = Runtime.getRuntime().exec(command);
-        } catch (IOException exc) {
-            throw new RuntimeException("Error running shell command '" + command + "'", exc);
+        } catch (IOException ex) {
+            // Make sure the passed FDs are closed.
+            IoUtils.closeQuietly(sink);
+            IoUtils.closeQuietly(source);
+            IoUtils.closeQuietly(stderrSink);
+            // No to need to wrap in RuntimeException. Only to keep the old behavior.
+            // This is just logged and not propagated to the remote caller anyway.
+            throw new RuntimeException("Error running shell command '" + command + "'", ex);
+        } catch (IllegalArgumentException | NullPointerException | SecurityException ex) {
+            // Make sure the passed FDs are closed.
+            IoUtils.closeQuietly(sink);
+            IoUtils.closeQuietly(source);
+            IoUtils.closeQuietly(stderrSink);
+            // Rethrow the exception. This will be propagated to the remote caller.
+            throw ex;
         }
+        handleExecuteShellCommandProcess(process, sink, source, stderrSink);
+    }
 
+    private void handleExecuteShellCommandProcess(final java.lang.Process process,
+            final ParcelFileDescriptor sink, final ParcelFileDescriptor source,
+            final ParcelFileDescriptor stderrSink) {
         // Read from process and write to pipe
         final Thread readFromProcess;
         if (sink != null) {
@@ -613,6 +630,26 @@ public final class UiAutomationConnection extends IUiAutomationConnection.Stub {
             }
         });
         cleanup.start();
+    }
+
+    @Override
+    public void executeShellCommandArrayWithStderr(final String[] command,
+            final ParcelFileDescriptor sink, final ParcelFileDescriptor source,
+            final ParcelFileDescriptor stderrSink) throws RemoteException {
+        synchronized (mLock) {
+            throwIfCalledByNotTrustedUidLocked();
+            throwIfShutdownLocked();
+            throwIfNotConnectedLocked();
+        }
+        final java.lang.Process process;
+
+        try {
+            process = Runtime.getRuntime().exec(command);
+        } catch (IOException exc) {
+            throw new RuntimeException(
+                    "Error running shell command '" + String.join(" ", command) + "'", exc);
+        }
+        handleExecuteShellCommandProcess(process, sink, source, stderrSink);
     }
 
     @Override

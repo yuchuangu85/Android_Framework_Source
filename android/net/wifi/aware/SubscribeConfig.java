@@ -18,8 +18,11 @@ package android.net.wifi.aware;
 
 import static android.Manifest.permission.MANAGE_WIFI_NETWORK_SELECTION;
 
+import static com.android.ranging.flags.Flags.FLAG_RANGING_RTT_ENABLED;
+
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
@@ -27,7 +30,10 @@ import android.annotation.SystemApi;
 import android.net.wifi.OuiKeyedData;
 import android.net.wifi.ParcelUtil;
 import android.net.wifi.ScanResult;
+import android.net.wifi.WifiAnnotations;
 import android.net.wifi.WifiScanner;
+import android.net.wifi.rtt.RangingRequest;
+import android.net.wifi.rtt.ResponderConfig;
 import android.net.wifi.util.HexEncoding;
 import android.os.Build;
 import android.os.Parcel;
@@ -76,6 +82,97 @@ public final class SubscribeConfig implements Parcelable {
      */
     public static final int SUBSCRIBE_TYPE_ACTIVE = 1;
 
+    private static final int AWARE_BAND_2_DISCOVERY_CHANNEL = 2437;
+    private static final int MIN_RTT_BURST_SIZE = RangingRequest.getMinRttBurstSize();
+    private static final int MAX_RTT_BURST_SIZE = RangingRequest.getMaxRttBurstSize();
+
+    /**
+     * Ranging Interval's are in binary Time Unit (TU). As per IEEE 802.11-1999 1 TU equals
+     * 1024 microseconds.
+     *
+     * @hide
+     */
+    @IntDef({
+            PERIODIC_RANGING_INTERVAL_NONE, PERIODIC_RANGING_INTERVAL_128TU,
+            PERIODIC_RANGING_INTERVAL_256TU, PERIODIC_RANGING_INTERVAL_512TU,
+            PERIODIC_RANGING_INTERVAL_1024TU, PERIODIC_RANGING_INTERVAL_2048TU,
+            PERIODIC_RANGING_INTERVAL_4096TU, PERIODIC_RANGING_INTERVAL_8192TU})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PeriodicRangingInterval {
+    }
+
+    /**
+     * Ranging is not repeated
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_NONE = 0;
+
+    /**
+     * Ranging interval is 128TU [= (128 * 1024) / 1000 = 131.072 ms]
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_128TU = 128;
+
+    /**
+     * Ranging interval is 256TU [= (256 * 1024) / 1000 = 262.144 ms]
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_256TU = 256;
+
+    /**
+     * Ranging interval is 512TU [= (512 * 1024) / 1000 = 524.288 ms]
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_512TU = 512;
+
+    /**
+     * Ranging interval is 1024TU [= (1024 * 1024) / 1000 = 1048.576 ms]
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_1024TU = 1024;
+
+    /**
+     * Ranging interval is 2048TU [= (2048 * 1024) / 1000 = 2097.152 ms]
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_2048TU = 2048;
+
+    /**
+     * Ranging interval is 4096TU [= (4096 * 1024) / 1000 = 4194.304 ms]
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_4096TU = 4096;
+
+    /**
+     * Ranging interval is 8192TU [= (8192 * 1024) / 1000 = 8388.608 ms]
+     *
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int PERIODIC_RANGING_INTERVAL_8192TU = 8192;
+
     /** @hide */
     public final byte[] mServiceName;
 
@@ -116,12 +213,39 @@ public final class SubscribeConfig implements Parcelable {
     private final List<OuiKeyedData> mVendorData;
 
     /** @hide */
+    public final int mPeriodicRangingInterval;
+
+    /** @hide */
+    public final boolean mPeriodicRangingEnabled;
+
+    /** @hide */
+    public final int mRttBurstSize;
+
+    /** @hide */
+    public final int mFrequencyMhz;
+
+    /** @hide */
+    public final int mCenterFrequency0Mhz;
+
+    /** @hide */
+    public final int mCenterFrequency1Mhz;
+
+    /** @hide */
+    public final int mPreamble;
+
+    /** @hide */
+    public final int mChannelWidth;
+
+    /** @hide */
     public SubscribeConfig(byte[] serviceName, byte[] serviceSpecificInfo, byte[] matchFilter,
             int subscribeType, int ttlSec, boolean enableTerminateNotification,
             boolean minDistanceMmSet, int minDistanceMm, boolean maxDistanceMmSet,
             int maxDistanceMm, boolean enableInstantMode, @WifiScanner.WifiBand int band,
             AwarePairingConfig pairingConfig, boolean isSuspendable,
-            @NonNull List<OuiKeyedData> vendorData) {
+            @NonNull List<OuiKeyedData> vendorData, int rangingInterval,
+            boolean enablePeriodicRanging, int rttBurstSize, int frequencyMhz,
+            int centerFrequency0Mhz, int centerFrequency1Mhz, int preamble,
+            int channelWidth) {
         mServiceName = serviceName;
         mServiceSpecificInfo = serviceSpecificInfo;
         mMatchFilter = matchFilter;
@@ -137,6 +261,14 @@ public final class SubscribeConfig implements Parcelable {
         mPairingConfig = pairingConfig;
         mIsSuspendable = isSuspendable;
         mVendorData = vendorData;
+        mPeriodicRangingInterval = rangingInterval;
+        mPeriodicRangingEnabled = enablePeriodicRanging;
+        mRttBurstSize = rttBurstSize;
+        mFrequencyMhz = frequencyMhz;
+        mCenterFrequency0Mhz = centerFrequency0Mhz;
+        mCenterFrequency1Mhz = centerFrequency1Mhz;
+        mPreamble = preamble;
+        mChannelWidth = channelWidth;
     }
 
     @Override
@@ -160,7 +292,15 @@ public final class SubscribeConfig implements Parcelable {
                 + ", mBand=" + mBand
                 + ", mPairingConfig" + mPairingConfig
                 + ", mIsSuspendable=" + mIsSuspendable
-                + ", mVendorData=" + mVendorData + "]";
+                + ", mVendorData=" + mVendorData + "]"
+                + ", mPeriodicRangingInterval" + mPeriodicRangingInterval
+                + ", mPeriodicRangingEnabled" + mPeriodicRangingEnabled
+                + ", mRttBurstSize" + mRttBurstSize
+                + ", mFrequencyMhz" + mFrequencyMhz
+                + ", mCenterFrequency0Mhz" + mCenterFrequency0Mhz
+                + ", mCenterFrequency1Mhz" + mCenterFrequency1Mhz
+                + ", mPreamble" + mPreamble
+                + ", mChannelWidth" + mChannelWidth;
     }
 
     @Override
@@ -185,6 +325,14 @@ public final class SubscribeConfig implements Parcelable {
         dest.writeParcelable(mPairingConfig, flags);
         dest.writeBoolean(mIsSuspendable);
         dest.writeList(mVendorData);
+        dest.writeInt(mPeriodicRangingInterval);
+        dest.writeBoolean(mPeriodicRangingEnabled);
+        dest.writeInt(mRttBurstSize);
+        dest.writeInt(mFrequencyMhz);
+        dest.writeInt(mCenterFrequency0Mhz);
+        dest.writeInt(mCenterFrequency1Mhz);
+        dest.writeInt(mPreamble);
+        dest.writeInt(mChannelWidth);
     }
 
     @NonNull
@@ -212,11 +360,21 @@ public final class SubscribeConfig implements Parcelable {
                     AwarePairingConfig.class.getClassLoader());
             boolean isSuspendable = in.readBoolean();
             List<OuiKeyedData> vendorData = ParcelUtil.readOuiKeyedDataList(in);
+            int rangingInterval = in.readInt();
+            boolean enablePeriodicRanging = in.readBoolean();
+            int burstSize = in.readInt();
+            int frequencyMhz = in.readInt();
+            int centerFrequency0Mhz = in.readInt();
+            int centerFrequency1Mhz = in.readInt();
+            int preamble = in.readInt();
+            int channelWidth = in.readInt();
 
             return new SubscribeConfig(serviceName, ssi, matchFilter, subscribeType, ttlSec,
                     enableTerminateNotification, minDistanceMmSet, minDistanceMm, maxDistanceMmSet,
                     maxDistanceMm, enableInstantMode, band, pairingConfig, isSuspendable,
-                    vendorData);
+                    vendorData, rangingInterval, enablePeriodicRanging, burstSize,
+                    frequencyMhz, centerFrequency0Mhz, centerFrequency1Mhz, preamble,
+                    channelWidth);
         }
     };
 
@@ -241,7 +399,14 @@ public final class SubscribeConfig implements Parcelable {
                 && mEnableInstantMode == lhs.mEnableInstantMode
                 && mBand == lhs.mBand
                 && mIsSuspendable == lhs.mIsSuspendable
-                && Objects.equals(mVendorData, lhs.mVendorData))) {
+                && Objects.equals(mVendorData, lhs.mVendorData)
+                && mPeriodicRangingEnabled == lhs.mPeriodicRangingEnabled
+                && mRttBurstSize == lhs.mRttBurstSize
+                && mFrequencyMhz == lhs.mFrequencyMhz
+                && mCenterFrequency0Mhz == lhs.mCenterFrequency0Mhz
+                && mCenterFrequency1Mhz == lhs.mCenterFrequency1Mhz
+                && mPreamble == lhs.mPreamble
+                && mChannelWidth == lhs.mChannelWidth)) {
             return false;
         }
 
@@ -253,6 +418,9 @@ public final class SubscribeConfig implements Parcelable {
             return false;
         }
 
+        if (mPeriodicRangingEnabled && mPeriodicRangingInterval != lhs.mPeriodicRangingInterval) {
+            return false;
+        }
         return true;
     }
 
@@ -261,13 +429,18 @@ public final class SubscribeConfig implements Parcelable {
         int result = Objects.hash(Arrays.hashCode(mServiceName),
                 Arrays.hashCode(mServiceSpecificInfo), Arrays.hashCode(mMatchFilter),
                 mSubscribeType, mTtlSec, mEnableTerminateNotification, mMinDistanceMmSet,
-                mMaxDistanceMmSet, mEnableInstantMode, mBand, mIsSuspendable, mVendorData);
+                mMaxDistanceMmSet, mEnableInstantMode, mBand,  mIsSuspendable, mVendorData,
+                mPeriodicRangingEnabled, mRttBurstSize, mFrequencyMhz, mCenterFrequency0Mhz,
+                mCenterFrequency1Mhz, mPreamble, mChannelWidth);
 
         if (mMinDistanceMmSet) {
             result = Objects.hash(result, mMinDistanceMm);
         }
         if (mMaxDistanceMmSet) {
             result = Objects.hash(result, mMaxDistanceMm);
+        }
+        if (mPeriodicRangingEnabled) {
+            result = Objects.hash(result, mPeriodicRangingInterval);
         }
 
         return result;
@@ -339,8 +512,38 @@ public final class SubscribeConfig implements Parcelable {
                     "Maximum distance must be greater than minimum distance");
         }
 
+        if (mPeriodicRangingEnabled && (mMinDistanceMmSet || mMaxDistanceMmSet)) {
+            throw new IllegalArgumentException(
+                    "Either Periodic Ranging or Min/Max distance is allowed. Not both.");
+        }
+
         if (!rttSupported && (mMinDistanceMmSet || mMaxDistanceMmSet)) {
             throw new IllegalArgumentException("Ranging is not supported");
+        }
+        if ((!rttSupported || !characteristics.isPeriodicRangingSupported())
+                && mPeriodicRangingEnabled) {
+            throw new IllegalArgumentException("Periodic ranging is not supported");
+        }
+        if (mPeriodicRangingEnabled && mPeriodicRangingInterval < 0) {
+            throw new IllegalArgumentException("Periodic ranging interval must be non-negative");
+        }
+        if (mPeriodicRangingEnabled && mRttBurstSize < 0) {
+            throw new IllegalArgumentException("Rtt Burst size must be non-negative");
+        }
+        if (mPeriodicRangingEnabled && mFrequencyMhz < 0) {
+            throw new IllegalArgumentException(" Frequency must be non-negative");
+        }
+        if (mPeriodicRangingEnabled && mCenterFrequency0Mhz < 0) {
+            throw new IllegalArgumentException("Center Frequency0 must be non-negative");
+        }
+        if (mPeriodicRangingEnabled && mCenterFrequency1Mhz < 0) {
+            throw new IllegalArgumentException("Center Frequency1 must be non-negative");
+        }
+        if (mPeriodicRangingEnabled && mPreamble < 0) {
+            throw new IllegalArgumentException("Preamble must be non-negative");
+        }
+        if (mPeriodicRangingEnabled && mChannelWidth < 0) {
+            throw new IllegalArgumentException("Channel width must be non-negative");
         }
     }
 
@@ -409,6 +612,108 @@ public final class SubscribeConfig implements Parcelable {
     }
 
     /**
+     * Check if periodic range reporting is enabled for subscribe session
+     * @see Builder#setPeriodicRangingEnabled(boolean)
+     * @return true for enabled, false otherwise.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public boolean isPeriodicRangingEnabled() {
+        return mPeriodicRangingEnabled;
+    }
+
+    /**
+     * Get periodic range reporting interval for subscribe session
+     * @see Builder#setPeriodicRangingInterval(int)
+     * @return interval of reporting.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public @PeriodicRangingInterval int getPeriodicRangingInterval() {
+        return mPeriodicRangingInterval;
+    }
+
+    /**
+     * Get the RTT burst size used to determine the average range.
+     * @see Builder#setRttBurstSize(int)
+     * @return the RTT burst size.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public int getRttBurstSize() {
+        return mRttBurstSize;
+    }
+
+    /**
+     * Get the frequency in MHz of the Wi-Fi channel
+     * @see Builder#setFrequencyMhz(int)
+     * @return frequency in MHz.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    @IntRange(from = 0)
+    public int getFrequencyMhz() {
+        return mFrequencyMhz;
+    }
+
+    /**
+     * Get the center frequency in MHz of the first channel segment
+     * @see Builder#setCenterFreq0Mhz(int)
+     * @return the center frequency in MHz of the first channel segment.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    @IntRange(from = 0)
+    public int getCenterFreq0Mhz() {
+        return mCenterFrequency0Mhz;
+    }
+
+    /**
+     * Get the center frequency in MHz of the second channel segment (if used)
+     * @see Builder#setCenterFreq1Mhz(int)
+     * @return the center frequency in MHz of the second channel segment
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    @IntRange(from = 0)
+    public int getCenterFreq1Mhz() {
+        return mCenterFrequency1Mhz;
+    }
+
+    /**
+     * Get the preamble type of the channel.
+     * @see Builder#setPreamble(int)
+     * @return the preamble used for this channel.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public @WifiAnnotations.PreambleType int getPreamble() {
+        return ResponderConfig.translateFromLocalToScanResultPreamble(mPreamble);
+    }
+
+    /**
+     * Channel bandwidth; one of {@link ScanResult#CHANNEL_WIDTH_20MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_40MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_80MHZ}, {@link ScanResult#CHANNEL_WIDTH_160MHZ},
+     * {@link ScanResult #CHANNEL_WIDTH_80MHZ_PLUS_MHZ} or {@link ScanResult#CHANNEL_WIDTH_320MHZ}.
+     * @see Builder#setChannelWidth(int)
+     * @return the bandwidth repsentation of the Wi-Fi channel
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public @WifiAnnotations.ChannelWidth int getChannelWidth() {
+        return ResponderConfig.translateFromLocalToScanResultChannelWidth(mChannelWidth);
+    }
+
+    /**
      * Builder used to build {@link SubscribeConfig} objects.
      */
     public static final class Builder {
@@ -427,6 +732,14 @@ public final class SubscribeConfig implements Parcelable {
         private AwarePairingConfig mPairingConfig;
         private boolean mIsSuspendable = false;
         private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
+        private boolean mPeriodicRangingEnabled = false;
+        private int mPeriodicRangingInterval = PERIODIC_RANGING_INTERVAL_512TU;
+        private int mRttBurstSize = RangingRequest.getDefaultRttBurstSize();
+        private int mFrequencyMhz = AWARE_BAND_2_DISCOVERY_CHANNEL;
+        private int mCenterFrequency0Mhz = 0;
+        private int mCenterFrequency1Mhz = 0;
+        private int mPreamble = ResponderConfig.PREAMBLE_HT;
+        private int mChannelWidth = ResponderConfig.CHANNEL_WIDTH_20MHZ;
 
         /**
          * Specify the service name of the subscribe session. The actual on-air
@@ -724,6 +1037,194 @@ public final class SubscribeConfig implements Parcelable {
         }
 
         /**
+         * Configure the interval for Wifi Aware periodic ranging.
+         * <p>
+         * To get the periodic ranging support use
+         * {@link Characteristics#isPeriodicRangingSupported()}
+         * When interval is not configured, default interval {@link PERIODIC_RANGING_INTERVAL_512TU}
+         * is used.
+         * </p>
+         *
+         * @param interval Ranging interval as described in {@link PeriodicRangingInterval}
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setPeriodicRangingInterval(@PeriodicRangingInterval int interval) {
+            if (interval != PERIODIC_RANGING_INTERVAL_NONE
+                    && interval != PERIODIC_RANGING_INTERVAL_128TU
+                    && interval != PERIODIC_RANGING_INTERVAL_256TU
+                    && interval != PERIODIC_RANGING_INTERVAL_512TU
+                    && interval != PERIODIC_RANGING_INTERVAL_1024TU
+                    && interval != PERIODIC_RANGING_INTERVAL_2048TU
+                    && interval != PERIODIC_RANGING_INTERVAL_4096TU
+                    && interval != PERIODIC_RANGING_INTERVAL_8192TU) {
+                throw new IllegalArgumentException("Invalid Ranging interval - " + interval);
+            }
+            mPeriodicRangingInterval = interval;
+            return this;
+        }
+
+        /**
+         * Enable Wifi Aware periodic ranging.
+         * <p>
+         * To get the periodic ranging support use
+         * {@link Characteristics#isPeriodicRangingSupported()}
+         *
+         * Wifi aware based periodic ranging allows continuous ranging report based on configured
+         * interval through {@link #setPeriodicRangingInterval()}. To stop continuous ranging
+         * results, reset the {@link #setPeriodicRangingEnabled()} and reconfigure using updated
+         * {@link SubscribeDiscoverySession#updateSubscribe(SubscribeConfig)}
+         * </p>
+         *
+         * @param enable Enable or disable periodic ranging report
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setPeriodicRangingEnabled(boolean enable) {
+            mPeriodicRangingEnabled = enable;
+            return this;
+        }
+
+        /**
+         * Set the RTT Burst size for the Aware Periodic Ranging.
+         * <p>
+         * If not set, the default RTT burst size given by
+         * {@link RangingRequest#getDefaultRttBurstSize()} is used to determine the default value.
+         * If set, the value must be in the range {@link RangingRequest#getMinRttBurstSize()} and
+         * {@link RangingRequest#getMaxRttBurstSize()} inclusively, or a
+         * {@link java.lang.IllegalArgumentException} will be thrown.
+         * </p>
+         *
+         * @param burstSize The number of FTM packets used to estimate a range
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setRttBurstSize(int burstSize) {
+            if (burstSize < MIN_RTT_BURST_SIZE || burstSize > MAX_RTT_BURST_SIZE) {
+                throw new IllegalArgumentException("RTT burst size out of range.");
+            }
+            mRttBurstSize = burstSize;
+            return this;
+        }
+
+        /**
+         * Sets the frequency of the channel in MHz.
+         * <p>
+         * Note: The frequency is used as a hint, and the underlying WiFi subsystem may use it, or
+         * select an alternate if its own connectivity scans have determined the frequency of the
+         * Peer/Publisher has changed.
+         * </p>
+         *
+         * @param frequency the frequency of the channel in MHz
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setFrequencyMhz(@IntRange(from = 0) int frequency) {
+            mFrequencyMhz = frequency;
+            return this;
+        }
+
+        /**
+         * Sets the center frequency in MHz of the first segment of the channel.
+         * <p>
+         * Note: The frequency is used as a hint, and the underlying WiFi subsystem may use it, or
+         * select an alternate if its own connectivity scans have determined the frequency of the
+         * Peer/Publisher has changed.
+         * </p>
+         *
+         * @param centerFreq0 the center frequency in MHz of first channel segment
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setCenterFreq0Mhz(@IntRange(from = 0) int centerFreq0) {
+            mCenterFrequency0Mhz = centerFreq0;
+            return this;
+        }
+
+        /**
+         * Sets the center frequency in MHz of the second segment of the channel, if used.
+         * <p>
+         * Note: The frequency is used as a hint, and the underlying WiFi subsystem may use it, or
+         * select an alternate if its own connectivity scans have determined the frequency of the
+         * Peer/Publisher has changed.
+         * </p>
+         *
+         * @param centerFreq1 the center frequency in MHz of second channel segment
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setCenterFreq1Mhz(@IntRange(from = 0) int centerFreq1) {
+            mCenterFrequency1Mhz = centerFreq1;
+            return this;
+        }
+
+        /**
+         * Sets the preamble encoding for the protocol.
+         * <p>
+         * Note: The preamble is used as a hint, and the underlying WiFi subsystem may use it, or
+         * select an alternate based on negotiation of Peer capability or concurrency management.
+         * </p>
+         *
+         * @param preamble the preamble encoding
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setPreamble(@WifiAnnotations.PreambleType int preamble) {
+            mPreamble = ResponderConfig.translateFromScanResultToLocalPreamble(preamble);
+            return this;
+        }
+
+        /**
+         * Sets the channel bandwidth.
+         * <p>
+         * Note: The channel bandwidth is used as a hint, and the underlying WiFi subsystem may use
+         * it, or select an alternate based on negotiation of Peer capability or concurrency
+         * management.
+         * </p>
+         *
+         * @param channelWidth the bandwidth of the channel in MHz
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @NonNull
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        public Builder setChannelWidth(@WifiAnnotations.ChannelWidth int channelWidth) {
+            mChannelWidth =
+                    ResponderConfig.translateFromScanResultToLocalChannelWidth(channelWidth);
+            return this;
+        }
+
+        /**
          * Build {@link SubscribeConfig} given the current requests made on the
          * builder.
          */
@@ -731,7 +1232,11 @@ public final class SubscribeConfig implements Parcelable {
             return new SubscribeConfig(mServiceName, mServiceSpecificInfo, mMatchFilter,
                     mSubscribeType, mTtlSec, mEnableTerminateNotification,
                     mMinDistanceMmSet, mMinDistanceMm, mMaxDistanceMmSet, mMaxDistanceMm,
-                    mEnableInstantMode, mBand, mPairingConfig, mIsSuspendable, mVendorData);
+                    mEnableInstantMode, mBand, mPairingConfig, mIsSuspendable, mVendorData,
+                    mPeriodicRangingInterval, mPeriodicRangingEnabled, mRttBurstSize,
+                    mFrequencyMhz, mCenterFrequency0Mhz, mCenterFrequency1Mhz, mPreamble,
+                    mChannelWidth);
+
         }
     }
 }

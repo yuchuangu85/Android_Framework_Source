@@ -11,6 +11,7 @@ import androidx.annotation.RequiresApi;
 
 /**
  * Utility class for logging statistics events.
+ * @hide
  */
 public final class StatsdStatsLog {
     // Constants for atom codes.
@@ -230,10 +231,16 @@ public final class StatsdStatsLog {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
+        if (ISOLATED_UID_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
         if (APP_BREADCRUMB_REPORTED == code) {
             builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
         }
         builder.writeInt(arg2);
+        if (ISOLATED_UID_CHANGED == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
         builder.writeInt(arg3);
 
         builder.usePooledBuffer();
@@ -339,6 +346,9 @@ public final class StatsdStatsLog {
         builder.writeLong(arg12);
         builder.writeBoolean(arg13);
         builder.writeInt(arg14);
+        if (BINDER_CALLS == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
 
         return builder.build();
     }

@@ -267,7 +267,7 @@ public abstract class Enum<E extends Enum<E>>
      *         is null
      * @since 1.5
      */
-    // BEGIN Android-changed: Use a static BasicLruCache mapping Enum class -> Enum instance array.
+    // BEGIN Android-changed: Use a ClassValue mapping Enum class -> Enum instance array.
     // This change was made to fix a performance regression. See b/4087759 and b/109791362 for more
     // background information.
     /*
@@ -314,10 +314,10 @@ public abstract class Enum<E extends Enum<E>>
         }
     }
 
-    private static final BasicLruCache<Class<? extends Enum>, Object[]> sharedConstantsCache
-            = new BasicLruCache<Class<? extends Enum>, Object[]>(64) {
-        @Override protected Object[] create(Class<? extends Enum> enumType) {
-            return enumValues(enumType);
+    private static final ClassValue<Object[]> sharedConstants = new ClassValue<>() {
+        @Override
+        protected Object[] computeValue(Class<?> enumType) {
+            return enumValues((Class<? extends Enum>) enumType);
         }
     };
 
@@ -329,9 +329,9 @@ public abstract class Enum<E extends Enum<E>>
      */
     @SuppressWarnings("unchecked") // the cache always returns the type matching enumType
     public static <T extends Enum<T>> T[] getSharedConstants(Class<T> enumType) {
-        return (T[]) sharedConstantsCache.get(enumType);
+        return (T[]) sharedConstants.get(enumType);
     }
-    // END Android-changed: Use a static BasicLruCache mapping Enum class -> Enum instance array.
+    // END Android-changed: Use a ClassValue mapping Enum class -> Enum instance array.
 
     /**
      * enum classes cannot have finalize methods.

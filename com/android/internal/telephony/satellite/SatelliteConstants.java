@@ -66,6 +66,7 @@ public class SatelliteConstants {
     public static final int CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_COUNTRY_CODE = 9;
     public static final int CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_S2_CELL_FILE = 10;
     public static final int CONFIG_UPDATE_RESULT_IO_ERROR = 11;
+    public static final int CONFIG_UPDATE_RESULT_INVALID_SATELLITE_ACCESS_CONFIG_FILE = 12;
 
     @IntDef(prefix = {"CONFIG_UPDATE_RESULT_"}, value = {
             CONFIG_UPDATE_RESULT_UNKNOWN,
@@ -79,8 +80,48 @@ public class SatelliteConstants {
             CONFIG_UPDATE_RESULT_CARRIER_DATA_INVALID_SUPPORTED_SERVICES,
             CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_COUNTRY_CODE,
             CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_S2_CELL_FILE,
-            CONFIG_UPDATE_RESULT_IO_ERROR
+            CONFIG_UPDATE_RESULT_IO_ERROR,
+            CONFIG_UPDATE_RESULT_INVALID_SATELLITE_ACCESS_CONFIG_FILE
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface ConfigUpdateResult {}
+
+    // Access control type is unknown
+    public static final int ACCESS_CONTROL_TYPE_UNKNOWN = 0;
+    // Network country code is used for satellite access decision
+    public static final int ACCESS_CONTROL_TYPE_NETWORK_COUNTRY_CODE = 1;
+    // Device's current location is used for satellite access decision
+    public static final int ACCESS_CONTROL_TYPE_CURRENT_LOCATION = 2;
+    // Device's last known location is used for satellite access decision
+    public static final int ACCESS_CONTROL_TYPE_LAST_KNOWN_LOCATION = 3;
+    // Cached country codes are used for satellite access decision
+    public static final int ACCESS_CONTROL_TYPE_CACHED_COUNTRY_CODE = 4;
+
+    @IntDef(prefix = {"ACCESS_CONTROL_TYPE_"}, value = {
+            ACCESS_CONTROL_TYPE_UNKNOWN,
+            ACCESS_CONTROL_TYPE_NETWORK_COUNTRY_CODE,
+            ACCESS_CONTROL_TYPE_CURRENT_LOCATION,
+            ACCESS_CONTROL_TYPE_LAST_KNOWN_LOCATION,
+            ACCESS_CONTROL_TYPE_CACHED_COUNTRY_CODE
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface AccessControlType {}
+
+    //// Unknown reason.
+    public static final int TRIGGERING_EVENT_UNKNOWN = 0;
+    // Satellite Access Controller has been triggered by an external event.
+    public static final int TRIGGERING_EVENT_EXTERNAL_REQUEST = 1;
+    // Satellite Access Controller has been triggered by an MCC change event.
+    public static final int TRIGGERING_EVENT_MCC_CHANGED = 2;
+    //Satellite Access Controller has been triggered due to the location setting being enabled.
+    public static final int TRIGGERING_EVENT_LOCATION_SETTINGS_ENABLED = 3;
+
+    @IntDef(prefix = {"TRIGGERING_EVENT_"}, value = {
+            TRIGGERING_EVENT_UNKNOWN,
+            TRIGGERING_EVENT_EXTERNAL_REQUEST,
+            TRIGGERING_EVENT_MCC_CHANGED,
+            TRIGGERING_EVENT_LOCATION_SETTINGS_ENABLED
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface TriggeringEvent {}
 }

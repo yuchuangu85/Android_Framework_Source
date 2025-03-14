@@ -1,6 +1,7 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.asn1.x509;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Boolean;
 import com.android.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.org.bouncycastle.asn1.ASN1Object;
@@ -154,7 +155,7 @@ public class IssuingDistributionPoint
             switch (o.getTagNo())
             {
             case 0:
-                                                    // CHOICE so explicit
+                // CHOICE so explicit
                 distributionPoint = DistributionPointName.getInstance(o, true);
                 break;
             case 1:
@@ -164,7 +165,7 @@ public class IssuingDistributionPoint
                 onlyContainsCACerts = ASN1Boolean.getInstance(o, false).isTrue();
                 break;
             case 3:
-                onlySomeReasons = new ReasonFlags(ReasonFlags.getInstance(o, false));
+                onlySomeReasons = new ReasonFlags(ASN1BitString.getInstance(o, false));
                 break;
             case 4:
                 indirectCRL = ASN1Boolean.getInstance(o, false).isTrue();

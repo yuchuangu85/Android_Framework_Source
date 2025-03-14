@@ -58,7 +58,7 @@ final class OpenSSLX509CRLEntry extends X509CRLEntry {
             return null;
         }
 
-        return new HashSet<String>(Arrays.asList(critOids));
+        return new HashSet<>(Arrays.asList(critOids));
     }
 
     @Override
@@ -83,7 +83,7 @@ final class OpenSSLX509CRLEntry extends X509CRLEntry {
             return null;
         }
 
-        return new HashSet<String>(Arrays.asList(critOids));
+        return new HashSet<>(Arrays.asList(critOids));
     }
 
     @Override
@@ -112,6 +112,7 @@ final class OpenSSLX509CRLEntry extends X509CRLEntry {
     }
 
     @Override
+    @SuppressWarnings("JavaUtilDate") // Needed for API compatibility
     public Date getRevocationDate() {
         return (Date) revocationDate.clone();
     }

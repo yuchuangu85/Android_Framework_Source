@@ -12,16 +12,20 @@ import java.security.SignatureException;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.PSSParameterSpec;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import com.android.internal.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encoding;
 import com.android.internal.org.bouncycastle.asn1.ASN1Integer;
 import com.android.internal.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.internal.org.bouncycastle.asn1.DERBitString;
+import com.android.internal.org.bouncycastle.asn1.DERNull;
 import com.android.internal.org.bouncycastle.asn1.DERSequence;
 import com.android.internal.org.bouncycastle.asn1.misc.MiscObjectIdentifiers;
 import com.android.internal.org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import com.android.internal.org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import com.android.internal.org.bouncycastle.asn1.pkcs.RSASSAPSSparams;
 import com.android.internal.org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import com.android.internal.org.bouncycastle.jcajce.CompositePrivateKey;
@@ -37,6 +41,7 @@ import com.android.internal.org.bouncycastle.operator.DigestAlgorithmIdentifierF
 import com.android.internal.org.bouncycastle.operator.OperatorCreationException;
 import com.android.internal.org.bouncycastle.operator.RuntimeOperatorException;
 import com.android.internal.org.bouncycastle.operator.SignatureAlgorithmIdentifierFinder;
+import com.android.internal.org.bouncycastle.util.Strings;
 import com.android.internal.org.bouncycastle.util.io.TeeOutputStream;
 
 /**
@@ -44,17 +49,26 @@ import com.android.internal.org.bouncycastle.util.io.TeeOutputStream;
  */
 public class JcaContentSignerBuilder
 {
+    private static final Set isAlgIdFromPrivate = new HashSet();
+
+    static
+    {
+        isAlgIdFromPrivate.add("DILITHIUM");
+        isAlgIdFromPrivate.add("SPHINCS+");
+        isAlgIdFromPrivate.add("SPHINCSPlus");
+    }
+
+    private final String signatureAlgorithm;
+
     private OperatorHelper helper = new OperatorHelper(new DefaultJcaJceHelper());
     private SecureRandom random;
-    private String signatureAlgorithm;
+
     private AlgorithmIdentifier sigAlgId;
     private AlgorithmParameterSpec sigAlgSpec;
 
     public JcaContentSignerBuilder(String signatureAlgorithm)
     {
         this.signatureAlgorithm = signatureAlgorithm;
-        this.sigAlgId = new DefaultSignatureAlgorithmIdentifierFinder().find(signatureAlgorithm);
-        this.sigAlgSpec = null;
     }
 
     public JcaContentSignerBuilder(String signatureAlgorithm, AlgorithmParameterSpec sigParamSpec)
@@ -115,8 +129,21 @@ public class JcaContentSignerBuilder
         
         try
         {
-            final Signature sig = helper.createSignature(sigAlgId);
+            if (sigAlgSpec == null)
+            {
+                if (isAlgIdFromPrivate.contains(Strings.toUpperCase(signatureAlgorithm)))
+                {
+                    sigAlgId = PrivateKeyInfo.getInstance(privateKey.getEncoded()).getPrivateKeyAlgorithm();
+                    this.sigAlgSpec = null;
+                }
+                else
+                {
+                    this.sigAlgId = new DefaultSignatureAlgorithmIdentifierFinder().find(signatureAlgorithm);
+                    this.sigAlgSpec = null;
+                }
+            }
             final AlgorithmIdentifier signatureAlgId = sigAlgId;
+            final Signature sig = helper.createSignature(sigAlgId);
 
             if (random != null)
             {
@@ -238,8 +265,16 @@ public class JcaContentSignerBuilder
     private static RSASSAPSSparams createPSSParams(PSSParameterSpec pssSpec)
     {
         DigestAlgorithmIdentifierFinder digFinder = new DefaultDigestAlgorithmIdentifierFinder();
-           AlgorithmIdentifier digId = digFinder.find(pssSpec.getDigestAlgorithm());
-           AlgorithmIdentifier mgfDig = digFinder.find(((MGF1ParameterSpec)pssSpec.getMGFParameters()).getDigestAlgorithm());
+        AlgorithmIdentifier digId = digFinder.find(pssSpec.getDigestAlgorithm());
+        if (digId.getParameters() == null)
+        {
+            digId = new AlgorithmIdentifier(digId.getAlgorithm(), DERNull.INSTANCE);
+        }
+        AlgorithmIdentifier mgfDig = digFinder.find(((MGF1ParameterSpec)pssSpec.getMGFParameters()).getDigestAlgorithm());
+        if (mgfDig.getParameters() == null)
+        {
+            mgfDig = new AlgorithmIdentifier(mgfDig.getAlgorithm(), DERNull.INSTANCE);
+        }
 
         return new RSASSAPSSparams(
             digId,

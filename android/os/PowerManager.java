@@ -16,10 +16,13 @@
 
 package android.os;
 
+import static android.app.PropertyInvalidatedCache.MODULE_SYSTEM;
+
 import android.Manifest.permission;
 import android.annotation.CallbackExecutor;
 import android.annotation.CurrentTimeMillisLong;
 import android.annotation.FlaggedApi;
+import android.annotation.FloatRange;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -33,6 +36,7 @@ import android.annotation.TestApi;
 import android.app.PropertyInvalidatedCache;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.os.IScreenTimeoutPolicyListener;
 import android.service.dreams.Sandman;
 import android.util.ArrayMap;
 import android.util.ArraySet;
@@ -40,6 +44,7 @@ import android.util.Log;
 import android.util.proto.ProtoOutputStream;
 import android.view.Display;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
 
 import java.lang.annotation.ElementType;
@@ -517,9 +522,15 @@ public final class PowerManager {
     public static final int GO_TO_SLEEP_REASON_DEVICE_FOLD = 13;
 
     /**
+     * Go to sleep reason code: reason unknown.
      * @hide
      */
-    public static final int GO_TO_SLEEP_REASON_MAX =  GO_TO_SLEEP_REASON_DEVICE_FOLD;
+    public static final int GO_TO_SLEEP_REASON_UNKNOWN = 14;
+
+    /**
+     * @hide
+     */
+    public static final int GO_TO_SLEEP_REASON_MAX =  GO_TO_SLEEP_REASON_UNKNOWN;
 
     /**
      * @hide
@@ -540,6 +551,7 @@ public final class PowerManager {
             case GO_TO_SLEEP_REASON_QUIESCENT: return "quiescent";
             case GO_TO_SLEEP_REASON_SLEEP_BUTTON: return "sleep_button";
             case GO_TO_SLEEP_REASON_TIMEOUT: return "timeout";
+            case GO_TO_SLEEP_REASON_UNKNOWN: return "unknown";
             default: return Integer.toString(sleepReason);
         }
     }
@@ -564,8 +576,7 @@ public final class PowerManager {
             BRIGHTNESS_CONSTRAINT_TYPE_MINIMUM,
             BRIGHTNESS_CONSTRAINT_TYPE_MAXIMUM,
             BRIGHTNESS_CONSTRAINT_TYPE_DEFAULT,
-            BRIGHTNESS_CONSTRAINT_TYPE_DIM,
-            BRIGHTNESS_CONSTRAINT_TYPE_DOZE
+            BRIGHTNESS_CONSTRAINT_TYPE_DIM
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface BrightnessConstraint{}
@@ -594,12 +605,6 @@ public final class PowerManager {
     public static final int BRIGHTNESS_CONSTRAINT_TYPE_DIM = 3;
 
     /**
-     * Brightness constraint type: minimum allowed value.
-     * @hide
-     */
-    public static final int BRIGHTNESS_CONSTRAINT_TYPE_DOZE = 4;
-
-    /**
      * @hide
      */
     @IntDef(prefix = { "WAKE_REASON_" }, value = {
@@ -612,6 +617,7 @@ public final class PowerManager {
             WAKE_REASON_WAKE_KEY,
             WAKE_REASON_WAKE_MOTION,
             WAKE_REASON_HDMI,
+            WAKE_REASON_LID,
             WAKE_REASON_DISPLAY_GROUP_ADDED,
             WAKE_REASON_DISPLAY_GROUP_TURNED_ON,
             WAKE_REASON_UNFOLD_DEVICE,
@@ -620,6 +626,7 @@ public final class PowerManager {
             WAKE_REASON_TAP,
             WAKE_REASON_LIFT,
             WAKE_REASON_BIOMETRIC,
+            WAKE_REASON_DOCK,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface WakeReason{}
@@ -642,6 +649,7 @@ public final class PowerManager {
             GO_TO_SLEEP_REASON_QUIESCENT,
             GO_TO_SLEEP_REASON_SLEEP_BUTTON,
             GO_TO_SLEEP_REASON_TIMEOUT,
+            GO_TO_SLEEP_REASON_UNKNOWN,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface GoToSleepReason{}
@@ -760,6 +768,12 @@ public final class PowerManager {
     public static final int WAKE_REASON_BIOMETRIC = 17;
 
     /**
+     * Wake up reason code: Waking up due to a user docking the device.
+     * @hide
+     */
+    public static final int WAKE_REASON_DOCK = 18;
+
+    /**
      * Convert the wake reason to a string for debugging purposes.
      * @hide
      */
@@ -783,6 +797,7 @@ public final class PowerManager {
             case WAKE_REASON_TAP: return "WAKE_REASON_TAP";
             case WAKE_REASON_LIFT: return "WAKE_REASON_LIFT";
             case WAKE_REASON_BIOMETRIC: return "WAKE_REASON_BIOMETRIC";
+            case WAKE_REASON_DOCK: return "WAKE_REASON_DOCK";
             default: return Integer.toString(wakeReason);
         }
     }
@@ -1046,6 +1061,29 @@ public final class PowerManager {
     }
 
     /**
+     * Screen timeout policy type: the screen turns off after a timeout
+     * @hide
+     */
+    public static final int SCREEN_TIMEOUT_ACTIVE = 0;
+
+    /**
+     * Screen timeout policy type: the screen is kept 'on' (no timeout)
+     * @hide
+     */
+    public static final int SCREEN_TIMEOUT_KEEP_DISPLAY_ON = 1;
+
+    /**
+     * @hide
+     */
+    @IntDef(prefix = { "SCREEN_TIMEOUT_" }, value = {
+            SCREEN_TIMEOUT_ACTIVE,
+            SCREEN_TIMEOUT_KEEP_DISPLAY_ON
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ScreenTimeoutPolicy{}
+
+
+    /**
      * Either the location providers shouldn't be affected by battery saver,
      * or battery saver is off.
      */
@@ -1150,16 +1188,23 @@ public final class PowerManager {
         }
     }
 
-    private static final String CACHE_KEY_IS_POWER_SAVE_MODE_PROPERTY =
-            "cache_key.is_power_save_mode";
+    private static final String CACHE_KEY_IS_POWER_SAVE_MODE_API = "is_power_save_mode";
 
-    private static final String CACHE_KEY_IS_INTERACTIVE_PROPERTY = "cache_key.is_interactive";
+    private static final String CACHE_KEY_IS_INTERACTIVE_API = "is_interactive";
 
     private static final int MAX_CACHE_ENTRIES = 1;
 
+    private static PropertyInvalidatedCache.Args getCacheArgs(String api) {
+        return new PropertyInvalidatedCache.Args(MODULE_SYSTEM)
+                .maxEntries(MAX_CACHE_ENTRIES)
+                .isolateUids(false)
+                .cacheNulls(false)
+                .api(api);
+    }
+
     private final PropertyInvalidatedCache<Void, Boolean> mPowerSaveModeCache =
-            new PropertyInvalidatedCache<Void, Boolean>(MAX_CACHE_ENTRIES,
-                CACHE_KEY_IS_POWER_SAVE_MODE_PROPERTY) {
+            new PropertyInvalidatedCache<>(getCacheArgs(CACHE_KEY_IS_POWER_SAVE_MODE_API),
+                    CACHE_KEY_IS_POWER_SAVE_MODE_API, null) {
                 @Override
                 public Boolean recompute(Void query) {
                     try {
@@ -1171,8 +1216,8 @@ public final class PowerManager {
             };
 
     private final PropertyInvalidatedCache<Integer, Boolean> mInteractiveCache =
-            new PropertyInvalidatedCache<Integer, Boolean>(MAX_CACHE_ENTRIES,
-                CACHE_KEY_IS_INTERACTIVE_PROPERTY) {
+            new PropertyInvalidatedCache<>(getCacheArgs(CACHE_KEY_IS_INTERACTIVE_API),
+                    CACHE_KEY_IS_INTERACTIVE_API, null) {
                 @Override
                 public Boolean recompute(Integer displayId) {
                     try {
@@ -1197,10 +1242,15 @@ public final class PowerManager {
     /** We lazily initialize it.*/
     private PowerExemptionManager mPowerExemptionManager;
 
+    @GuardedBy("mThermalStatusListenerMap")
     private final ArrayMap<OnThermalStatusChangedListener, IThermalStatusListener>
-            mListenerMap = new ArrayMap<>();
-    private final Object mThermalHeadroomThresholdsLock = new Object();
-    private float[] mThermalHeadroomThresholds = null;
+            mThermalStatusListenerMap = new ArrayMap<>();
+    @GuardedBy("mThermalHeadroomListenerMap")
+    private final ArrayMap<OnThermalHeadroomChangedListener, IThermalHeadroomListener>
+            mThermalHeadroomListenerMap = new ArrayMap<>();
+
+    private final ArrayMap<ScreenTimeoutPolicyListener, IScreenTimeoutPolicyListener>
+            mScreenTimeoutPolicyListeners = new ArrayMap<>();
 
     /**
      * {@hide}
@@ -1260,9 +1310,17 @@ public final class PowerManager {
      * @hide
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    public float getBrightnessConstraint(int constraint) {
+    public float getBrightnessConstraint(@BrightnessConstraint int constraint) {
+        return getBrightnessConstraint(Display.DEFAULT_DISPLAY, constraint);
+    }
+
+    /**
+     * Gets a float screen brightness setting for a specific display.
+     * @hide
+     */
+    public float getBrightnessConstraint(int displayId, @BrightnessConstraint int constraint) {
         try {
-            return mService.getBrightnessConstraint(constraint);
+            return mService.getBrightnessConstraint(displayId, constraint);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1350,6 +1408,9 @@ public final class PowerManager {
      * @see #ON_AFTER_RELEASE
      */
     public WakeLock newWakeLock(int levelAndFlags, String tag) {
+        if (android.companion.virtualdevice.flags.Flags.displayPowerManagerApis()) {
+            return newWakeLock(levelAndFlags, tag, mContext.getDisplayId());
+        }
         validateWakeLockParameters(levelAndFlags, tag);
         return new WakeLock(levelAndFlags, tag, mContext.getOpPackageName(),
                 Display.INVALID_DISPLAY);
@@ -1573,27 +1634,9 @@ public final class PowerManager {
     }
 
     /**
-     * Forces the {@link android.view.Display#DEFAULT_DISPLAY_GROUP default display group}
-     * to turn on.
+     * Forces the {@link android.view.Display#DEFAULT_DISPLAY default display} to turn on.
      *
-     * <p>If the {@link android.view.Display#DEFAULT_DISPLAY_GROUP default display group} is
-     * turned off it will be turned on. Additionally, if the device is asleep it will be awoken. If
-     * the {@link android.view.Display#DEFAULT_DISPLAY_GROUP default display group} is already
-     * on then nothing will happen.
-     *
-     * <p>
-     * This is what happens when the power key is pressed to turn on the screen.
-     * </p><p>
-     * Requires the {@link android.Manifest.permission#DEVICE_POWER} permission.
-     * </p>
-     *
-     * @param time The time when the request to wake up was issued, in the
-     * {@link SystemClock#uptimeMillis()} time base.  This timestamp is used to correctly
-     * order the wake up request with other power management functions.  It should be set
-     * to the timestamp of the input event that caused the request to wake up.
-     *
-     * @see #userActivity
-     * @see #goToSleep
+     * @see #wakeUp(long, int, String, int)
      *
      * @deprecated Use {@link #wakeUp(long, int, String)} instead.
      * @removed Requires signature permission.
@@ -1604,30 +1647,9 @@ public final class PowerManager {
     }
 
     /**
-     * Forces the {@link android.view.Display#DEFAULT_DISPLAY_GROUP default display group}
-     * to turn on.
+     * Forces the {@link android.view.Display#DEFAULT_DISPLAY default display} to turn on.
      *
-     * <p>If the {@link android.view.Display#DEFAULT_DISPLAY_GROUP default display group} is
-     * turned off it will be turned on. Additionally, if the device is asleep it will be awoken. If
-     * the {@link android.view.Display#DEFAULT_DISPLAY_GROUP default display group} is already
-     * on then nothing will happen.
-     *
-     * <p>
-     * This is what happens when the power key is pressed to turn on the screen.
-     * </p><p>
-     * Requires the {@link android.Manifest.permission#DEVICE_POWER} permission.
-     * </p>
-     *
-     * @param time The time when the request to wake up was issued, in the
-     * {@link SystemClock#uptimeMillis()} time base.  This timestamp is used to correctly
-     * order the wake up request with other power management functions.  It should be set
-     * to the timestamp of the input event that caused the request to wake up.
-     *
-     * @param details A free form string to explain the specific details behind the wake up for
-     *                debugging purposes.
-     *
-     * @see #userActivity
-     * @see #goToSleep
+     * @see #wakeUp(long, int, String, int)
      *
      * @deprecated Use {@link #wakeUp(long, int, String)} instead.
      * @hide
@@ -1641,9 +1663,23 @@ public final class PowerManager {
     /**
      * Forces the {@link android.view.Display#DEFAULT_DISPLAY default display} to turn on.
      *
-     * <p>If the {@link android.view.Display#DEFAULT_DISPLAY default display} is turned off it will
-     * be turned on. Additionally, if the device is asleep it will be awoken. If the {@link
-     * android.view.Display#DEFAULT_DISPLAY default display} is already on then nothing will happen.
+     * @see #wakeUp(long, int, String, int)
+     * @hide
+     */
+    public void wakeUp(long time, @WakeReason int reason, String details) {
+        try {
+            mService.wakeUp(time, reason, details, mContext.getOpPackageName());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Forces the display with the supplied displayId to turn on.
+     *
+     * <p>If the corresponding display is turned off, it will be turned on. Additionally, if the
+     * device is asleep it will be awoken. If the corresponding display is already on then nothing
+     * will happen. If the corresponding display does not exist, then nothing will happen.
      *
      * <p>If the device is an Android TV playback device, it will attempt to turn on the
      * HDMI-connected TV and become the current active source via the HDMI-CEC One Touch Play
@@ -1664,14 +1700,16 @@ public final class PowerManager {
      *
      * @param details A free form string to explain the specific details behind the wake up for
      *                debugging purposes.
+     * @param displayId The displayId of the display to be woken up.
      *
      * @see #userActivity
      * @see #goToSleep
      * @hide
      */
-    public void wakeUp(long time, @WakeReason int reason, String details) {
+    public void wakeUp(long time, @WakeReason int reason, String details, int displayId) {
         try {
-            mService.wakeUp(time, reason, details, mContext.getOpPackageName());
+            mService.wakeUpWithDisplayId(time, reason, details, mContext.getOpPackageName(),
+                    displayId);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1755,6 +1793,77 @@ public final class PowerManager {
         }
     }
 
+    /**
+     * Adds a listener to be notified about changes in screen timeout policy.
+     *
+     * <p>The screen timeout policy determines the behavior of the device's screen
+     * after a period of inactivity. It can be used to understand if the display is going
+     * to be turned off after a timeout to conserve power, or if it will be kept on indefinitely.
+     * For example, it might be useful for adjusting display switch conditions on foldable
+     * devices based on the current timeout policy.
+     *
+     * <p>See {@link ScreenTimeoutPolicy} for possible values.
+     *
+     * <p>The listener will be fired with the initial state upon subscribing.
+     *
+     * <p>IScreenTimeoutPolicyListener is called on either system server's main thread or
+     * on a binder thread if subscribed outside the system service process.
+     *
+     * @param displayId display id for which to be notified about screen timeout policy changes
+     * @param executor executor on which to execute ScreenTimeoutPolicyListener methods
+     * @param listener listener that will be fired on screem timeout policy updates
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.DEVICE_POWER)
+    public void addScreenTimeoutPolicyListener(int displayId,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull ScreenTimeoutPolicyListener listener) {
+        Objects.requireNonNull(listener, "listener cannot be null");
+        Objects.requireNonNull(executor, "executor cannot be null");
+        Preconditions.checkArgument(!mScreenTimeoutPolicyListeners.containsKey(listener),
+                "Listener already registered: %s", listener);
+
+        final IScreenTimeoutPolicyListener stub = new IScreenTimeoutPolicyListener.Stub() {
+            public void onScreenTimeoutPolicyChanged(int screenTimeoutPolicy) {
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    executor.execute(() ->
+                            listener.onScreenTimeoutPolicyChanged(screenTimeoutPolicy));
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            }
+        };
+
+        try {
+            mService.addScreenTimeoutPolicyListener(displayId, stub);
+            mScreenTimeoutPolicyListeners.put(listener, stub);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Removes a listener that is used to listen for screen timeout policy changes.
+     * @see PowerManager#addScreenTimeoutPolicyListener(int, ScreenTimeoutPolicyListener)
+     * @param displayId display id for which to be notified about screen timeout changes
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.DEVICE_POWER)
+    public void removeScreenTimeoutPolicyListener(int displayId,
+            @NonNull ScreenTimeoutPolicyListener listener) {
+        Objects.requireNonNull(listener, "listener cannot be null");
+        IScreenTimeoutPolicyListener internalListener = mScreenTimeoutPolicyListeners.get(listener);
+        Preconditions.checkArgument(internalListener != null, "Listener was not added");
+
+        try {
+            mService.removeScreenTimeoutPolicyListener(displayId, internalListener);
+            mScreenTimeoutPolicyListeners.remove(listener);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
    /**
      * Returns true if the specified wake lock level is supported.
      *
@@ -1763,6 +1872,10 @@ public final class PowerManager {
      */
     public boolean isWakeLockLevelSupported(int level) {
         try {
+            if (android.companion.virtualdevice.flags.Flags.displayPowerManagerApis()) {
+                return mService.isWakeLockLevelSupportedWithDisplayId(
+                        level, mContext.getDisplayId());
+            }
             return mService.isWakeLockLevelSupported(level);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
@@ -1826,18 +1939,23 @@ public final class PowerManager {
      * @see android.content.Intent#ACTION_SCREEN_OFF
      */
     public boolean isInteractive() {
+        if (android.companion.virtualdevice.flags.Flags.displayPowerManagerApis()) {
+            return isInteractive(mContext.getDisplayId());
+        }
         return mInteractiveCache.query(null);
     }
 
     /**
-     * Returns the interactive state for a specific display, which may not be the same as the
-     * global wakefulness (which is true when any display is awake).
+     * Returns true if the specified display is in an interactive state. This may not be the
+     * same as the global wakefulness (which is true when any display is interactive).
+     * @see #isInteractive()
      *
-     * @param displayId
-     * @return whether the given display is present and interactive, or false
+     * @param displayId The Display ID to check for interactivity.
+     * @return True if the display is in an interactive state.
      *
      * @hide
      */
+    @TestApi
     public boolean isInteractive(int displayId) {
         return mInteractiveCache.query(displayId);
     }
@@ -2700,15 +2818,59 @@ public final class PowerManager {
         void onThermalStatusChanged(@ThermalStatus int status);
     }
 
+    /**
+     * Listener passed to
+     * {@link PowerManager#addThermalHeadroomListener} and
+     * {@link PowerManager#removeThermalHeadroomListener}
+     * to notify caller of Thermal headroom or thresholds changes.
+     */
+    @FlaggedApi(Flags.FLAG_ALLOW_THERMAL_THRESHOLDS_CALLBACK)
+    public interface OnThermalHeadroomChangedListener {
+
+        /**
+         * Called when overall thermal headroom or headroom thresholds have significantly
+         * changed that requires action.
+         * <p>
+         * This may not be used to fully replace the {@link #getThermalHeadroom(int)} API as it will
+         * only notify on one of the conditions below that will significantly change one or both
+         * values of current headroom and headroom thresholds since previous callback:
+         *   1. thermal throttling events: when the skin temperature has cross any of the thresholds
+         *      and there isn't a previous callback in a short time ago with similar values.
+         *   2. skin temperature threshold change events: note that if the absolute °C threshold
+         *      values change in a way that does not significantly change the current headroom nor
+         *      headroom thresholds, it will not trigger any callback. The client should not
+         *      need to take action in such case since the difference from temperature vs threshold
+         *      hasn't changed.
+         * <p>
+         * By API version 36, it provides a forecast in the same call for developer's convenience
+         * based on a {@code forecastSeconds} defined by the device, which can be static or dynamic
+         * varied by OEM. Be aware that it will not notify on forecast temperature change but the
+         * events mentioned above. So periodically polling against {@link #getThermalHeadroom(int)}
+         * API should still be used to actively monitor temperature forecast in advance.
+         * <p>
+         * This serves as a more advanced option compared to thermal status listener, where the
+         * latter will only notify on thermal throttling events with status update.
+         *
+         * @param headroom current headroom
+         * @param forecastHeadroom forecasted headroom in future
+         * @param forecastSeconds how many seconds in the future used in forecast
+         * @param thresholds new headroom thresholds, see {@link #getThermalHeadroomThresholds()}
+         */
+        void onThermalHeadroomChanged(
+                @FloatRange(from = 0f) float headroom,
+                @FloatRange(from = 0f) float forecastHeadroom,
+                @IntRange(from = 0) int forecastSeconds,
+                @NonNull Map<@ThermalStatus Integer, Float> thresholds);
+    }
 
     /**
-     * This function adds a listener for thermal status change, listen call back will be
+     * This function adds a listener for thermal status change, listener callback will be
      * enqueued tasks on the main thread
      *
      * @param listener listener to be added,
      */
     public void addThermalStatusListener(@NonNull OnThermalStatusChangedListener listener) {
-        Objects.requireNonNull(listener, "listener cannot be null");
+        Objects.requireNonNull(listener, "Thermal status listener cannot be null");
         addThermalStatusListener(mContext.getMainExecutor(), listener);
     }
 
@@ -2720,29 +2882,31 @@ public final class PowerManager {
      */
     public void addThermalStatusListener(@NonNull @CallbackExecutor Executor executor,
             @NonNull OnThermalStatusChangedListener listener) {
-        Objects.requireNonNull(listener, "listener cannot be null");
-        Objects.requireNonNull(executor, "executor cannot be null");
-        Preconditions.checkArgument(!mListenerMap.containsKey(listener),
-                "Listener already registered: %s", listener);
-        IThermalStatusListener internalListener = new IThermalStatusListener.Stub() {
-            @Override
-            public void onStatusChange(int status) {
-                final long token = Binder.clearCallingIdentity();
-                try {
-                    executor.execute(() -> listener.onThermalStatusChanged(status));
-                } finally {
-                    Binder.restoreCallingIdentity(token);
+        Objects.requireNonNull(listener, "Thermal status listener cannot be null");
+        Objects.requireNonNull(executor, "Executor cannot be null");
+        synchronized (mThermalStatusListenerMap) {
+            Preconditions.checkArgument(!mThermalStatusListenerMap.containsKey(listener),
+                    "Thermal status listener already registered: %s", listener);
+            IThermalStatusListener internalListener = new IThermalStatusListener.Stub() {
+                @Override
+                public void onStatusChange(int status) {
+                    final long token = Binder.clearCallingIdentity();
+                    try {
+                        executor.execute(() -> listener.onThermalStatusChanged(status));
+                    } finally {
+                        Binder.restoreCallingIdentity(token);
+                    }
                 }
+            };
+            try {
+                if (mThermalService.registerThermalStatusListener(internalListener)) {
+                    mThermalStatusListenerMap.put(listener, internalListener);
+                } else {
+                    throw new RuntimeException("Thermal status listener failed to set");
+                }
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
             }
-        };
-        try {
-            if (mThermalService.registerThermalStatusListener(internalListener)) {
-                mListenerMap.put(listener, internalListener);
-            } else {
-                throw new RuntimeException("Listener failed to set");
-            }
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
         }
     }
 
@@ -2752,19 +2916,100 @@ public final class PowerManager {
      * @param listener listener to be removed
      */
     public void removeThermalStatusListener(@NonNull OnThermalStatusChangedListener listener) {
-        Objects.requireNonNull(listener, "listener cannot be null");
-        IThermalStatusListener internalListener = mListenerMap.get(listener);
-        Preconditions.checkArgument(internalListener != null, "Listener was not added");
-        try {
-            if (mThermalService.unregisterThermalStatusListener(internalListener)) {
-                mListenerMap.remove(listener);
-            } else {
-                throw new RuntimeException("Listener failed to remove");
+        Objects.requireNonNull(listener, "Thermal status listener cannot be null");
+        synchronized (mThermalStatusListenerMap) {
+            IThermalStatusListener internalListener = mThermalStatusListenerMap.get(listener);
+            Preconditions.checkArgument(internalListener != null,
+                    "Thermal status listener was not added");
+            try {
+                if (mThermalService.unregisterThermalStatusListener(internalListener)) {
+                    mThermalStatusListenerMap.remove(listener);
+                } else {
+                    throw new RuntimeException("Failed to unregister thermal status listener");
+                }
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
             }
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
         }
     }
+
+    /**
+     * This function adds a listener for thermal headroom change, listener callback will be
+     * enqueued tasks on the main thread
+     *
+     * @param listener listener to be added,
+     */
+    @FlaggedApi(Flags.FLAG_ALLOW_THERMAL_THRESHOLDS_CALLBACK)
+    public void addThermalHeadroomListener(@NonNull OnThermalHeadroomChangedListener listener) {
+        Objects.requireNonNull(listener, "Thermal headroom listener cannot be null");
+        addThermalHeadroomListener(mContext.getMainExecutor(), listener);
+    }
+
+    /**
+     * This function adds a listener for thermal headroom change.
+     *
+     * @param executor {@link Executor} to handle listener callback.
+     * @param listener listener to be added.
+     */
+    @FlaggedApi(Flags.FLAG_ALLOW_THERMAL_THRESHOLDS_CALLBACK)
+    public void addThermalHeadroomListener(@NonNull @CallbackExecutor Executor executor,
+            @NonNull OnThermalHeadroomChangedListener listener) {
+        Objects.requireNonNull(listener, "Thermal headroom listener cannot be null");
+        Objects.requireNonNull(executor, "Executor cannot be null");
+        synchronized (mThermalHeadroomListenerMap) {
+            Preconditions.checkArgument(!mThermalHeadroomListenerMap.containsKey(listener),
+                    "Thermal headroom listener already registered: %s", listener);
+            IThermalHeadroomListener internalListener = new IThermalHeadroomListener.Stub() {
+                @Override
+                public void onHeadroomChange(float headroom, float forecastHeadroom,
+                        int forecastSeconds, float[] thresholds)
+                        throws RemoteException {
+                    final Map<Integer, Float> map = convertThresholdsToMap(thresholds);
+                    final long token = Binder.clearCallingIdentity();
+                    try {
+                        executor.execute(() -> listener.onThermalHeadroomChanged(headroom,
+                                forecastHeadroom, forecastSeconds, map));
+                    } finally {
+                        Binder.restoreCallingIdentity(token);
+                    }
+                }
+            };
+            try {
+                if (mThermalService.registerThermalHeadroomListener(internalListener)) {
+                    mThermalHeadroomListenerMap.put(listener, internalListener);
+                } else {
+                    throw new RuntimeException("Thermal headroom listener failed to set");
+                }
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+        }
+    }
+
+    /**
+     * This function removes a listener for Thermal headroom change
+     *
+     * @param listener listener to be removed
+     */
+    @FlaggedApi(Flags.FLAG_ALLOW_THERMAL_THRESHOLDS_CALLBACK)
+    public void removeThermalHeadroomListener(@NonNull OnThermalHeadroomChangedListener listener) {
+        Objects.requireNonNull(listener, "Thermal headroom listener cannot be null");
+        synchronized (mThermalHeadroomListenerMap) {
+            IThermalHeadroomListener internalListener = mThermalHeadroomListenerMap.get(listener);
+            Preconditions.checkArgument(internalListener != null,
+                    "Thermal headroom listener was not added");
+            try {
+                if (mThermalService.unregisterThermalHeadroomListener(internalListener)) {
+                    mThermalHeadroomListenerMap.remove(listener);
+                } else {
+                    throw new RuntimeException("Failed to unregister thermal status listener");
+                }
+            } catch (RemoteException e) {
+                throw e.rethrowFromSystemServer();
+            }
+        }
+    }
+
 
     @CurrentTimeMillisLong
     private final AtomicLong mLastHeadroomUpdate = new AtomicLong(0L);
@@ -2805,7 +3050,8 @@ public final class PowerManager {
      *         functionality or if this function is called significantly faster than once per
      *         second.
      */
-    public float getThermalHeadroom(@IntRange(from = 0, to = 60) int forecastSeconds) {
+    public @FloatRange(from = 0f) float getThermalHeadroom(
+            @IntRange(from = 0, to = 60) int forecastSeconds) {
         // Rate-limit calls into the thermal service
         long now = SystemClock.elapsedRealtime();
         long timeSinceLastUpdate = now - mLastHeadroomUpdate.get();
@@ -2850,9 +3096,11 @@ public final class PowerManager {
      * headroom of 0.75 will never come with {@link #THERMAL_STATUS_MODERATE} but lower, and 0.65
      * will never come with {@link #THERMAL_STATUS_LIGHT} but {@link #THERMAL_STATUS_NONE}.
      * <p>
-     * The returned map of thresholds will not change between calls to this function, so it's
-     * best to call this once on initialization. Modifying the result will not change the thresholds
-     * cached by the system, and a new call to the API will get a new copy.
+     * Starting at {@link android.os.Build.VERSION_CODES#BAKLAVA} the returned map of thresholds can
+     * change between calls to this function, one could use the new
+     * {@link #addThermalHeadroomListener(Executor, OnThermalHeadroomChangedListener)} API to
+     * register a listener and get callback for changes to thresholds.
+     * <p>
      *
      * @return map from each thermal status to its thermal headroom
      * @throws IllegalStateException if the thermal service is not ready
@@ -2861,22 +3109,20 @@ public final class PowerManager {
     @FlaggedApi(Flags.FLAG_ALLOW_THERMAL_HEADROOM_THRESHOLDS)
     public @NonNull Map<@ThermalStatus Integer, Float> getThermalHeadroomThresholds() {
         try {
-            synchronized (mThermalHeadroomThresholdsLock) {
-                if (mThermalHeadroomThresholds == null) {
-                    mThermalHeadroomThresholds = mThermalService.getThermalHeadroomThresholds();
-                }
-                final ArrayMap<Integer, Float> ret = new ArrayMap<>(THERMAL_STATUS_SHUTDOWN);
-                for (int status = THERMAL_STATUS_LIGHT; status <= THERMAL_STATUS_SHUTDOWN;
-                        status++) {
-                    if (!Float.isNaN(mThermalHeadroomThresholds[status])) {
-                        ret.put(status, mThermalHeadroomThresholds[status]);
-                    }
-                }
-                return ret;
-            }
+            return convertThresholdsToMap(mThermalService.getThermalHeadroomThresholds());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
+    }
+
+    private Map<@ThermalStatus Integer, Float> convertThresholdsToMap(final float[] thresholds) {
+        final ArrayMap<Integer, Float> ret = new ArrayMap<>(THERMAL_STATUS_SHUTDOWN);
+        for (int status = THERMAL_STATUS_LIGHT; status <= THERMAL_STATUS_SHUTDOWN; status++) {
+            if (!Float.isNaN(thresholds[status])) {
+                ret.put(status, thresholds[status]);
+            }
+        }
+        return ret;
     }
 
     /**
@@ -3694,6 +3940,21 @@ public final class PowerManager {
     }
 
     /**
+     * Listener for screen timeout policy changes
+     * @see PowerManager#addScreenTimeoutPolicyListener(int, ScreenTimeoutPolicyListener)
+     * @hide
+     */
+    public interface ScreenTimeoutPolicyListener {
+        /**
+         * Invoked on changes in screen timeout policy.
+         *
+         * @param screenTimeoutPolicy Screen timeout policy, one of {@link ScreenTimeoutPolicy}
+         * @see PowerManager#addScreenTimeoutPolicyListener
+         */
+        void onScreenTimeoutPolicyChanged(@ScreenTimeoutPolicy int screenTimeoutPolicy);
+    }
+
+    /**
      * A wake lock is a mechanism to indicate that your application needs
      * to have the device stay on.
      * <p>
@@ -3960,6 +4221,17 @@ public final class PowerManager {
             else mFlags &= ~UNIMPORTANT_FOR_LOGGING;
         }
 
+        /** @hide */
+        public void updateUids(int[] uids) {
+            synchronized (mToken) {
+                try {
+                    mService.updateWakeLockUids(mToken, uids);
+                } catch (RemoteException e) {
+                    throw e.rethrowFromSystemServer();
+                }
+            }
+        }
+
         @Override
         public String toString() {
             synchronized (mToken) {
@@ -4058,13 +4330,13 @@ public final class PowerManager {
      * @hide
      */
     public static void invalidatePowerSaveModeCaches() {
-        PropertyInvalidatedCache.invalidateCache(CACHE_KEY_IS_POWER_SAVE_MODE_PROPERTY);
+        PropertyInvalidatedCache.invalidateCache(MODULE_SYSTEM, CACHE_KEY_IS_POWER_SAVE_MODE_API);
     }
 
     /**
      * @hide
      */
     public static void invalidateIsInteractiveCaches() {
-        PropertyInvalidatedCache.invalidateCache(CACHE_KEY_IS_INTERACTIVE_PROPERTY);
+        PropertyInvalidatedCache.invalidateCache(MODULE_SYSTEM, CACHE_KEY_IS_INTERACTIVE_API);
     }
 }

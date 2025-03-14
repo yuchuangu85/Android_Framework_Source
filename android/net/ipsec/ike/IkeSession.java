@@ -470,10 +470,6 @@ public final class IkeSession implements AutoCloseable {
      */
     @FlaggedApi("com.android.ipsec.flags.dumpsys_api")
     public void dump(@NonNull PrintWriter pw) {
-        // TODO(b/336409878): Add @RequiresPermission annotation.
-        mContext.enforceCallingOrSelfPermission(
-                android.Manifest.permission.DUMP, mContext.getAttributionTag());
-
         // Please make sure that the dump is thread-safe
         // so the client won't get a crash or exception when adding codes to the dump.
         pw.println();

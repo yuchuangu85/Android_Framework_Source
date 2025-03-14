@@ -27,6 +27,7 @@ package java.util.zip;
 
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
+import java.nio.DirectByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
@@ -72,6 +73,15 @@ class ZipCoder {
 
     String toString(byte[] ba) {
         return toString(ba, 0, ba.length);
+    }
+
+    // Android-changed: don't keep CEN bytes in heap memory after initialization.
+    String toString(DirectByteBuffer bb, int off, int length) {
+        try {
+            return decoder().decode(bb.slice(off, length)).toString();
+        } catch (CharacterCodingException x) {
+            throw new IllegalArgumentException(x);
+        }
     }
 
     byte[] getBytes(String s) {
@@ -143,6 +153,18 @@ class ZipCoder {
             Arrays.mismatch(a, end - slashBytes.length, end, slashBytes, 0, slashBytes.length) == -1;
     }
 
+    // Android-changed: don't keep CEN bytes in heap memory after initialization.
+    boolean hasTrailingSlash(DirectByteBuffer bb, int end) {
+        byte[] slashBytes = slashBytes();
+        for (int i = end - slashBytes.length; i < end; i++) {
+            byte b = bb.get(i);
+            if (b != slashBytes[i - end + slashBytes.length]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private byte[] slashBytes;
     private final Charset cs;
     protected CharsetDecoder dec;
@@ -205,6 +227,16 @@ class ZipCoder {
             return new String(ba, off, length, StandardCharsets.UTF_8);
         }
 
+        // Android-changed: don't keep CEN bytes in heap memory after initialization.
+        @Override
+        String toString(DirectByteBuffer bb, int off, int length) {
+            byte[] bytes = new byte[length];
+            bb.get(off, bytes, 0, length);
+            // Android-changed: JLA is not yet available.
+            // return JLA.newStringUTF8NoRepl(ba, off, length);
+            return new String(bytes, 0, length, StandardCharsets.UTF_8);
+        }
+
         @Override
         byte[] getBytes(String s) {
             // Android-changed: JLA is not yet available.
@@ -247,6 +279,12 @@ class ZipCoder {
         @Override
         boolean hasTrailingSlash(byte[] a, int end) {
             return end > 0 && a[end - 1] == '/';
+        }
+
+        // Android-changed: don't keep CEN bytes in heap memory after initialization.
+        @Override
+        boolean hasTrailingSlash(DirectByteBuffer bb, int end) {
+            return end > 0 && bb.get(end - 1) == '/';
         }
     }
 }

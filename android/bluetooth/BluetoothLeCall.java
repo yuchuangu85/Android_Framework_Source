@@ -203,9 +203,9 @@ public final class BluetoothLeCall implements Parcelable {
 
     @Override
     public void writeToParcel(@NonNull Parcel out, int flags) {
-        out.writeParcelable(new ParcelUuid(mUuid), 0);
-        out.writeString(mUri);
-        out.writeString(mFriendlyName);
+        (new ParcelUuid(mUuid)).writeToParcel(out, flags);
+        BluetoothUtils.writeStringToParcel(out, mUri);
+        BluetoothUtils.writeStringToParcel(out, mFriendlyName);
         out.writeInt(mState);
         out.writeInt(mCallFlags);
     }
@@ -222,7 +222,7 @@ public final class BluetoothLeCall implements Parcelable {
             };
 
     private BluetoothLeCall(Parcel in) {
-        mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
+        mUuid = ParcelUuid.CREATOR.createFromParcel(in).getUuid();
         mUri = in.readString();
         mFriendlyName = in.readString();
         mState = in.readInt();

@@ -60,6 +60,11 @@ public class BpfNetMapsConstants {
             "/sys/fs/bpf/netd_shared/map_netd_data_saver_enabled_map";
     public static final String INGRESS_DISCARD_MAP_PATH =
             "/sys/fs/bpf/netd_shared/map_netd_ingress_discard_map";
+    public static final String LOCAL_NET_ACCESS_MAP_PATH =
+            "/sys/fs/bpf/netd_shared/map_netd_local_net_access_map";
+    public static final String LOCAL_NET_BLOCKED_UID_MAP_PATH =
+            "/sys/fs/bpf/netd_shared/map_netd_local_net_blocked_uid_map";
+
     public static final Struct.S32 UID_RULES_CONFIGURATION_KEY = new Struct.S32(0);
     public static final Struct.S32 CURRENT_STATS_MAP_CONFIGURATION_KEY = new Struct.S32(1);
     public static final Struct.S32 DATA_SAVER_ENABLED_KEY = new Struct.S32(0);

@@ -24,6 +24,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.os.BackgroundThread;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.flags.FeatureFlags;
 
@@ -39,11 +40,14 @@ public class VonrHelper {
     private final @NonNull FeatureFlags mFlags;
 
     private Handler mHandler;
+    private Handler mHandlerThread;
     private Map<Integer, Boolean> mPhoneVonrState = new ConcurrentHashMap<>();
 
     public VonrHelper(@NonNull FeatureFlags featureFlags) {
         this.mFlags = featureFlags;
-        if (mFlags.vonrEnabledMetric()) {
+        if (mFlags.threadShred()) {
+            mHandler = new Handler(BackgroundThread.get().getLooper());
+        } else {
             HandlerThread mHandlerThread = new HandlerThread("VonrHelperThread");
             mHandlerThread.start();
             mHandler = new Handler(mHandlerThread.getLooper());
@@ -52,9 +56,7 @@ public class VonrHelper {
 
     /** Update vonr_enabled state */
     public void updateVonrEnabledState() {
-        if (mFlags.vonrEnabledMetric()) {
-            mHandler.post(mVonrRunnable);
-        }
+        mHandler.post(mVonrRunnable);
     }
 
     @VisibleForTesting
@@ -71,10 +73,6 @@ public class VonrHelper {
 
     /** Get vonr_enabled per subId */
     public boolean getVonrEnabled(int subId) {
-        if (mFlags.vonrEnabledMetric()) {
-            return mPhoneVonrState.getOrDefault(subId, false);
-        } else {
-            return false;
-        }
+        return mPhoneVonrState.getOrDefault(subId, false);
     }
 }

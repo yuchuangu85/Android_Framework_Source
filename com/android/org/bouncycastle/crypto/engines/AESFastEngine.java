@@ -3,8 +3,10 @@ package com.android.org.bouncycastle.crypto.engines;
 
 import com.android.org.bouncycastle.crypto.BlockCipher;
 import com.android.org.bouncycastle.crypto.CipherParameters;
+import com.android.org.bouncycastle.crypto.CryptoServicesRegistrar;
 import com.android.org.bouncycastle.crypto.DataLengthException;
 import com.android.org.bouncycastle.crypto.OutputLengthException;
+import com.android.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
 import com.android.org.bouncycastle.crypto.params.KeyParameter;
 import com.android.org.bouncycastle.util.Pack;
 
@@ -14,7 +16,7 @@ import com.android.org.bouncycastle.util.Pack;
  * For further details see: <a href="https://csrc.nist.gov/encryption/aes/">https://csrc.nist.gov/encryption/aes/</a>.
  *
  * This implementation is based on optimizations from Dr. Brian Gladman's paper and C code at
- * <a href="http://fp.gladman.plus.com/cryptography_technology/rijndael/">http://fp.gladman.plus.com/cryptography_technology/rijndael/</a>
+ * <a href="https://fp.gladman.plus.com/cryptography_technology/rijndael/">https://fp.gladman.plus.com/cryptography_technology/rijndael/</a>
  *
  * There are three levels of tradeoff of speed vs memory
  * Because java has no preprocessor, they are written as three separate classes from which to choose
@@ -743,7 +745,6 @@ public class AESFastEngine
 
     private int         ROUNDS;
     private int[][]     WorkingKey = null;
-    private int         C0, C1, C2, C3;
     private boolean     forEncryption;
 
     private static final int BLOCK_SIZE = 16;
@@ -753,6 +754,7 @@ public class AESFastEngine
      */
     public AESFastEngine()
     {
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), 256));
     }
 
     /**
@@ -771,6 +773,7 @@ public class AESFastEngine
         {
             WorkingKey = generateWorkingKey(((KeyParameter)params).getKey(), forEncryption);
             this.forEncryption = forEncryption;
+            CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), bitsOfSecurity(), params, Utils.getPurpose(forEncryption)));
             return;
         }
 
@@ -787,39 +790,31 @@ public class AESFastEngine
         return BLOCK_SIZE;
     }
 
-    public int processBlock(
-        byte[] in,
-        int inOff,
-        byte[] out,
-        int outOff)
+    public int processBlock(byte[] in, int inOff, byte[] out, int outOff)
     {
         if (WorkingKey == null)
         {
             throw new IllegalStateException("AES engine not initialised");
         }
 
-        if ((inOff + (32 / 2)) > in.length)
+        if (inOff > (in.length - BLOCK_SIZE))
         {
             throw new DataLengthException("input buffer too short");
         }
 
-        if ((outOff + (32 / 2)) > out.length)
+        if (outOff > (out.length - BLOCK_SIZE))
         {
             throw new OutputLengthException("output buffer too short");
         }
 
-        unpackBlock(in, inOff);
-
         if (forEncryption)
         {
-            encryptBlock(WorkingKey);
+            encryptBlock(in, inOff, out, outOff, WorkingKey);
         }
         else
         {
-            decryptBlock(WorkingKey);
+            decryptBlock(in, inOff, out, outOff, WorkingKey);
         }
-
-        packBlock(out, outOff);
 
         return BLOCK_SIZE;
     }
@@ -828,27 +823,16 @@ public class AESFastEngine
     {
     }
 
-    private void unpackBlock(byte[] bytes, int off)
+    private void encryptBlock(byte[] in, int inOff, byte[] out, int outOff, int[][] KW)
     {
-        this.C0 = Pack.littleEndianToInt(bytes, off);
-        this.C1 = Pack.littleEndianToInt(bytes, off + 4);
-        this.C2 = Pack.littleEndianToInt(bytes, off + 8);
-        this.C3 = Pack.littleEndianToInt(bytes, off + 12);
-    }
+        int C0 = Pack.littleEndianToInt(in, inOff +  0);
+        int C1 = Pack.littleEndianToInt(in, inOff +  4);
+        int C2 = Pack.littleEndianToInt(in, inOff +  8);
+        int C3 = Pack.littleEndianToInt(in, inOff + 12);
 
-    private void packBlock(byte[] bytes, int off)
-    {
-        Pack.intToLittleEndian(this.C0, bytes, off);
-        Pack.intToLittleEndian(this.C1, bytes, off + 4);
-        Pack.intToLittleEndian(this.C2, bytes, off + 8);
-        Pack.intToLittleEndian(this.C3, bytes, off + 12);
-    }
-
-    private void encryptBlock(int[][] KW)
-    {
-        int t0 = this.C0 ^ KW[0][0];
-        int t1 = this.C1 ^ KW[0][1];
-        int t2 = this.C2 ^ KW[0][2];
+        int t0 = C0 ^ KW[0][0];
+        int t1 = C1 ^ KW[0][1];
+        int t2 = C2 ^ KW[0][2];
 
         /*
          * Fast engine has precomputed rotr(T0, 8/16/24) tables T1/T2/T3.
@@ -857,7 +841,7 @@ public class AESFastEngine
          * avoids additional array range checks on 3 more arrays (which on HotSpot are more
          * expensive than the offset additions).
          */
-        int r = 1, r0, r1, r2, r3 = this.C3 ^ KW[0][3];
+        int r = 1, r0, r1, r2, r3 = C3 ^ KW[0][3];
         int i0, i1, i2, i3;
 
         while (r < ROUNDS - 1)
@@ -915,28 +899,38 @@ public class AESFastEngine
 
         i0 = r0; i1 = r1 >>> 8; i2 = r2 >>> 16; i3 = r3 >>> 24;
         i0 = S[i0 & 255] & 255; i1 = S[i1 & 255] & 255; i2 = S[i2 & 255] & 255; i3 = S[i3 & 255] & 255;
-        this.C0 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][0];
+        C0 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][0];
 
         i0 = r1; i1 = r2 >>> 8; i2 = r3 >>> 16; i3 = r0 >>> 24;
         i0 = S[i0 & 255] & 255; i1 = S[i1 & 255] & 255; i2 = S[i2 & 255] & 255; i3 = S[i3 & 255] & 255;
-        this.C1 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][1];
+        C1 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][1];
 
         i0 = r2; i1 = r3 >>> 8; i2 = r0 >>> 16; i3 = r1 >>> 24;
         i0 = S[i0 & 255] & 255; i1 = S[i1 & 255] & 255; i2 = S[i2 & 255] & 255; i3 = S[i3 & 255] & 255;
-        this.C2 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][2];
+        C2 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][2];
 
         i0 = r3; i1 = r0 >>> 8; i2 = r1 >>> 16; i3 = r2 >>> 24;
         i0 = S[i0 & 255] & 255; i1 = S[i1 & 255] & 255; i2 = S[i2 & 255] & 255; i3 = S[i3 & 255] & 255;
-        this.C3 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][3];
+        C3 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[r][3];
+
+        Pack.intToLittleEndian(C0, out, outOff +  0);
+        Pack.intToLittleEndian(C1, out, outOff +  4);
+        Pack.intToLittleEndian(C2, out, outOff +  8);
+        Pack.intToLittleEndian(C3, out, outOff + 12);
     }
 
-    private void decryptBlock(int[][] KW)
+    private void decryptBlock(byte[] in, int inOff, byte[] out, int outOff, int[][] KW)
     {
-        int t0 = this.C0 ^ KW[ROUNDS][0];
-        int t1 = this.C1 ^ KW[ROUNDS][1];
-        int t2 = this.C2 ^ KW[ROUNDS][2];
+        int C0 = Pack.littleEndianToInt(in, inOff +  0);
+        int C1 = Pack.littleEndianToInt(in, inOff +  4);
+        int C2 = Pack.littleEndianToInt(in, inOff +  8);
+        int C3 = Pack.littleEndianToInt(in, inOff + 12);
 
-        int r = ROUNDS - 1, r0, r1, r2, r3 = this.C3 ^ KW[ROUNDS][3];
+        int t0 = C0 ^ KW[ROUNDS][0];
+        int t1 = C1 ^ KW[ROUNDS][1];
+        int t2 = C2 ^ KW[ROUNDS][2];
+
+        int r = ROUNDS - 1, r0, r1, r2, r3 = C3 ^ KW[ROUNDS][3];
         int i0, i1, i2, i3;
 
         while (r > 1)
@@ -994,18 +988,33 @@ public class AESFastEngine
 
         i0 = r0; i1 = r3 >>> 8; i2 = r2 >>> 16; i3 = r1 >>> 24;
         i0 = Si[i0 & 255] & 255; i1 = Si[i1 & 255] & 255; i2 = Si[i2 & 255] & 255; i3 = Si[i3 & 255] & 255;
-        this.C0 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][0];
+        C0 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][0];
 
         i0 = r1; i1 = r0 >>> 8; i2 = r3 >>> 16; i3 = r2 >>> 24;
         i0 = Si[i0 & 255] & 255; i1 = Si[i1 & 255] & 255; i2 = Si[i2 & 255] & 255; i3 = Si[i3 & 255] & 255;
-        this.C1 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][1];
+        C1 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][1];
 
         i0 = r2; i1 = r1 >>> 8; i2 = r0 >>> 16; i3 = r3 >>> 24;
         i0 = Si[i0 & 255] & 255; i1 = Si[i1 & 255] & 255; i2 = Si[i2 & 255] & 255; i3 = Si[i3 & 255] & 255;
-        this.C2 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][2];
+        C2 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][2];
 
         i0 = r3; i1 = r2 >>> 8; i2 = r1 >>> 16; i3 = r0 >>> 24;
         i0 = Si[i0 & 255] & 255; i1 = Si[i1 & 255] & 255; i2 = Si[i2 & 255] & 255; i3 = Si[i3 & 255] & 255;
-        this.C3 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][3];
+        C3 = i0 ^ i1 << 8 ^ i2 << 16 ^ i3 << 24 ^ KW[0][3];
+
+        Pack.intToLittleEndian(C0, out, outOff +  0);
+        Pack.intToLittleEndian(C1, out, outOff +  4);
+        Pack.intToLittleEndian(C2, out, outOff +  8);
+        Pack.intToLittleEndian(C3, out, outOff + 12);
+    }
+
+    // Service Definitions
+    private int bitsOfSecurity()
+    {
+        if (WorkingKey == null)
+        {
+            return 256;
+        }
+        return (WorkingKey.length - 7) << 5;
     }
 }

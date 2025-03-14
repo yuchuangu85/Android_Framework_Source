@@ -18,6 +18,7 @@
 package com.android.org.conscrypt;
 
 import com.android.org.conscrypt.OpenSSLX509CertificateFactory.ParsingException;
+
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -39,6 +40,7 @@ import java.util.Calendar;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.ShortBufferException;
@@ -71,6 +73,7 @@ public final class NativeCrypto {
             error = t;
         }
         loadError = error;
+        setTlsV1DeprecationStatus(Platform.isTlsV1Deprecated(), Platform.isTlsV1Supported());
     }
 
     private native static void clinit();
@@ -137,19 +140,19 @@ public final class NativeCrypto {
     static native int RSA_private_decrypt(int flen, byte[] from, byte[] to, NativeRef.EVP_PKEY pkey,
             int padding) throws BadPaddingException, SignatureException;
 
-    /**
-     * @return array of {n, e}
+    /*
+     * Returns array of {n, e}
      */
     static native byte[][] get_RSA_public_params(NativeRef.EVP_PKEY rsa);
 
-    /**
-     * @return array of {n, e, d, p, q, dmp1, dmq1, iqmp}
+    /*
+     * Returns array of {n, e, d, p, q, dmp1, dmq1, iqmp}
      */
     static native byte[][] get_RSA_private_params(NativeRef.EVP_PKEY rsa);
 
     // --- ChaCha20 -----------------------
 
-    /**
+    /*
      * Returns the encrypted or decrypted version of the data.
      */
     static native void chacha20_encrypt_decrypt(byte[] in, int inOffset, byte[] out, int outOffset,
@@ -220,6 +223,8 @@ public final class NativeCrypto {
 
     static native void X25519_keypair(byte[] outPublicKey, byte[] outPrivateKey);
 
+    static native void ED25519_keypair(byte[] outPublicKey, byte[] outPrivateKey);
+
     // --- Message digest functions --------------
 
     // These return const references
@@ -272,6 +277,12 @@ public final class NativeCrypto {
 
     static native boolean EVP_DigestVerifyFinal(NativeRef.EVP_MD_CTX ctx, byte[] signature,
             int offset, int length) throws IndexOutOfBoundsException;
+
+    static native byte[] EVP_DigestSign(
+            NativeRef.EVP_MD_CTX ctx, byte[] buffer, int offset, int length);
+
+    static native boolean EVP_DigestVerify(NativeRef.EVP_MD_CTX ctx, byte[] sigBuffer,
+            int sigOffset, int sigLen, byte[] dataBuffer, int dataOffset, int dataLen);
 
     static native long EVP_PKEY_encrypt_init(NativeRef.EVP_PKEY pkey) throws InvalidKeyException;
 
@@ -536,9 +547,11 @@ public final class NativeCrypto {
 
     static native int get_X509_ex_pathlen(long x509ctx, OpenSSLX509Certificate holder);
 
-    static native long X509_get_notBefore(long x509ctx, OpenSSLX509Certificate holder);
+    static native long X509_get_notBefore(long x509ctx, OpenSSLX509Certificate holder)
+            throws ParsingException;
 
-    static native long X509_get_notAfter(long x509ctx, OpenSSLX509Certificate holder);
+    static native long X509_get_notAfter(long x509ctx, OpenSSLX509Certificate holder)
+            throws ParsingException;
 
     static native long X509_get_version(long x509ctx, OpenSSLX509Certificate holder);
 
@@ -624,9 +637,11 @@ public final class NativeCrypto {
 
     static native byte[] get_X509_CRL_crl_enc(long x509CrlCtx, OpenSSLX509CRL holder);
 
-    static native long X509_CRL_get_lastUpdate(long x509CrlCtx, OpenSSLX509CRL holder);
+    static native long X509_CRL_get_lastUpdate(long x509CrlCtx, OpenSSLX509CRL holder)
+            throws ParsingException;
 
-    static native long X509_CRL_get_nextUpdate(long x509CrlCtx, OpenSSLX509CRL holder);
+    static native long X509_CRL_get_nextUpdate(long x509CrlCtx, OpenSSLX509CRL holder)
+            throws ParsingException;
 
     // --- X509_REVOKED --------------------------------------------------------
 
@@ -659,6 +674,22 @@ public final class NativeCrypto {
 
     @android.compat.annotation.UnsupportedAppUsage
     static native int X509_supported_extension(long x509ExtensionRef);
+
+    // --- SPAKE ---------------------------------------------------------------
+
+    /**
+     * Sets the SPAKE credential for the given SSL context using a password.
+     * Used for both client and server.
+     */
+    static native void SSL_CTX_set_spake_credential(
+            byte[] context,
+            byte[] pw_array,
+            byte[] id_prover_array,
+            byte[] id_verifier_array,
+            boolean is_client,
+            long ssl_ctx,
+            AbstractSessionContext holder)
+        throws SSLException;
 
     // --- ASN1_TIME -----------------------------------------------------------
 
@@ -814,8 +845,10 @@ public final class NativeCrypto {
 
     // --- SSL handling --------------------------------------------------------
 
+    static final String OBSOLETE_PROTOCOL_SSLV3 = "SSLv3";
     static final String DEPRECATED_PROTOCOL_TLSV1 = "TLSv1";
     static final String DEPRECATED_PROTOCOL_TLSV1_1 = "TLSv1.1";
+
     private static final String SUPPORTED_PROTOCOL_TLSV1_2 = "TLSv1.2";
     static final String SUPPORTED_PROTOCOL_TLSV1_3 = "TLSv1.3";
 
@@ -886,10 +919,8 @@ public final class NativeCrypto {
         if (loadError == null) {
             // If loadError is not null, it means the native code was not loaded, so
             // get_cipher_names will throw UnsatisfiedLinkError. Populate the list of supported
-            // ciphers with BoringSSL's default, and also explicitly include 3DES.
-            // https://boringssl-review.googlesource.com/c/boringssl/+/59425 will remove 3DES
-            // from BoringSSL's default, but Conscrypt isn't quite ready to remove it yet.
-            String[] allCipherSuites = get_cipher_names("ALL:3DES");
+            // ciphers with BoringSSL's default.
+            String[] allCipherSuites = get_cipher_names("ALL");
 
             // get_cipher_names returns an array where even indices are the standard name and odd
             // indices are the OpenSSL name.
@@ -986,6 +1017,11 @@ public final class NativeCrypto {
             "TLS_PSK_WITH_AES_256_CBC_SHA",
     };
 
+    /** TLS-SPAKE */
+    static final String[] DEFAULT_SPAKE_CIPHER_SUITES = new String[] {
+            "TLS1_3_NAMED_PAKE_SPAKE2PLUSV1",
+    };
+
     static String[] getSupportedCipherSuites() {
         return SSLUtils.concat(SUPPORTED_TLS_1_3_CIPHER_SUITES, SUPPORTED_TLS_1_2_CIPHER_SUITES.clone());
     }
@@ -1048,26 +1084,48 @@ public final class NativeCrypto {
 
     static native void set_SSL_psk_server_callback_enabled(long ssl, NativeSsl ssl_holder, boolean enabled);
 
-    private static final String[] ENABLED_PROTOCOLS_TLSV1 = Platform.isTlsV1Deprecated()
-            ? new String[0]
-            : new String[] {
-                    DEPRECATED_PROTOCOL_TLSV1,
-                    DEPRECATED_PROTOCOL_TLSV1_1,
+    public static void setTlsV1DeprecationStatus(boolean deprecated, boolean supported) {
+        if (deprecated) {
+            TLSV12_PROTOCOLS = new String[] {
+                SUPPORTED_PROTOCOL_TLSV1_2,
             };
-
-    private static final String[] SUPPORTED_PROTOCOLS_TLSV1 = Platform.isTlsV1Supported()
-            ? new String[] {
+            TLSV13_PROTOCOLS = new String[] {
+                SUPPORTED_PROTOCOL_TLSV1_2,
+                SUPPORTED_PROTOCOL_TLSV1_3,
+            };
+        } else {
+            TLSV12_PROTOCOLS = new String[] {
                 DEPRECATED_PROTOCOL_TLSV1,
                 DEPRECATED_PROTOCOL_TLSV1_1,
-            } : new String[0];
+                SUPPORTED_PROTOCOL_TLSV1_2,
+            };
+            TLSV13_PROTOCOLS = new String[] {
+                DEPRECATED_PROTOCOL_TLSV1,
+                DEPRECATED_PROTOCOL_TLSV1_1,
+                SUPPORTED_PROTOCOL_TLSV1_2,
+                SUPPORTED_PROTOCOL_TLSV1_3,
+            };
+        }
+        if (supported) {
+            SUPPORTED_PROTOCOLS = new String[] {
+                DEPRECATED_PROTOCOL_TLSV1,
+                DEPRECATED_PROTOCOL_TLSV1_1,
+                SUPPORTED_PROTOCOL_TLSV1_2,
+                SUPPORTED_PROTOCOL_TLSV1_3,
+            };
+        } else {
+            SUPPORTED_PROTOCOLS = new String[] {
+                SUPPORTED_PROTOCOL_TLSV1_2,
+                SUPPORTED_PROTOCOL_TLSV1_3,
+            };
+        }
+    }
 
     /** Protocols to enable by default when "TLSv1.3" is requested. */
-    static final String[] TLSV13_PROTOCOLS = ArrayUtils.concatValues(
-            ENABLED_PROTOCOLS_TLSV1, SUPPORTED_PROTOCOL_TLSV1_2, SUPPORTED_PROTOCOL_TLSV1_3);
+    static String[] TLSV13_PROTOCOLS;
 
     /** Protocols to enable by default when "TLSv1.2" is requested. */
-    static final String[] TLSV12_PROTOCOLS =
-            ArrayUtils.concatValues(ENABLED_PROTOCOLS_TLSV1, SUPPORTED_PROTOCOL_TLSV1_2);
+    static String[] TLSV12_PROTOCOLS;
 
     /** Protocols to enable by default when "TLSv1.1" is requested. */
     static final String[] TLSV11_PROTOCOLS = new String[] {
@@ -1079,20 +1137,12 @@ public final class NativeCrypto {
     /** Protocols to enable by default when "TLSv1" is requested. */
     static final String[] TLSV1_PROTOCOLS = TLSV11_PROTOCOLS;
 
-    static final String[] DEFAULT_PROTOCOLS = TLSV13_PROTOCOLS;
-
     // If we ever get a new protocol go look for tests which are skipped using
     // assumeTlsV11Enabled()
-    private static final String[] SUPPORTED_PROTOCOLS = ArrayUtils.concatValues(
-            SUPPORTED_PROTOCOLS_TLSV1,
-            SUPPORTED_PROTOCOL_TLSV1_2,
-            SUPPORTED_PROTOCOL_TLSV1_3);
+    private static String[] SUPPORTED_PROTOCOLS;
 
     public static String[] getDefaultProtocols() {
-        if (Platform.isTlsV1Deprecated()) {
-          return DEFAULT_PROTOCOLS.clone();
-        }
-        return SUPPORTED_PROTOCOLS.clone();
+        return TLSV13_PROTOCOLS.clone();
     }
 
     static String[] getSupportedProtocols() {
@@ -1219,6 +1269,11 @@ public final class NativeCrypto {
             if (SUPPORTED_TLS_1_2_CIPHER_SUITES_SET.contains(cipherSuites[i])) {
                 continue;
             }
+            // Not sure if we need to do this for SPAKE, but the SPAKE cipher suite
+            // not registered at the moment.
+            if (DEFAULT_SPAKE_CIPHER_SUITES[0] == cipherSuites[i]) {
+                continue;
+            }
 
             // For backwards compatibility, it's allowed for |cipherSuite| to
             // be an OpenSSL-style cipher-suite name.
@@ -1342,14 +1397,11 @@ public final class NativeCrypto {
                 throws CertificateException;
 
         /**
-         * Called on an SSL client when the server requests (or
-         * requires a certificate). The client can respond by using
-         * SSL_use_certificate and SSL_use_PrivateKey to set a
-         * certificate if has an appropriate one available, similar to
-         * how the server provides its certificate.
+         * Called on an SSL client when the server requests (or requires a certificate). The client
+         * can respond by using SSL_use_certificate and SSL_use_PrivateKey to set a certificate if
+         * has an appropriate one available, similar to how the server provides its certificate.
          *
-         * @param keyTypes key types supported by the server,
-         * convertible to strings with #keyType
+         * @param keyTypes key types supported by the server, convertible to strings with #keyType
          * @param asn1DerEncodedX500Principals CAs known to the server
          */
         @SuppressWarnings("unused")

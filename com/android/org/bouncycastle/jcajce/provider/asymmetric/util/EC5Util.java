@@ -20,6 +20,7 @@ import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.x9.ECNamedCurveTable;
 import com.android.org.bouncycastle.asn1.x9.X962Parameters;
 import com.android.org.bouncycastle.asn1.x9.X9ECParameters;
+import com.android.org.bouncycastle.asn1.x9.X9ECParametersHolder;
 import com.android.org.bouncycastle.crypto.ec.CustomNamedCurves;
 import com.android.org.bouncycastle.crypto.params.ECDomainParameters;
 import com.android.org.bouncycastle.jcajce.provider.config.ProviderConfiguration;
@@ -39,20 +40,41 @@ import com.android.org.bouncycastle.util.Arrays;
  */
 public class EC5Util
 {
-    private static Map customCurves = new HashMap();
-
-    static
+    private static class CustomCurves
     {
-        Enumeration e = CustomNamedCurves.getNames();
-        while (e.hasMoreElements())
-        {
-            String name = (String)e.nextElement();
+        private static Map CURVE_MAP = createCurveMap();
 
-            X9ECParameters curveParams = ECNamedCurveTable.getByName(name);
-            if (curveParams != null)  // there may not be a regular curve, may just be a custom curve.
+        private static Map createCurveMap()
+        {
+            Map map = new HashMap();
+
+            Enumeration e = CustomNamedCurves.getNames();
+            while (e.hasMoreElements())
             {
-                customCurves.put(curveParams.getCurve(), CustomNamedCurves.getByName(name).getCurve());
+                String name = (String)e.nextElement();
+
+                X9ECParametersHolder curveParams = ECNamedCurveTable.getByNameLazy(name);
+                if (curveParams != null)  // there may not be a regular curve, may just be a custom curve.
+                {
+                    ECCurve curve = curveParams.getCurve();
+                    if (ECAlgorithms.isFpCurve(curve))
+                    {
+                        map.put(curve, CustomNamedCurves.getByNameLazy(name).getCurve());
+                    }
+                }
             }
+
+            ECCurve c_25519 = CustomNamedCurves.getByNameLazy("Curve25519").getCurve();
+
+            map.put(new ECCurve.Fp(
+                c_25519.getField().getCharacteristic(),
+                c_25519.getA().toBigInteger(),
+                c_25519.getB().toBigInteger(),
+                c_25519.getOrder(),
+                c_25519.getCofactor(),
+                true), c_25519);
+
+            return map;
         }
 
         // BEGIN Android-removed: Unsupported curves
@@ -69,6 +91,11 @@ public class EC5Util
             ), c_25519);
         */
         // END Android-removed: Unsupported curves
+        static ECCurve substitute(ECCurve c)
+        {
+            ECCurve custom = (ECCurve)CURVE_MAP.get(c);
+            return null != custom ? custom : c;
+        }
     }
 
     public static ECCurve getCurve(
@@ -280,21 +307,14 @@ public class EC5Util
 
         if (field instanceof ECFieldFp)
         {
-            ECCurve.Fp curve = new ECCurve.Fp(((ECFieldFp)field).getP(), a, b);
-
-            if (customCurves.containsKey(curve))
-            {
-                return (ECCurve)customCurves.get(curve);
-            }
-
-            return curve;
+            return CustomCurves.substitute(new ECCurve.Fp(((ECFieldFp)field).getP(), a, b, null, null));
         }
         else
         {
             ECFieldF2m fieldF2m = (ECFieldF2m)field;
             int m = fieldF2m.getM();
             int ks[] = ECUtil.convertMidTerms(fieldF2m.getMidTermsOfReductionPolynomial());
-            return new ECCurve.F2m(m, ks[0], ks[1], ks[2], a, b); 
+            return new ECCurve.F2m(m, ks[0], ks[1], ks[2], a, b, null, null);
         }
     }
 
@@ -308,7 +328,7 @@ public class EC5Util
         {
             Polynomial poly = ((PolynomialExtensionField)field).getMinimalPolynomial();
             int[] exponents = poly.getExponentsPresent();
-            int[] ks = Arrays.reverse(Arrays.copyOfRange(exponents, 1, exponents.length - 1));
+            int[] ks = Arrays.reverseInPlace(Arrays.copyOfRange(exponents, 1, exponents.length - 1));
             return new ECFieldF2m(poly.getDegree(), ks);
         }
     }

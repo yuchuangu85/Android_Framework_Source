@@ -16,6 +16,7 @@
 
 package android.content.res;
 
+import static android.app.ResourcesManager.ApkKey;
 import static android.content.res.Resources.ID_NULL;
 
 import android.annotation.AnyRes;
@@ -26,12 +27,17 @@ import android.annotation.Nullable;
 import android.annotation.StringRes;
 import android.annotation.StyleRes;
 import android.annotation.TestApi;
+import android.app.ResourcesManager;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration.NativeConfig;
 import android.content.res.loader.ResourcesLoader;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
+import android.ravenwood.annotation.RavenwoodReplace;
+import android.ravenwood.annotation.RavenwoodThrow;
+import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Log;
 import android.util.SparseArray;
@@ -40,6 +46,7 @@ import android.util.TypedValue;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.content.om.OverlayConfig;
+import com.android.internal.ravenwood.RavenwoodEnvironment;
 
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
@@ -55,6 +62,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Provides access to an application's raw asset files; see {@link Resources}
@@ -63,11 +71,17 @@ import java.util.Objects;
  * files that have been bundled with the application as a simple stream of
  * bytes.
  */
+@RavenwoodKeepWholeClass
 public final class AssetManager implements AutoCloseable {
     private static final String TAG = "AssetManager";
     private static final boolean DEBUG_REFS = false;
 
-    private static final String FRAMEWORK_APK_PATH = "/system/framework/framework-res.apk";
+    /**
+     * @hide
+     */
+    public static final String FRAMEWORK_APK_PATH = getFrameworkApkPath();
+    private static final String FRAMEWORK_APK_PATH_DEVICE = "/system/framework/framework-res.apk";
+    private static final String FRAMEWORK_APK_PATH_RAVENWOOD = "ravenwood-data/framework-res.apk";
 
     private static final Object sSync = new Object();
 
@@ -120,7 +134,7 @@ public final class AssetManager implements AutoCloseable {
 
     // Debug/reference counting implementation.
     @GuardedBy("this") private boolean mOpen = true;
-    @GuardedBy("this") private int mNumRefs = 1;
+    private AtomicInteger mNumRefs = new AtomicInteger(1);
     @GuardedBy("this") private HashMap<Long, RuntimeException> mRefStacks;
 
     private ResourcesLoader[] mLoaders;
@@ -134,8 +148,8 @@ public final class AssetManager implements AutoCloseable {
      * @hide
      */
     public static class Builder {
-        private ArrayList<ApkAssets> mUserApkAssets = new ArrayList<>();
-        private ArrayList<ResourcesLoader> mLoaders = new ArrayList<>();
+        private final ArrayList<ApkAssets> mUserApkAssets = new ArrayList<>();
+        private final ArrayList<ResourcesLoader> mLoaders = new ArrayList<>();
 
         private boolean mNoInit = false;
 
@@ -144,6 +158,7 @@ public final class AssetManager implements AutoCloseable {
             return this;
         }
 
+        @RavenwoodThrow(blockedBy = ResourcesLoader.class)
         public Builder addLoader(ResourcesLoader loader) {
             mLoaders.add(loader);
             return this;
@@ -203,6 +218,16 @@ public final class AssetManager implements AutoCloseable {
         }
     }
 
+    @RavenwoodReplace
+    private static String getFrameworkApkPath() {
+        return FRAMEWORK_APK_PATH_DEVICE;
+    }
+
+    private static String getFrameworkApkPath$ravenwood() {
+        return RavenwoodEnvironment.getInstance().getRavenwoodRuntimePath()
+                + FRAMEWORK_APK_PATH_RAVENWOOD;
+    }
+
     /**
      * Create a new AssetManager containing only the basic system assets.
      * Applications will not generally use this method, instead retrieving the
@@ -220,7 +245,7 @@ public final class AssetManager implements AutoCloseable {
 
         mObject = nativeCreate();
         if (DEBUG_REFS) {
-            mNumRefs = 0;
+            mNumRefs.set(0);
             incRefsLocked(hashCode());
         }
 
@@ -236,7 +261,7 @@ public final class AssetManager implements AutoCloseable {
     private AssetManager(boolean sentinel) {
         mObject = nativeCreate();
         if (DEBUG_REFS) {
-            mNumRefs = 0;
+            mNumRefs.set(0);
             incRefsLocked(hashCode());
         }
     }
@@ -257,14 +282,16 @@ public final class AssetManager implements AutoCloseable {
             final ArrayList<ApkAssets> apkAssets = new ArrayList<>();
             apkAssets.add(ApkAssets.loadFromPath(frameworkPath, ApkAssets.PROPERTY_SYSTEM));
 
+            // TODO(Ravenwood): overlay support?
             final String[] systemIdmapPaths =
+                    RavenwoodEnvironment.getInstance().isRunningOnRavenwood() ? new String[0] :
                     OverlayConfig.getZygoteInstance().createImmutableFrameworkIdmapsInZygote();
             for (String idmapPath : systemIdmapPaths) {
                 apkAssets.add(ApkAssets.loadOverlayFromPath(idmapPath, ApkAssets.PROPERTY_SYSTEM));
             }
 
             sSystemApkAssetsSet = new ArraySet<>(apkAssets);
-            sSystemApkAssets = apkAssets.toArray(new ApkAssets[apkAssets.size()]);
+            sSystemApkAssets = apkAssets.toArray(new ApkAssets[0]);
             if (sSystem == null) {
                 sSystem = new AssetManager(true /*sentinel*/);
             }
@@ -298,7 +325,7 @@ public final class AssetManager implements AutoCloseable {
             }
 
             mOpen = false;
-            decRefsLocked(hashCode());
+            decRefs(hashCode());
         }
     }
 
@@ -348,6 +375,7 @@ public final class AssetManager implements AutoCloseable {
      * Changes the {@link ResourcesLoader ResourcesLoaders} used in this AssetManager.
      * @hide
      */
+    @RavenwoodThrow(blockedBy = ResourcesLoader.class)
     void setLoaders(@NonNull List<ResourcesLoader> newLoaders) {
         Objects.requireNonNull(newLoaders, "newLoaders");
 
@@ -448,7 +476,7 @@ public final class AssetManager implements AutoCloseable {
     @Deprecated
     @UnsupportedAppUsage
     public int addAssetPath(String path) {
-        return addAssetPathInternal(path, false /*overlay*/, false /*appAsLib*/);
+        return addAssetPathInternal(List.of(new ApkKey(path, false, false)), false);
     }
 
     /**
@@ -458,7 +486,7 @@ public final class AssetManager implements AutoCloseable {
     @Deprecated
     @UnsupportedAppUsage
     public int addAssetPathAsSharedLibrary(String path) {
-        return addAssetPathInternal(path, false /*overlay*/, true /*appAsLib*/);
+        return addAssetPathInternal(List.of(new ApkKey(path, true, false)), false);
     }
 
     /**
@@ -468,59 +496,114 @@ public final class AssetManager implements AutoCloseable {
     @Deprecated
     @UnsupportedAppUsage
     public int addOverlayPath(String path) {
-        return addAssetPathInternal(path, true /*overlay*/, false /*appAsLib*/);
+        return addAssetPathInternal(List.of(new ApkKey(path, false, true)), false);
     }
 
     /**
      * @hide
      */
-    public void addSharedLibraryPaths(@NonNull String[] paths) {
-        final int length = paths.length;
-        for (int i = 0; i < length; i++) {
-            addAssetPathInternal(paths[i], false, true);
+    public void addPresetApkKeys(@NonNull List<ApkKey> keys) {
+        addAssetPathInternal(keys, true);
+    }
+
+    private int addAssetPathInternal(List<ApkKey> apkKeys, boolean presetAssets) {
+        Objects.requireNonNull(apkKeys, "apkKeys");
+        if (apkKeys.isEmpty()) {
+            return 0;
+        }
+
+        synchronized (this) {
+            ensureOpenLocked();
+
+            // See if we already have some of the apkKeys loaded.
+            final int originalAssetsCount = mApkAssets.length;
+
+            // Getting an assets' path is a relatively expensive operation, cache them.
+            final ArrayMap<String, Integer> assetPaths = new ArrayMap<>(originalAssetsCount);
+            for (int i = 0; i < originalAssetsCount; i++) {
+                assetPaths.put(mApkAssets[i].getAssetPath(), i);
+            }
+
+            final var newKeys = new ArrayList<ApkKey>(apkKeys.size());
+            int lastFoundIndex = -1;
+            for (int i = 0, pathsSize = apkKeys.size(); i < pathsSize; i++) {
+                final var key = apkKeys.get(i);
+                final var index = assetPaths.get(key.path);
+                if (index == null) {
+                    newKeys.add(key);
+                } else {
+                    lastFoundIndex = index;
+                }
+            }
+            if (newKeys.isEmpty()) {
+                return lastFoundIndex + 1;
+            }
+
+            final var newAssets = loadAssets(newKeys);
+            if (newAssets.isEmpty()) {
+                return 0;
+            }
+            mApkAssets = makeNewAssetsArrayLocked(newAssets);
+            nativeSetApkAssets(mObject, mApkAssets, true, presetAssets);
+            invalidateCachesLocked(-1);
+            return originalAssetsCount + 1;
         }
     }
 
-    private int addAssetPathInternal(String path, boolean overlay, boolean appAsLib) {
-        Objects.requireNonNull(path, "path");
-        synchronized (this) {
-            ensureOpenLocked();
-            final int count = mApkAssets.length;
-
-            // See if we already have it loaded.
-            for (int i = 0; i < count; i++) {
-                if (mApkAssets[i].getAssetPath().equals(path)) {
-                    return i + 1;
-                }
+    /**
+     * Insert the new assets preserving the correct order: all non-loader assets go before all
+     * of the loader assets.
+     */
+    @GuardedBy("this")
+    private @NonNull ApkAssets[] makeNewAssetsArrayLocked(
+            @NonNull ArrayList<ApkAssets> newNonLoaderAssets) {
+        final int originalAssetsCount = mApkAssets.length;
+        int firstLoaderIndex = originalAssetsCount;
+        for (int i = 0; i < originalAssetsCount; i++) {
+            if (mApkAssets[i].isForLoader()) {
+                firstLoaderIndex = i;
+                break;
             }
-
-            final ApkAssets assets;
-            try {
-                if (overlay) {
-                    // TODO(b/70343104): This hardcoded path will be removed once
-                    // addAssetPathInternal is deleted.
-                    final String idmapPath = "/data/resource-cache/"
-                            + path.substring(1).replace('/', '@')
-                            + "@idmap";
-                    assets = ApkAssets.loadOverlayFromPath(idmapPath, 0 /* flags */);
-                } else {
-                    assets = ApkAssets.loadFromPath(path,
-                            appAsLib ? ApkAssets.PROPERTY_DYNAMIC : 0);
-                }
-            } catch (IOException e) {
-                return 0;
-            }
-
-            mApkAssets = Arrays.copyOf(mApkAssets, count + 1);
-            mApkAssets[count] = assets;
-            nativeSetApkAssets(mObject, mApkAssets, true, false);
-            invalidateCachesLocked(-1);
-            return count + 1;
         }
+        final int newAssetsSize = newNonLoaderAssets.size();
+        final var newAssetsArray = new ApkAssets[originalAssetsCount + newAssetsSize];
+        if (firstLoaderIndex > 0) {
+            // This should always be true, but who knows...
+            System.arraycopy(mApkAssets, 0, newAssetsArray, 0, firstLoaderIndex);
+        }
+        for (int i = 0; i < newAssetsSize; i++) {
+            newAssetsArray[firstLoaderIndex + i] = newNonLoaderAssets.get(i);
+        }
+        if (originalAssetsCount > firstLoaderIndex) {
+            System.arraycopy(
+                    mApkAssets, firstLoaderIndex,
+                    newAssetsArray, firstLoaderIndex + newAssetsSize,
+                    originalAssetsCount - firstLoaderIndex);
+        }
+        return newAssetsArray;
+    }
+
+    private static @NonNull ArrayList<ApkAssets> loadAssets(@NonNull ArrayList<ApkKey> keys) {
+        final int pathsSize = keys.size();
+        final var loadedAssets = new ArrayList<ApkAssets>(pathsSize);
+        final var resourcesManager = ResourcesManager.getInstance();
+        for (int i = 0; i < pathsSize; i++) {
+            final var key = keys.get(i);
+            try {
+                // ResourcesManager has a cache of loaded assets, ensuring we don't open the same
+                // file repeatedly, which is useful for the common overlays and registered
+                // shared libraries.
+                loadedAssets.add(resourcesManager.loadApkAssets(key));
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to load asset, key = " + key, e);
+            }
+        }
+        return loadedAssets;
     }
 
     /** @hide */
     @NonNull
+    @RavenwoodThrow(blockedBy = ResourcesLoader.class)
     public List<ResourcesLoader> getLoaders() {
         return mLoaders == null ? Collections.emptyList() : Arrays.asList(mLoaders);
     }
@@ -894,9 +977,9 @@ public final class AssetManager implements AutoCloseable {
      * Open an asset using ACCESS_STREAMING mode.  This provides access to
      * files that have been bundled with an application as assets -- that is,
      * files placed in to the "assets" directory.
-     * 
+     *
      * @param fileName The name of the asset to open.  This name can be hierarchical.
-     * 
+     *
      * @see #open(String, int)
      * @see #list
      */
@@ -909,10 +992,10 @@ public final class AssetManager implements AutoCloseable {
      * read its contents.  This provides access to files that have been bundled
      * with an application as assets -- that is, files placed in to the
      * "assets" directory.
-     * 
+     *
      * @param fileName The name of the asset to open.  This name can be hierarchical.
      * @param accessMode Desired access mode for retrieving the data.
-     * 
+     *
      * @see #ACCESS_UNKNOWN
      * @see #ACCESS_STREAMING
      * @see #ACCESS_RANDOM
@@ -958,14 +1041,14 @@ public final class AssetManager implements AutoCloseable {
 
     /**
      * Return a String array of all the assets at the given path.
-     * 
+     *
      * @param path A relative path within the assets, i.e., "docs/home.html".
-     * 
+     *
      * @return String[] Array of strings, one for each asset.  These file
      *         names are relative to 'path'.  You can open the file by
      *         concatenating 'path' and a name in the returned string (via
      *         File) and passing that to open().
-     * 
+     *
      * @see #open
      */
     public @Nullable String[] list(@NonNull String path) throws IOException {
@@ -1088,20 +1171,20 @@ public final class AssetManager implements AutoCloseable {
             return new AssetFileDescriptor(pfd, mOffsets[0], mOffsets[1]);
         }
     }
-    
+
     /**
      * Retrieve a parser for a compiled XML file.
-     * 
+     *
      * @param fileName The name of the file to retrieve.
      */
     public @NonNull XmlResourceParser openXmlResourceParser(@NonNull String fileName)
             throws IOException {
         return openXmlResourceParser(0, fileName);
     }
-    
+
     /**
      * Retrieve a parser for a compiled XML file.
-     * 
+     *
      * @param cookie Identifier of the package to be opened.
      * @param fileName The name of the file to retrieve.
      */
@@ -1121,7 +1204,7 @@ public final class AssetManager implements AutoCloseable {
 
     /**
      * Retrieve a non-asset as a compiled XML file.  Not for use by applications.
-     * 
+     *
      * @param fileName The name of the file to retrieve.
      * @hide
      */
@@ -1132,7 +1215,7 @@ public final class AssetManager implements AutoCloseable {
     /**
      * Retrieve a non-asset as a compiled XML file.  Not for use by
      * applications.
-     * 
+     *
      * @param cookie Identifier of the package to be opened.
      * @param fileName Name of the asset to retrieve.
      * @hide
@@ -1153,12 +1236,11 @@ public final class AssetManager implements AutoCloseable {
     }
 
     void xmlBlockGone(int id) {
-        synchronized (this) {
-            decRefsLocked(id);
-        }
+        decRefs(id);
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @RavenwoodReplace
     void applyStyle(long themePtr, @AttrRes int defStyleAttr, @StyleRes int defStyleRes,
             @Nullable XmlBlock.Parser parser, @NonNull int[] inAttrs, long outValuesAddress,
             long outIndicesAddress) {
@@ -1225,9 +1307,7 @@ public final class AssetManager implements AutoCloseable {
     }
 
     void releaseTheme(long themePtr) {
-        synchronized (this) {
-            decRefsLocked(themePtr);
-        }
+        decRefs(themePtr);
     }
 
     static long getThemeFreeFunction() {
@@ -1249,7 +1329,7 @@ public final class AssetManager implements AutoCloseable {
         if (this != newAssetManager) {
             synchronized (this) {
                 ensureValidLocked();
-                decRefsLocked(themePtr);
+                decRefs(themePtr);
             }
             synchronized (newAssetManager) {
                 newAssetManager.ensureValidLocked();
@@ -1281,8 +1361,8 @@ public final class AssetManager implements AutoCloseable {
 
     @Override
     protected void finalize() throws Throwable {
-        if (DEBUG_REFS && mNumRefs != 0) {
-            Log.w(TAG, "AssetManager " + this + " finalized with non-zero refs: " + mNumRefs);
+        if (DEBUG_REFS && mNumRefs.get() != 0) {
+            Log.w(TAG, "AssetManager " + this + " finalized with non-zero refs: " + mNumRefs.get());
             if (mRefStacks != null) {
                 for (RuntimeException e : mRefStacks.values()) {
                     Log.w(TAG, "Reference from here", e);
@@ -1390,9 +1470,7 @@ public final class AssetManager implements AutoCloseable {
                 nativeAssetDestroy(mAssetNativePtr);
                 mAssetNativePtr = 0;
 
-                synchronized (AssetManager.this) {
-                    decRefsLocked(hashCode());
-                }
+                decRefs(hashCode());
             }
         }
 
@@ -1547,6 +1625,23 @@ public final class AssetManager implements AutoCloseable {
     }
 
     /**
+     * Passes the display id and device id to AssetManager, to filter out overlays based on
+     * any {@link android.content.om.OverlayConstraint}.
+     *
+     * @hide
+     */
+    public void setOverlayConstraints(int displayId, int deviceId) {
+        if (!Flags.rroConstraints()) {
+            return;
+        }
+
+        synchronized (this) {
+            ensureValidLocked();
+            nativeSetOverlayConstraints(mObject, displayId, deviceId);
+        }
+    }
+
+    /**
      * @hide
      */
     @UnsupportedAppUsage
@@ -1595,22 +1690,27 @@ public final class AssetManager implements AutoCloseable {
                 mRefStacks = new HashMap<>();
             }
             RuntimeException ex = new RuntimeException();
-            ex.fillInStackTrace();
             mRefStacks.put(id, ex);
         }
-        mNumRefs++;
+        mNumRefs.incrementAndGet();
     }
 
-    @GuardedBy("this")
-    private void decRefsLocked(long id) {
-        if (DEBUG_REFS && mRefStacks != null) {
-            mRefStacks.remove(id);
+    private void decRefs(long id) {
+        if (DEBUG_REFS) {
+            synchronized (this) {
+                if (mRefStacks != null) {
+                    mRefStacks.remove(id);
+                }
+            }
         }
-        mNumRefs--;
-        if (mNumRefs == 0 && mObject != 0) {
-            nativeDestroy(mObject);
-            mObject = 0;
-            mApkAssets = sEmptyApkAssets;
+        if (mNumRefs.decrementAndGet() == 0) {
+            synchronized (this) {
+                if (mNumRefs.get() == 0 && mObject != 0) {
+                    nativeDestroy(mObject);
+                    mObject = 0;
+                    mApkAssets = sEmptyApkAssets;
+                }
+            }
         }
     }
 
@@ -1634,6 +1734,7 @@ public final class AssetManager implements AutoCloseable {
             int screenWidth, int screenHeight, int smallestScreenWidthDp, int screenWidthDp,
             int screenHeightDp, int screenLayout, int uiMode, int colorMode, int grammaticalGender,
             int majorVersion, boolean forceRefresh);
+    private static native void nativeSetOverlayConstraints(long ptr, int displayId, int deviceId);
     private static native @NonNull SparseArray<String> nativeGetAssignedPackageIdentifiers(
             long ptr, boolean includeOverlays, boolean includeLoaders);
 
@@ -1742,4 +1843,37 @@ public final class AssetManager implements AutoCloseable {
      */
     @UnsupportedAppUsage
     public static native int getGlobalAssetManagerCount();
+
+    // Ravenwood Workarounds
+
+    /**
+     * ART has explicit support for allocating pinned (non-movable) array objects.
+     * On Ravenwood we allocate regular arrays and use critical array access in
+     * JNI as a best effort to reduce memory copying.
+     * TODO(b/359983716): Remove when Ravenwood switch to ART
+     */
+    void applyStyle$ravenwood(long themePtr, @AttrRes int defStyleAttr, @StyleRes int defStyleRes,
+            @Nullable XmlBlock.Parser parser, @NonNull int[] inAttrs, long outValuesAddress,
+            long outIndicesAddress) {
+        Objects.requireNonNull(inAttrs, "inAttrs");
+        var runtime = RavenwoodEnvironment.getInstance();
+        final int[] outValues = runtime.fromAddress(outValuesAddress);
+        final int[] outIndices = runtime.fromAddress(outIndicesAddress);
+        synchronized (this) {
+            // Need to synchronize on AssetManager because we will be accessing
+            // the native implementation of AssetManager.
+            ensureValidLocked();
+            nativeApplyStyleWithArray(mObject, themePtr, defStyleAttr, defStyleRes,
+                    parser != null ? parser.mParseState : 0, inAttrs, outValues,
+                    outIndices);
+        }
+    }
+
+    /**
+     * A variant of nativeApplyStyle(), accepting java arrays instead of raw pointers.
+     * TODO(b/359983716): Remove when Ravenwood switch to ART
+     */
+    private static native void nativeApplyStyleWithArray(long ptr, long themePtr,
+            @AttrRes int defStyleAttr, @StyleRes int defStyleRes,
+            long xmlParserPtr, @NonNull int[] inAttrs, int[] outData, int[] outIndices);
 }

@@ -50,6 +50,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.TelephonyCapabilities;
 import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.EmergencyNumberStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
@@ -186,7 +187,7 @@ public class EmergencyNumberTracker extends Handler {
         mFeatureFlags = featureFlags;
         mResources = ctx.getResources();
 
-        if (mFeatureFlags.minimalTelephonyCdmCheck()
+        if (TelephonyCapabilities.minimalTelephonyCdmCheck(mFeatureFlags)
                 && !ctx.getPackageManager().hasSystemFeature(
                     PackageManager.FEATURE_TELEPHONY_CALLING)) {
             throw new UnsupportedOperationException("EmergencyNumberTracker requires calling");

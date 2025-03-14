@@ -19,6 +19,8 @@ package android.view.accessibility;
 import static android.accessibilityservice.AccessibilityServiceInfo.FLAG_ENABLE_ACCESSIBILITY_VOLUME;
 import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
 
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.HARDWARE;
+
 import android.Manifest;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.AccessibilityServiceInfo;
@@ -62,6 +64,7 @@ import android.os.UserHandle;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.util.SparseArray;
+import android.view.Display;
 import android.view.IWindow;
 import android.view.SurfaceControl;
 import android.view.View;
@@ -69,6 +72,7 @@ import android.view.accessibility.AccessibilityEvent.EventType;
 
 import com.android.internal.R;
 import com.android.internal.accessibility.common.ShortcutConstants;
+import com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IntPair;
 
@@ -143,6 +147,21 @@ public final class AccessibilityManager {
 
     /** @hide */
     public static final int AUTOCLICK_DELAY_DEFAULT = 600;
+
+    /** @hide */
+    public static final int AUTOCLICK_CURSOR_AREA_SIZE_DEFAULT = 60;
+
+    /** @hide */
+    public static final int AUTOCLICK_CURSOR_AREA_SIZE_MIN = 20;
+
+    /** @hide */
+    public static final int AUTOCLICK_CURSOR_AREA_SIZE_MAX = 100;
+
+    /** @hide */
+    public static final int AUTOCLICK_CURSOR_AREA_INCREMENT_SIZE = 20;
+
+    /** @hide */
+    public static final boolean AUTOCLICK_IGNORE_MINOR_CURSOR_MOVEMENT_DEFAULT = false;
 
     /**
      * Activity action: Launch UI to manage which accessibility service or feature is assigned
@@ -249,7 +268,7 @@ public final class AccessibilityManager {
     boolean mIsTouchExplorationEnabled;
 
     @UnsupportedAppUsage(trackingBug = 123768939L)
-    boolean mIsHighTextContrastEnabled;
+    boolean mIsHighContrastTextEnabled;
 
     boolean mIsAudioDescriptionByDefaultRequested;
 
@@ -272,8 +291,8 @@ public final class AccessibilityManager {
     private final ArrayMap<TouchExplorationStateChangeListener, Handler>
             mTouchExplorationStateChangeListeners = new ArrayMap<>();
 
-    private final ArrayMap<HighTextContrastChangeListener, Handler>
-            mHighTextContrastStateChangeListeners = new ArrayMap<>();
+    private final ArrayMap<HighContrastTextStateChangeListener, Executor>
+            mHighContrastTextStateChangeListeners = new ArrayMap<>();
 
     private final ArrayMap<AccessibilityServicesStateChangeListener, Executor>
             mServicesStateChangeListeners = new ArrayMap<>();
@@ -352,21 +371,20 @@ public final class AccessibilityManager {
     }
 
     /**
-     * Listener for the system high text contrast state. To listen for changes to
-     * the high text contrast state on the device, implement this interface and
+     * Listener for the system high contrast text state. To listen for changes to
+     * the high contrast text state on the device, implement this interface and
      * register it with the system by calling
-     * {@link #addHighTextContrastStateChangeListener}.
-     *
-     * @hide
+     * {@link #addHighContrastTextStateChangeListener}.
      */
-    public interface HighTextContrastChangeListener {
+    @FlaggedApi(com.android.graphics.hwui.flags.Flags.FLAG_HIGH_CONTRAST_TEXT_SMALL_TEXT_RECT)
+    public interface HighContrastTextStateChangeListener {
 
         /**
-         * Called when the high text contrast enabled state changes.
+         * Called when the high contrast text enabled state changes.
          *
-         * @param enabled Whether high text contrast is enabled.
+         * @param enabled Whether high contrast text is enabled.
          */
-        void onHighTextContrastStateChanged(boolean enabled);
+        void onHighContrastTextStateChanged(boolean enabled);
     }
 
     /**
@@ -651,24 +669,23 @@ public final class AccessibilityManager {
     }
 
     /**
-     * Returns if the high text contrast in the system is enabled.
+     * Returns if high contrast text in the system is enabled.
      * <p>
      * <strong>Note:</strong> You need to query this only if you application is
      * doing its own rendering and does not rely on the platform rendering pipeline.
      * </p>
      *
-     * @return True if high text contrast is enabled, false otherwise.
+     * @return True if high contrast text is enabled, false otherwise.
      *
-     * @hide
      */
-    @UnsupportedAppUsage
-    public boolean isHighTextContrastEnabled() {
+    @FlaggedApi(com.android.graphics.hwui.flags.Flags.FLAG_HIGH_CONTRAST_TEXT_SMALL_TEXT_RECT)
+    public boolean isHighContrastTextEnabled() {
         synchronized (mLock) {
             IAccessibilityManager service = getServiceLocked();
             if (service == null) {
                 return false;
             }
-            return mIsHighTextContrastEnabled;
+            return mIsHighContrastTextEnabled;
         }
     }
 
@@ -1047,6 +1064,52 @@ public final class AccessibilityManager {
     }
 
     /**
+     * Registers callback for when user initialization has completed.
+     * Does nothing if the same callback is already registered.
+     *
+     * @param callback The callback to be registered
+     * @hide
+     */
+    public void registerUserInitializationCompleteCallback(
+            @NonNull IUserInitializationCompleteCallback callback) {
+        IAccessibilityManager service;
+        synchronized (mLock) {
+            service = getServiceLocked();
+            if (service == null) {
+                return;
+            }
+        }
+        try {
+            service.registerUserInitializationCompleteCallback(callback);
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG, "Error while registering userInitializationCompleteCallback. ", re);
+        }
+    }
+
+    /**
+     * Unregisters callback for when user initialization has completed.
+     *
+     * @param callback The callback to be unregistered
+     * @hide
+     */
+    public void unregisterUserInitializationCompleteCallback(
+            @NonNull IUserInitializationCompleteCallback callback) {
+        IAccessibilityManager service;
+        synchronized (mLock) {
+            service = getServiceLocked();
+            if (service == null) {
+                return;
+            }
+        }
+        try {
+            service.unregisterUserInitializationCompleteCallback(callback);
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG,
+                    "Error while unregistering userInitializationCompleteCallback. ", re);
+        }
+    }
+
+    /**
      * Whether the current accessibility request comes from an
      * {@link AccessibilityService} with the {@link AccessibilityServiceInfo#isAccessibilityTool}
      * property set to true.
@@ -1253,32 +1316,32 @@ public final class AccessibilityManager {
     }
 
     /**
-     * Registers a {@link HighTextContrastChangeListener} for changes in
-     * the global high text contrast state of the system.
+     * Registers a {@link HighContrastTextStateChangeListener} for changes in
+     * the global high contrast text state of the system.
      *
-     * @param listener The listener.
-     *
-     * @hide
+     * @param executor a executor to call the listener from
+     * @param listener The listener to be called
      */
-    public void addHighTextContrastStateChangeListener(
-            @NonNull HighTextContrastChangeListener listener, @Nullable Handler handler) {
+    @FlaggedApi(com.android.graphics.hwui.flags.Flags.FLAG_HIGH_CONTRAST_TEXT_SMALL_TEXT_RECT)
+    public void addHighContrastTextStateChangeListener(
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull HighContrastTextStateChangeListener listener
+    ) {
         synchronized (mLock) {
-            mHighTextContrastStateChangeListeners
-                    .put(listener, (handler == null) ? mHandler : handler);
+            mHighContrastTextStateChangeListeners.put(listener, executor);
         }
     }
 
     /**
-     * Unregisters a {@link HighTextContrastChangeListener}.
+     * Unregisters a {@link HighContrastTextStateChangeListener}.
      *
      * @param listener The listener.
-     *
-     * @hide
      */
-    public void removeHighTextContrastStateChangeListener(
-            @NonNull HighTextContrastChangeListener listener) {
+    @FlaggedApi(com.android.graphics.hwui.flags.Flags.FLAG_HIGH_CONTRAST_TEXT_SMALL_TEXT_RECT)
+    public void removeHighContrastTextStateChangeListener(
+            @NonNull HighContrastTextStateChangeListener listener) {
         synchronized (mLock) {
-            mHighTextContrastStateChangeListeners.remove(listener);
+            mHighContrastTextStateChangeListeners.remove(listener);
         }
     }
 
@@ -1455,13 +1518,13 @@ public final class AccessibilityManager {
 
         final boolean wasEnabled = isEnabled();
         final boolean wasTouchExplorationEnabled = mIsTouchExplorationEnabled;
-        final boolean wasHighTextContrastEnabled = mIsHighTextContrastEnabled;
+        final boolean wasHighTextContrastEnabled = mIsHighContrastTextEnabled;
         final boolean wasAudioDescriptionByDefaultRequested = mIsAudioDescriptionByDefaultRequested;
 
         // Ensure listeners get current state from isZzzEnabled() calls.
         mIsEnabled = enabled;
         mIsTouchExplorationEnabled = touchExplorationEnabled;
-        mIsHighTextContrastEnabled = highTextContrastEnabled;
+        mIsHighContrastTextEnabled = highTextContrastEnabled;
         mIsAudioDescriptionByDefaultRequested = audioDescriptionEnabled;
 
         if (wasEnabled != isEnabled()) {
@@ -1473,7 +1536,7 @@ public final class AccessibilityManager {
         }
 
         if (wasHighTextContrastEnabled != highTextContrastEnabled) {
-            notifyHighTextContrastStateChanged();
+            notifyHighContrastTextStateChanged();
         }
 
         if (wasAudioDescriptionByDefaultRequested
@@ -1565,7 +1628,7 @@ public final class AccessibilityManager {
     @SystemApi
     @RequiresPermission(Manifest.permission.MANAGE_ACCESSIBILITY)
     public void performAccessibilityShortcut() {
-        performAccessibilityShortcut(null);
+        performAccessibilityShortcut(Display.DEFAULT_DISPLAY, HARDWARE, null);
     }
 
     /**
@@ -1577,7 +1640,8 @@ public final class AccessibilityManager {
      * @hide
      */
     @RequiresPermission(Manifest.permission.MANAGE_ACCESSIBILITY)
-    public void performAccessibilityShortcut(@Nullable String targetName) {
+    public void performAccessibilityShortcut(
+            int displayId, @UserShortcutType int shortcutType, @Nullable String targetName) {
         final IAccessibilityManager service;
         synchronized (mLock) {
             service = getServiceLocked();
@@ -1586,7 +1650,7 @@ public final class AccessibilityManager {
             }
         }
         try {
-            service.performAccessibilityShortcut(targetName);
+            service.performAccessibilityShortcut(displayId, shortcutType, targetName);
         } catch (RemoteException re) {
             Log.e(LOG_TAG, "Error performing accessibility shortcut. ", re);
         }
@@ -1602,7 +1666,7 @@ public final class AccessibilityManager {
      */
     @RequiresPermission(Manifest.permission.MANAGE_ACCESSIBILITY)
     public void enableShortcutsForTargets(boolean enable,
-            @ShortcutConstants.UserShortcutType int shortcutTypes, @NonNull Set<String> targets,
+            @UserShortcutType int shortcutTypes, @NonNull Set<String> targets,
             @UserIdInt int userId) {
         final IAccessibilityManager service;
         synchronized (mLock) {
@@ -1723,7 +1787,8 @@ public final class AccessibilityManager {
     }
 
     /**
-     * Notifies that the accessibility button in the system's navigation area has been clicked
+     * Notifies that the accessibility button in the system's navigation area has been clicked,
+     * or a gesture shortcut input has been performed.
      *
      * @param displayId The logical display id.
      * @hide
@@ -1734,7 +1799,8 @@ public final class AccessibilityManager {
     }
 
     /**
-     * Perform the accessibility button for the given target which is assigned to the button.
+     * Perform the accessibility button or gesture
+     * for the given target which is assigned to the button.
      *
      * @param displayId displayId The logical display id.
      * @param targetName The flattened {@link ComponentName} string or the class name of a system
@@ -1755,6 +1821,31 @@ public final class AccessibilityManager {
             service.notifyAccessibilityButtonClicked(displayId, targetName);
         } catch (RemoteException re) {
             Log.e(LOG_TAG, "Error while dispatching accessibility button click", re);
+        }
+    }
+
+    /**
+     * Notifies that a shortcut was long-clicked.
+     * This displays the dialog used to select which target the given shortcut will use,
+     * from its list of targets.
+     * The current shortcut type is determined by the current navigation mode.
+     *
+     * @param displayId The id of the display to show the dialog on.
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.STATUS_BAR_SERVICE)
+    public void notifyAccessibilityButtonLongClicked(int displayId) {
+        final IAccessibilityManager service;
+        synchronized (mLock) {
+            service = getServiceLocked();
+            if (service == null) {
+                return;
+            }
+        }
+        try {
+            service.notifyAccessibilityButtonLongClicked(displayId);
+        } catch (RemoteException re) {
+            Log.e(LOG_TAG, "Error while dispatching accessibility button long click. ", re);
         }
     }
 
@@ -1817,7 +1908,7 @@ public final class AccessibilityManager {
     @RequiresPermission(Manifest.permission.MANAGE_ACCESSIBILITY)
     @NonNull
     public List<String> getAccessibilityShortcutTargets(
-            @ShortcutConstants.UserShortcutType int shortcutType) {
+            @UserShortcutType int shortcutType) {
         final IAccessibilityManager service;
         synchronized (mLock) {
             service = getServiceLocked();
@@ -2044,9 +2135,7 @@ public final class AccessibilityManager {
      * {@link android.view.Display#DEFAULT_DISPLAY}, is or lower than
      * {@link android.view.Display#INVALID_DISPLAY}, or is already being proxy-ed.
      *
-     * @throws SecurityException if the app does not hold the
-     * {@link Manifest.permission#MANAGE_ACCESSIBILITY} permission or the
-     * {@link Manifest.permission#CREATE_VIRTUAL_DEVICE} permission.
+     * @throws SecurityException if the app does not hold the required permissions.
      *
      * @hide
      */
@@ -2074,9 +2163,7 @@ public final class AccessibilityManager {
      *
      * @return {@code true} if the proxy is successfully unregistered.
      *
-     * @throws SecurityException if the app does not hold the
-     * {@link Manifest.permission#MANAGE_ACCESSIBILITY} permission or the
-     * {@link Manifest.permission#CREATE_VIRTUAL_DEVICE} permission.
+     * @throws SecurityException if the app does not hold the required permissions.
      *
      * @hide
      */
@@ -2129,8 +2216,8 @@ public final class AccessibilityManager {
         try {
             return service.startFlashNotificationSequence(context.getOpPackageName(),
                     reason, mBinder);
-        } catch (RemoteException re) {
-            Log.e(LOG_TAG, "Error while start flash notification sequence", re);
+        } catch (RemoteException | SecurityException e) {
+            Log.e(LOG_TAG, "Error while start flash notification sequence", e);
             return false;
         }
     }
@@ -2159,8 +2246,8 @@ public final class AccessibilityManager {
 
         try {
             return service.stopFlashNotificationSequence(context.getOpPackageName());
-        } catch (RemoteException re) {
-            Log.e(LOG_TAG, "Error while stop flash notification sequence", re);
+        } catch (RemoteException | SecurityException e) {
+            Log.e(LOG_TAG, "Error while stop flash notification sequence", e);
             return false;
         }
     }
@@ -2187,8 +2274,8 @@ public final class AccessibilityManager {
         try {
             return service.startFlashNotificationEvent(context.getOpPackageName(),
                     reason, reasonPkg);
-        } catch (RemoteException re) {
-            Log.e(LOG_TAG, "Error while start flash notification event", re);
+        } catch (RemoteException | SecurityException e) {
+            Log.e(LOG_TAG, "Error while start flash notification event", e);
             return false;
         }
     }
@@ -2323,24 +2410,24 @@ public final class AccessibilityManager {
     }
 
     /**
-     * Notifies the registered {@link HighTextContrastChangeListener}s.
+     * Notifies the registered {@link HighContrastTextStateChangeListener}s.
      */
-    private void notifyHighTextContrastStateChanged() {
+    private void notifyHighContrastTextStateChanged() {
         final boolean isHighTextContrastEnabled;
-        final ArrayMap<HighTextContrastChangeListener, Handler> listeners;
+        final ArrayMap<HighContrastTextStateChangeListener, Executor> listeners;
         synchronized (mLock) {
-            if (mHighTextContrastStateChangeListeners.isEmpty()) {
+            if (mHighContrastTextStateChangeListeners.isEmpty()) {
                 return;
             }
-            isHighTextContrastEnabled = mIsHighTextContrastEnabled;
-            listeners = new ArrayMap<>(mHighTextContrastStateChangeListeners);
+            isHighTextContrastEnabled = mIsHighContrastTextEnabled;
+            listeners = new ArrayMap<>(mHighContrastTextStateChangeListeners);
         }
 
         final int numListeners = listeners.size();
         for (int i = 0; i < numListeners; i++) {
-            final HighTextContrastChangeListener listener = listeners.keyAt(i);
-            listeners.valueAt(i).post(() ->
-                    listener.onHighTextContrastStateChanged(isHighTextContrastEnabled));
+            final HighContrastTextStateChangeListener listener = listeners.keyAt(i);
+            listeners.valueAt(i).execute(() ->
+                    listener.onHighContrastTextStateChanged(isHighTextContrastEnabled));
         }
     }
 

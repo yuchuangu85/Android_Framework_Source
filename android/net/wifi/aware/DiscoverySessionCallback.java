@@ -16,8 +16,12 @@
 
 package android.net.wifi.aware;
 
+import static com.android.ranging.flags.Flags.FLAG_RANGING_RTT_ENABLED;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
+import android.net.wifi.rtt.RangingResult;
 
 import java.util.List;
 
@@ -380,6 +384,18 @@ public class DiscoverySessionCallback {
      * @param peerHandle The bootstrapping peer handle
      */
     public void onBootstrappingFailed(@NonNull PeerHandle peerHandle) {
+
+    }
+
+    /**
+     * Callback indicating that ranging results have been received.
+     *
+     * @param rangingResults List of range measurements.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public void onRangingResultsReceived(@NonNull List<RangingResult> rangingResults) {
 
     }
 }

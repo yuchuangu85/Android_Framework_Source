@@ -120,7 +120,7 @@ public final class BluetoothHapPresetInfo implements Parcelable {
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeInt(mPresetIndex);
-        dest.writeString(mPresetName);
+        BluetoothUtils.writeStringToParcel(dest, mPresetName);
         dest.writeBoolean(mIsWritable);
         dest.writeBoolean(mIsAvailable);
     }

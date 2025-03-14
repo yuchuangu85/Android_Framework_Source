@@ -16,6 +16,7 @@
 
 package android.app.appsearch;
 
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SuppressLint;
@@ -29,6 +30,8 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
  * Wrapper class to provide implementation for readBlob/writeBlob for all API levels.
@@ -42,6 +45,33 @@ public class ParcelableUtil {
     // Same as IBinder.MAX_IPC_LIMIT. Limit that should be placed on IPC sizes to keep them safely
     // under the transaction buffer limit.
     private static final int DOCUMENT_SIZE_LIMIT_IN_BYTES = 64 * 1024;
+
+    /**
+     * IntDef for how a {@link android.app.appsearch.aidl.AppSearchBatchResultParcelV2} or {@link
+     * android.app.appsearch.aidl.AppSearchResultParcelV2} write to or read from {@link Parcel}.
+     */
+    @IntDef(
+            prefix = "WRITE_PARCEL_MODE_",
+            value = {
+                WRITE_PARCEL_MODE_MARSHALL_WRITE_IN_BLOB,
+                WRITE_PARCEL_MODE_DIRECTLY_WRITE_TO_PARCEL
+            })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface WriteParcelMode {}
+
+    /**
+     * We could use Parcel.writeBlob() and Parcel.readBlob(). Parcel.writeBlob() API could automatic
+     * use Android Shared Memory it detects the data size is larger than 16 KiB. The data must be
+     * marshalled to byte array to use that API. This could help us to avoid exceed binder
+     * transaction limit when sending large objects.
+     */
+    public static final int WRITE_PARCEL_MODE_MARSHALL_WRITE_IN_BLOB = 1;
+
+    /**
+     * Directly write this object to parcel. We cannot marshall binder object and FDs. If a result
+     * contains such objects, we should always directly write it to and read it from parcel.
+     */
+    public static final int WRITE_PARCEL_MODE_DIRECTLY_WRITE_TO_PARCEL = 2;
 
     // TODO(b/232805516): Update SDK_INT in Android.bp to safeguard from unexpected compiler issues.
     @SuppressLint("ObsoleteSdkInt")

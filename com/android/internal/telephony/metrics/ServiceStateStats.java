@@ -21,7 +21,6 @@ import static android.telephony.TelephonyManager.DATA_CONNECTED;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__BEARER_AT_END__CALL_BEARER_CS;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__BEARER_AT_END__CALL_BEARER_IMS;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__BEARER_AT_END__CALL_BEARER_UNKNOWN;
-import static com.android.internal.telephony.flags.Flags.dataRatMetricEnabled;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -67,14 +66,12 @@ public class ServiceStateStats extends DataNetworkControllerCallback {
     private boolean mExistAnyConnectedInternetPdn;
     private int mCurrentDataRat =
             TelephonyStatsLog.DATA_RAT_STATE_CHANGED__DATA_RAT__DATA_RAT_UNSPECIFIED;
-    private final SatelliteController mSatelliteController;
 
     public ServiceStateStats(Phone phone) {
         super(Runnable::run);
         mPhone = phone;
         mStorage = PhoneFactory.getMetricsCollector().getAtomsStorage();
         mDeviceStateHelper = PhoneFactory.getMetricsCollector().getDeviceStateHelper();
-        mSatelliteController = SatelliteController.getInstance();
     }
 
     /** Finalizes the durations of the current service state segment. */
@@ -126,6 +123,7 @@ public class ServiceStateStats extends DataNetworkControllerCallback {
             // Finish the duration of last service state and mark modem off
             addServiceState(mLastState.getAndSet(new TimestampedServiceState(null, now)), now);
         } else {
+            SatelliteController satelliteController = SatelliteController.getInstance();
             CellularServiceState newState = new CellularServiceState();
             newState.voiceRat = getVoiceRat(mPhone, serviceState);
             newState.dataRat = getRat(serviceState, NetworkRegistrationInfo.DOMAIN_PS);
@@ -143,17 +141,15 @@ public class ServiceStateStats extends DataNetworkControllerCallback {
             newState.overrideVoiceService = mOverrideVoiceService.get();
             newState.isDataEnabled = mPhone.getDataSettingsManager().isDataEnabled();
             newState.isIwlanCrossSim = isCrossSimCallingRegistered(mPhone);
-            newState.isNtn = mSatelliteController != null
-                    ? mSatelliteController.isInSatelliteModeForCarrierRoaming(mPhone) : false;
+            newState.isNtn = satelliteController != null
+                    && satelliteController.isInSatelliteModeForCarrierRoaming(mPhone);
             TimestampedServiceState prevState =
                     mLastState.getAndSet(new TimestampedServiceState(newState, now));
             addServiceStateAndSwitch(
                     prevState, now, getDataServiceSwitch(prevState.mServiceState, newState));
         }
 
-        if (dataRatMetricEnabled()) {
-            writeDataRatAtom(serviceState);
-        }
+        writeDataRatAtom(serviceState);
     }
 
     /** Updates the fold state of the device for the current service state. */

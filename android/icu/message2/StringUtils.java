@@ -85,11 +85,6 @@ class StringUtils {
                 || (cp >= 0x203F && cp <= 0x2040);
     }
 
-    // abnf: private-start = "^" / "&"
-    static boolean isPrivateStart(int cp) {
-        return cp == '^' || cp == '&';
-    }
-
     // abnf: quoted-char = content-char / s / "." / "@" / "{" / "}"
     static boolean isQuotedChar(int cp) {
         return isContentChar(cp)
@@ -98,11 +93,6 @@ class StringUtils {
                 || cp == '@'
                 || cp == '{'
                 || cp == '}';
-    }
-
-    // abnf: reserved-char = content-char / "."
-    static boolean isReservedChar(int cp) {
-        return isContentChar(cp) || cp == '.';
     }
 
     static boolean isSimpleStartChar(int cp) {
@@ -127,17 +117,5 @@ class StringUtils {
     // abnf: function = ":" identifier *(s option)
     static boolean isFunctionSigil(int cp) {
         return cp == ':';
-    }
-
-    // abnf: private-start = "^" / "&"
-    static boolean isPrivateAnnotationSigil(int cp) {
-        return cp == '^' || cp == '&';
-    }
-
-    // abnf: reserved-annotation-start = "!" / "%" / "*" / "+" / "<" / ">" / "?" / "~"
-    private static final String RESERVED_ANNOTATION_SIGILS = "!%*+<>?~";
-
-    static boolean isReservedAnnotationSigil(int cp) {
-        return RESERVED_ANNOTATION_SIGILS.indexOf(cp) != -1;
     }
 }

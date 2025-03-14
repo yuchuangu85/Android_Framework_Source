@@ -15,6 +15,9 @@ import com.android.internal.org.bouncycastle.asn1.oiw.OIWObjectIdentifiers;
 import com.android.internal.org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 // Android-removed: Unsupported algorithms
 // import org.bouncycastle.asn1.teletrust.TeleTrusTObjectIdentifiers;
+// import org.bouncycastle.asn1.DERNull;
+// import org.bouncycastle.asn1.misc.MiscObjectIdentifiers;
+// import org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 
 /**
  * @hide This class is not part of the Android public SDK API
@@ -22,6 +25,9 @@ import com.android.internal.org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 public class MessageDigestUtils
 {
     private static Map<ASN1ObjectIdentifier, String> digestOidMap = new HashMap<ASN1ObjectIdentifier, String>();
+
+    // Android-removed: Unsupported algorithms
+    // private static Map<String, AlgorithmIdentifier> digestAlgIdMap = new HashMap<String, AlgorithmIdentifier>();
 
     static
     {
@@ -37,6 +43,8 @@ public class MessageDigestUtils
         digestOidMap.put(NISTObjectIdentifiers.id_sha512, "SHA-512");
         // BEGIN Android-removed: Unsupported algorithms
         /*
+        digestOidMap.put(NISTObjectIdentifiers.id_sha512_224, "SHA-512(224)");
+        digestOidMap.put(NISTObjectIdentifiers.id_sha512_256, "SHA-512(256)");
         digestOidMap.put(TeleTrusTObjectIdentifiers.ripemd128, "RIPEMD-128");
         digestOidMap.put(TeleTrusTObjectIdentifiers.ripemd160, "RIPEMD-160");
         digestOidMap.put(TeleTrusTObjectIdentifiers.ripemd256, "RIPEMD-128");
@@ -49,10 +57,50 @@ public class MessageDigestUtils
         digestOidMap.put(NISTObjectIdentifiers.id_sha3_256, "SHA3-256");
         digestOidMap.put(NISTObjectIdentifiers.id_sha3_384, "SHA3-384");
         digestOidMap.put(NISTObjectIdentifiers.id_sha3_512, "SHA3-512");
+        digestOidMap.put(NISTObjectIdentifiers.id_shake128, "SHAKE128");
+        digestOidMap.put(NISTObjectIdentifiers.id_shake256, "SHAKE256");
         digestOidMap.put(GMObjectIdentifiers.sm3, "SM3");
+        digestOidMap.put(MiscObjectIdentifiers.blake3_256, "BLAKE3-256");
+
+        digestAlgIdMap.put("SHA-1", new AlgorithmIdentifier(OIWObjectIdentifiers.idSHA1, DERNull.INSTANCE));
+        digestAlgIdMap.put("SHA-224", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha224));
+        digestAlgIdMap.put("SHA224", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha224));
+        digestAlgIdMap.put("SHA-256", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha256));
+        digestAlgIdMap.put("SHA256", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha256));
+        digestAlgIdMap.put("SHA-384", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha384));
+        digestAlgIdMap.put("SHA384", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha384));
+        digestAlgIdMap.put("SHA-512", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha512));
+        digestAlgIdMap.put("SHA512", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha512));
+        digestAlgIdMap.put("SHA3-224", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha3_224));
+        digestAlgIdMap.put("SHA3-256", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha3_256));
+        digestAlgIdMap.put("SHA3-384", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha3_384));
+        digestAlgIdMap.put("SHA3-512", new AlgorithmIdentifier(NISTObjectIdentifiers.id_sha3_512));
+        digestAlgIdMap.put("BLAKE3-256", new AlgorithmIdentifier(MiscObjectIdentifiers.blake3_256));
         */
         // END Android-removed: Unsupported algorithms
     }
+
+    // BEGIN Android-removed: Unsupported algorithms
+    /*
+     * Attempt to find a standard JCA name for the digest represented by the passed in OID.
+     *
+     * @param digestName name of the digest algorithm of interest.
+     * @return an algorithm identifier representing the digest.
+    public static AlgorithmIdentifier getDigestAlgID(String digestName)
+    {
+        if (digestAlgIdMap.containsKey(digestName))
+        {
+            return (AlgorithmIdentifier)digestAlgIdMap.get(digestName);
+        }
+        throw new IllegalArgumentException("unknown digest: " + digestName);
+    }
+
+    public static AlgorithmIdentifier getDigestAlgID(String digestName)
+    {
+        throw new IllegalArgumentException("unknown digest: " + digestName);
+    }
+    */
+    // END Android-removed: Unsupported algorithms
 
     /**
      * Attempt to find a standard JCA name for the digest represented by the passed in OID.

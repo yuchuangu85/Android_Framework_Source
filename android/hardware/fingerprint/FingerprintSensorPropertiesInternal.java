@@ -120,8 +120,21 @@ public class FingerprintSensorPropertiesInternal extends SensorPropertiesInterna
     }
 
     /**
+     * Returns if sensor type is ultrasonic Udfps
+     */
+    public boolean isUltrasonicUdfps() {
+        return sensorType == TYPE_UDFPS_ULTRASONIC;
+    }
+
+    /**
+     * Returns if sensor type is optical Udfps
+     */
+    public boolean isOpticalUdfps() {
+        return sensorType == TYPE_UDFPS_OPTICAL;
+    }
+
+    /**
      * Returns if sensor type is side-FPS
-     * @return true if sensor is side-fps, false otherwise
      */
     public boolean isAnySidefpsType() {
         switch (sensorType) {

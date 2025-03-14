@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen/android/security/apc/IProtectedConfirmation.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/apc/IProtectedConfirmation.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.security.apc;
 /** @hide */
@@ -12,10 +16,6 @@ public interface IProtectedConfirmation extends android.os.IInterface
     /**
      * Present the confirmation prompt. The caller must implement IConfirmationCallback and pass
      * it to this function as listener.
-     * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-     *             makers and developers alike. Given the lack of devices supporting the
-     *             feature, it is deprecated. Developers can use auth-bound Keystore keys
-     *             as a partial replacement.
      * 
      * @param listener Must implement IConfirmationCallback. Doubles as session identifier when
      *           passed to cancelPrompt.
@@ -36,11 +36,6 @@ public interface IProtectedConfirmation extends android.os.IInterface
     }
     /**
      * Cancel an ongoing prompt.
-     * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-     *             makers and developers alike. Given the lack of devices supporting the
-     *             feature, it is deprecated. Developers can use auth-bound Keystore keys as
-     *             a partial replacement.
-     * 
      * 
      * @param listener Must implement IConfirmationCallback, although in this context this binder
      *            token is only used to identify the session that is to be cancelled.
@@ -51,13 +46,7 @@ public interface IProtectedConfirmation extends android.os.IInterface
     @Override public void cancelPrompt(android.security.apc.IConfirmationCallback listener) throws android.os.RemoteException
     {
     }
-    /**
-     * Returns true if the device supports Android Protected Confirmation.
-     * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-     *             makers and developers alike. Given the lack of devices supporting the
-     *             feature, it is deprecated. Developers can use auth-bound Keystore keys
-     *             as a partial replacement.
-     */
+    /** Returns true if the device supports Android Protected Confirmation. */
     @Override public boolean isSupported() throws android.os.RemoteException
     {
       return false;
@@ -70,7 +59,7 @@ public interface IProtectedConfirmation extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.security.apc.IProtectedConfirmation
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -165,10 +154,6 @@ public interface IProtectedConfirmation extends android.os.IInterface
       /**
        * Present the confirmation prompt. The caller must implement IConfirmationCallback and pass
        * it to this function as listener.
-       * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-       *             makers and developers alike. Given the lack of devices supporting the
-       *             feature, it is deprecated. Developers can use auth-bound Keystore keys
-       *             as a partial replacement.
        * 
        * @param listener Must implement IConfirmationCallback. Doubles as session identifier when
        *           passed to cancelPrompt.
@@ -205,11 +190,6 @@ public interface IProtectedConfirmation extends android.os.IInterface
       }
       /**
        * Cancel an ongoing prompt.
-       * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-       *             makers and developers alike. Given the lack of devices supporting the
-       *             feature, it is deprecated. Developers can use auth-bound Keystore keys as
-       *             a partial replacement.
-       * 
        * 
        * @param listener Must implement IConfirmationCallback, although in this context this binder
        *            token is only used to identify the session that is to be cancelled.
@@ -232,13 +212,7 @@ public interface IProtectedConfirmation extends android.os.IInterface
           _data.recycle();
         }
       }
-      /**
-       * Returns true if the device supports Android Protected Confirmation.
-       * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-       *             makers and developers alike. Given the lack of devices supporting the
-       *             feature, it is deprecated. Developers can use auth-bound Keystore keys
-       *             as a partial replacement.
-       */
+      /** Returns true if the device supports Android Protected Confirmation. */
       @Override public boolean isSupported() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -276,10 +250,6 @@ public interface IProtectedConfirmation extends android.os.IInterface
   /**
    * Present the confirmation prompt. The caller must implement IConfirmationCallback and pass
    * it to this function as listener.
-   * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-   *             makers and developers alike. Given the lack of devices supporting the
-   *             feature, it is deprecated. Developers can use auth-bound Keystore keys
-   *             as a partial replacement.
    * 
    * @param listener Must implement IConfirmationCallback. Doubles as session identifier when
    *           passed to cancelPrompt.
@@ -295,15 +265,9 @@ public interface IProtectedConfirmation extends android.os.IInterface
    *  - ResponseCode.OPERATION_PENDING If another prompt is already pending.
    *  - ResponseCode.SYSTEM_ERROR An unexpected error occurred.
    */
-  @Deprecated
   public void presentPrompt(android.security.apc.IConfirmationCallback listener, java.lang.String promptText, byte[] extraData, java.lang.String locale, int uiOptionFlags) throws android.os.RemoteException;
   /**
    * Cancel an ongoing prompt.
-   * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-   *             makers and developers alike. Given the lack of devices supporting the
-   *             feature, it is deprecated. Developers can use auth-bound Keystore keys as
-   *             a partial replacement.
-   * 
    * 
    * @param listener Must implement IConfirmationCallback, although in this context this binder
    *            token is only used to identify the session that is to be cancelled.
@@ -311,15 +275,7 @@ public interface IProtectedConfirmation extends android.os.IInterface
    * Service specific error code:
    *  - ResponseCode.IGNORED If the listener does not represent an ongoing prompt session.
    */
-  @Deprecated
   public void cancelPrompt(android.security.apc.IConfirmationCallback listener) throws android.os.RemoteException;
-  /**
-   * Returns true if the device supports Android Protected Confirmation.
-   * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-   *             makers and developers alike. Given the lack of devices supporting the
-   *             feature, it is deprecated. Developers can use auth-bound Keystore keys
-   *             as a partial replacement.
-   */
-  @Deprecated
+  /** Returns true if the device supports Android Protected Confirmation. */
   public boolean isSupported() throws android.os.RemoteException;
 }

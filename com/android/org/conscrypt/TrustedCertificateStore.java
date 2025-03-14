@@ -17,8 +17,10 @@
 
 package com.android.org.conscrypt;
 
+import com.android.org.conscrypt.ArrayUtils;
 import com.android.org.conscrypt.io.IoUtils;
 import com.android.org.conscrypt.metrics.OptionalMethod;
+
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -37,6 +39,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+
 import javax.security.auth.x500.X500Principal;
 
 /**
@@ -120,7 +123,7 @@ public class TrustedCertificateStore implements ConscryptCertStore {
             if ((System.getProperty("system.certs.enabled") != null)
                     && (System.getProperty("system.certs.enabled")).equals("true"))
                 return false;
-            if (updatableDir.exists() && !(updatableDir.list().length == 0))
+            if (updatableDir.exists() && !(ArrayUtils.isEmpty(updatableDir.list())))
                 return true;
             return false;
         }

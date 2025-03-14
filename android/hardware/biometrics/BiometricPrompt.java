@@ -22,7 +22,6 @@ import static android.Manifest.permission.USE_BIOMETRIC;
 import static android.Manifest.permission.USE_BIOMETRIC_INTERNAL;
 import static android.hardware.biometrics.BiometricManager.Authenticators;
 import static android.hardware.biometrics.Flags.FLAG_ADD_KEY_AGREEMENT_CRYPTO_OBJECT;
-import static android.hardware.biometrics.Flags.FLAG_CUSTOM_BIOMETRIC_PROMPT;
 import static android.hardware.biometrics.Flags.FLAG_GET_OP_ID_CRYPTO_OBJECT;
 import static android.os.Flags.FLAG_ALLOW_PRIVATE_PROFILE;
 
@@ -38,6 +37,9 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.hardware.face.FaceManager;
 import android.hardware.fingerprint.FingerprintManager;
 import android.os.Binder;
@@ -136,6 +138,13 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
     public static final int DISMISSED_REASON_CONTENT_VIEW_MORE_OPTIONS = 8;
 
     /**
+     * Dialog dismissal due to the system being unable to retrieve a WindowManager instance required
+     * to show the dialog.
+     * @hide
+     */
+    public static final int DISMISSED_REASON_ERROR_NO_WM = 9;
+
+    /**
      * @hide
      */
     @IntDef({DISMISSED_REASON_BIOMETRIC_CONFIRMED,
@@ -145,7 +154,8 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
             DISMISSED_REASON_ERROR,
             DISMISSED_REASON_SERVER_REQUESTED,
             DISMISSED_REASON_CREDENTIAL_CONFIRMED,
-            DISMISSED_REASON_CONTENT_VIEW_MORE_OPTIONS})
+            DISMISSED_REASON_CONTENT_VIEW_MORE_OPTIONS,
+            DISMISSED_REASON_ERROR_NO_WM})
     @Retention(RetentionPolicy.SOURCE)
     public @interface DismissedReason {}
 
@@ -189,11 +199,17 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
          * @param logoRes A drawable resource of the logo that will be shown on the prompt.
          * @return This builder.
          */
-        @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
         @RequiresPermission(SET_BIOMETRIC_DIALOG_ADVANCED)
         @NonNull
         public BiometricPrompt.Builder setLogoRes(@DrawableRes int logoRes) {
-            mPromptInfo.setLogoRes(logoRes);
+            if (mPromptInfo.getLogoBitmap() != null) {
+                throw new IllegalStateException(
+                        "Exclusively one of logo resource or logo bitmap can be set");
+            }
+            if (logoRes != 0) {
+                mPromptInfo.setLogo(logoRes,
+                        convertDrawableToBitmap(mContext.getDrawable(logoRes)));
+            }
             return this;
         }
 
@@ -208,11 +224,14 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
          * @param logoBitmap A bitmap drawable of the logo that will be shown on the prompt.
          * @return This builder.
          */
-        @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
         @RequiresPermission(SET_BIOMETRIC_DIALOG_ADVANCED)
         @NonNull
         public BiometricPrompt.Builder setLogoBitmap(@NonNull Bitmap logoBitmap) {
-            mPromptInfo.setLogoBitmap(logoBitmap);
+            if (mPromptInfo.getLogoRes() != 0) {
+                throw new IllegalStateException(
+                        "Exclusively one of logo resource or logo bitmap can be set");
+            }
+            mPromptInfo.setLogo(0, logoBitmap);
             return this;
         }
 
@@ -226,18 +245,18 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
          *
          * @param logoDescription The logo description text that will be shown on the prompt.
          * @return This builder.
-         * @throws IllegalArgumentException If logo description is null or exceeds certain character
-         *                                  limit.
+         * @throws IllegalArgumentException If logo description is null.
          */
-        @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
         @RequiresPermission(SET_BIOMETRIC_DIALOG_ADVANCED)
         @NonNull
         public BiometricPrompt.Builder setLogoDescription(@NonNull String logoDescription) {
-            if (logoDescription == null
-                    || logoDescription.length() > MAX_LOGO_DESCRIPTION_CHARACTER_NUMBER) {
-                throw new IllegalArgumentException(
-                        "Logo description passed in can not be null or exceed "
-                                + MAX_LOGO_DESCRIPTION_CHARACTER_NUMBER + " character number.");
+            if (logoDescription == null || logoDescription.isEmpty()) {
+                throw new IllegalArgumentException("Logo description passed in can not be null");
+            }
+            if (logoDescription.length() > MAX_LOGO_DESCRIPTION_CHARACTER_NUMBER) {
+                Log.w(TAG,
+                        "Logo description passed in exceeds" + MAX_LOGO_DESCRIPTION_CHARACTER_NUMBER
+                                + " character number and may be truncated.");
             }
             mPromptInfo.setLogoDescription(logoDescription);
             return this;
@@ -319,7 +338,6 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
          * @param view The customized view information.
          * @return This builder.
          */
-        @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
         @NonNull
         public BiometricPrompt.Builder setContentView(@NonNull PromptContentView view) {
             mPromptInfo.setContentView(view);
@@ -623,17 +641,17 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
          * Set caller's component name for getting logo icon/description. This should only be used
          * by ConfirmDeviceCredentialActivity, see b/337082634 for more context.
          *
-         * @param componentNameForConfirmDeviceCredentialActivity set the component name for
-         *                                                        ConfirmDeviceCredentialActivity.
+         * @param realCaller set the component name of real caller for
+         *                   ConfirmDeviceCredentialActivity.
          * @return This builder.
          * @hide
          */
         @NonNull
         @RequiresPermission(anyOf = {TEST_BIOMETRIC, USE_BIOMETRIC_INTERNAL})
-        public Builder setComponentNameForConfirmDeviceCredentialActivity(
-                ComponentName componentNameForConfirmDeviceCredentialActivity) {
-            mPromptInfo.setComponentNameForConfirmDeviceCredentialActivity(
-                    componentNameForConfirmDeviceCredentialActivity);
+        public Builder setRealCallerForConfirmDeviceCredentialActivity(ComponentName realCaller) {
+            mPromptInfo.setRealCallerForConfirmDeviceCredentialActivity(realCaller);
+            mPromptInfo.setClassNameIfItIsConfirmDeviceCredentialActivity(
+                    mContext.getClass().getName());
             return this;
         }
 
@@ -780,10 +798,15 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
         public void onDialogDismissed(int reason) {
             // Check the reason and invoke OnClickListener(s) if necessary
             if (reason == DISMISSED_REASON_NEGATIVE) {
-                mNegativeButtonInfo.executor.execute(() -> {
-                    mNegativeButtonInfo.listener.onClick(null, DialogInterface.BUTTON_NEGATIVE);
-                    mIsPromptShowing = false;
-                });
+                if (mNegativeButtonInfo != null) {
+                    mNegativeButtonInfo.executor.execute(() -> {
+                        mNegativeButtonInfo.listener.onClick(null, DialogInterface.BUTTON_NEGATIVE);
+                        mIsPromptShowing = false;
+                    });
+                } else {
+                    mAuthenticationCallback.onAuthenticationError(BIOMETRIC_ERROR_USER_CANCELED,
+                            null /* errString */);
+                }
             } else if (reason == DISMISSED_REASON_CONTENT_VIEW_MORE_OPTIONS) {
                 if (mContentViewMoreOptionsButtonInfo != null) {
                     mContentViewMoreOptionsButtonInfo.executor.execute(() -> {
@@ -821,9 +844,8 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
      * Gets the drawable resource of the logo for the prompt, as set by
      * {@link Builder#setLogoRes(int)}. Currently for system applications use only.
      *
-     * @return The drawable resource of the logo, or -1 if the prompt has no logo resource set.
+     * @return The drawable resource of the logo, or 0 if the prompt has no logo resource set.
      */
-    @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
     @RequiresPermission(SET_BIOMETRIC_DIALOG_ADVANCED)
     @DrawableRes
     public int getLogoRes() {
@@ -836,7 +858,6 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
      *
      * @return The logo bitmap of the prompt, or null if the prompt has no logo bitmap set.
      */
-    @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
     @RequiresPermission(SET_BIOMETRIC_DIALOG_ADVANCED)
     @Nullable
     public Bitmap getLogoBitmap() {
@@ -851,7 +872,6 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
      * @return The logo description of the prompt, or null if the prompt has no logo description
      * set.
      */
-    @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
     @RequiresPermission(SET_BIOMETRIC_DIALOG_ADVANCED)
     @Nullable
     public String getLogoDescription() {
@@ -911,7 +931,6 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
      *
      * @return The content view for the prompt, or null if the prompt has no content view.
      */
-    @FlaggedApi(FLAG_CUSTOM_BIOMETRIC_PROMPT)
     @Nullable
     public PromptContentView getContentView() {
         return mPromptInfo.getContentView();
@@ -1515,5 +1534,30 @@ public class BiometricPrompt implements BiometricAuthenticator, BiometricConstan
 
     private static boolean isCredentialAllowed(@Authenticators.Types int allowedAuthenticators) {
         return (allowedAuthenticators & Authenticators.DEVICE_CREDENTIAL) != 0;
+    }
+
+    /** Converts {@code drawable} to a {@link Bitmap}. */
+    private static Bitmap convertDrawableToBitmap(Drawable drawable) {
+        if (drawable == null) {
+            return null;
+        }
+
+        if (drawable instanceof BitmapDrawable) {
+            return ((BitmapDrawable) drawable).getBitmap();
+        }
+
+        Bitmap bitmap;
+        if (drawable.getIntrinsicWidth() <= 0 || drawable.getIntrinsicHeight() <= 0) {
+            bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+            // Single color bitmap will be created of 1x1 pixel
+        } else {
+            bitmap = Bitmap.createBitmap(drawable.getIntrinsicWidth(),
+                    drawable.getIntrinsicHeight(), Bitmap.Config.ARGB_8888);
+        }
+
+        final Canvas canvas = new Canvas(bitmap);
+        drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+        drawable.draw(canvas);
+        return bitmap;
     }
 }

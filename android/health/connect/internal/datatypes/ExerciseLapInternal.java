@@ -43,7 +43,7 @@ public class ExerciseLapInternal {
     @VisibleForTesting
     public static ExerciseLapInternal readFromParcel(Parcel parcel) {
         return new ExerciseLapInternal()
-                .setStarTime((parcel.readLong()))
+                .setStartTime((parcel.readLong()))
                 .setEndTime(parcel.readLong())
                 .setLength(parcel.readDouble());
     }
@@ -113,7 +113,7 @@ public class ExerciseLapInternal {
     }
 
     /** Sets lap start time. Returns record with start time set. */
-    public ExerciseLapInternal setStarTime(long startTime) {
+    public ExerciseLapInternal setStartTime(long startTime) {
         mStartTime = startTime;
         return this;
     }

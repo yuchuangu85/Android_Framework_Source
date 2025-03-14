@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash ea7be3035be8d4869237a6478d2e0bb0efcc1e87 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen/android/hardware/radio/sim/IRadioSimResponse.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3/android/hardware/radio/sim/IRadioSimResponse.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash fc1a19a4f86a58981158cc8d956763c9d8ace630 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V4-java-source/gen/android/hardware/radio/sim/IRadioSimResponse.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/4/android/hardware/radio/sim/IRadioSimResponse.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.sim;
 /** @hide */
@@ -12,8 +16,8 @@ public interface IRadioSimResponse extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "ea7be3035be8d4869237a6478d2e0bb0efcc1e87";
+  public static final int VERSION = 4;
+  public static final String HASH = "fc1a19a4f86a58981158cc8d956763c9d8ace630";
   /** Default implementation for IRadioSimResponse. */
   public static class Default implements android.hardware.radio.sim.IRadioSimResponse
   {
@@ -35,9 +39,11 @@ public interface IRadioSimResponse extends android.os.IInterface
     @Override public void getAllowedCarriersResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.sim.CarrierRestrictions carriers, int multiSimPolicy) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void getCdmaSubscriptionResponse(android.hardware.radio.RadioResponseInfo info, java.lang.String mdn, java.lang.String hSid, java.lang.String hNid, java.lang.String min, java.lang.String prl) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void getCdmaSubscriptionSourceResponse(android.hardware.radio.RadioResponseInfo info, int source) throws android.os.RemoteException
     {
     }
@@ -93,6 +99,7 @@ public interface IRadioSimResponse extends android.os.IInterface
     @Override public void setCarrierInfoForImsiEncryptionResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void setCdmaSubscriptionSourceResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
@@ -102,6 +109,7 @@ public interface IRadioSimResponse extends android.os.IInterface
     @Override public void setSimCardPowerResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setUiccSubscriptionResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
@@ -142,7 +150,7 @@ public interface IRadioSimResponse extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.sim.IRadioSimResponse
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -659,6 +667,7 @@ public interface IRadioSimResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void getCdmaSubscriptionResponse(android.hardware.radio.RadioResponseInfo info, java.lang.String mdn, java.lang.String hSid, java.lang.String hNid, java.lang.String min, java.lang.String prl) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -679,6 +688,7 @@ public interface IRadioSimResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void getCdmaSubscriptionSourceResponse(android.hardware.radio.RadioResponseInfo info, int source) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -963,6 +973,7 @@ public interface IRadioSimResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void setCdmaSubscriptionSourceResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1009,6 +1020,7 @@ public interface IRadioSimResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setUiccSubscriptionResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1218,7 +1230,11 @@ public interface IRadioSimResponse extends android.os.IInterface
   public void changeIccPinForAppResponse(android.hardware.radio.RadioResponseInfo info, int remainingRetries) throws android.os.RemoteException;
   public void enableUiccApplicationsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void getAllowedCarriersResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.sim.CarrierRestrictions carriers, int multiSimPolicy) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void getCdmaSubscriptionResponse(android.hardware.radio.RadioResponseInfo info, java.lang.String mdn, java.lang.String hSid, java.lang.String hNid, java.lang.String min, java.lang.String prl) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void getCdmaSubscriptionSourceResponse(android.hardware.radio.RadioResponseInfo info, int source) throws android.os.RemoteException;
   public void getFacilityLockForAppResponse(android.hardware.radio.RadioResponseInfo info, int response) throws android.os.RemoteException;
   public void getIccCardStatusResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.sim.CardStatus cardStatus) throws android.os.RemoteException;
@@ -1239,9 +1255,13 @@ public interface IRadioSimResponse extends android.os.IInterface
   public void sendTerminalResponseToSimResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setAllowedCarriersResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setCarrierInfoForImsiEncryptionResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void setCdmaSubscriptionSourceResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setFacilityLockForAppResponse(android.hardware.radio.RadioResponseInfo info, int retry) throws android.os.RemoteException;
   public void setSimCardPowerResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setUiccSubscriptionResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void supplyIccPin2ForAppResponse(android.hardware.radio.RadioResponseInfo info, int remainingRetries) throws android.os.RemoteException;
   public void supplyIccPinForAppResponse(android.hardware.radio.RadioResponseInfo info, int remainingRetries) throws android.os.RemoteException;

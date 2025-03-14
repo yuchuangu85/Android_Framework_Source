@@ -6,7 +6,11 @@ import java.security.SecureRandom;
 
 import com.android.internal.org.bouncycastle.crypto.AsymmetricCipherKeyPair;
 import com.android.internal.org.bouncycastle.crypto.AsymmetricCipherKeyPairGenerator;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicePurpose;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicesRegistrar;
 import com.android.internal.org.bouncycastle.crypto.KeyGenerationParameters;
+import com.android.internal.org.bouncycastle.crypto.constraints.ConstraintUtils;
+import com.android.internal.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
 import com.android.internal.org.bouncycastle.crypto.params.DSAKeyGenerationParameters;
 import com.android.internal.org.bouncycastle.crypto.params.DSAParameters;
 import com.android.internal.org.bouncycastle.crypto.params.DSAPrivateKeyParameters;
@@ -32,6 +36,8 @@ public class DSAKeyPairGenerator
         KeyGenerationParameters param)
     {
         this.param = (DSAKeyGenerationParameters)param;
+
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties("DSAKeyGen", ConstraintUtils.bitsOfSecurityFor(this.param.getParameters().getP()), this.param.getParameters(), CryptoServicePurpose.KEYGEN));
     }
 
     public AsymmetricCipherKeyPair generateKeyPair()

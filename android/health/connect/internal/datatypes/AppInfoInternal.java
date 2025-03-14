@@ -29,15 +29,13 @@ import java.util.Set;
 public final class AppInfoInternal {
     private long mId;
     private final String mPackageName;
-    private final String mName;
-    private final Bitmap mIcon;
+    @Nullable private final String mName;
+    @Nullable private final Bitmap mIcon;
+    @Nullable private Set<Integer> mRecordTypesUsed;
 
-    private Set<Integer> mRecordTypesUsed;
-
-    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public AppInfoInternal(
-            @NonNull long id,
-            @NonNull String packageName,
+            long id,
+            String packageName,
             @Nullable String name,
             @Nullable Bitmap icon,
             @Nullable Set<Integer> recordTypesUsed) {
@@ -61,7 +59,6 @@ public final class AppInfoInternal {
     }
 
     /** sets or updates the value of recordTypesUsed for app info. */
-    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     public void setRecordTypesUsed(@Nullable Set<Integer> recordTypesUsed) {
         mRecordTypesUsed = recordTypesUsed;
     }

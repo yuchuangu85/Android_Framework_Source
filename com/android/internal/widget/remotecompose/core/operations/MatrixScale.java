@@ -15,74 +15,97 @@
  */
 package com.android.internal.widget.remotecompose.core.operations;
 
-import com.android.internal.widget.remotecompose.core.CompanionOperation;
+import android.annotation.NonNull;
+
 import com.android.internal.widget.remotecompose.core.Operation;
 import com.android.internal.widget.remotecompose.core.Operations;
 import com.android.internal.widget.remotecompose.core.PaintContext;
-import com.android.internal.widget.remotecompose.core.PaintOperation;
 import com.android.internal.widget.remotecompose.core.WireBuffer;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentationBuilder;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentedOperation;
+import com.android.internal.widget.remotecompose.core.serialize.MapSerializer;
 
 import java.util.List;
 
-public class MatrixScale extends PaintOperation {
-    public static final Companion COMPANION = new Companion();
-    float mScaleX, mScaleY;
-    float mCenterX, mCenterY;
+/** Scale the rendering matrix command */
+public class MatrixScale extends DrawBase4 {
+    private static final int OP_CODE = Operations.MATRIX_SCALE;
+    private static final String CLASS_NAME = "MatrixScale";
+
+    /**
+     * Read this operation and add it to the list of operations
+     *
+     * @param buffer the buffer to read
+     * @param operations the list of operations that will be added to
+     */
+    public static void read(@NonNull WireBuffer buffer, @NonNull List<Operation> operations) {
+        Maker m = MatrixScale::new;
+        read(m, buffer, operations);
+    }
+
+    /**
+     * The OP_CODE for this command
+     *
+     * @return the opcode
+     */
+    public static int id() {
+        return OP_CODE;
+    }
+
+    /**
+     * The name of the class
+     *
+     * @return the name
+     */
+    @NonNull
+    public static String name() {
+        return CLASS_NAME;
+    }
+
+    @Override
+    protected void write(@NonNull WireBuffer buffer, float v1, float v2, float v3, float v4) {
+        apply(buffer, v1, v2, v3, v4);
+    }
+
+    /**
+     * Populate the documentation with a description of this operation
+     *
+     * @param doc to append the description to.
+     */
+    public static void documentation(@NonNull DocumentationBuilder doc) {
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+                .description("Scale the following draw commands")
+                .field(DocumentedOperation.FLOAT, "scaleX", "The amount to scale in X")
+                .field(DocumentedOperation.FLOAT, "scaleY", "The amount to scale in Y")
+                .field(DocumentedOperation.FLOAT, "pivotX", "The x-coordinate for the pivot point")
+                .field(DocumentedOperation.FLOAT, "pivotY", "The y-coordinate for the pivot point");
+    }
 
     public MatrixScale(float scaleX, float scaleY, float centerX, float centerY) {
-        mScaleX = scaleX;
-        mScaleY = scaleY;
-        mCenterX = centerX;
-        mCenterY = centerY;
+        super(scaleX, scaleY, centerX, centerY);
+        mName = CLASS_NAME;
     }
 
     @Override
-    public void write(WireBuffer buffer) {
-        COMPANION.apply(buffer, mScaleX, mScaleY, mCenterX, mCenterY);
+    public void paint(@NonNull PaintContext context) {
+        context.matrixScale(mX1, mY1, mX2, mY2);
+    }
+
+    /**
+     * Writes out the DrawOval to the buffer
+     *
+     * @param buffer buffer to write to
+     * @param x1 start x of DrawOval
+     * @param y1 start y of the DrawOval
+     * @param x2 end x of the DrawOval
+     * @param y2 end y of the DrawOval
+     */
+    public static void apply(@NonNull WireBuffer buffer, float x1, float y1, float x2, float y2) {
+        write(buffer, OP_CODE, x1, y1, x2, y2);
     }
 
     @Override
-    public String toString() {
-        return "MatrixScale " + mScaleY + ", " + mScaleY + ";";
-    }
-
-    public static class Companion implements CompanionOperation {
-        private Companion() {
-        }
-
-        @Override
-        public void read(WireBuffer buffer, List<Operation> operations) {
-            float scaleX = buffer.readFloat();
-            float scaleY = buffer.readFloat();
-            float centerX = buffer.readFloat();
-            float centerY = buffer.readFloat();
-            MatrixScale op = new MatrixScale(scaleX, scaleY, centerX, centerY);
-            operations.add(op);
-        }
-
-        @Override
-        public String name() {
-            return "Matrix";
-        }
-
-        @Override
-        public int id() {
-            return Operations.MATRIX_SCALE;
-        }
-
-        public void apply(WireBuffer buffer, float scaleX, float scaleY,
-                float centerX, float centerY) {
-            buffer.start(Operations.MATRIX_SCALE);
-            buffer.writeFloat(scaleX);
-            buffer.writeFloat(scaleY);
-            buffer.writeFloat(centerX);
-            buffer.writeFloat(centerY);
-
-        }
-    }
-
-    @Override
-    public void paint(PaintContext context) {
-        context.mtrixScale(mScaleX, mScaleY, mCenterX, mCenterY);
+    public void serialize(MapSerializer serializer) {
+        serialize(serializer, "scaleX", "scaleY", "pivotX", "pivotY").add("type", CLASS_NAME);
     }
 }

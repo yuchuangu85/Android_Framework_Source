@@ -32,6 +32,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.telephony.Annotation.RadioPowerState;
 import android.telephony.Annotation.ValidationStatus;
@@ -140,24 +141,33 @@ public class DataStallRecoveryManager extends Handler {
     /** Event for duration milliseconds changed. */
     private static final int EVENT_CONTENT_DSRM_DURATION_MILLIS_CHANGED = 5;
 
-    private final @NonNull Phone mPhone;
-    private final @NonNull String mLogTag;
-    private final @NonNull LocalLog mLocalLog = new LocalLog(128);
-    private final @NonNull FeatureFlags mFeatureFlags;
+    @NonNull
+    private final Phone mPhone;
+    @NonNull
+    private final String mLogTag;
+    @NonNull
+    private final LocalLog mLocalLog = new LocalLog(128);
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
 
     /** Data network controller */
-    private final @NonNull DataNetworkController mDataNetworkController;
+    @NonNull
+    private final DataNetworkController mDataNetworkController;
 
     /** Data config manager */
-    private final @NonNull DataConfigManager mDataConfigManager;
+    @NonNull
+    private final DataConfigManager mDataConfigManager;
 
     /** Cellular data service */
-    private final @NonNull DataServiceManager mWwanDataServiceManager;
+    @NonNull
+    private final DataServiceManager mWwanDataServiceManager;
 
     /** The data stall recovery action. */
-    private @RecoveryAction int mRecoveryAction;
+    @RecoveryAction
+    private int mRecoveryAction;
     /** The elapsed real time of last recovery attempted */
-    private @ElapsedRealtimeLong long mTimeLastRecoveryStartMs;
+    @ElapsedRealtimeLong
+    private long mTimeLastRecoveryStartMs;
     /** Whether current network is good or not */
     private boolean mIsValidNetwork;
     /** Whether data stall recovery is triggered or not */
@@ -168,11 +178,14 @@ public class DataStallRecoveryManager extends Handler {
     private boolean mLastActionReported;
     /** The real time for data stall start. */
     @VisibleForTesting
-    public @ElapsedRealtimeLong long mDataStallStartMs;
+    @ElapsedRealtimeLong
+    public long mDataStallStartMs;
     /** Last data stall recovery action. */
-    private @RecoveryAction int mLastAction;
+    @RecoveryAction
+    private int mLastAction;
     /** Last radio power state. */
-    private @RadioPowerState int mRadioPowerState;
+    @RadioPowerState
+    private int mRadioPowerState;
     /** Whether the NetworkCheckTimer start. */
     private boolean mNetworkCheckTimerStarted = false;
     /** Whether radio state changed during data stall. */
@@ -186,15 +199,18 @@ public class DataStallRecoveryManager extends Handler {
     /** Whether internet network that require validation is connected. */
     private boolean mIsInternetNetworkConnected;
     /** The durations for current recovery action */
-    private @ElapsedRealtimeLong long mTimeElapsedOfCurrentAction;
+    @ElapsedRealtimeLong
+    private long mTimeElapsedOfCurrentAction;
     /** Tracks the total number of validation duration a data stall */
     private int mValidationCount;
     /** Tracks the number of validation for current action during a data stall */
     private int mActionValidationCount;
     /** The array for the timers between recovery actions. */
-    private @NonNull long[] mDataStallRecoveryDelayMillisArray;
+    @NonNull
+    private long[] mDataStallRecoveryDelayMillisArray;
     /** The boolean array for the flags. They are used to skip the recovery actions if needed. */
-    private @NonNull boolean[] mSkipRecoveryActionArray;
+    @NonNull
+    private boolean[] mSkipRecoveryActionArray;
 
     /**
      * The content URI for the DSRM recovery actions.
@@ -555,16 +571,12 @@ public class DataStallRecoveryManager extends Handler {
     private void onInternetValidationStatusChanged(@ValidationStatus int status) {
         logl("onInternetValidationStatusChanged: " + DataUtils.validationStatusToString(status));
         final boolean isValid = status == NetworkAgent.VALIDATION_STATUS_VALID;
-        if (mFeatureFlags.dsrsDiagnosticsEnabled()) {
-            mValidationCount += 1;
-            mActionValidationCount += 1;
-        }
+        mValidationCount += 1;
+        mActionValidationCount += 1;
         setNetworkValidationState(isValid);
         if (isValid) {
-            if (mFeatureFlags.dsrsDiagnosticsEnabled()) {
-                // Broadcast intent that data stall recovered.
-                broadcastDataStallDetected(getRecoveryAction());
-            }
+            // Broadcast intent that data stall recovered.
+            broadcastDataStallDetected(mLastAction);
             reset();
         } else if (isRecoveryNeeded(true)) {
             // Set the network as invalid, because recovery is needed
@@ -604,7 +616,7 @@ public class DataStallRecoveryManager extends Handler {
     @VisibleForTesting
     public void setRecoveryAction(@RecoveryAction int action) {
         // Reset the validation count for action change
-        if (mFeatureFlags.dsrsDiagnosticsEnabled() && mRecoveryAction != action) {
+        if (mRecoveryAction != action) {
             mActionValidationCount = 0;
         }
         mRecoveryAction = action;
@@ -684,12 +696,10 @@ public class DataStallRecoveryManager extends Handler {
         // Get the information for DSRS state
         final boolean isRecovered = !mDataStalled;
         final int duration = (int) (SystemClock.elapsedRealtime() - mDataStallStartMs);
-        final @RecoveredReason int reason = getRecoveredReason(mIsValidNetwork);
+        @RecoveredReason final int reason = getRecoveredReason(mIsValidNetwork);
         final int durationOfAction = (int) getDurationOfCurrentRecoveryMs();
-        if (mFeatureFlags.dsrsDiagnosticsEnabled()) {
-            log("mValidationCount=" + mValidationCount
-                    + ", mActionValidationCount=" + mActionValidationCount);
-        }
+        log("mValidationCount=" + mValidationCount
+                + ", mActionValidationCount=" + mActionValidationCount);
 
         // Get the bundled DSRS stats.
         Bundle bundle = mStats.getDataStallRecoveryMetricsData(
@@ -699,7 +709,12 @@ public class DataStallRecoveryManager extends Handler {
         // Put the bundled stats extras on the intent.
         intent.putExtra("EXTRA_DSRS_STATS_BUNDLE", bundle);
 
-        mPhone.getContext().sendBroadcast(intent, READ_PRIVILEGED_PHONE_STATE);
+        if (mFeatureFlags.hsumBroadcast()) {
+            mPhone.getContext().sendBroadcastAsUser(intent, UserHandle.ALL,
+                    READ_PRIVILEGED_PHONE_STATE);
+        } else {
+            mPhone.getContext().sendBroadcast(intent, READ_PRIVILEGED_PHONE_STATE);
+        }
     }
 
     /** Recovery Action: RECOVERY_ACTION_GET_DATA_CALL_LIST */
@@ -712,7 +727,7 @@ public class DataStallRecoveryManager extends Handler {
     private void cleanUpDataNetwork() {
         log("cleanUpDataNetwork: notify clean up data network");
         mDataStallRecoveryManagerCallback.invokeFromExecutor(
-                () -> mDataStallRecoveryManagerCallback.onDataStallReestablishInternet());
+                mDataStallRecoveryManagerCallback::onDataStallReestablishInternet);
     }
 
     /** Recovery Action: RECOVERY_ACTION_RADIO_RESTART */
@@ -817,7 +832,7 @@ public class DataStallRecoveryManager extends Handler {
     private void setNetworkValidationState(boolean isValid) {
         boolean isLogNeeded = false;
         int timeDuration = 0;
-        int timeDurationOfCurrentAction = 0;
+        int timeDurationOfCurrentAction;
         boolean isFirstDataStall = false;
         boolean isFirstValidationAfterDoRecovery = false;
         @RecoveredReason int reason = getRecoveredReason(isValid);
@@ -891,9 +906,6 @@ public class DataStallRecoveryManager extends Handler {
             if (mLastAction <= RECOVERY_ACTION_CLEANUP) {
                 ret = RECOVERED_REASON_MODEM;
             }
-            if (mLastAction > RECOVERY_ACTION_CLEANUP) {
-                ret = RECOVERED_REASON_DSRM;
-            }
             if (mIsAirPlaneModeEnableDuringDataStall) {
                 ret = RECOVERED_REASON_USER;
             }
@@ -953,7 +965,8 @@ public class DataStallRecoveryManager extends Handler {
      * @param reason The recovered reason.
      * @return The recovered reason in string format.
      */
-    private static @NonNull String recoveredReasonToString(@RecoveredReason int reason) {
+    @NonNull
+    private static String recoveredReasonToString(@RecoveredReason int reason) {
         return switch (reason) {
             case RECOVERED_REASON_NONE -> "RECOVERED_REASON_NONE";
             case RECOVERED_REASON_DSRM -> "RECOVERED_REASON_DSRM";
@@ -969,17 +982,14 @@ public class DataStallRecoveryManager extends Handler {
      * @param state The radio power state
      * @return The radio power state in string format.
      */
-    private static @NonNull String radioPowerStateToString(@RadioPowerState int state) {
-        switch (state) {
-            case TelephonyManager.RADIO_POWER_OFF:
-                return "RADIO_POWER_OFF";
-            case TelephonyManager.RADIO_POWER_ON:
-                return "RADIO_POWER_ON";
-            case TelephonyManager.RADIO_POWER_UNAVAILABLE:
-                return "RADIO_POWER_UNAVAILABLE";
-            default:
-                return "Unknown(" + state + ")";
-        }
+    @NonNull
+    private static String radioPowerStateToString(@RadioPowerState int state) {
+        return switch (state) {
+            case TelephonyManager.RADIO_POWER_OFF -> "RADIO_POWER_OFF";
+            case TelephonyManager.RADIO_POWER_ON -> "RADIO_POWER_ON";
+            case TelephonyManager.RADIO_POWER_UNAVAILABLE -> "RADIO_POWER_UNAVAILABLE";
+            default -> "Unknown(" + state + ")";
+        };
     }
 
     /**
@@ -988,7 +998,8 @@ public class DataStallRecoveryManager extends Handler {
      * @param action The recovery action
      * @return The recovery action in string format.
      */
-    private static @NonNull String recoveryActionToString(@RecoveryAction int action) {
+    @NonNull
+    private static String recoveryActionToString(@RecoveryAction int action) {
         return switch (action) {
             case RECOVERY_ACTION_GET_DATA_CALL_LIST -> "RECOVERY_ACTION_GET_DATA_CALL_LIST";
             case RECOVERY_ACTION_CLEANUP -> "RECOVERY_ACTION_CLEANUP";

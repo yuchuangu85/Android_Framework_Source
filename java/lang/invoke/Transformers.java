@@ -32,8 +32,8 @@ import dalvik.system.EmulatedStackFrame.StackFrameAccessor;
 import dalvik.system.EmulatedStackFrame.StackFrameReader;
 import dalvik.system.EmulatedStackFrame.StackFrameWriter;
 
+import jdk.internal.misc.Unsafe;
 import sun.invoke.util.Wrapper;
-import sun.misc.Unsafe;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Method;
@@ -313,60 +313,6 @@ public class Transformers {
         }
     }
 
-    /** Implements {@code MethodHandles.arrayElementGetter}. */
-    static class ReferenceArrayElementGetter extends Transformer {
-        private final Class<?> arrayClass;
-
-        ReferenceArrayElementGetter(Class<?> arrayClass) {
-            super(
-                    MethodType.methodType(
-                            arrayClass.getComponentType(), new Class<?>[] {arrayClass, int.class}));
-            this.arrayClass = arrayClass;
-        }
-
-        @Override
-        public void transform(EmulatedStackFrame emulatedStackFrame) throws Throwable {
-            final StackFrameReader reader = new StackFrameReader();
-            reader.attach(emulatedStackFrame);
-
-            // Read the array object and the index from the stack frame.
-            final Object[] array = (Object[]) reader.nextReference(arrayClass);
-            final int index = reader.nextInt();
-
-            // Write the array element back to the stack frame.
-            final StackFrameWriter writer = new StackFrameWriter();
-            writer.attach(emulatedStackFrame);
-            writer.makeReturnValueAccessor();
-            writer.putNextReference(array[index], arrayClass.getComponentType());
-        }
-    }
-
-    /** Implements {@code MethodHandles.arrayElementSetter}. */
-    static class ReferenceArrayElementSetter extends Transformer {
-        private final Class<?> arrayClass;
-
-        ReferenceArrayElementSetter(Class<?> arrayClass) {
-            super(
-                    MethodType.methodType(
-                            void.class,
-                            new Class<?>[] {arrayClass, int.class, arrayClass.getComponentType()}));
-            this.arrayClass = arrayClass;
-        }
-
-        @Override
-        public void transform(EmulatedStackFrame emulatedStackFrame) throws Throwable {
-            final StackFrameReader reader = new StackFrameReader();
-            reader.attach(emulatedStackFrame);
-
-            // Read the array object, index and the value to write from the stack frame.
-            final Object[] array = (Object[]) reader.nextReference(arrayClass);
-            final int index = reader.nextInt();
-            final Object value = reader.nextReference(arrayClass.getComponentType());
-
-            array[index] = value;
-        }
-    }
-
     /** Implements {@code MethodHandles.identity}. */
     static class ReferenceIdentity extends Transformer {
         private final Class<?> type;
@@ -416,60 +362,6 @@ public class Transformers {
             final int length = reader.nextInt();
             final Object array = Array.newInstance(componentType, length);
             emulatedStackFrame.setReturnValueTo(array);
-        }
-    }
-
-    /** Implements {@code MethodHandles.arrayLength}. */
-    static class ArrayLength extends Transformer {
-        private final Class<?> arrayType;
-
-        ArrayLength(Class<?> arrayType) {
-            super(MethodType.methodType(int.class, arrayType));
-            this.arrayType = arrayType;
-        }
-
-        @Override
-        public void transform(EmulatedStackFrame emulatedStackFrame) throws Throwable {
-            final StackFrameReader reader = new StackFrameReader();
-            reader.attach(emulatedStackFrame);
-            final Object arrayObject = reader.nextReference(arrayType);
-
-            int length;
-            switch (Wrapper.basicTypeChar(arrayType.getComponentType())) {
-                case 'L':
-                    length = ((Object[]) arrayObject).length;
-                    break;
-                case 'Z':
-                    length = ((boolean[]) arrayObject).length;
-                    break;
-                case 'B':
-                    length = ((byte[]) arrayObject).length;
-                    break;
-                case 'C':
-                    length = ((char[]) arrayObject).length;
-                    break;
-                case 'S':
-                    length = ((short[]) arrayObject).length;
-                    break;
-                case 'I':
-                    length = ((int[]) arrayObject).length;
-                    break;
-                case 'J':
-                    length = ((long[]) arrayObject).length;
-                    break;
-                case 'F':
-                    length = ((float[]) arrayObject).length;
-                    break;
-                case 'D':
-                    length = ((double[]) arrayObject).length;
-                    break;
-                default:
-                    throw new IllegalStateException("Unsupported type: " + arrayType);
-            }
-
-            final StackFrameWriter writer = new StackFrameWriter();
-            writer.attach(emulatedStackFrame).makeReturnValueAccessor();
-            writer.putNextInt(length);
         }
     }
 

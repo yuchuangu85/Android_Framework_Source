@@ -38,7 +38,8 @@ public final class ParcelRecordConverter {
 
     private ParcelRecordConverter() {
         // Add any new data type here to facilitate its conversion.
-        mDataTypeClassMap = RecordMapper.getInstance().getRecordIdToInternalRecordClassMap();
+        mDataTypeClassMap =
+                HealthConnectMappings.getInstance().getRecordIdToInternalRecordClassMap();
     }
 
     @NonNull
@@ -54,7 +55,9 @@ public final class ParcelRecordConverter {
     @NonNull
     public RecordInternal<?> getRecord(
             @NonNull Parcel parcel, @RecordTypeIdentifier.RecordType int type)
-            throws InstantiationException, IllegalAccessException, NoSuchMethodException,
+            throws InstantiationException,
+                    IllegalAccessException,
+                    NoSuchMethodException,
                     InvocationTargetException {
         Class<? extends RecordInternal<?>> recordClass = mDataTypeClassMap.get(type);
         Objects.requireNonNull(recordClass);

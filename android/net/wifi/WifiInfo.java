@@ -44,6 +44,7 @@ import android.telephony.SubscriptionManager;
 import android.text.TextUtils;
 import android.util.SparseArray;
 
+import androidx.annotation.Keep;
 import androidx.annotation.RequiresApi;
 
 import com.android.modules.utils.build.SdkLevel;
@@ -794,8 +795,9 @@ public class WifiInfo implements TransportInfo, Parcelable {
      * @return the SSID.
      */
     public String getSSID() {
-        if (mWifiSsid != null) {
-            String ssidString = mWifiSsid.toString();
+        WifiSsid ssid = mWifiSsid;
+        if (ssid != null) {
+            String ssidString = ssid.toString();
             if (!TextUtils.isEmpty(ssidString)) {
                 return ssidString;
             }
@@ -1146,6 +1148,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
     /**
      * @hide
      */
+    @Keep
     public boolean is24GHz() {
         return ScanResult.is24GHz(mFrequency);
     }
@@ -1153,6 +1156,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
     /**
      * @hide
      */
+    @Keep
     @UnsupportedAppUsage
     public boolean is5GHz() {
         return ScanResult.is5GHz(mFrequency);
@@ -1161,6 +1165,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
     /**
      * @hide
      */
+    @Keep
     public boolean is6GHz() {
         return ScanResult.is6GHz(mFrequency);
     }
@@ -1211,6 +1216,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
 
     /** @hide */
     @UnsupportedAppUsage
+    @Keep
     public boolean getMeteredHint() {
         return mMeteredHint;
     }
@@ -1530,6 +1536,7 @@ public class WifiInfo implements TransportInfo, Parcelable {
     /** @hide */
     @UnsupportedAppUsage
     @Nullable
+    @Keep
     public static String removeDoubleQuotes(@Nullable String string) {
         if (string == null) return null;
         final int length = string.length();

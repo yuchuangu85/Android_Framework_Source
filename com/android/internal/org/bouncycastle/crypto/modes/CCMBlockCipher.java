@@ -22,7 +22,7 @@ import com.android.internal.org.bouncycastle.util.Arrays;
  * @hide This class is not part of the Android public SDK API
  */
 public class CCMBlockCipher
-    implements AEADBlockCipher
+    implements CCMModeCipher
 {
     private BlockCipher           cipher;
     private int                   blockSize;
@@ -36,9 +36,20 @@ public class CCMBlockCipher
     private ExposedByteArrayOutputStream data = new ExposedByteArrayOutputStream();
 
     /**
+     * Return a new CCM mode cipher based on the passed in base cipher
+     *
+     * @param cipher the base cipher for the CCM mode.
+     */
+    public static CCMModeCipher newInstance(BlockCipher cipher)
+    {
+        return new CCMBlockCipher(cipher);
+    }
+
+    /**
      * Basic constructor.
      *
      * @param c the block cipher to be used.
+     * @deprecated use the CCMBlockCipher.newInstance() static method.
      */
     public CCMBlockCipher(BlockCipher c)
     {
@@ -262,7 +273,7 @@ public class CCMBlockCipher
         iv[0] = (byte)((q - 1) & 0x7);
         System.arraycopy(nonce, 0, iv, 1, nonce.length);
 
-        BlockCipher ctrCipher = new SICBlockCipher(cipher);
+        BlockCipher ctrCipher = SICBlockCipher.newInstance(cipher);
         ctrCipher.init(forEncryption, new ParametersWithIV(keyParam, iv));
 
         int outputLen;
@@ -456,7 +467,7 @@ public class CCMBlockCipher
         return getAssociatedTextLength() > 0;
     }
 
-    private class ExposedByteArrayOutputStream
+    private static class ExposedByteArrayOutputStream
         extends ByteArrayOutputStream
     {
         public ExposedByteArrayOutputStream()

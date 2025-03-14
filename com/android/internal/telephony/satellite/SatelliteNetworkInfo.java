@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.satellite;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Data class of the satellite configuration received from the entitlement server.
  */
@@ -28,9 +31,18 @@ public class SatelliteNetworkInfo {
      * 2. "metered"
      * 3. empty string. */
     public String mDataPlanType;
+    /** Stored the Allowed Services Info. with key as service type and value as service
+     *  policy for the plmn
+     *  Possible Service Type values: "data" and "voice".
+     *  Possible Service Policy values: "constrained" and "unconstrained".
+     */
+    public Map<String,String> mAllowedServicesInfo;
 
-    public SatelliteNetworkInfo(String plmn, String dataPlanType) {
+    public SatelliteNetworkInfo(String plmn, String dataPlanType,
+            Map<String,String> allowedServicesInfo) {
         mPlmn = plmn;
         mDataPlanType = dataPlanType;
+        mAllowedServicesInfo = allowedServicesInfo != null
+                ? new HashMap<>(allowedServicesInfo) : null;
     }
 }

@@ -725,6 +725,7 @@ public class SpinedBuffer<E>
      * An ordered collection of {@code int} values.
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    @SuppressWarnings("overloads")
     // Android-changed: Made public for CTS tests only.
     public static class OfInt extends SpinedBuffer.OfPrimitive<Integer, int[], IntConsumer>
             implements IntConsumer {
@@ -793,6 +794,7 @@ public class SpinedBuffer<E>
         }
 
         public Spliterator.OfInt spliterator() {
+            @SuppressWarnings("overloads")
             class Splitr extends BaseSpliterator<Spliterator.OfInt>
                     implements Spliterator.OfInt {
                 Splitr(int firstSpineIndex, int lastSpineIndex,
@@ -842,6 +844,7 @@ public class SpinedBuffer<E>
      * An ordered collection of {@code long} values.
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    @SuppressWarnings("overloads")
     // Android-changed: Made public for CTS tests only.
     public static class OfLong extends SpinedBuffer.OfPrimitive<Long, long[], LongConsumer>
             implements LongConsumer {
@@ -911,6 +914,7 @@ public class SpinedBuffer<E>
 
 
         public Spliterator.OfLong spliterator() {
+            @SuppressWarnings("overloads")
             class Splitr extends BaseSpliterator<Spliterator.OfLong>
                     implements Spliterator.OfLong {
                 Splitr(int firstSpineIndex, int lastSpineIndex,
@@ -960,6 +964,7 @@ public class SpinedBuffer<E>
      * An ordered collection of {@code double} values.
      * @hide Visible for CTS testing only (OpenJDK8 tests).
      */
+    @SuppressWarnings("overloads")
     // Android-changed: Made public for CTS tests only.
     public static class OfDouble
             extends SpinedBuffer.OfPrimitive<Double, double[], DoubleConsumer>
@@ -1029,6 +1034,7 @@ public class SpinedBuffer<E>
         }
 
         public Spliterator.OfDouble spliterator() {
+            @SuppressWarnings("overloads")
             class Splitr extends BaseSpliterator<Spliterator.OfDouble>
                     implements Spliterator.OfDouble {
                 Splitr(int firstSpineIndex, int lastSpineIndex,

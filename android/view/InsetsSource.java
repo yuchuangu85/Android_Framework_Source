@@ -104,12 +104,23 @@ public class InsetsSource implements Parcelable {
      */
     public static final int FLAG_ANIMATE_RESIZING = 1 << 3;
 
+    /**
+     * Controls whether the {@link WindowInsets.Type#captionBar()} insets provided by this source
+     * should always be forcibly consumed. Unlike with {@link #FLAG_FORCE_CONSUMING}, when this
+     * flag is used the caption bar will be consumed even when the bar is requested to be visible.
+     *
+     * Note: this flag does not take effect when the window applies
+     * {@link WindowInsetsController.Appearance#APPEARANCE_TRANSPARENT_CAPTION_BAR_BACKGROUND}.
+     */
+    public static final int FLAG_FORCE_CONSUMING_OPAQUE_CAPTION_BAR = 1 << 4;
+
     @Retention(RetentionPolicy.SOURCE)
     @IntDef(flag = true, prefix = "FLAG_", value = {
             FLAG_SUPPRESS_SCRIM,
             FLAG_INSETS_ROUNDED_CORNER,
             FLAG_FORCE_CONSUMING,
             FLAG_ANIMATE_RESIZING,
+            FLAG_FORCE_CONSUMING_OPAQUE_CAPTION_BAR
     })
     public @interface Flags {}
 
@@ -346,6 +357,31 @@ public class InsetsSource implements Parcelable {
             } else if (mTmpFrame.right == relativeFrame.right) {
                 return Insets.of(0, 0, mTmpFrame.width(), 0);
             }
+        } else {
+            // The source doesn't cover the width or the height of relativeFrame, but just parts of
+            // them. Here uses mSideHint to decide which side should be inset.
+            switch (mSideHint) {
+                case SIDE_LEFT:
+                    if (mTmpFrame.left == relativeFrame.left) {
+                        return Insets.of(mTmpFrame.width(), 0, 0, 0);
+                    }
+                    break;
+                case SIDE_TOP:
+                    if (mTmpFrame.top == relativeFrame.top) {
+                        return Insets.of(0, mTmpFrame.height(), 0, 0);
+                    }
+                    break;
+                case SIDE_RIGHT:
+                    if (mTmpFrame.right == relativeFrame.right) {
+                        return Insets.of(0, 0, mTmpFrame.width(), 0);
+                    }
+                    break;
+                case SIDE_BOTTOM:
+                    if (mTmpFrame.bottom == relativeFrame.bottom) {
+                        return Insets.of(0, 0, 0, mTmpFrame.height());
+                    }
+                    break;
+            }
         }
         return Insets.NONE;
     }
@@ -554,6 +590,9 @@ public class InsetsSource implements Parcelable {
         }
         if ((flags & FLAG_ANIMATE_RESIZING) != 0) {
             joiner.add("ANIMATE_RESIZING");
+        }
+        if ((flags & FLAG_FORCE_CONSUMING_OPAQUE_CAPTION_BAR) != 0) {
+            joiner.add("FORCE_CONSUMING_OPAQUE_CAPTION_BAR");
         }
         return joiner.toString();
     }

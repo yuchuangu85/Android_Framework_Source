@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash ee2e6f0bd51391955f79f4d5eeeafc37c668cd40 --min_sdk_version current --ninja -d out/soong/.intermediates/system/update_engine/stable/libupdate_engine_stable-V2-java-source/gen/android/os/IUpdateEngineStable.java.d -o out/soong/.intermediates/system/update_engine/stable/libupdate_engine_stable-V2-java-source/gen -Nsystem/update_engine/stable/aidl_api/libupdate_engine_stable/2 system/update_engine/stable/aidl_api/libupdate_engine_stable/2/android/os/IUpdateEngineStable.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.os;
 /** @hide */
@@ -47,7 +51,7 @@ public interface IUpdateEngineStable extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.os.IUpdateEngineStable
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {

@@ -30,7 +30,7 @@ import java.util.Map;
  * @hide
  */
 public final class BluetoothAvrcpPlayerSettings implements Parcelable {
-    public static final String TAG = "BluetoothAvrcpPlayerSettings";
+    private static final String TAG = "BluetoothAvrcpPlayerSettings";
 
     /** Equalizer setting. */
     public static final int SETTING_EQUALIZER = 0x01;

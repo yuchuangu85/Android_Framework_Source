@@ -27,6 +27,8 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.SparseArray;
 
+import com.android.net.thread.flags.Flags;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -42,7 +44,7 @@ import java.util.Objects;
  * @see ThreadNetworkController#scheduleMigration
  * @hide
  */
-@FlaggedApi(ThreadNetworkFlags.FLAG_THREAD_ENABLED)
+@FlaggedApi(Flags.FLAG_THREAD_ENABLED)
 @SystemApi
 public final class PendingOperationalDataset implements Parcelable {
     // Value defined in Thread spec 8.10.1.16

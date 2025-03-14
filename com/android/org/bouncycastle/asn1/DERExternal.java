@@ -1,9 +1,6 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.asn1;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-
 /**
  * Class representing the DER-type External
  * @hide This class is not part of the Android public SDK API
@@ -21,11 +18,30 @@ public class DERExternal
      * <li> Anything but {@link DERTaggedObject} + data {@link DERTaggedObject} (data value form)</li>
      * </ul>
      *
-     * @throws IllegalArgumentException if input size is wrong, or
+     * @throws IllegalArgumentException if input size is wrong, or input is not an acceptable format
+     * 
+     * @deprecated Use {@link DERExternal#DERExternal(DERSequence)} instead.
      */
     public DERExternal(ASN1EncodableVector vector)
     {
-        super(vector);
+        this(DERFactory.createSequence(vector));
+    }
+
+    /**
+     * Construct a DER EXTERNAL object, the input sequence must have exactly two elements on it.
+     * <p>
+     * Acceptable input formats are:
+     * <ul>
+     * <li> {@link ASN1ObjectIdentifier} + data {@link DERTaggedObject} (direct reference form)</li>
+     * <li> {@link ASN1Integer} + data {@link DERTaggedObject} (indirect reference form)</li>
+     * <li> Anything but {@link DERTaggedObject} + data {@link DERTaggedObject} (data value form)</li>
+     * </ul>
+     *
+     * @throws IllegalArgumentException if input size is wrong, or input is not an acceptable format
+     */
+    public DERExternal(DERSequence sequence)
+    {
+        super(sequence);
     }
 
     /**
@@ -36,9 +52,10 @@ public class DERExternal
      * @param dataValueDescriptor The data value descriptor or <code>null</code> if not set.
      * @param externalData The external data in its encoded form.
      */
-    public DERExternal(ASN1ObjectIdentifier directReference, ASN1Integer indirectReference, ASN1Primitive dataValueDescriptor, DERTaggedObject externalData)
+    public DERExternal(ASN1ObjectIdentifier directReference, ASN1Integer indirectReference,
+        ASN1Primitive dataValueDescriptor, DERTaggedObject externalData)
     {
-        this(directReference, indirectReference, dataValueDescriptor, externalData.getTagNo(), externalData.toASN1Primitive());
+        super(directReference, indirectReference, dataValueDescriptor, externalData);
     }
 
     /**
@@ -50,9 +67,31 @@ public class DERExternal
      * @param encoding The encoding to be used for the external data
      * @param externalData The external data
      */
-    public DERExternal(ASN1ObjectIdentifier directReference, ASN1Integer indirectReference, ASN1Primitive dataValueDescriptor, int encoding, ASN1Primitive externalData)
+    public DERExternal(ASN1ObjectIdentifier directReference, ASN1Integer indirectReference,
+        ASN1Primitive dataValueDescriptor, int encoding, ASN1Primitive externalData)
     {
         super(directReference, indirectReference, dataValueDescriptor, encoding, externalData);
+    }
+
+    ASN1Sequence buildSequence()
+    {
+        ASN1EncodableVector v = new ASN1EncodableVector(4);
+        if (directReference != null)
+        {
+            v.add(directReference);
+        }
+        if (indirectReference != null)
+        {
+            v.add(indirectReference);
+        }
+        if (dataValueDescriptor != null)
+        {
+            v.add(dataValueDescriptor.toDERObject());
+        }
+
+        v.add(new DERTaggedObject(0 == encoding, encoding, externalContent));
+
+        return new DERSequence(v);
     }
 
     ASN1Primitive toDERObject()
@@ -63,35 +102,5 @@ public class DERExternal
     ASN1Primitive toDLObject()
     {
         return this;
-    }
-
-    int encodedLength()
-        throws IOException
-    {
-        return this.getEncoded().length;
-    }
-
-    /* (non-Javadoc)
-     * @see org.bouncycastle.asn1.ASN1Primitive#encode(org.bouncycastle.asn1.DEROutputStream)
-     */
-    void encode(ASN1OutputStream out, boolean withTag) throws IOException
-    {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        if (directReference != null)
-        {
-            baos.write(directReference.getEncoded(ASN1Encoding.DER));
-        }
-        if (indirectReference != null)
-        {
-            baos.write(indirectReference.getEncoded(ASN1Encoding.DER));
-        }
-        if (dataValueDescriptor != null)
-        {
-            baos.write(dataValueDescriptor.getEncoded(ASN1Encoding.DER));
-        }
-        DERTaggedObject obj = new DERTaggedObject(true, encoding, externalContent);
-        baos.write(obj.getEncoded(ASN1Encoding.DER));
-
-        out.writeEncoded(withTag, BERTags.CONSTRUCTED, BERTags.EXTERNAL, baos.toByteArray());
     }
 }

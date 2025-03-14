@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
@@ -230,7 +232,7 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
         @NonNull
         public Builder setCodecMetadata(
                 @NonNull BluetoothLeAudioCodecConfigMetadata codecMetadata) {
-            Objects.requireNonNull(codecMetadata, "codecMetadata cannot be null");
+            requireNonNull(codecMetadata);
             mCodecMetadata = codecMetadata;
             return this;
         }
@@ -245,7 +247,7 @@ public final class BluetoothLeBroadcastChannel implements Parcelable {
          */
         @SystemApi
         public @NonNull BluetoothLeBroadcastChannel build() {
-            Objects.requireNonNull(mCodecMetadata, "codec metadata cannot be null");
+            requireNonNull(mCodecMetadata);
             if (mChannelIndex == UNKNOWN_VALUE_PLACEHOLDER) {
                 throw new IllegalArgumentException(
                         "mChannelIndex cannot be " + UNKNOWN_VALUE_PLACEHOLDER);

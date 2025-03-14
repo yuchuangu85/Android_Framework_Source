@@ -477,6 +477,11 @@ public class ForwardingOs implements Os {
     /**
      * @hide
      */
+    public void madvise(long address, long byteCount, int advice) throws ErrnoException { os.madvise(address, byteCount, advice); }
+
+    /**
+     * @hide
+     */
     public FileDescriptor memfd_create(String name, int flags) throws ErrnoException { return os.memfd_create(name, flags); }
 
     /**

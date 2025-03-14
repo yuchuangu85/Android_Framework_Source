@@ -6,6 +6,7 @@ import java.util.StringTokenizer;
 
 import com.android.internal.org.bouncycastle.asn1.ASN1Choice;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encodable;
+import com.android.internal.org.bouncycastle.asn1.ASN1IA5String;
 import com.android.internal.org.bouncycastle.asn1.ASN1Object;
 import com.android.internal.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.internal.org.bouncycastle.asn1.ASN1OctetString;
@@ -196,7 +197,7 @@ public class GeneralName
             case dNSName:
             case rfc822Name:
             case uniformResourceIdentifier:
-                return new GeneralName(tag, DERIA5String.getInstance(tagObj, false));
+                return new GeneralName(tag, ASN1IA5String.getInstance(tagObj, false));
 
             case directoryName:
                 return new GeneralName(tag, X500Name.getInstance(tagObj, true));
@@ -229,6 +230,11 @@ public class GeneralName
         ASN1TaggedObject tagObj,
         boolean          explicit)
     {
+        if (!explicit)
+        {
+            throw new IllegalArgumentException("choice item must be explicitly tagged");
+        }
+
         return GeneralName.getInstance(ASN1TaggedObject.getInstance(tagObj, true));
     }
 
@@ -253,7 +259,7 @@ public class GeneralName
         case rfc822Name:
         case dNSName:
         case uniformResourceIdentifier:
-            buf.append(DERIA5String.getInstance(obj).getString());
+            buf.append(ASN1IA5String.getInstance(obj).getString());
             break;
         case directoryName:
             buf.append(X500Name.getInstance(obj).toString());

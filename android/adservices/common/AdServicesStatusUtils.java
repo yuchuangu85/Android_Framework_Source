@@ -20,7 +20,9 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.os.LimitExceededException;
 
-import com.android.adservices.shared.common.ServiceUnavailableException;
+import com.android.adservices.shared.common.exception.ProviderServiceInternalException;
+import com.android.adservices.shared.common.exception.ProviderServiceTaskCancelledException;
+import com.android.adservices.shared.common.exception.ServiceUnavailableException;
 
 import java.io.IOException;
 import java.io.InvalidObjectException;
@@ -234,6 +236,50 @@ public final class AdServicesStatusUtils {
      */
     public static final int STATUS_CALLBACK_SHUTDOWN = 27;
 
+    /**
+     * The provider service throws an error as the callback when AdServices tries to call it.
+     *
+     * <p>This error may be considered similar to {@link IllegalStateException}.
+     */
+    public static final int STATUS_PROVIDER_SERVICE_INTERNAL_ERROR = 28;
+
+    /**
+     * The scheduleCustomAudienceUpdate() request failed because an existing update has not been
+     * executed yet and should be explicitly replaced by the caller.
+     *
+     * <p>This error throws an {@link IllegalStateException}.
+     */
+    public static final int STATUS_UPDATE_ALREADY_PENDING_ERROR = 29;
+
+    /** This error denotes that consent was revoked for all APIS. */
+    public static final int STATUS_CONSENT_REVOKED_ALL_APIS = 30;
+
+    /** This error occurs when a dev session is still transitioning between prod or dev. */
+    public static final int STATUS_DEV_SESSION_IS_STILL_TRANSITIONING = 31;
+
+    /** This error occurs when a non-debuggable app is calling during a dev session. */
+    public static final int STATUS_DEV_SESSION_CALLER_IS_NON_DEBUGGABLE = 32;
+
+    /** This error occurs when dev session state is unable to be read. */
+    public static final int STATUS_DEV_SESSION_FAILURE = 33;
+
+    /** This error occurs when the caller is in the deny list. */
+    public static final int STATUS_CALLER_NOT_ALLOWED_DENY_LIST = 34;
+
+    /**
+     * This error occurs when the package name associated to the calling UID does not match the
+     * package name from the request.
+     */
+    public static final int STATUS_CALLER_NOT_ALLOWED_UID_MISMATCH = 35;
+
+    /**
+     * The provider service throws a task cancelled error as the callback when AdServices tries to
+     * call it.
+     *
+     * <p>This error may be considered similar to {@link IllegalStateException}.
+     */
+    public static final int STATUS_PROVIDER_SERVICE_TASK_CANCELLED_ERROR = 36;
+
     /** The error message to be returned along with {@link LimitExceededException}. */
     public static final String RATE_LIMIT_REACHED_ERROR_MESSAGE = "API rate limit exceeded.";
 
@@ -293,6 +339,41 @@ public final class AdServicesStatusUtils {
     /** The error message to be returned along with {@link IllegalArgumentException}. */
     public static final String ENCRYPTION_FAILURE_MESSAGE = "Failed to encrypt responses.";
 
+    /** The error message to be returned along with {@link ServiceUnavailableException}. */
+    public static final String SERVICE_UNAVAILABLE_ERROR_MESSAGE = "Service is not available.";
+
+    private static final String DEV_SESSION_ERROR_TRANSITIONING_HELP =
+            "If this error persists, run `cmd adservices_manager adservices-api dev-session end` "
+                    + "to reset the dev session.";
+
+    /** The error message when a dev session is still transitioning between prod or dev. */
+    public static final String DEV_SESSION_IS_TRANSITIONING_MESSAGE =
+            "Caller is not allowed during the transition to or from dev mode. "
+                    + DEV_SESSION_ERROR_TRANSITIONING_HELP;
+
+    /** The error message when a non-debuggable app is calling during a dev session. */
+    public static final String DEV_SESSION_CALLER_IS_NON_DEBUGGABLE_MESSAGE =
+            "Caller during a dev session must have android:debuggable=\"true\" in their manifest! "
+                    + DEV_SESSION_ERROR_TRANSITIONING_HELP;
+
+    /** The error message when dev session state cannot be read. */
+    public static final String DEV_SESSION_FAILURE_MESSAGE =
+            "Failed to read dev session state. " + DEV_SESSION_ERROR_TRANSITIONING_HELP;
+
+    /**
+     * The error message returned when a call to schedule a custom audience update fails because of
+     * an existing pending update.
+     */
+    public static final String UPDATE_ALREADY_PENDING_ERROR_MESSAGE =
+            "Failed to schedule update. A request is already pending.";
+
+    /**
+     * The error message to be returned along with {@link SecurityException} when caller is not
+     * allowed to call AdServices API (present in the deny list).
+     */
+    public static final String CALLER_NOT_ALLOWED_DENY_LIST_ERROR_MESSAGE =
+            "Caller is not authorized to call this API as caller is in deny list.";
+
     /** Returns true for a successful status. */
     public static boolean isSuccess(@StatusCode int statusCode) {
         return statusCode == STATUS_SUCCESS;
@@ -311,8 +392,9 @@ public final class AdServicesStatusUtils {
             case STATUS_KILLSWITCH_ENABLED: // Intentional fallthrough
             case STATUS_USER_CONSENT_NOTIFICATION_NOT_DISPLAYED_YET: // Intentional fallthrough
             case STATUS_USER_CONSENT_REVOKED: // Intentional fallthrough
+            case STATUS_CONSENT_REVOKED_ALL_APIS: // Intentional fallthrough
             case STATUS_JS_SANDBOX_UNAVAILABLE:
-                return new ServiceUnavailableException();
+                return new ServiceUnavailableException(SERVICE_UNAVAILABLE_ERROR_MESSAGE);
             case STATUS_PERMISSION_NOT_REQUESTED:
                 return new SecurityException(
                         SECURITY_EXCEPTION_PERMISSION_NOT_REQUESTED_ERROR_MESSAGE);
@@ -334,6 +416,8 @@ public final class AdServicesStatusUtils {
                 return new IllegalStateException(ILLEGAL_STATE_BACKGROUND_CALLER_ERROR_MESSAGE);
             case STATUS_ADSERVICES_ACTIVITY_DISABLED:
                 return new IllegalStateException(ILLEGAL_STATE_ACTIVITY_DISABLED_ERROR_MESSAGE);
+            case STATUS_UPDATE_ALREADY_PENDING_ERROR:
+                return new IllegalStateException(UPDATE_ALREADY_PENDING_ERROR_MESSAGE);
             case STATUS_UNAUTHORIZED:
                 return new SecurityException(
                         SECURITY_EXCEPTION_CALLER_NOT_ALLOWED_ON_BEHALF_ERROR_MESSAGE);
@@ -345,6 +429,18 @@ public final class AdServicesStatusUtils {
                 return new InvalidObjectException(INVALID_OBJECT_ERROR_MESSAGE);
             case STATUS_SERVER_RATE_LIMIT_REACHED:
                 return new LimitExceededException(SERVER_RATE_LIMIT_REACHED_ERROR_MESSAGE);
+            case STATUS_PROVIDER_SERVICE_INTERNAL_ERROR:
+                return new ProviderServiceInternalException();
+            case STATUS_PROVIDER_SERVICE_TASK_CANCELLED_ERROR:
+                return new ProviderServiceTaskCancelledException();
+            case STATUS_DEV_SESSION_IS_STILL_TRANSITIONING:
+                return new IllegalStateException(DEV_SESSION_IS_TRANSITIONING_MESSAGE);
+            case STATUS_DEV_SESSION_CALLER_IS_NON_DEBUGGABLE:
+                return new SecurityException(DEV_SESSION_CALLER_IS_NON_DEBUGGABLE_MESSAGE);
+            case STATUS_DEV_SESSION_FAILURE:
+                return new IllegalStateException(DEV_SESSION_FAILURE_MESSAGE);
+            case STATUS_CALLER_NOT_ALLOWED_DENY_LIST:
+                return new SecurityException(CALLER_NOT_ALLOWED_DENY_LIST_ERROR_MESSAGE);
             default:
                 return new IllegalStateException();
         }
@@ -392,7 +488,15 @@ public final class AdServicesStatusUtils {
                 STATUS_CALLER_NOT_ALLOWED_ENROLLMENT_INVALID_ID,
                 STATUS_CALLER_NOT_ALLOWED_ENROLLMENT_BLOCKLISTED,
                 STATUS_CALLER_NOT_ALLOWED_MANIFEST_ADSERVICES_CONFIG_NO_PERMISSION,
-                STATUS_CALLBACK_SHUTDOWN
+                STATUS_CALLBACK_SHUTDOWN,
+                STATUS_PROVIDER_SERVICE_INTERNAL_ERROR,
+                STATUS_PROVIDER_SERVICE_TASK_CANCELLED_ERROR,
+                STATUS_UPDATE_ALREADY_PENDING_ERROR,
+                STATUS_CONSENT_REVOKED_ALL_APIS,
+                STATUS_DEV_SESSION_IS_STILL_TRANSITIONING,
+                STATUS_DEV_SESSION_CALLER_IS_NON_DEBUGGABLE,
+                STATUS_DEV_SESSION_FAILURE,
+                STATUS_CALLER_NOT_ALLOWED_DENY_LIST,
             })
     @Retention(RetentionPolicy.SOURCE)
     public @interface StatusCode {}

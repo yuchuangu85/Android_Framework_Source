@@ -2,12 +2,11 @@
 package com.android.org.bouncycastle.asn1.x500;
 
 import com.android.org.bouncycastle.asn1.ASN1Encodable;
-import com.android.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.org.bouncycastle.asn1.ASN1Object;
 import com.android.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Set;
-import com.android.org.bouncycastle.asn1.DERSequence;
+import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
 import com.android.org.bouncycastle.asn1.DERSet;
 
 /**
@@ -21,6 +20,7 @@ public class RDN
 
     private RDN(ASN1Set values)
     {
+        // TODO Require minimum size of 1?
         this.values = values;
     }
 
@@ -38,6 +38,11 @@ public class RDN
         return null;
     }
 
+    public static RDN getInstance(ASN1TaggedObject taggedObject, boolean declaredExplicit)
+    {
+        return new RDN(ASN1Set.getInstance(taggedObject, declaredExplicit));
+    }
+
     /**
      * Create a single valued RDN.
      *
@@ -46,12 +51,7 @@ public class RDN
      */
     public RDN(ASN1ObjectIdentifier oid, ASN1Encodable value)
     {
-        ASN1EncodableVector v = new ASN1EncodableVector(2);
-
-        v.add(oid);
-        v.add(value);
-
-        this.values = new DERSet(new DERSequence(v));
+        this(new AttributeTypeAndValue(oid, value));
     }
 
     public RDN(AttributeTypeAndValue attrTAndV)

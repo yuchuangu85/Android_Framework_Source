@@ -166,6 +166,10 @@ public final class SoftApInfo implements Parcelable {
     /** List of {@link OuiKeyedData} containing vendor-specific configuration data. */
     private List<OuiKeyedData> mVendorData = Collections.emptyList();
 
+    /** The multiple link device (MLD) MAC Address which Wi-Fi 7 AP resides on. */
+    @Nullable
+    private MacAddress mMldAddress;
+
     /**
      * Get the frequency which AP resides on.
      */
@@ -355,6 +359,28 @@ public final class SoftApInfo implements Parcelable {
     }
 
     /**
+     * Get the multiple link device MAC address which Wi-Fi AP resides on.
+     * Null when AP disabled or non Wi-Fi 7 AP.
+     */
+    @FlaggedApi(Flags.FLAG_MLO_SAP)
+    @Nullable
+    public MacAddress getMldAddress() {
+        return mMldAddress;
+    }
+
+    /**
+     * Set the multi-link address (MLA) of the multi-link device (MLD) on the Wi-Fi AP.
+     * <p>
+     * <li>If not set (non Wi-Fi 7 Soft AP), defaults to null.</li>
+     * @param mldAddress  multiple link device MAC address.
+     *
+     * @hide
+     */
+    public void setMldAddress(@Nullable MacAddress mldAddress) {
+        mMldAddress = mldAddress;
+    }
+
+    /**
      * @hide
      */
     public SoftApInfo(@Nullable SoftApInfo source) {
@@ -366,6 +392,7 @@ public final class SoftApInfo implements Parcelable {
             mApInstanceIdentifier = source.mApInstanceIdentifier;
             mIdleShutdownTimeoutMillis = source.mIdleShutdownTimeoutMillis;
             mVendorData = new ArrayList<>(source.mVendorData);
+            mMldAddress = source.mMldAddress;
         }
     }
 
@@ -391,6 +418,7 @@ public final class SoftApInfo implements Parcelable {
         dest.writeString(mApInstanceIdentifier);
         dest.writeLong(mIdleShutdownTimeoutMillis);
         dest.writeList(mVendorData);
+        dest.writeParcelable(mMldAddress, flags);
     }
 
     @NonNull
@@ -405,6 +433,7 @@ public final class SoftApInfo implements Parcelable {
             info.mApInstanceIdentifier = in.readString();
             info.mIdleShutdownTimeoutMillis = in.readLong();
             info.mVendorData = ParcelUtil.readOuiKeyedDataList(in);
+            info.mMldAddress = in.readParcelable(MacAddress.class.getClassLoader());
             return info;
         }
 
@@ -425,6 +454,7 @@ public final class SoftApInfo implements Parcelable {
         sbuf.append(", mApInstanceIdentifier= ").append(mApInstanceIdentifier);
         sbuf.append(", mIdleShutdownTimeoutMillis= ").append(mIdleShutdownTimeoutMillis);
         sbuf.append(", mVendorData= ").append(mVendorData);
+        if (mMldAddress != null) sbuf.append(",mMldAddress=").append(mMldAddress.toString());
         sbuf.append("}");
         return sbuf.toString();
     }
@@ -440,12 +470,13 @@ public final class SoftApInfo implements Parcelable {
                 && mWifiStandard == softApInfo.mWifiStandard
                 && Objects.equals(mApInstanceIdentifier, softApInfo.mApInstanceIdentifier)
                 && mIdleShutdownTimeoutMillis == softApInfo.mIdleShutdownTimeoutMillis
-                && Objects.equals(mVendorData, softApInfo.mVendorData);
+                && Objects.equals(mVendorData, softApInfo.mVendorData)
+                && Objects.equals(mMldAddress, softApInfo.mMldAddress);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(mFrequency, mBandwidth, mBssid, mWifiStandard, mApInstanceIdentifier,
-                mIdleShutdownTimeoutMillis, mVendorData);
+                mIdleShutdownTimeoutMillis, mVendorData, mMldAddress);
     }
 }

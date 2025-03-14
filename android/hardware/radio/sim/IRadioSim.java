@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash ea7be3035be8d4869237a6478d2e0bb0efcc1e87 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen/android/hardware/radio/sim/IRadioSim.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/3/android/hardware/radio/sim/IRadioSim.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash fc1a19a4f86a58981158cc8d956763c9d8ace630 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.config_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V4-java-source/gen/android/hardware/radio/sim/IRadioSim.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.sim-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.sim/4/android/hardware/radio/sim/IRadioSim.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.sim;
 /** @hide */
@@ -12,8 +16,8 @@ public interface IRadioSim extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "ea7be3035be8d4869237a6478d2e0bb0efcc1e87";
+  public static final int VERSION = 4;
+  public static final String HASH = "fc1a19a4f86a58981158cc8d956763c9d8ace630";
   /** Default implementation for IRadioSim. */
   public static class Default implements android.hardware.radio.sim.IRadioSim
   {
@@ -32,9 +36,11 @@ public interface IRadioSim extends android.os.IInterface
     @Override public void getAllowedCarriers(int serial) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void getCdmaSubscription(int serial) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void getCdmaSubscriptionSource(int serial) throws android.os.RemoteException
     {
     }
@@ -93,6 +99,7 @@ public interface IRadioSim extends android.os.IInterface
     @Override public void setCarrierInfoForImsiEncryption(int serial, android.hardware.radio.sim.ImsiEncryptionInfo imsiEncryptionInfo) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void setCdmaSubscriptionSource(int serial, int cdmaSub) throws android.os.RemoteException
     {
     }
@@ -105,6 +112,7 @@ public interface IRadioSim extends android.os.IInterface
     @Override public void setSimCardPower(int serial, int powerUp) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setUiccSubscription(int serial, android.hardware.radio.sim.SelectUiccSub uiccSub) throws android.os.RemoteException
     {
     }
@@ -145,7 +153,7 @@ public interface IRadioSim extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.sim.IRadioSim
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -692,6 +700,7 @@ public interface IRadioSim extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void getCdmaSubscription(int serial) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -707,6 +716,7 @@ public interface IRadioSim extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void getCdmaSubscriptionSource(int serial) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1012,6 +1022,7 @@ public interface IRadioSim extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void setCdmaSubscriptionSource(int serial, int cdmaSub) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1080,6 +1091,7 @@ public interface IRadioSim extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setUiccSubscription(int serial, android.hardware.radio.sim.SelectUiccSub uiccSub) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1297,7 +1309,11 @@ public interface IRadioSim extends android.os.IInterface
   public void changeIccPinForApp(int serial, java.lang.String oldPin, java.lang.String newPin, java.lang.String aid) throws android.os.RemoteException;
   public void enableUiccApplications(int serial, boolean enable) throws android.os.RemoteException;
   public void getAllowedCarriers(int serial) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void getCdmaSubscription(int serial) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void getCdmaSubscriptionSource(int serial) throws android.os.RemoteException;
   public void getFacilityLockForApp(int serial, java.lang.String facility, java.lang.String password, int serviceClass, java.lang.String appId) throws android.os.RemoteException;
   public void getIccCardStatus(int serial) throws android.os.RemoteException;
@@ -1319,10 +1335,14 @@ public interface IRadioSim extends android.os.IInterface
   public void sendTerminalResponseToSim(int serial, java.lang.String contents) throws android.os.RemoteException;
   public void setAllowedCarriers(int serial, android.hardware.radio.sim.CarrierRestrictions carriers, int multiSimPolicy) throws android.os.RemoteException;
   public void setCarrierInfoForImsiEncryption(int serial, android.hardware.radio.sim.ImsiEncryptionInfo imsiEncryptionInfo) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void setCdmaSubscriptionSource(int serial, int cdmaSub) throws android.os.RemoteException;
   public void setFacilityLockForApp(int serial, java.lang.String facility, boolean lockState, java.lang.String password, int serviceClass, java.lang.String appId) throws android.os.RemoteException;
   public void setResponseFunctions(android.hardware.radio.sim.IRadioSimResponse radioSimResponse, android.hardware.radio.sim.IRadioSimIndication radioSimIndication) throws android.os.RemoteException;
   public void setSimCardPower(int serial, int powerUp) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setUiccSubscription(int serial, android.hardware.radio.sim.SelectUiccSub uiccSub) throws android.os.RemoteException;
   public void supplyIccPin2ForApp(int serial, java.lang.String pin2, java.lang.String aid) throws android.os.RemoteException;
   public void supplyIccPinForApp(int serial, java.lang.String pin, java.lang.String aid) throws android.os.RemoteException;

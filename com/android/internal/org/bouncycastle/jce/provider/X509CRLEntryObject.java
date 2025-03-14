@@ -24,7 +24,6 @@ import com.android.internal.org.bouncycastle.asn1.x509.Extensions;
 import com.android.internal.org.bouncycastle.asn1.x509.GeneralName;
 import com.android.internal.org.bouncycastle.asn1.x509.GeneralNames;
 import com.android.internal.org.bouncycastle.asn1.x509.TBSCertList;
-import com.android.internal.org.bouncycastle.asn1.x509.X509Extension;
 import com.android.internal.org.bouncycastle.util.Strings;
 
 /**
@@ -288,11 +287,11 @@ public class X509CRLEntryObject extends X509CRLEntry
                         buf.append("                       critical(").append(ext.isCritical()).append(") ");
                         try
                         {
-                            if (oid.equals(X509Extension.reasonCode))
+                            if (oid.equals(Extension.reasonCode))
                             {
                                 buf.append(CRLReason.getInstance(ASN1Enumerated.getInstance(dIn.readObject()))).append(nl);
                             }
-                            else if (oid.equals(X509Extension.certificateIssuer))
+                            else if (oid.equals(Extension.certificateIssuer))
                             {
                                 buf.append("Certificate issuer: ").append(GeneralNames.getInstance(dIn.readObject())).append(nl);
                             }

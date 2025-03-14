@@ -100,13 +100,6 @@ public class FeatureFlagUtils {
     public static final String SETTINGS_NEW_KEYBOARD_TRACKPAD = "settings_new_keyboard_trackpad";
 
     /**
-     * Enable trackpad gesture settings UI
-     * @hide
-     */
-    public static final String SETTINGS_NEW_KEYBOARD_TRACKPAD_GESTURE =
-            "settings_new_keyboard_trackpad_gesture";
-
-    /**
      * Enable the new pages which is implemented with SPA.
      * @hide
      */
@@ -136,12 +129,6 @@ public class FeatureFlagUtils {
      */
     public static final String SETTINGS_SHOW_STYLUS_PREFERENCES =
             "settings_show_stylus_preferences";
-
-    /**
-     * Flag to enable/disable biometrics enrollment v2
-     * @hide
-     */
-    public static final String SETTINGS_BIOMETRICS2_ENROLLMENT = "settings_biometrics2_enrollment";
 
     /**
      * Flag to enable/disable FingerprintSettings v2
@@ -217,13 +204,11 @@ public class FeatureFlagUtils {
         DEFAULT_FLAGS.put(SETTINGS_NEED_CONNECTED_BLE_DEVICE_FOR_BROADCAST, "true");
         DEFAULT_FLAGS.put(SETTINGS_NEW_KEYBOARD_MODIFIER_KEY, "true");
         DEFAULT_FLAGS.put(SETTINGS_NEW_KEYBOARD_TRACKPAD, "true");
-        DEFAULT_FLAGS.put(SETTINGS_NEW_KEYBOARD_TRACKPAD_GESTURE, "false");
         DEFAULT_FLAGS.put(SETTINGS_ENABLE_SPA, "true");
         DEFAULT_FLAGS.put(SETTINGS_ENABLE_SPA_PHASE2, "false");
-        DEFAULT_FLAGS.put(SETTINGS_ENABLE_SPA_METRICS, "false");
+        DEFAULT_FLAGS.put(SETTINGS_ENABLE_SPA_METRICS, "true");
         DEFAULT_FLAGS.put(SETTINGS_ADB_METRICS_WRITER, "false");
         DEFAULT_FLAGS.put(SETTINGS_SHOW_STYLUS_PREFERENCES, "true");
-        DEFAULT_FLAGS.put(SETTINGS_BIOMETRICS2_ENROLLMENT, "false");
         DEFAULT_FLAGS.put(SETTINGS_PREFER_ACCESSIBILITY_MENU_IN_SYSTEM, "false");
         DEFAULT_FLAGS.put(SETTINGS_AUDIO_ROUTING, "false");
         DEFAULT_FLAGS.put(SETTINGS_FLASH_NOTIFICATIONS, "true");
@@ -244,7 +229,6 @@ public class FeatureFlagUtils {
         PERSISTENT_FLAGS.add(SETTINGS_APP_ALLOW_DARK_THEME_ACTIVATION_AT_BEDTIME);
         PERSISTENT_FLAGS.add(SETTINGS_NEW_KEYBOARD_MODIFIER_KEY);
         PERSISTENT_FLAGS.add(SETTINGS_NEW_KEYBOARD_TRACKPAD);
-        PERSISTENT_FLAGS.add(SETTINGS_NEW_KEYBOARD_TRACKPAD_GESTURE);
         PERSISTENT_FLAGS.add(SETTINGS_ENABLE_SPA);
         PERSISTENT_FLAGS.add(SETTINGS_ENABLE_SPA_PHASE2);
         PERSISTENT_FLAGS.add(SETTINGS_PREFER_ACCESSIBILITY_MENU_IN_SYSTEM);

@@ -16,6 +16,11 @@
 
 package android.bluetooth.le;
 
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -24,7 +29,8 @@ import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.IBluetoothGatt;
+import android.bluetooth.IDistanceMeasurement;
+import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
 import android.bluetooth.le.ChannelSoundingParams.CsSecurityLevel;
 import android.content.AttributionSource;
 import android.os.CancellationSignal;
@@ -35,11 +41,14 @@ import android.util.Log;
 import com.android.bluetooth.flags.Flags;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 /**
  * This class provides methods to perform distance measurement related operations. An application
@@ -67,7 +76,7 @@ public final class DistanceMeasurementManager {
      * @hide
      */
     public DistanceMeasurementManager(BluetoothAdapter bluetoothAdapter) {
-        mBluetoothAdapter = Objects.requireNonNull(bluetoothAdapter);
+        mBluetoothAdapter = requireNonNull(bluetoothAdapter);
         mAttributionSource = mBluetoothAdapter.getAttributionSource();
         mUuid = new ParcelUuid(UUID.randomUUID());
     }
@@ -81,20 +90,17 @@ public final class DistanceMeasurementManager {
      * @hide
      */
     @SystemApi
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public @NonNull List<DistanceMeasurementMethod> getSupportedMethods() {
         final List<DistanceMeasurementMethod> supportedMethods = new ArrayList<>();
         try {
-            IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
-            if (gatt == null) {
-                Log.e(TAG, "Bluetooth GATT is null");
+            IDistanceMeasurement distanceMeasurement = mBluetoothAdapter.getDistanceMeasurement();
+            if (distanceMeasurement == null) {
+                Log.e(TAG, "Distance Measurement is null");
                 return supportedMethods;
             }
-            return gatt.getSupportedDistanceMeasurementMethods(mAttributionSource);
+            return distanceMeasurement.getSupportedDistanceMeasurementMethods(mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to get supported methods - ", e);
         }
@@ -122,28 +128,29 @@ public final class DistanceMeasurementManager {
      * @hide
      */
     @SystemApi
-    @Nullable
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
-    public CancellationSignal startMeasurementSession(
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    public @Nullable CancellationSignal startMeasurementSession(
             @NonNull DistanceMeasurementParams params,
             @NonNull Executor executor,
             @NonNull DistanceMeasurementSession.Callback callback) {
-        Objects.requireNonNull(params, "params is null");
-        Objects.requireNonNull(executor, "executor is null");
-        Objects.requireNonNull(callback, "callback is null");
+        requireNonNull(params);
+        requireNonNull(executor);
+        requireNonNull(callback);
         try {
-            IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
-            if (gatt == null) {
-                Log.e(TAG, "Bluetooth GATT is null");
+            IDistanceMeasurement distanceMeasurement = mBluetoothAdapter.getDistanceMeasurement();
+            if (distanceMeasurement == null) {
+                Log.e(TAG, "Distance Measurement is null");
                 return null;
             }
             DistanceMeasurementSession session =
                     new DistanceMeasurementSession(
-                            gatt, mUuid, params, executor, mAttributionSource, callback);
+                            distanceMeasurement,
+                            mUuid,
+                            params,
+                            executor,
+                            mAttributionSource,
+                            callback);
             CancellationSignal cancellationSignal = new CancellationSignal();
             cancellationSignal.setOnCancelListener(() -> session.stopSession());
 
@@ -153,42 +160,44 @@ public final class DistanceMeasurementManager {
             }
 
             mSessionMap.put(params.getDevice(), session);
-            gatt.startDistanceMeasurement(mUuid, params, mCallbackWrapper, mAttributionSource);
+            distanceMeasurement.startDistanceMeasurement(
+                    mUuid, params, mCallbackWrapper, mAttributionSource);
             return cancellationSignal;
         } catch (RemoteException e) {
-            throw e.rethrowAsRuntimeException();
+            Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
         }
+        return null;
     }
 
     /**
      * Get the maximum supported security level of channel sounding between the local device and a
      * specific remote device.
      *
-     * <p>See: https://bluetooth.com/specifications/specs/channel-sounding-cr-pr/
+     * <p>See: Vol 3 Part C, Chapter 10.11.1 of
+     * https://bluetooth.com/specifications/specs/core60-html/
      *
      * @param remoteDevice remote device of channel sounding
      * @return max supported security level, {@link ChannelSoundingParams#CS_SECURITY_LEVEL_UNKNOWN}
      *     when Channel Sounding is not supported or encounters an internal error.
+     * @deprecated do not use it, this is meaningless, no alternative API.
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING)
+    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING_25Q2_APIS)
+    @Deprecated
     @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     @CsSecurityLevel
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
     public int getChannelSoundingMaxSupportedSecurityLevel(@NonNull BluetoothDevice remoteDevice) {
-        Objects.requireNonNull(remoteDevice, "remote device is null");
+        requireNonNull(remoteDevice);
         final int defaultValue = ChannelSoundingParams.CS_SECURITY_LEVEL_UNKNOWN;
         try {
-            IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
-            if (gatt == null) {
-                Log.e(TAG, "Bluetooth GATT is null");
+            IDistanceMeasurement distanceMeasurement = mBluetoothAdapter.getDistanceMeasurement();
+            if (distanceMeasurement == null) {
+                Log.e(TAG, "Distance Measurement is null");
                 return defaultValue;
             }
-            return gatt.getChannelSoundingMaxSupportedSecurityLevel(
+            return distanceMeasurement.getChannelSoundingMaxSupportedSecurityLevel(
                     remoteDevice, mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to get supported security Level - ", e);
@@ -199,33 +208,67 @@ public final class DistanceMeasurementManager {
     /**
      * Get the maximum supported security level of channel sounding of the local device.
      *
-     * <p>See: https://bluetooth.com/specifications/specs/channel-sounding-cr-pr/
+     * <p>See: Vol 3 Part C, Chapter 10.11.1 of
+     * https://bluetooth.com/specifications/specs/core60-html/
      *
      * @return max supported security level, {@link ChannelSoundingParams#CS_SECURITY_LEVEL_UNKNOWN}
      *     when Channel Sounding is not supported or encounters an internal error.
+     * @deprecated use {@link #getChannelSoundingSupportedSecurityLevels} instead.
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING)
+    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING_25Q2_APIS)
+    @Deprecated
     @SystemApi
-    @CsSecurityLevel
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
-    public int getLocalChannelSoundingMaxSupportedSecurityLevel() {
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    public @CsSecurityLevel int getLocalChannelSoundingMaxSupportedSecurityLevel() {
         final int defaultValue = ChannelSoundingParams.CS_SECURITY_LEVEL_UNKNOWN;
         try {
-            IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
-            if (gatt == null) {
-                Log.e(TAG, "Bluetooth GATT is null");
+            IDistanceMeasurement distanceMeasurement = mBluetoothAdapter.getDistanceMeasurement();
+            if (distanceMeasurement == null) {
+                Log.e(TAG, "Distance Measurement is null");
                 return defaultValue;
             }
-            return gatt.getLocalChannelSoundingMaxSupportedSecurityLevel(mAttributionSource);
+            return distanceMeasurement.getLocalChannelSoundingMaxSupportedSecurityLevel(
+                    mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to get supported security Level - ", e);
         }
         return defaultValue;
+    }
+
+    /**
+     * Get the set of supported security levels of channel sounding.
+     *
+     * <p>See: Vol 3 Part C, Chapter 10.11.1 of
+     * https://bluetooth.com/specifications/specs/core60-html/
+     *
+     * @return the set of supported security levels, empty when encounters an internal error.
+     * @throws UnsupportedOperationException if the {@link
+     *     android.content.pm.PackageManager#FEATURE_BLUETOOTH_LE_CHANNEL_SOUNDING} is not
+     *     supported.
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING_25Q2_APIS)
+    @SystemApi
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
+    public @NonNull Set<@CsSecurityLevel Integer> getChannelSoundingSupportedSecurityLevels() {
+        try {
+            IDistanceMeasurement distanceMeasurement = mBluetoothAdapter.getDistanceMeasurement();
+            if (distanceMeasurement == null) {
+                Log.e(TAG, "Distance Measurement is null");
+                return Collections.emptySet();
+            }
+            return Arrays.stream(
+                            distanceMeasurement.getChannelSoundingSupportedSecurityLevels(
+                                    mAttributionSource))
+                    .boxed()
+                    .collect(Collectors.toUnmodifiableSet());
+        } catch (RemoteException e) {
+            Log.e(TAG, "Failed to get supported security Level - ", e);
+        }
+        return Collections.emptySet();
     }
 
     @SuppressLint("AndroidFrameworkBluetoothPermission")

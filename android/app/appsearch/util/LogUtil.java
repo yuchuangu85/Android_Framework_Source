@@ -16,11 +16,12 @@
 
 package android.app.appsearch.util;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.Size;
 import android.app.appsearch.AppSearchEnvironmentFactory;
 import android.util.Log;
+
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Utilities for logging to logcat.

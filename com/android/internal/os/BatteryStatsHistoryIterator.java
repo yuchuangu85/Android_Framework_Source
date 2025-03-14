@@ -45,6 +45,8 @@ public class BatteryStatsHistoryIterator implements Iterator<BatteryStats.Histor
     private boolean mNextItemReady;
     private boolean mTimeInitialized;
     private boolean mClosed;
+    private long mBaseMonotonicTime;
+    private long mBaseTimeUtc;
 
     public BatteryStatsHistoryIterator(@NonNull BatteryStatsHistory history, long startTimeMs,
             long endTimeMs) {
@@ -84,24 +86,25 @@ public class BatteryStatsHistoryIterator implements Iterator<BatteryStats.Histor
             }
 
             if (!mTimeInitialized) {
-                mHistoryItem.time = mBatteryStatsHistory.getHistoryBufferStartTime(p);
+                mBaseMonotonicTime = mBatteryStatsHistory.getHistoryBufferStartTime(p);
+                mHistoryItem.time = mBaseMonotonicTime;
                 mTimeInitialized = true;
             }
 
-            final long lastMonotonicTimeMs = mHistoryItem.time;
-            final long lastWalltimeMs = mHistoryItem.currentTime;
             try {
                 readHistoryDelta(p, mHistoryItem);
             } catch (Throwable t) {
                 Slog.wtf(TAG, "Corrupted battery history", t);
                 break;
             }
-            if (mHistoryItem.cmd != BatteryStats.HistoryItem.CMD_CURRENT_TIME
-                    && mHistoryItem.cmd != BatteryStats.HistoryItem.CMD_RESET
-                    && lastWalltimeMs != 0) {
-                mHistoryItem.currentTime =
-                        lastWalltimeMs + (mHistoryItem.time - lastMonotonicTimeMs);
+
+            if (mHistoryItem.cmd == BatteryStats.HistoryItem.CMD_CURRENT_TIME
+                    || mHistoryItem.cmd == BatteryStats.HistoryItem.CMD_RESET) {
+                mBaseTimeUtc = mHistoryItem.currentTime - (mHistoryItem.time - mBaseMonotonicTime);
             }
+
+            mHistoryItem.currentTime = mBaseTimeUtc + (mHistoryItem.time - mBaseMonotonicTime);
+
             if (mEndTimeMs != 0 && mHistoryItem.time >= mEndTimeMs) {
                 break;
             }
@@ -147,11 +150,21 @@ public class BatteryStatsHistoryIterator implements Iterator<BatteryStats.Histor
         final int batteryLevelInt;
         if ((firstToken & BatteryStatsHistory.DELTA_BATTERY_LEVEL_FLAG) != 0) {
             batteryLevelInt = src.readInt();
-            readBatteryLevelInt(batteryLevelInt, cur);
             cur.numReadInts += 1;
+            final boolean overflow =
+                    (batteryLevelInt & BatteryStatsHistory.BATTERY_LEVEL_OVERFLOW_FLAG) != 0;
+            int extendedBatteryLevelInt = 0;
+            if (overflow) {
+                extendedBatteryLevelInt = src.readInt();
+                cur.numReadInts += 1;
+            }
+            readBatteryLevelInts(batteryLevelInt, extendedBatteryLevelInt, cur);
             if (DEBUG) {
                 Slog.i(TAG, "READ DELTA: batteryToken=0x"
                         + Integer.toHexString(batteryLevelInt)
+                        + (overflow
+                                ? " batteryToken2=0x" + Integer.toHexString(extendedBatteryLevelInt)
+                                : "")
                         + " batteryLevel=" + cur.batteryLevel
                         + " batteryTemp=" + cur.batteryTemperature
                         + " batteryVolt=" + (int) cur.batteryVoltage);
@@ -309,15 +322,43 @@ public class BatteryStatsHistoryIterator implements Iterator<BatteryStats.Histor
         return true;
     }
 
-    private static void readBatteryLevelInt(int batteryLevelInt, BatteryStats.HistoryItem out) {
-        out.batteryLevel = (byte) ((batteryLevelInt & 0xfe000000) >>> 25);
-        out.batteryTemperature = (short) ((batteryLevelInt & 0x01ff8000) >>> 15);
-        int voltage = ((batteryLevelInt & 0x00007ffe) >>> 1);
-        if (voltage == 0x3FFF) {
-            voltage = -1;
-        }
+    private static int extractSignedBitField(int bits, int mask, int shift) {
+        mask >>>= shift;
+        bits >>>= shift;
+        int value = bits & mask;
+        int msbMask = mask ^ (mask >>> 1);
+        // Sign extend with MSB
+        if ((value & msbMask) != 0) value |= ~mask;
+        return value;
+    }
 
-        out.batteryVoltage = (short) voltage;
+    private static void readBatteryLevelInts(int batteryInt, int extendedBatteryInt,
+            BatteryStats.HistoryItem out) {
+
+        out.batteryLevel += extractSignedBitField(
+                batteryInt,
+                BatteryStatsHistory.BATTERY_LEVEL_LEVEL_MASK,
+                BatteryStatsHistory.BATTERY_LEVEL_LEVEL_SHIFT);
+
+        if ((batteryInt & BatteryStatsHistory.BATTERY_LEVEL_OVERFLOW_FLAG) == 0) {
+            out.batteryTemperature += extractSignedBitField(
+                    batteryInt,
+                    BatteryStatsHistory.BATTERY_LEVEL_TEMP_MASK,
+                    BatteryStatsHistory.BATTERY_LEVEL_TEMP_SHIFT);
+            out.batteryVoltage += extractSignedBitField(
+                    batteryInt,
+                    BatteryStatsHistory.BATTERY_LEVEL_VOLT_MASK,
+                    BatteryStatsHistory.BATTERY_LEVEL_VOLT_SHIFT);
+        } else {
+            out.batteryTemperature = (short) extractSignedBitField(
+                    extendedBatteryInt,
+                    BatteryStatsHistory.BATTERY_LEVEL2_TEMP_MASK,
+                    BatteryStatsHistory.BATTERY_LEVEL2_TEMP_SHIFT);
+            out.batteryVoltage = (short) extractSignedBitField(
+                    extendedBatteryInt,
+                    BatteryStatsHistory.BATTERY_LEVEL2_VOLT_MASK,
+                    BatteryStatsHistory.BATTERY_LEVEL2_VOLT_SHIFT);
+        }
     }
 
     /**

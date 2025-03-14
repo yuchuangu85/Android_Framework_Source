@@ -425,6 +425,56 @@ public final class OsConstants {
     public static final int IP_RECVTOS = placeholder();
     public static final int IP_TOS = placeholder();
     public static final int IP_TTL = placeholder();
+
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_NORMAL = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_RANDOM = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_SEQUENTIAL = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_WILLNEED = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_DONTNEED = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_REMOVE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_DONTFORK = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_DOFORK = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_HWPOISON = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_MERGEABLE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_UNMERGEABLE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_SOFT_OFFLINE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_HUGEPAGE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_NOHUGEPAGE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_COLLAPSE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_DONTDUMP = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_DODUMP = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_FREE = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_WIPEONFORK = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_KEEPONFORK = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_COLD = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_PAGEOUT = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_POPULATE_READ = placeholder();
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static final int MADV_POPULATE_WRITE = placeholder();
+
     /**
      * Version constant to be used in {@link StructCapUserHeader} with
      * {@link Os#capset(StructCapUserHeader, StructCapUserData[])} and
@@ -579,6 +629,10 @@ public final class OsConstants {
     @UnsupportedAppUsage
     @SystemApi(client = MODULE_LIBRARIES)
     public static final int RLIMIT_NOFILE = placeholder();
+    /** @hide */
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_OPENJDK_21_V1_APIS)
+    @SystemApi(client = MODULE_LIBRARIES)
+    public static final int RLIMIT_RTPRIO = placeholder();
     public static final int RT_SCOPE_HOST = placeholder();
     public static final int RT_SCOPE_LINK = placeholder();
     public static final int RT_SCOPE_NOWHERE = placeholder();

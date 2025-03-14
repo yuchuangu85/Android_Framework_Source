@@ -16,11 +16,9 @@
 
 package android.companion.virtual.camera;
 
-import android.annotation.FlaggedApi;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
-import android.companion.virtual.flags.Flags;
 import android.graphics.ImageFormat;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -35,7 +33,6 @@ import java.util.Objects;
  * @hide
  */
 @SystemApi
-@FlaggedApi(Flags.FLAG_VIRTUAL_CAMERA)
 public final class VirtualCameraStreamConfig implements Parcelable {
     // TODO(b/310857519): Check if we should increase the fps upper limit in future.
     static final int MAX_FPS_UPPER_LIMIT = 60;

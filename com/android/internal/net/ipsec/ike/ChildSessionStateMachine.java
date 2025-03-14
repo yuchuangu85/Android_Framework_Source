@@ -898,6 +898,21 @@ public class ChildSessionStateMachine extends AbstractSessionStateMachine {
                                     mUserCallback.onOpened(sessionConfig);
                                 });
 
+                        List<Integer> integrityAlgorithms = mSaProposal.getIntegrityAlgorithms();
+                        List<Integer> dhGroups = mSaProposal.getDhGroups();
+
+                        recordMetricsEvent_SaNegotiation(
+                                dhGroups.isEmpty()
+                                        ? IkeMetrics.DH_GROUP_UNSPECIFIED
+                                        : dhGroups.get(0),
+                                mSaProposal.getEncryptionTransforms()[0].id,
+                                mSaProposal.getEncryptionTransforms()[0].getSpecifiedKeyLength(),
+                                integrityAlgorithms.isEmpty()
+                                        ? IkeMetrics.INTEGRITY_ALGORITHM_NONE
+                                        : integrityAlgorithms.get(0),
+                                IkeMetrics.PSEUDORANDOM_FUNCTION_UNSPECIFIED,
+                                null);
+
                         transitionTo(mIdle);
                     } catch (GeneralSecurityException
                             | ResourceUnavailableException
@@ -1619,6 +1634,23 @@ public class ChildSessionStateMachine extends AbstractSessionStateMachine {
                                                 buildSaLifetimeAlarmSched(
                                                         createChildResult.respSpi.getSpi()));
 
+                                List<Integer> integrityAlgorithms =
+                                        mSaProposal.getIntegrityAlgorithms();
+                                List<Integer> dhGroups = mSaProposal.getDhGroups();
+
+                                recordMetricsEvent_SaNegotiation(
+                                        dhGroups.isEmpty()
+                                                ? IkeMetrics.DH_GROUP_UNSPECIFIED
+                                                : dhGroups.get(0),
+                                        mSaProposal.getEncryptionTransforms()[0].id,
+                                        mSaProposal.getEncryptionTransforms()[0]
+                                                .getSpecifiedKeyLength(),
+                                        integrityAlgorithms.isEmpty()
+                                                ? IkeMetrics.INTEGRITY_ALGORITHM_NONE
+                                                : integrityAlgorithms.get(0),
+                                        IkeMetrics.PSEUDORANDOM_FUNCTION_UNSPECIFIED,
+                                        null);
+
                                 notifyCallerForLocalChildSaRekey();
 
                                 transitionTo(mRekeyChildLocalDelete);
@@ -1903,6 +1935,21 @@ public class ChildSessionStateMachine extends AbstractSessionStateMachine {
                                 true /*isResp*/,
                                 respPayloads,
                                 ChildSessionStateMachine.this);
+
+                        List<Integer> integrityAlgorithms = mSaProposal.getIntegrityAlgorithms();
+                        List<Integer> dhGroups = mSaProposal.getDhGroups();
+
+                        recordMetricsEvent_SaNegotiation(
+                                dhGroups.isEmpty()
+                                        ? IkeMetrics.DH_GROUP_UNSPECIFIED
+                                        : dhGroups.get(0),
+                                mSaProposal.getEncryptionTransforms()[0].id,
+                                mSaProposal.getEncryptionTransforms()[0].getSpecifiedKeyLength(),
+                                integrityAlgorithms.isEmpty()
+                                        ? IkeMetrics.INTEGRITY_ALGORITHM_NONE
+                                        : integrityAlgorithms.get(0),
+                                IkeMetrics.PSEUDORANDOM_FUNCTION_UNSPECIFIED,
+                                null);
 
                         transitionTo(mRekeyChildRemoteDelete);
                     } catch (GeneralSecurityException
@@ -2426,7 +2473,7 @@ public class ChildSessionStateMachine extends AbstractSessionStateMachine {
                     IkePayload.getPayloadForTypeInProvidedList(
                             IkePayload.PAYLOAD_TYPE_SA, IkeSaPayload.class, reqPayloads);
             if (saPayload != null) {
-                saPayload.releaseChildSpiResourcesIfExists();
+                saPayload.releaseSpiResources();
             }
         }
 

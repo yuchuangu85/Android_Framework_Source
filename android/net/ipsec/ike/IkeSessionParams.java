@@ -34,6 +34,7 @@ import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.eap.EapSessionConfig;
 import android.net.ipsec.ike.ike3gpp.Ike3gppExtension;
+import android.net.vcn.util.PersistableBundleUtils;
 import android.os.PersistableBundle;
 import android.util.SparseArray;
 
@@ -44,7 +45,6 @@ import com.android.internal.net.ipsec.ike.message.IkeConfigPayload.ConfigAttribu
 import com.android.internal.net.ipsec.ike.message.IkeConfigPayload.IkeConfigAttribute;
 import com.android.internal.net.ipsec.ike.message.IkePayload;
 import com.android.modules.utils.build.SdkLevel;
-import com.android.server.vcn.util.PersistableBundleUtils;
 
 import java.io.PrintWriter;
 import java.lang.annotation.Retention;
@@ -112,7 +112,8 @@ public final class IkeSessionParams {
         IKE_OPTION_REKEY_MOBILITY,
         IKE_OPTION_AUTOMATIC_ADDRESS_FAMILY_SELECTION,
         IKE_OPTION_AUTOMATIC_NATT_KEEPALIVES,
-        IKE_OPTION_AUTOMATIC_KEEPALIVE_ON_OFF
+        IKE_OPTION_AUTOMATIC_KEEPALIVE_ON_OFF,
+        IKE_OPTION_FORCE_DNS_RESOLUTION
     })
     public @interface IkeOption {}
 
@@ -264,8 +265,19 @@ public final class IkeSessionParams {
     @SystemApi
     public static final int IKE_OPTION_AUTOMATIC_KEEPALIVE_ON_OFF = 8;
 
+    /**
+     * Force DNS lookups when performing mobility update
+     *
+     * <p>Note: Forcing DNS lookups may introduce delays or even failures in network migration.
+     *
+     * @see IkeSession#setNetwork(Network)
+     * @hide
+     */
+    // TODO: b/340950997 Expose this option
+    public static final int IKE_OPTION_FORCE_DNS_RESOLUTION = 9;
+
     private static final int MIN_IKE_OPTION = IKE_OPTION_ACCEPT_ANY_REMOTE_ID;
-    private static final int MAX_IKE_OPTION = IKE_OPTION_AUTOMATIC_KEEPALIVE_ON_OFF;
+    private static final int MAX_IKE_OPTION = IKE_OPTION_FORCE_DNS_RESOLUTION;
 
     /**
      * Automatically choose the IP version for ESP packets.

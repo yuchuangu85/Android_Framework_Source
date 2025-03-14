@@ -1097,11 +1097,11 @@ abstract public class TimeZone implements Serializable, Cloneable, Freezable<Tim
      * @return  The preferred time zone ID in the IANA time zone database, or {@link TimeZone#UNKNOWN_ZONE_ID}
      * if the input ID is not a system ID.
      * @see #getCanonicalID(String)
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
     public static String getIanaID(String id) {
         String ianaId = TimeZone.UNKNOWN_ZONE_ID;
-        if (id == null || id.length() == 0 || id.equals(TimeZone.UNKNOWN_ZONE)) {
+        if (id == null || id.length() == 0 || id.equals(TimeZone.UNKNOWN_ZONE_ID)) {
             return ianaId;
         }
         String tmpIanaId = ZoneMeta.getIanaID(id);

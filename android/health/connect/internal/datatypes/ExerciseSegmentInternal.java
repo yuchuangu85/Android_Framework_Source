@@ -46,7 +46,7 @@ public class ExerciseSegmentInternal {
     @VisibleForTesting
     public static ExerciseSegmentInternal readFromParcel(Parcel parcel) {
         return new ExerciseSegmentInternal()
-                .setStarTime(parcel.readLong())
+                .setStartTime(parcel.readLong())
                 .setEndTime(parcel.readLong())
                 .setRepetitionsCount(parcel.readInt())
                 .setSegmentType(parcel.readInt());
@@ -102,7 +102,7 @@ public class ExerciseSegmentInternal {
     }
 
     /** Sets segment start time. Returns record with start time set. */
-    public ExerciseSegmentInternal setStarTime(long startTime) {
+    public ExerciseSegmentInternal setStartTime(long startTime) {
         mStartTime = startTime;
         return this;
     }

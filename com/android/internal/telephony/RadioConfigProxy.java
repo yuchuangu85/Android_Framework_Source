@@ -281,7 +281,11 @@ public class RadioConfigProxy {
         }
 
         public void linkToDeath(long cookie) throws RemoteException {
-            mService.linkToDeath(this, cookie);
+            if (mService != null) {
+                mService.linkToDeath(this, cookie);
+            } else {
+                Rlog.w(TAG, "linkToDeath: skipping since mService is null");
+            }
         }
 
         public void clear() {
@@ -316,7 +320,11 @@ public class RadioConfigProxy {
         }
 
         public void linkToDeath(int cookie) throws RemoteException {
-            mService.linkToDeath(this, cookie);
+            if (mService != null) {
+                mService.linkToDeath(this, cookie);
+            } else {
+                Rlog.w(TAG, "linkToDeath: skipping since mService is null");
+            }
         }
 
         public void clear() {

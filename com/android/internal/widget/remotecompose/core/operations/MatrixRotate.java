@@ -15,68 +15,105 @@
  */
 package com.android.internal.widget.remotecompose.core.operations;
 
-import com.android.internal.widget.remotecompose.core.CompanionOperation;
+import android.annotation.NonNull;
+
 import com.android.internal.widget.remotecompose.core.Operation;
 import com.android.internal.widget.remotecompose.core.Operations;
 import com.android.internal.widget.remotecompose.core.PaintContext;
-import com.android.internal.widget.remotecompose.core.PaintOperation;
 import com.android.internal.widget.remotecompose.core.WireBuffer;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentationBuilder;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentedOperation;
+import com.android.internal.widget.remotecompose.core.serialize.MapSerializer;
 
 import java.util.List;
 
-public class MatrixRotate extends PaintOperation {
-    public static final Companion COMPANION = new Companion();
-    float mRotate, mPivotX, mPivotY;
+/** The rotate the rendering command */
+public class MatrixRotate extends DrawBase3 {
+    private static final int OP_CODE = Operations.MATRIX_ROTATE;
+    private static final String CLASS_NAME = "MatrixRotate";
+
+    /**
+     * Read this operation and add it to the list of operations
+     *
+     * @param buffer the buffer to read
+     * @param operations the list of operations that will be added to
+     */
+    public static void read(@NonNull WireBuffer buffer, @NonNull List<Operation> operations) {
+        Maker m =
+                new Maker() {
+                    @NonNull
+                    @Override
+                    public DrawBase3 create(float v1, float v2, float v3) {
+                        return new MatrixRotate(v1, v2, v3);
+                    }
+                };
+        read(m, buffer, operations);
+    }
+
+    /**
+     * The OP_CODE for this command
+     *
+     * @return the opcode
+     */
+    public static int id() {
+        return OP_CODE;
+    }
+
+    /**
+     * The name of the class
+     *
+     * @return the name
+     */
+    @NonNull
+    public static String name() {
+        return CLASS_NAME;
+    }
+
+    /**
+     * Populate the documentation with a description of this operation
+     *
+     * @param doc to append the description to.
+     */
+    public static void documentation(@NonNull DocumentationBuilder doc) {
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+                .description("apply rotation to matrix")
+                .field(DocumentedOperation.FLOAT, "rotate", "Angle to rotate")
+                .field(DocumentedOperation.FLOAT, "pivotX", "X Pivot point")
+                .field(DocumentedOperation.FLOAT, "pivotY", "Y Pivot point");
+    }
+
+    @Override
+    protected void write(@NonNull WireBuffer buffer, float v1, float v2, float v3) {
+        apply(buffer, v1, v2, v3);
+    }
 
     public MatrixRotate(float rotate, float pivotX, float pivotY) {
-        mRotate = rotate;
-        mPivotX = pivotX;
-        mPivotY = pivotY;
+        super(rotate, pivotX, pivotY);
+        mName = CLASS_NAME;
     }
 
     @Override
-    public void write(WireBuffer buffer) {
-        COMPANION.apply(buffer, mRotate, mPivotX, mPivotY);
+    public void paint(@NonNull PaintContext context) {
+        context.matrixRotate(mV1, mV2, mV3);
+    }
+
+    /**
+     * Writes out the operation to the buffer
+     *
+     * @param buffer The buffer to write into
+     * @param x1 Angle to rotate
+     * @param y1 X Pivot point
+     * @param x2 Y Pivot point
+     */
+    public static void apply(@NonNull WireBuffer buffer, float x1, float y1, float x2) {
+        buffer.start(OP_CODE);
+        buffer.writeFloat(x1);
+        buffer.writeFloat(y1);
+        buffer.writeFloat(x2);
     }
 
     @Override
-    public String toString() {
-        return "DrawArc " + mRotate + ", " + mPivotX + ", " + mPivotY + ";";
-    }
-
-    public static class Companion implements CompanionOperation {
-        private Companion() {
-        }
-
-        @Override
-        public void read(WireBuffer buffer, List<Operation> operations) {
-            float rotate = buffer.readFloat();
-            float pivotX = buffer.readFloat();
-            float pivotY = buffer.readFloat();
-            MatrixRotate op = new MatrixRotate(rotate, pivotX, pivotY);
-            operations.add(op);
-        }
-
-        @Override
-        public String name() {
-            return "Matrix";
-        }
-
-        @Override
-        public int id() {
-            return Operations.MATRIX_ROTATE;
-        }
-
-        public void apply(WireBuffer buffer, float rotate, float pivotX, float pivotY) {
-            buffer.start(Operations.MATRIX_ROTATE);
-            buffer.writeFloat(rotate);
-            buffer.writeFloat(pivotX);
-            buffer.writeFloat(pivotY);
-        }
-    }
-
-    @Override
-    public void paint(PaintContext context) {
-        context.matrixRotate(mRotate, mPivotX, mPivotY);
+    public void serialize(MapSerializer serializer) {
+        serialize(serializer, "rotate", "pivotX", "pivotY").add("type", CLASS_NAME);
     }
 }

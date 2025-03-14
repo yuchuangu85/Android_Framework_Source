@@ -15,11 +15,15 @@
  */
 package android.net.nsd;
 
+import android.annotation.FlaggedApi;
 import android.annotation.LongDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.net.nsd.NsdManager.ProtocolType;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.net.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -28,16 +32,32 @@ import java.util.Objects;
 
 /**
  * Encapsulates parameters for {@link NsdManager#registerService}.
- * @hide
  */
-//@FlaggedApi(NsdManager.Flags.ADVERTISE_REQUEST_API)
+@FlaggedApi(Flags.FLAG_IPV6_OVER_BLE)
 public final class AdvertisingRequest implements Parcelable {
 
     /**
      * Only update the registration without sending exit and re-announcement.
+     * @hide
      */
     public static final long NSD_ADVERTISING_UPDATE_ONLY = 1;
 
+    // TODO: if apps are allowed to set hostnames, the below doc should be updated to mention that
+    // passed in hostnames must also be known unique to use this flag.
+    /**
+     * Skip the probing step when advertising.
+     *
+     * <p>This must only be used when the service name ({@link NsdServiceInfo#getServiceName()} is
+     * known to be unique and cannot possibly be used by any other device on the network.
+     */
+    public static final long FLAG_SKIP_PROBING = 1 << 1;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @LongDef(flag = true, prefix = {"FLAG_"}, value = {
+            FLAG_SKIP_PROBING,
+    })
+    public @interface AdvertisingFlags {}
 
     @NonNull
     public static final Creator<AdvertisingRequest> CREATOR =
@@ -79,7 +99,7 @@ public final class AdvertisingRequest implements Parcelable {
     /**
      * The constructor for the advertiseRequest
      */
-    private AdvertisingRequest(@NonNull NsdServiceInfo serviceInfo, int protocolType,
+    private AdvertisingRequest(@NonNull NsdServiceInfo serviceInfo, @ProtocolType int protocolType,
             long advertisingConfig, @NonNull Duration ttl) {
         mServiceInfo = serviceInfo;
         mProtocolType = protocolType;
@@ -88,7 +108,7 @@ public final class AdvertisingRequest implements Parcelable {
     }
 
     /**
-     * Returns the {@link NsdServiceInfo}
+     * @return the {@link NsdServiceInfo} describing the service to advertise.
      */
     @NonNull
     public NsdServiceInfo getServiceInfo() {
@@ -96,16 +116,18 @@ public final class AdvertisingRequest implements Parcelable {
     }
 
     /**
-     * Returns the service advertise protocol
+     * @return the service advertisement protocol.
      */
+    @ProtocolType
     public int getProtocolType() {
         return mProtocolType;
     }
 
     /**
-     * Returns the advertising config.
+     * @return the flags affecting advertising behavior.
      */
-    public long getAdvertisingConfig() {
+    @AdvertisingFlags
+    public long getFlags() {
         return mAdvertisingConfig;
     }
 
@@ -165,34 +187,45 @@ public final class AdvertisingRequest implements Parcelable {
         dest.writeLong(mTtl == null ? -1L : mTtl.getSeconds());
     }
 
-//    @FlaggedApi(NsdManager.Flags.ADVERTISE_REQUEST_API)
     /**
-     * The builder for creating new {@link AdvertisingRequest} objects.
-     * @hide
+     * A builder for creating new {@link AdvertisingRequest} objects.
      */
+    @FlaggedApi(Flags.FLAG_IPV6_OVER_BLE)
     public static final class Builder {
         @NonNull
         private final NsdServiceInfo mServiceInfo;
-        private final int mProtocolType;
+        private int mProtocolType;
         private long mAdvertisingConfig;
         @Nullable
         private Duration mTtl;
+
         /**
          * Creates a new {@link Builder} object.
+         * @param serviceInfo the {@link NsdServiceInfo} describing the service to advertise.
+         * @param protocolType the advertising protocol to use.
+         * @hide
          */
-        public Builder(@NonNull NsdServiceInfo serviceInfo, int protocolType) {
+        public Builder(@NonNull NsdServiceInfo serviceInfo, @ProtocolType int protocolType) {
             mServiceInfo = serviceInfo;
             mProtocolType = protocolType;
         }
 
         /**
+         * Creates a new {@link Builder} object.
+         * @param serviceInfo the {@link NsdServiceInfo} describing the service to advertise.
+         */
+        public Builder(@NonNull NsdServiceInfo serviceInfo) {
+            this(serviceInfo, NsdManager.PROTOCOL_DNS_SD);
+        }
+
+        /**
          * Sets advertising configuration flags.
          *
-         * @param advertisingConfigFlags Bitmask of {@code AdvertisingConfig} flags.
+         * @param flags flags to use for advertising.
          */
         @NonNull
-        public Builder setAdvertisingConfig(long advertisingConfigFlags) {
-            mAdvertisingConfig = advertisingConfigFlags;
+        public Builder setFlags(@AdvertisingFlags long flags) {
+            mAdvertisingConfig = flags;
             return this;
         }
 
@@ -229,6 +262,16 @@ public final class AdvertisingRequest implements Parcelable {
                                 + ", allowedRanged = [0, 0xffffffffL])");
             }
             mTtl = Duration.ofSeconds(ttlSeconds);
+            return this;
+        }
+
+        /**
+         * Sets the protocol to use for advertising.
+         * @param protocolType the advertising protocol to use.
+         */
+        @NonNull
+        public Builder setProtocolType(@ProtocolType int protocolType) {
+            mProtocolType = protocolType;
             return this;
         }
 

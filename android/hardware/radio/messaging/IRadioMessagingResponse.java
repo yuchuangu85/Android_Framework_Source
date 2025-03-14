@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 30b0bc0e84679bc3b5ccb3a52da34c47cda6b7eb --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V3-java-source/gen/android/hardware/radio/messaging/IRadioMessagingResponse.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/3/android/hardware/radio/messaging/IRadioMessagingResponse.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash b28416394e6595c08e97c0473855eb05eed1baed --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V4-java-source/gen/android/hardware/radio/messaging/IRadioMessagingResponse.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.messaging-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.messaging/4/android/hardware/radio/messaging/IRadioMessagingResponse.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.messaging;
 /** @hide */
@@ -12,14 +16,15 @@ public interface IRadioMessagingResponse extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "30b0bc0e84679bc3b5ccb3a52da34c47cda6b7eb";
+  public static final int VERSION = 4;
+  public static final String HASH = "b28416394e6595c08e97c0473855eb05eed1baed";
   /** Default implementation for IRadioMessagingResponse. */
   public static class Default implements android.hardware.radio.messaging.IRadioMessagingResponse
   {
     @Override public void acknowledgeIncomingGsmSmsWithPduResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void acknowledgeLastIncomingCdmaSmsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
@@ -29,12 +34,14 @@ public interface IRadioMessagingResponse extends android.os.IInterface
     @Override public void acknowledgeRequest(int serial) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void deleteSmsOnRuimResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
     @Override public void deleteSmsOnSimResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void getCdmaBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.CdmaBroadcastSmsConfigInfo[] configs) throws android.os.RemoteException
     {
     }
@@ -47,9 +54,11 @@ public interface IRadioMessagingResponse extends android.os.IInterface
     @Override public void reportSmsMemoryStatusResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void sendCdmaSmsExpectMoreResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void sendCdmaSmsResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException
     {
     }
@@ -62,9 +71,11 @@ public interface IRadioMessagingResponse extends android.os.IInterface
     @Override public void sendSmsResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void setCdmaBroadcastActivationResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void setCdmaBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
@@ -77,6 +88,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
     @Override public void setSmscAddressResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void writeSmsToRuimResponse(android.hardware.radio.RadioResponseInfo info, int index) throws android.os.RemoteException
     {
     }
@@ -99,7 +111,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.messaging.IRadioMessagingResponse
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -382,6 +394,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void acknowledgeLastIncomingCdmaSmsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -427,6 +440,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void deleteSmsOnRuimResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -457,6 +471,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void getCdmaBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.CdmaBroadcastSmsConfigInfo[] configs) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -520,6 +535,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void sendCdmaSmsExpectMoreResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -536,6 +552,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void sendCdmaSmsResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -600,6 +617,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void setCdmaBroadcastActivationResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -615,6 +633,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void setCdmaBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -675,6 +694,7 @@ public interface IRadioMessagingResponse extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void writeSmsToRuimResponse(android.hardware.radio.RadioResponseInfo info, int index) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -770,25 +790,41 @@ public interface IRadioMessagingResponse extends android.os.IInterface
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$messaging$IRadioMessagingResponse".replace('$', '.');
   public void acknowledgeIncomingGsmSmsWithPduResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void acknowledgeLastIncomingCdmaSmsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void acknowledgeLastIncomingGsmSmsResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void acknowledgeRequest(int serial) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void deleteSmsOnRuimResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void deleteSmsOnSimResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void getCdmaBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.CdmaBroadcastSmsConfigInfo[] configs) throws android.os.RemoteException;
   public void getGsmBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.GsmBroadcastSmsConfigInfo[] configs) throws android.os.RemoteException;
   public void getSmscAddressResponse(android.hardware.radio.RadioResponseInfo info, java.lang.String smsc) throws android.os.RemoteException;
   public void reportSmsMemoryStatusResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void sendCdmaSmsExpectMoreResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void sendCdmaSmsResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException;
   public void sendImsSmsResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException;
   public void sendSmsExpectMoreResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException;
   public void sendSmsResponse(android.hardware.radio.RadioResponseInfo info, android.hardware.radio.messaging.SendSmsResult sms) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void setCdmaBroadcastActivationResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void setCdmaBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setGsmBroadcastActivationResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setGsmBroadcastConfigResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
   public void setSmscAddressResponse(android.hardware.radio.RadioResponseInfo info) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void writeSmsToRuimResponse(android.hardware.radio.RadioResponseInfo info, int index) throws android.os.RemoteException;
   public void writeSmsToSimResponse(android.hardware.radio.RadioResponseInfo info, int index) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;

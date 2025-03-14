@@ -19,22 +19,26 @@ package android.app.appsearch;
 import static android.app.appsearch.SearchSessionUtil.safeExecute;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.app.appsearch.aidl.AppSearchAttributionSource;
-import android.app.appsearch.aidl.AppSearchResultParcel;
+import android.app.appsearch.aidl.AppSearchResultCallback;
 import android.app.appsearch.aidl.GetDocumentsAidlRequest;
 import android.app.appsearch.aidl.GetSchemaAidlRequest;
 import android.app.appsearch.aidl.IAppSearchManager;
-import android.app.appsearch.aidl.IAppSearchResultCallback;
 import android.app.appsearch.aidl.InitializeAidlRequest;
+import android.app.appsearch.aidl.OpenBlobForReadAidlRequest;
 import android.app.appsearch.util.ExceptionUtil;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.UserHandle;
 
+import com.android.appsearch.flags.Flags;
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.util.ArrayList;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -82,15 +86,13 @@ public abstract class ReadOnlyGlobalSearchSession {
                             mCallerAttributionSource,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<Void>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
+                        public void onResult(@NonNull AppSearchResult<Void> result) {
                             safeExecute(
                                     executor,
                                     callback,
                                     () -> {
-                                        AppSearchResult<Void> result = resultParcel.getResult();
                                         if (result.isSuccess()) {
                                             callback.accept(
                                                     AppSearchResult.newSuccessfulResult(null));
@@ -150,6 +152,45 @@ public abstract class ReadOnlyGlobalSearchSession {
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime(),
                             mIsForEnterprise),
                     SearchSessionUtil.createGetDocumentCallback(executor, callback));
+        } catch (RemoteException e) {
+            ExceptionUtil.handleRemoteException(e);
+        }
+    }
+
+    /**
+     * Opens a batch of AppSearch Blobs for reading.
+     *
+     * <p>See {@link AppSearchSession#openBlobForRead} for a general description when a blob is for
+     * read.
+     *
+     * <p class="caution">The returned {@link OpenBlobForReadResponse} must be closed after use to
+     * avoid resource leaks. Failing to close it will result in system file descriptor exhaustion.
+     *
+     * @param handles The {@link AppSearchBlobHandle}s that identifies the blobs.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the {@link OpenBlobForReadResponse}.
+     * @see GenericDocument.Builder#setPropertyBlobHandle
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_BLOB_STORE)
+    public void openBlobForRead(
+            @NonNull Set<AppSearchBlobHandle> handles,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<AppSearchResult<OpenBlobForReadResponse>> callback) {
+        try {
+            mService.openBlobForRead(
+                    new OpenBlobForReadAidlRequest(
+                            mCallerAttributionSource,
+                            /* callingDatabaseName= */ null,
+                            new ArrayList<>(handles),
+                            mUserHandle,
+                            /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
+                    new AppSearchResultCallback<OpenBlobForReadResponse>() {
+                        @Override
+                        public void onResult(
+                                @NonNull AppSearchResult<OpenBlobForReadResponse> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
+                        }
+                    });
         } catch (RemoteException e) {
             ExceptionUtil.handleRemoteException(e);
         }
@@ -221,25 +262,10 @@ public abstract class ReadOnlyGlobalSearchSession {
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime(),
                             mIsForEnterprise),
-                    new IAppSearchResultCallback.Stub() {
-                        @SuppressWarnings({"rawtypes", "unchecked"})
+                    new AppSearchResultCallback<GetSchemaResponse>() {
                         @Override
-                        public void onResult(AppSearchResultParcel resultParcel) {
-                            safeExecute(
-                                    executor,
-                                    callback,
-                                    () -> {
-                                        AppSearchResult<GetSchemaResponse> result =
-                                                resultParcel.getResult();
-                                        if (result.isSuccess()) {
-                                            GetSchemaResponse response = result.getResultValue();
-                                            callback.accept(
-                                                    AppSearchResult.newSuccessfulResult(response));
-                                        } else {
-                                            callback.accept(
-                                                    AppSearchResult.newFailedResult(result));
-                                        }
-                                    });
+                        public void onResult(@NonNull AppSearchResult<GetSchemaResponse> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
                         }
                     });
         } catch (RemoteException e) {

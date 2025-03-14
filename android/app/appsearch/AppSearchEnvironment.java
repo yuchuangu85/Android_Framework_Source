@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2024 The Android Open Source Project
+ * Copyright 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,16 @@
 
 package android.app.appsearch;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
+import android.annotation.IntDef;
 import android.content.Context;
 import android.os.UserHandle;
 
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
+
 import java.io.File;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -34,36 +38,54 @@ import java.util.concurrent.TimeUnit;
 public interface AppSearchEnvironment {
 
     /** Returns the directory to initialize appsearch based on the environment. */
-    File getAppSearchDir(@NonNull Context context, @Nullable UserHandle userHandle);
+    @NonNull File getAppSearchDir(@NonNull Context context, @Nullable UserHandle userHandle);
 
     /** Returns the correct context for the user based on the environment. */
-    Context createContextAsUser(@NonNull Context context, @NonNull UserHandle userHandle);
+    @NonNull Context createContextAsUser(@NonNull Context context, @NonNull UserHandle userHandle);
 
     /** Returns an ExecutorService based on given parameters. */
-    ExecutorService createExecutorService(
+    @NonNull ExecutorService createExecutorService(
             int corePoolSize,
             int maxConcurrency,
             long keepAliveTime,
-            TimeUnit unit,
-            BlockingQueue<Runnable> workQueue,
+            @NonNull TimeUnit unit,
+            @NonNull BlockingQueue<Runnable> workQueue,
             int priority);
 
     /** Returns an ExecutorService with a single thread. */
-    ExecutorService createSingleThreadExecutor();
+    @NonNull ExecutorService createSingleThreadExecutor();
+
+    /** Creates and returns an Executor with cached thread pools. */
+    @NonNull ExecutorService createCachedThreadPoolExecutor();
 
     /**
      * Returns a cache directory for creating temporary files like in case of migrating documents.
      */
-    @Nullable
-    File getCacheDir(@NonNull Context context);
-
-    /** Invalid UID constant duplicated for code-sync with GMSCore */
-    int getInvalidUid();
-
-    /** Creates and returns an Executor with cached thread pools. */
-    @NonNull
-    ExecutorService createCachedThreadPoolExecutor();
+    @Nullable File getCacheDir(@NonNull Context context);
 
     /** Returns if we can log INFO level logs. */
     boolean isInfoLoggingEnabled();
+
+    /** The different environments that AppSearch code might be built in. */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            value = {
+                JETPACK_ENVIRONMENT,
+                FRAMEWORK_ENVIRONMENT,
+                PLAY_SERVICES_ENVIRONMENT,
+            })
+    @interface EnvironmentType {}
+
+    /** This code is being built in the Jetpack Environment */
+    int JETPACK_ENVIRONMENT = 1;
+
+    /** This code is being built in the Android Framework Environment */
+    int FRAMEWORK_ENVIRONMENT = 2;
+
+    /** This code is being built in the internal environment for Play Services code. */
+    int PLAY_SERVICES_ENVIRONMENT = 3;
+
+    /** Returns the {@code EnvironmentType} for this environment. */
+    @EnvironmentType
+    int getEnvironment();
 }

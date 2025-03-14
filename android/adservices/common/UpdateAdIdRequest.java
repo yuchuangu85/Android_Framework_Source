@@ -17,13 +17,10 @@
 package android.adservices.common;
 
 import android.adservices.adid.AdId;
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import com.android.adservices.flags.Flags;
 
 import java.util.Objects;
 
@@ -35,7 +32,6 @@ import java.util.Objects;
  */
 // TODO(b/300445889): Consider using codegen for Parcelable.
 @SystemApi
-@FlaggedApi(Flags.FLAG_AD_ID_CACHE_ENABLED)
 public final class UpdateAdIdRequest implements Parcelable {
     private final String mAdId;
     private final boolean mLimitAdTrackingEnabled;

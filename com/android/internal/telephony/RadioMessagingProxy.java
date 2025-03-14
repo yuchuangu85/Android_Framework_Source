@@ -20,6 +20,7 @@ import android.os.RemoteException;
 import android.telephony.Rlog;
 
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 
 import java.util.ArrayList;
@@ -107,6 +108,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      */
     public void acknowledgeLastIncomingCdmaSms(int serial, boolean success, int cause)
             throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             android.hardware.radio.messaging.CdmaSmsAck msg =
@@ -147,6 +149,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void deleteSmsOnRuim(int serial, int index) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mMessagingProxy.deleteSmsOnRuim(serial, index);
@@ -176,6 +179,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void getCdmaBroadcastConfig(int serial) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mMessagingProxy.getCdmaBroadcastConfig(serial);
@@ -248,6 +252,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void sendCdmaSms(int serial, byte[] pdu) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mMessagingProxy.sendCdmaSms(serial, RILUtils.convertToHalCdmaSmsMessageAidl(pdu));
@@ -266,6 +271,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void sendCdmaSmsExpectMore(int serial, byte[] pdu) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mMessagingProxy.sendCdmaSmsExpectMore(
@@ -378,6 +384,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void setCdmaBroadcastActivation(int serial, boolean activate) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mMessagingProxy.setCdmaBroadcastActivation(serial, activate);
@@ -394,6 +401,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      */
     public void setCdmaBroadcastConfig(int serial, CdmaSmsBroadcastConfigInfo[] configs)
             throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             ArrayList<android.hardware.radio.messaging.CdmaBroadcastSmsConfigInfo> halConfigs =
@@ -513,6 +521,7 @@ public class RadioMessagingProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void writeSmsToRuim(int serial, int status, byte[] pdu) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             android.hardware.radio.messaging.CdmaSmsWriteArgs args =

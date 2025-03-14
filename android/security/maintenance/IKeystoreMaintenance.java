@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation -t --min_sdk_version platform_apis -pout/soong/.intermediates/system/hardware/interfaces/keystore2/aidl/android.system.keystore2_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.maintenance-java-source/gen/android/security/maintenance/IKeystoreMaintenance.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.maintenance-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/maintenance/IKeystoreMaintenance.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation -t --min_sdk_version platform_apis -pout/soong/.intermediates/system/hardware/interfaces/keystore2/aidl/android.system.keystore2_interface/5/preprocessed.aidl --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.maintenance-java-source/gen/android/security/maintenance/IKeystoreMaintenance.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.maintenance-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/maintenance/IKeystoreMaintenance.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.security.maintenance;
 /**
@@ -66,22 +70,6 @@ public interface IKeystoreMaintenance extends android.os.IInterface
      * @param userId - Android user id
      */
     @Override public void onUserLskfRemoved(int userId) throws android.os.RemoteException
-    {
-    }
-    /**
-     * Allows LockSettingsService to inform keystore about password change of a user.
-     * Callers require 'ChangePassword' permission.
-     * 
-     * ## Error conditions:
-     * `ResponseCode::PERMISSION_DENIED` - if the callers does not have the 'ChangePassword'
-     *                                     permission.
-     * `ResponseCode::SYSTEM_ERROR` - if failed to delete the super encrypted keys of the user.
-     * `ResponseCode::Locked' -  if the keystore is locked for the given user.
-     * 
-     * @param userId - Android user id
-     * @param password - a secret derived from the synthetic password of the user
-     */
-    @Override public void onUserPasswordChanged(int userId, byte[] password) throws android.os.RemoteException
     {
     }
     /**
@@ -160,7 +148,7 @@ public interface IKeystoreMaintenance extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.security.maintenance.IKeystoreMaintenance
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -205,10 +193,6 @@ public interface IKeystoreMaintenance extends android.os.IInterface
         case TRANSACTION_onUserLskfRemoved:
         {
           return "onUserLskfRemoved";
-        }
-        case TRANSACTION_onUserPasswordChanged:
-        {
-          return "onUserPasswordChanged";
         }
         case TRANSACTION_clearNamespace:
         {
@@ -290,17 +274,6 @@ public interface IKeystoreMaintenance extends android.os.IInterface
           _arg0 = data.readInt();
           data.enforceNoDataAvail();
           this.onUserLskfRemoved(_arg0);
-          reply.writeNoException();
-          break;
-        }
-        case TRANSACTION_onUserPasswordChanged:
-        {
-          int _arg0;
-          _arg0 = data.readInt();
-          byte[] _arg1;
-          _arg1 = data.createByteArray();
-          data.enforceNoDataAvail();
-          this.onUserPasswordChanged(_arg0, _arg1);
           reply.writeNoException();
           break;
         }
@@ -482,36 +455,6 @@ public interface IKeystoreMaintenance extends android.os.IInterface
         }
       }
       /**
-       * Allows LockSettingsService to inform keystore about password change of a user.
-       * Callers require 'ChangePassword' permission.
-       * 
-       * ## Error conditions:
-       * `ResponseCode::PERMISSION_DENIED` - if the callers does not have the 'ChangePassword'
-       *                                     permission.
-       * `ResponseCode::SYSTEM_ERROR` - if failed to delete the super encrypted keys of the user.
-       * `ResponseCode::Locked' -  if the keystore is locked for the given user.
-       * 
-       * @param userId - Android user id
-       * @param password - a secret derived from the synthetic password of the user
-       */
-      @Override public void onUserPasswordChanged(int userId, byte[] password) throws android.os.RemoteException
-      {
-        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
-        _data.markSensitive();
-        android.os.Parcel _reply = android.os.Parcel.obtain();
-        try {
-          _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeInt(userId);
-          _data.writeByteArray(password);
-          boolean _status = mRemote.transact(Stub.TRANSACTION_onUserPasswordChanged, _data, _reply, android.os.IBinder.FLAG_CLEAR_BUF);
-          _reply.readException();
-        }
-        finally {
-          _reply.recycle();
-          _data.recycle();
-        }
-      }
-      /**
        * This function deletes all keys within a namespace. It mainly gets called when an app gets
        * removed and all resources of this app need to be cleaned up.
        * 
@@ -652,16 +595,15 @@ public interface IKeystoreMaintenance extends android.os.IInterface
     static final int TRANSACTION_initUserSuperKeys = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
     static final int TRANSACTION_onUserRemoved = (android.os.IBinder.FIRST_CALL_TRANSACTION + 2);
     static final int TRANSACTION_onUserLskfRemoved = (android.os.IBinder.FIRST_CALL_TRANSACTION + 3);
-    static final int TRANSACTION_onUserPasswordChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
-    static final int TRANSACTION_clearNamespace = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
-    static final int TRANSACTION_earlyBootEnded = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
-    static final int TRANSACTION_migrateKeyNamespace = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
-    static final int TRANSACTION_deleteAllKeys = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
-    static final int TRANSACTION_getAppUidsAffectedBySid = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
+    static final int TRANSACTION_clearNamespace = (android.os.IBinder.FIRST_CALL_TRANSACTION + 4);
+    static final int TRANSACTION_earlyBootEnded = (android.os.IBinder.FIRST_CALL_TRANSACTION + 5);
+    static final int TRANSACTION_migrateKeyNamespace = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
+    static final int TRANSACTION_deleteAllKeys = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
+    static final int TRANSACTION_getAppUidsAffectedBySid = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
     /** @hide */
     public int getMaxTransactionId()
     {
-      return 9;
+      return 8;
     }
   }
   /** @hide */
@@ -713,20 +655,6 @@ public interface IKeystoreMaintenance extends android.os.IInterface
    * @param userId - Android user id
    */
   public void onUserLskfRemoved(int userId) throws android.os.RemoteException;
-  /**
-   * Allows LockSettingsService to inform keystore about password change of a user.
-   * Callers require 'ChangePassword' permission.
-   * 
-   * ## Error conditions:
-   * `ResponseCode::PERMISSION_DENIED` - if the callers does not have the 'ChangePassword'
-   *                                     permission.
-   * `ResponseCode::SYSTEM_ERROR` - if failed to delete the super encrypted keys of the user.
-   * `ResponseCode::Locked' -  if the keystore is locked for the given user.
-   * 
-   * @param userId - Android user id
-   * @param password - a secret derived from the synthetic password of the user
-   */
-  public void onUserPasswordChanged(int userId, byte[] password) throws android.os.RemoteException;
   /**
    * This function deletes all keys within a namespace. It mainly gets called when an app gets
    * removed and all resources of this app need to be cleaned up.

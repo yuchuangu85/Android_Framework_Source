@@ -120,8 +120,8 @@ public class LocalizedNumberFormatter extends NumberFormatterSettings<LocalizedN
      * Disassociate the locale from this formatter.
      *
      * @return The fluent chain.
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
     public UnlocalizedNumberFormatter withoutLocale() {
         return new UnlocalizedNumberFormatter(this, KEY_LOCALE, null);
     }

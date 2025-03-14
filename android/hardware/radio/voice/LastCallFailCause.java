@@ -1,10 +1,15 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 78fb79bcb32590a868b3eb7affb39ab90e4ca782 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen/android/hardware/radio/voice/LastCallFailCause.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3/android/hardware/radio/voice/LastCallFailCause.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 576f05d082e9269bcf773b0c9b9112d507ab4b9a --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V4-java-source/gen/android/hardware/radio/voice/LastCallFailCause.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/4/android/hardware/radio/voice/LastCallFailCause.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.voice;
 /** @hide */
 public @interface LastCallFailCause {
+  public static final int INVALID = 0;
   public static final int UNOBTAINABLE_NUMBER = 1;
   public static final int NO_ROUTE_TO_DESTINATION = 3;
   public static final int CHANNEL_UNACCEPTABLE = 6;
@@ -75,15 +80,35 @@ public @interface LastCallFailCause {
   public static final int RADIO_RELEASE_ABNORMAL = 259;
   public static final int ACCESS_CLASS_BLOCKED = 260;
   public static final int NETWORK_DETACH = 261;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_LOCKED_UNTIL_POWER_CYCLE = 1000;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_DROP = 1001;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_INTERCEPT = 1002;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_REORDER = 1003;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_SO_REJECT = 1004;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_RETRY_ORDER = 1005;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_ACCESS_FAILURE = 1006;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_PREEMPTED = 1007;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_NOT_EMERGENCY = 1008;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_ACCESS_BLOCKED = 1009;
   public static final int OEM_CAUSE_1 = 61441;
   public static final int OEM_CAUSE_2 = 61442;
@@ -103,6 +128,7 @@ public @interface LastCallFailCause {
   public static final int ERROR_UNSPECIFIED = 65535;
   interface $ {
     static String toString(int _aidl_v) {
+      if (_aidl_v == INVALID) return "INVALID";
       if (_aidl_v == UNOBTAINABLE_NUMBER) return "UNOBTAINABLE_NUMBER";
       if (_aidl_v == NO_ROUTE_TO_DESTINATION) return "NO_ROUTE_TO_DESTINATION";
       if (_aidl_v == CHANNEL_UNACCEPTABLE) return "CHANNEL_UNACCEPTABLE";

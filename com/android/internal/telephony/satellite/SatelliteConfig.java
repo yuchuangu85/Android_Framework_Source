@@ -48,11 +48,14 @@ public class SatelliteConfig {
     private static final String TAG = "SatelliteConfig";
     private static final String SATELLITE_DIR_NAME = "satellite";
     private static final String S2_CELL_FILE_NAME = "s2_cell_file";
+    private static final String SATELLITE_ACCESS_CONFIG_JSON_FILE_NAME =
+            "satelltie_access_config.json";
     private int mVersion;
     private Map<Integer, Map<String, Set<Integer>>> mSupportedServicesPerCarrier;
     private List<String> mSatelliteRegionCountryCodes;
     private Boolean mIsSatelliteRegionAllowed;
     private File mSatS2File;
+    private File mSatelliteAccessConfigJsonFile;
     private SatelliteConfigData.SatelliteConfigProto mConfigData;
 
     public SatelliteConfig(SatelliteConfigData.SatelliteConfigProto configData) {
@@ -63,13 +66,16 @@ public class SatelliteConfig {
                 mConfigData.deviceSatelliteRegion.countryCodes);
         mIsSatelliteRegionAllowed = mConfigData.deviceSatelliteRegion.isAllowed;
         mSatS2File = null;
+        mSatelliteAccessConfigJsonFile = null;
 
         Log.d(TAG, "mVersion:" + mVersion + " | "
                 + "mSupportedServicesPerCarrier:" + mSupportedServicesPerCarrier + " | "
                 + "mSatelliteRegionCountryCodes:"
                 + String.join(",", mSatelliteRegionCountryCodes) + " | "
                 + "mIsSatelliteRegionAllowed:" + mIsSatelliteRegionAllowed + " | "
-                + " | s2CellFile size:" + mConfigData.deviceSatelliteRegion.s2CellFile.length);
+                + "s2CellFile size:" + mConfigData.deviceSatelliteRegion.s2CellFile.length  + " | "
+                + "satellite_access_config_json size:"
+                + mConfigData.deviceSatelliteRegion.satelliteAccessConfigFile.length);
     }
 
     /**
@@ -194,8 +200,8 @@ public class SatelliteConfig {
         }
 
         if (mConfigData != null && mConfigData.deviceSatelliteRegion != null) {
-            mSatS2File = copySatS2FileToPhoneDirectory(
-                    context, mConfigData.deviceSatelliteRegion.s2CellFile);
+            mSatS2File = copySatelliteFileToPhoneDirectory(
+                    context, mConfigData.deviceSatelliteRegion.s2CellFile, S2_CELL_FILE_NAME);
             return mSatS2File;
         }
         Log.d(TAG, "getSatelliteS2CellFile: "
@@ -204,38 +210,81 @@ public class SatelliteConfig {
     }
 
     /**
-     * @param context       the Context
-     * @param byteArrayFile byte array type of protobuffer config data
-     * @return the satellite_cell_file path
+     * @param context the Context
+     * @return satellite access config json path
      */
     @Nullable
-    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
-    public File copySatS2FileToPhoneDirectory(@Nullable Context context,
-            @Nullable byte[] byteArrayFile) {
-
-        if (context == null || byteArrayFile == null) {
-            Log.d(TAG, "copySatS2FileToPhoneDirectory : context or byteArrayFile are null");
+    public File getSatelliteAccessConfigJsonFile(@Nullable Context context) {
+        if (context == null) {
+            Log.d(TAG, "getSatelliteAccessConfigJsonFile : context is null");
             return null;
         }
 
-        File satS2FileDir = context.getDir(SATELLITE_DIR_NAME, Context.MODE_PRIVATE);
-        if (!satS2FileDir.exists()) {
-            satS2FileDir.mkdirs();
+        if (isFileExist(mSatelliteAccessConfigJsonFile)) {
+            Log.d(TAG, "File mSatelliteAccessConfigJsonFile is already exist");
+            return mSatelliteAccessConfigJsonFile;
         }
 
-        Path targetSatS2FilePath = satS2FileDir.toPath().resolve(S2_CELL_FILE_NAME);
+        if (mConfigData != null && mConfigData.deviceSatelliteRegion != null) {
+            mSatelliteAccessConfigJsonFile = copySatelliteFileToPhoneDirectory(context,
+                    mConfigData.deviceSatelliteRegion.satelliteAccessConfigFile,
+                    SATELLITE_ACCESS_CONFIG_JSON_FILE_NAME);
+            return mSatelliteAccessConfigJsonFile;
+        }
+        Log.d(TAG, "mSatelliteAccessConfigJsonFile: "
+                + "mConfigData is null or mConfigData.deviceSatelliteRegion is null");
+        return null;
+    }
+
+    /**
+     * Get the version of satellite config data
+     *
+     * @return version corresponding version number of satellite config data.
+     */
+    @NonNull
+    public int getSatelliteConfigDataVersion() {
+        Log.d(TAG, "getSatelliteConfigDataVersion: mVersion: " + mVersion);
+        return mVersion;
+    }
+
+    /**
+     * @param context       the Context
+     * @param byteArrayFile byte array type of protobuffer config data
+     * @return the path for satellite_file in phone process
+     */
+    @Nullable
+    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
+    public File copySatelliteFileToPhoneDirectory(@Nullable Context context,
+            @Nullable byte[] byteArrayFile, String fileName) {
+
+        if (context == null || byteArrayFile == null) {
+            Log.d(TAG, "copySatelliteFileToPhoneDirectory : context or byteArrayFile are null");
+            return null;
+        }
+
+        File satelliteFileDir = context.getDir(SATELLITE_DIR_NAME, Context.MODE_PRIVATE);
+        if (!satelliteFileDir.exists()) {
+            satelliteFileDir.mkdirs();
+        }
+
+        Path targetSatelliteFilePath = satelliteFileDir.toPath().resolve(fileName);
         try {
             InputStream inputStream = new ByteArrayInputStream(byteArrayFile);
             if (inputStream == null) {
-                Log.d(TAG, "copySatS2FileToPhoneDirectory: Resource=" + S2_CELL_FILE_NAME
+                Log.d(TAG, "copySatelliteFileToPhoneDirectory: Resource=" + fileName
                         + " not found");
             } else {
-                Files.copy(inputStream, targetSatS2FilePath, StandardCopyOption.REPLACE_EXISTING);
+                Files.copy(inputStream, targetSatelliteFilePath,
+                        StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException ex) {
-            Log.e(TAG, "copySatS2FileToPhoneDirectory: ex=" + ex);
+            Log.e(TAG, "copySatelliteFileToPhoneDirectory: ex=" + ex);
         }
-        return targetSatS2FilePath.toFile();
+        Log.d(
+                TAG,
+                "targetSatelliteFilePath's path: "
+                        + targetSatelliteFilePath.toAbsolutePath().toString());
+        return targetSatelliteFilePath.toFile();
     }
 
     /**

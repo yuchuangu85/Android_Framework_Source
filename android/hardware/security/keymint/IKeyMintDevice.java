@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 74a538630d5d90f732f361a2313cbb69b09eb047 -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/security/secureclock/aidl/android.hardware.security.secureclock_interface/1/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint-V3-java-source/gen/android/hardware/security/keymint/IKeyMintDevice.java.d -o out/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint-V3-java-source/gen -Nhardware/interfaces/security/keymint/aidl/aidl_api/android.hardware.security.keymint/3 hardware/interfaces/security/keymint/aidl/aidl_api/android.hardware.security.keymint/3/android/hardware/security/keymint/IKeyMintDevice.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash a05c8079586139db45b0762a528cdd9745ad15ce -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/security/secureclock/aidl/android.hardware.security.secureclock_interface/1/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint-V4-java-source/gen/android/hardware/security/keymint/IKeyMintDevice.java.d -o out/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint-V4-java-source/gen -Nhardware/interfaces/security/keymint/aidl/aidl_api/android.hardware.security.keymint/4 hardware/interfaces/security/keymint/aidl/aidl_api/android.hardware.security.keymint/4/android/hardware/security/keymint/IKeyMintDevice.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.security.keymint;
 /** @hide */
@@ -12,8 +16,8 @@ public interface IKeyMintDevice extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "74a538630d5d90f732f361a2313cbb69b09eb047";
+  public static final int VERSION = 4;
+  public static final String HASH = "a05c8079586139db45b0762a528cdd9745ad15ce";
   /** Default implementation for IKeyMintDevice. */
   public static class Default implements android.hardware.security.keymint.IKeyMintDevice
   {
@@ -53,6 +57,7 @@ public interface IKeyMintDevice extends android.os.IInterface
     {
       return null;
     }
+    /** @deprecated Method has never been used due to design limitations */
     @Override public void deviceLocked(boolean passwordOnly, android.hardware.security.secureclock.TimeStampToken timestampToken) throws android.os.RemoteException
     {
     }
@@ -78,6 +83,9 @@ public interface IKeyMintDevice extends android.os.IInterface
     @Override public void sendRootOfTrust(byte[] rootOfTrust) throws android.os.RemoteException
     {
     }
+    @Override public void setAdditionalAttestationInfo(android.hardware.security.keymint.KeyParameter[] info) throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -94,7 +102,7 @@ public interface IKeyMintDevice extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.security.keymint.IKeyMintDevice
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -192,6 +200,10 @@ public interface IKeyMintDevice extends android.os.IInterface
         case TRANSACTION_sendRootOfTrust:
         {
           return "sendRootOfTrust";
+        }
+        case TRANSACTION_setAdditionalAttestationInfo:
+        {
+          return "setAdditionalAttestationInfo";
         }
         case TRANSACTION_getInterfaceVersion:
         {
@@ -411,6 +423,15 @@ public interface IKeyMintDevice extends android.os.IInterface
           _arg0 = data.createByteArray();
           data.enforceNoDataAvail();
           this.sendRootOfTrust(_arg0);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_setAdditionalAttestationInfo:
+        {
+          android.hardware.security.keymint.KeyParameter[] _arg0;
+          _arg0 = data.createTypedArray(android.hardware.security.keymint.KeyParameter.CREATOR);
+          data.enforceNoDataAvail();
+          this.setAdditionalAttestationInfo(_arg0);
           reply.writeNoException();
           break;
         }
@@ -656,6 +677,7 @@ public interface IKeyMintDevice extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated Method has never been used due to design limitations */
       @Override public void deviceLocked(boolean passwordOnly, android.hardware.security.secureclock.TimeStampToken timestampToken) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -802,6 +824,25 @@ public interface IKeyMintDevice extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void setAdditionalAttestationInfo(android.hardware.security.keymint.KeyParameter[] info) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        _data.markSensitive();
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedArray(info, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setAdditionalAttestationInfo, _data, _reply, android.os.IBinder.FLAG_CLEAR_BUF);
+          if (!_status) {
+            throw new android.os.RemoteException("Method setAdditionalAttestationInfo is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -854,6 +895,7 @@ public interface IKeyMintDevice extends android.os.IInterface
     static final int TRANSACTION_getRootOfTrustChallenge = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
     static final int TRANSACTION_getRootOfTrust = (android.os.IBinder.FIRST_CALL_TRANSACTION + 15);
     static final int TRANSACTION_sendRootOfTrust = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
+    static final int TRANSACTION_setAdditionalAttestationInfo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
     /** @hide */
@@ -875,6 +917,8 @@ public interface IKeyMintDevice extends android.os.IInterface
   public void deleteAllKeys() throws android.os.RemoteException;
   public void destroyAttestationIds() throws android.os.RemoteException;
   public android.hardware.security.keymint.BeginResult begin(int purpose, byte[] keyBlob, android.hardware.security.keymint.KeyParameter[] params, android.hardware.security.keymint.HardwareAuthToken authToken) throws android.os.RemoteException;
+  /** @deprecated Method has never been used due to design limitations */
+  @Deprecated
   public void deviceLocked(boolean passwordOnly, android.hardware.security.secureclock.TimeStampToken timestampToken) throws android.os.RemoteException;
   public void earlyBootEnded() throws android.os.RemoteException;
   public byte[] convertStorageKeyToEphemeral(byte[] storageKeyBlob) throws android.os.RemoteException;
@@ -882,6 +926,7 @@ public interface IKeyMintDevice extends android.os.IInterface
   public byte[] getRootOfTrustChallenge() throws android.os.RemoteException;
   public byte[] getRootOfTrust(byte[] challenge) throws android.os.RemoteException;
   public void sendRootOfTrust(byte[] rootOfTrust) throws android.os.RemoteException;
+  public void setAdditionalAttestationInfo(android.hardware.security.keymint.KeyParameter[] info) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

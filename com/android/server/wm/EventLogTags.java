@@ -76,6 +76,12 @@ public class EventLogTags {
   /** 31003 wm_task_removed (TaskId|1|5),(Root Task ID|1|5),(Display Id|1|5),(Reason|3) */
   public static final int WM_TASK_REMOVED = 31003;
 
+  /** 31004 wm_tf_created (Token|1|5),(TaskId|1|5) */
+  public static final int WM_TF_CREATED = 31004;
+
+  /** 31005 wm_tf_removed (Token|1|5),(TaskId|1|5) */
+  public static final int WM_TF_REMOVED = 31005;
+
   /** 31006 wm_set_requested_orientation (Orientation|1|5),(Component Name|3) */
   public static final int WM_SET_REQUESTED_ORIENTATION = 31006;
 
@@ -102,6 +108,24 @@ public class EventLogTags {
 
   /** 38000 wm_enter_pip (User|1|5),(Token|1|5),(Component Name|3),(is Auto Enter|3) */
   public static final int WM_ENTER_PIP = 38000;
+
+  /** 38200 wm_dim_created (Host|3),(Surface|1) */
+  public static final int WM_DIM_CREATED = 38200;
+
+  /** 38201 wm_dim_exit (Surface|1),(dimmingWindow|3),(hostIsVisible|1),(removeImmediately|1) */
+  public static final int WM_DIM_EXIT = 38201;
+
+  /** 38202 wm_dim_animate (Surface|1, (toAlpha|5), (toBlur|5)) */
+  public static final int WM_DIM_ANIMATE = 38202;
+
+  /** 38203 wm_dim_cancel_anim (Surface|1),(reason|3) */
+  public static final int WM_DIM_CANCEL_ANIM = 38203;
+
+  /** 38204 wm_dim_finish_anim (Surface|1) */
+  public static final int WM_DIM_FINISH_ANIM = 38204;
+
+  /** 38205 wm_dim_removed (Surface|1) */
+  public static final int WM_DIM_REMOVED = 38205;
 
   public static void writeWmFinishActivity(int user, int token, int taskId, String componentName, String reason) {
     android.util.EventLog.writeEvent(WM_FINISH_ACTIVITY, user, token, taskId, componentName, reason);
@@ -191,6 +215,14 @@ public class EventLogTags {
     android.util.EventLog.writeEvent(WM_TASK_REMOVED, taskid, rootTaskId, displayId, reason);
   }
 
+  public static void writeWmTfCreated(int token, int taskid) {
+    android.util.EventLog.writeEvent(WM_TF_CREATED, token, taskid);
+  }
+
+  public static void writeWmTfRemoved(int token, int taskid) {
+    android.util.EventLog.writeEvent(WM_TF_REMOVED, token, taskid);
+  }
+
   public static void writeWmSetRequestedOrientation(int orientation, String componentName) {
     android.util.EventLog.writeEvent(WM_SET_REQUESTED_ORIENTATION, orientation, componentName);
   }
@@ -225,5 +257,29 @@ public class EventLogTags {
 
   public static void writeWmEnterPip(int user, int token, String componentName, String isAutoEnter) {
     android.util.EventLog.writeEvent(WM_ENTER_PIP, user, token, componentName, isAutoEnter);
+  }
+
+  public static void writeWmDimCreated(String host, int surface) {
+    android.util.EventLog.writeEvent(WM_DIM_CREATED, host, surface);
+  }
+
+  public static void writeWmDimExit(int surface, String dimmingwindow, int hostisvisible, int removeimmediately) {
+    android.util.EventLog.writeEvent(WM_DIM_EXIT, surface, dimmingwindow, hostisvisible, removeimmediately);
+  }
+
+  public static void writeWmDimAnimate(int surface, float toalpha, float toblur) {
+    android.util.EventLog.writeEvent(WM_DIM_ANIMATE, surface, toalpha, toblur);
+  }
+
+  public static void writeWmDimCancelAnim(int surface, String reason) {
+    android.util.EventLog.writeEvent(WM_DIM_CANCEL_ANIM, surface, reason);
+  }
+
+  public static void writeWmDimFinishAnim(int surface) {
+    android.util.EventLog.writeEvent(WM_DIM_FINISH_ANIM, surface);
+  }
+
+  public static void writeWmDimRemoved(int surface) {
+    android.util.EventLog.writeEvent(WM_DIM_REMOVED, surface);
   }
 }

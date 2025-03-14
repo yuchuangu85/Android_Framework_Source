@@ -26,6 +26,8 @@ import static com.android.org.conscrypt.SSLUtils.EngineStates.STATE_READY_HANDSH
 
 import com.android.org.conscrypt.ExternalSession.Provider;
 import com.android.org.conscrypt.NativeRef.SSL_SESSION;
+import com.android.org.conscrypt.metrics.StatsLog;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -39,6 +41,7 @@ import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.ECKey;
 import java.security.spec.ECParameterSpec;
+
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
@@ -1061,7 +1064,7 @@ class ConscryptFileDescriptorSocket extends OpenSSLSocketImpl
     }
 
     @Override
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("Finalize")
     protected final void finalize() throws Throwable {
         try {
             /*
@@ -1199,9 +1202,12 @@ class ConscryptFileDescriptorSocket extends OpenSSLSocketImpl
 
             case STATE_READY:
                 if (handshakeStartedMillis != 0) {
-                    Platform.countTlsHandshake(true, activeSession.getProtocol(),
-                            activeSession.getCipherSuite(),
-                            Platform.getMillisSinceBoot() - handshakeStartedMillis);
+                    StatsLog statsLog = Platform.getStatsLog();
+                    if (statsLog != null) {
+                        statsLog.countTlsHandshake(true, activeSession.getProtocol(),
+                                activeSession.getCipherSuite(),
+                                Platform.getMillisSinceBoot() - handshakeStartedMillis);
+                    }
                     handshakeStartedMillis = 0;
                 }
                 break;
@@ -1209,8 +1215,11 @@ class ConscryptFileDescriptorSocket extends OpenSSLSocketImpl
             case STATE_CLOSED: {
                 if (handshakeStartedMillis != 0) {
                     // Handshake was in progress so must have failed.
-                    Platform.countTlsHandshake(false, "TLS_PROTO_FAILED", "TLS_CIPHER_FAILED",
-                            Platform.getMillisSinceBoot() - handshakeStartedMillis);
+                    StatsLog statsLog = Platform.getStatsLog();
+                    if (statsLog != null) {
+                        statsLog.countTlsHandshake(false, "TLS_PROTO_FAILED", "TLS_CIPHER_FAILED",
+                                Platform.getMillisSinceBoot() - handshakeStartedMillis);
+                    }
                     handshakeStartedMillis = 0;
                 }
                 if (!ssl.isClosed() && state >= STATE_HANDSHAKE_STARTED && state < STATE_CLOSED) {

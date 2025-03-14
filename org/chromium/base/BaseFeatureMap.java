@@ -1,4 +1,4 @@
-// Copyright 2023 The Chromium Authors
+// Copyright 2024 The Chromium Authors
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -7,16 +7,15 @@ package org.chromium.base;
 import org.jni_zero.JNINamespace;
 import org.jni_zero.NativeMethods;
 
-/** Java accessor for base::Features listed in {@link BaseFeatures} */
 @JNINamespace("base::android")
-public final class BaseFeatureMap extends FeatureMap {
+public class BaseFeatureMap extends FeatureMap {
     private static final BaseFeatureMap sInstance = new BaseFeatureMap();
 
     // Do not instantiate this class.
     private BaseFeatureMap() {}
 
     /**
-     * @return the singleton DeviceFeatureMap.
+     * @return the singleton UiAndroidFeatureMap.
      */
     public static BaseFeatureMap getInstance() {
         return sInstance;

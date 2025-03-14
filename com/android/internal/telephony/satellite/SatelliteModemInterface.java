@@ -32,16 +32,20 @@ import android.os.RegistrantList;
 import android.os.RemoteException;
 import android.telephony.IBooleanConsumer;
 import android.telephony.IIntegerConsumer;
+import android.telephony.PersistentLogger;
 import android.telephony.Rlog;
 import android.telephony.satellite.NtnSignalStrength;
 import android.telephony.satellite.SatelliteCapabilities;
 import android.telephony.satellite.SatelliteDatagram;
 import android.telephony.satellite.SatelliteManager;
 import android.telephony.satellite.SatelliteManager.SatelliteException;
+import android.telephony.satellite.SatelliteModemEnableRequestAttributes;
+import android.telephony.satellite.SystemSelectionSpecifier;
 import android.telephony.satellite.stub.INtnSignalStrengthConsumer;
 import android.telephony.satellite.stub.ISatellite;
 import android.telephony.satellite.stub.ISatelliteCapabilitiesConsumer;
 import android.telephony.satellite.stub.ISatelliteListener;
+import android.telephony.satellite.stub.SatelliteModemState;
 import android.telephony.satellite.stub.SatelliteService;
 import android.text.TextUtils;
 import android.util.Pair;
@@ -49,6 +53,7 @@ import android.util.Pair;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.ExponentialBackoff;
+import com.android.internal.telephony.flags.FeatureFlags;
 
 import java.util.Arrays;
 import java.util.List;
@@ -64,6 +69,9 @@ public class SatelliteModemInterface {
 
     @NonNull private static SatelliteModemInterface sInstance;
     @NonNull private final Context mContext;
+    @NonNull private final DemoSimulator mDemoSimulator;
+    @NonNull private final SatelliteListener mVendorListener;
+    @NonNull private final SatelliteListener mDemoListener;
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     @NonNull protected final ExponentialBackoff mExponentialBackoff;
     @NonNull private final Object mLock = new Object();
@@ -77,9 +85,8 @@ public class SatelliteModemInterface {
     @NonNull private String mVendorSatellitePackageName = "";
     private boolean mIsBound;
     private boolean mIsBinding;
+    @Nullable private PersistentLogger mPersistentLogger = null;
 
-    @NonNull private final RegistrantList mSatelliteProvisionStateChangedRegistrants =
-            new RegistrantList();
     @NonNull private final RegistrantList mSatellitePositionInfoChangedRegistrants =
             new RegistrantList();
     @NonNull private final RegistrantList mDatagramTransferStateChangedRegistrants =
@@ -95,25 +102,35 @@ public class SatelliteModemInterface {
             new RegistrantList();
     @NonNull private final RegistrantList mSatelliteSupportedStateChangedRegistrants =
             new RegistrantList();
+    @NonNull private final RegistrantList mSatelliteRegistrationFailureRegistrants =
+            new RegistrantList();
+    @NonNull private final RegistrantList mTerrestrialNetworkAvailableChangedRegistrants =
+            new RegistrantList();
 
-    @NonNull private final ISatelliteListener mListener = new ISatelliteListener.Stub() {
-        @Override
-        public void onSatelliteProvisionStateChanged(boolean provisioned) {
-            mSatelliteProvisionStateChangedRegistrants.notifyResult(provisioned);
+    private class SatelliteListener extends ISatelliteListener.Stub {
+
+        private final boolean mIsDemoListener;
+
+        SatelliteListener(boolean isDemoListener) {
+            mIsDemoListener = isDemoListener;
         }
 
         @Override
         public void onSatelliteDatagramReceived(
                 android.telephony.satellite.stub.SatelliteDatagram datagram, int pendingCount) {
-            logd("onSatelliteDatagramReceived: pendingCount=" + pendingCount);
-            mSatelliteDatagramsReceivedRegistrants.notifyResult(new Pair<>(
-                    SatelliteServiceUtils.fromSatelliteDatagram(datagram), pendingCount));
+            if (notifyResultIfExpectedListener()) {
+                plogd("onSatelliteDatagramReceived: pendingCount=" + pendingCount);
+                mSatelliteDatagramsReceivedRegistrants.notifyResult(new Pair<>(
+                        SatelliteServiceUtils.fromSatelliteDatagram(datagram), pendingCount));
+            }
         }
 
         @Override
         public void onPendingDatagrams() {
-            logd("onPendingDatagrams");
-            mPendingDatagramsRegistrants.notifyResult(null);
+            if (notifyResultIfExpectedListener()) {
+                plogd("onPendingDatagrams");
+                mPendingDatagramsRegistrants.notifyResult(null);
+            }
         }
 
         @Override
@@ -125,33 +142,39 @@ public class SatelliteModemInterface {
 
         @Override
         public void onSatelliteModemStateChanged(int state) {
-            mSatelliteModemStateChangedRegistrants.notifyResult(
-                    SatelliteServiceUtils.fromSatelliteModemState(state));
-            int datagramTransferState = SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_UNKNOWN;
-            switch (state) {
-                case SatelliteManager.SATELLITE_MODEM_STATE_IDLE:
-                    datagramTransferState = SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE;
-                    break;
-                case SatelliteManager.SATELLITE_MODEM_STATE_LISTENING:
-                    datagramTransferState =
-                            SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVING;
-                    break;
-                case SatelliteManager.SATELLITE_MODEM_STATE_DATAGRAM_TRANSFERRING:
-                    datagramTransferState =
-                            SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SENDING;
-                    break;
-                case SatelliteManager.SATELLITE_MODEM_STATE_DATAGRAM_RETRYING:
-                    // keep previous state as this could be retrying sending or receiving
-                    break;
+            if (notifyModemStateChanged(state)) {
+                mSatelliteModemStateChangedRegistrants.notifyResult(
+                        SatelliteServiceUtils.fromSatelliteModemState(state));
+                int datagramTransferState =
+                        SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_UNKNOWN;
+                switch (state) {
+                    case SatelliteManager.SATELLITE_MODEM_STATE_IDLE:
+                        datagramTransferState =
+                                SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_IDLE;
+                        break;
+                    case SatelliteManager.SATELLITE_MODEM_STATE_LISTENING:
+                        datagramTransferState =
+                                SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_RECEIVING;
+                        break;
+                    case SatelliteManager.SATELLITE_MODEM_STATE_DATAGRAM_TRANSFERRING:
+                        datagramTransferState =
+                                SatelliteManager.SATELLITE_DATAGRAM_TRANSFER_STATE_SENDING;
+                        break;
+                    case SatelliteManager.SATELLITE_MODEM_STATE_DATAGRAM_RETRYING:
+                        // keep previous state as this could be retrying sending or receiving
+                        break;
+                }
+                mDatagramTransferStateChangedRegistrants.notifyResult(datagramTransferState);
             }
-            mDatagramTransferStateChangedRegistrants.notifyResult(datagramTransferState);
         }
 
         @Override
         public void onNtnSignalStrengthChanged(
                 android.telephony.satellite.stub.NtnSignalStrength ntnSignalStrength) {
-            mNtnSignalStrengthChangedRegistrants.notifyResult(
-                    SatelliteServiceUtils.fromNtnSignalStrength(ntnSignalStrength));
+            if (notifyResultIfExpectedListener()) {
+                mNtnSignalStrengthChangedRegistrants.notifyResult(
+                        SatelliteServiceUtils.fromNtnSignalStrength(ntnSignalStrength));
+            }
         }
 
         @Override
@@ -165,7 +188,32 @@ public class SatelliteModemInterface {
         public void onSatelliteSupportedStateChanged(boolean supported) {
             mSatelliteSupportedStateChangedRegistrants.notifyResult(supported);
         }
-    };
+
+        @Override
+        public void onRegistrationFailure(int causeCode) {
+            mSatelliteRegistrationFailureRegistrants.notifyResult(causeCode);
+        }
+
+        @Override
+        public void onTerrestrialNetworkAvailableChanged(boolean isAvailable) {
+            mTerrestrialNetworkAvailableChangedRegistrants.notifyResult(isAvailable);
+        }
+
+        private boolean notifyResultIfExpectedListener() {
+            // Demo listener should notify results only during demo mode
+            // Vendor listener should notify result only during real mode
+            return mIsDemoListener == mSatelliteController.isDemoModeEnabled();
+        }
+
+        private boolean notifyModemStateChanged(int state) {
+            if (notifyResultIfExpectedListener()) {
+                return true;
+            }
+
+            return state == SatelliteModemState.SATELLITE_MODEM_STATE_OFF
+                    || state == SatelliteModemState.SATELLITE_MODEM_STATE_UNAVAILABLE;
+        }
+    }
 
     /**
      * @return The singleton instance of SatelliteModemInterface.
@@ -181,13 +229,15 @@ public class SatelliteModemInterface {
      * Create the SatelliteModemInterface singleton instance.
      * @param context The Context to use to create the SatelliteModemInterface.
      * @param satelliteController The singleton instance of SatelliteController.
+     * @param featureFlags The telephony feature flags.
      * @return The singleton instance of SatelliteModemInterface.
      */
     public static SatelliteModemInterface make(@NonNull Context context,
-            SatelliteController satelliteController) {
+            SatelliteController satelliteController,
+            @NonNull FeatureFlags featureFlags) {
         if (sInstance == null) {
             sInstance = new SatelliteModemInterface(
-                    context, satelliteController, Looper.getMainLooper());
+                    context, satelliteController, Looper.getMainLooper(), featureFlags);
         }
         return sInstance;
     }
@@ -196,12 +246,19 @@ public class SatelliteModemInterface {
      * Create a SatelliteModemInterface to manage connections to the SatelliteService.
      *
      * @param context The Context for the SatelliteModemInterface.
+     * @param featureFlags The telephony feature flags.
      * @param looper The Looper to run binding retry on.
      */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected SatelliteModemInterface(@NonNull Context context,
-            SatelliteController satelliteController, @NonNull Looper looper) {
+            SatelliteController satelliteController,
+            @NonNull Looper looper,
+            @NonNull FeatureFlags featureFlags) {
+        mPersistentLogger = SatelliteServiceUtils.getPersistentLogger(context);
         mContext = context;
+        mDemoSimulator = DemoSimulator.make(context, satelliteController);
+        mVendorListener = new SatelliteListener(false);
+        mDemoListener = new SatelliteListener(true);
         mIsSatelliteServiceSupported = getSatelliteServiceSupport();
         mSatelliteController = satelliteController;
         mExponentialBackoff = new ExponentialBackoff(REBIND_INITIAL_DELAY, REBIND_MAXIMUM_DELAY,
@@ -221,7 +278,7 @@ public class SatelliteModemInterface {
             bindService();
         });
         mExponentialBackoff.start();
-        logd("Created SatelliteModemInterface. Attempting to bind to SatelliteService.");
+        plogd("Created SatelliteModemInterface. Attempting to bind to SatelliteService.");
         bindService();
     }
 
@@ -254,7 +311,7 @@ public class SatelliteModemInterface {
         }
         String packageName = getSatellitePackageName();
         if (TextUtils.isEmpty(packageName)) {
-            loge("Unable to bind to the satellite service because the package is undefined.");
+            ploge("Unable to bind to the satellite service because the package is undefined.");
             // Since the package name comes from static device configs, stop retry because
             // rebind will continue to fail without a valid package name.
             synchronized (mLock) {
@@ -267,18 +324,18 @@ public class SatelliteModemInterface {
         intent.setPackage(packageName);
 
         mSatelliteServiceConnection = new SatelliteServiceConnection();
-        logd("Binding to " + packageName);
+        plogd("Binding to " + packageName);
         try {
             boolean success = mContext.bindService(
                     intent, mSatelliteServiceConnection, Context.BIND_AUTO_CREATE);
             if (success) {
-                logd("Successfully bound to the satellite service.");
+                plogd("Successfully bound to the satellite service.");
             } else {
                 synchronized (mLock) {
                     mIsBinding = false;
                 }
                 mExponentialBackoff.notifyFailed();
-                loge("Error binding to the satellite service. Retrying in "
+                ploge("Error binding to the satellite service. Retrying in "
                         + mExponentialBackoff.getCurrentDelay() + " ms.");
             }
         } catch (Exception e) {
@@ -286,7 +343,7 @@ public class SatelliteModemInterface {
                 mIsBinding = false;
             }
             mExponentialBackoff.notifyFailed();
-            loge("Exception binding to the satellite service. Retrying in "
+            ploge("Exception binding to the satellite service. Retrying in "
                     + mExponentialBackoff.getCurrentDelay() + " ms. Exception: " + e);
         }
     }
@@ -306,7 +363,7 @@ public class SatelliteModemInterface {
     private class SatelliteServiceConnection implements ServiceConnection {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            logd("onServiceConnected: ComponentName=" + name);
+            plogd("onServiceConnected: ComponentName=" + name);
             synchronized (mLock) {
                 mIsBound = true;
                 mIsBinding = false;
@@ -314,17 +371,18 @@ public class SatelliteModemInterface {
             mSatelliteService = ISatellite.Stub.asInterface(service);
             mExponentialBackoff.stop();
             try {
-                mSatelliteService.setSatelliteListener(mListener);
+                mSatelliteService.setSatelliteListener(mVendorListener);
+                mDemoSimulator.setSatelliteListener(mDemoListener);
             } catch (RemoteException e) {
                 // TODO: Retry setSatelliteListener
-                logd("setSatelliteListener: RemoteException " + e);
+                plogd("setSatelliteListener: RemoteException " + e);
             }
             mSatelliteController.onSatelliteServiceConnected();
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            loge("onServiceDisconnected: Waiting for reconnect.");
+            ploge("onServiceDisconnected: Waiting for reconnect.");
             synchronized (mLock) {
                 mIsBinding = false;
             }
@@ -334,7 +392,7 @@ public class SatelliteModemInterface {
 
         @Override
         public void onBindingDied(ComponentName name) {
-            loge("onBindingDied: Unbinding and rebinding service.");
+            ploge("onBindingDied: Unbinding and rebinding service.");
             synchronized (mLock) {
                 mIsBound = false;
                 mIsBinding = false;
@@ -342,27 +400,6 @@ public class SatelliteModemInterface {
             unbindService();
             mExponentialBackoff.start();
         }
-    }
-
-    /**
-     * Registers for the satellite provision state changed.
-     *
-     * @param h Handler for notification message.
-     * @param what User-defined message code.
-     * @param obj User object.
-     */
-    public void registerForSatelliteProvisionStateChanged(
-            @NonNull Handler h, int what, @Nullable Object obj) {
-        mSatelliteProvisionStateChangedRegistrants.add(h, what, obj);
-    }
-
-    /**
-     * Unregisters for the satellite provision state changed.
-     *
-     * @param h Handler to be removed from the registrant list.
-     */
-    public void unregisterForSatelliteProvisionStateChanged(@NonNull Handler h) {
-        mSatelliteProvisionStateChangedRegistrants.remove(h);
     }
 
     /**
@@ -533,6 +570,48 @@ public class SatelliteModemInterface {
     }
 
     /**
+     * Registers for the satellite registration failed.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    public void registerForSatelliteRegistrationFailure(
+            @NonNull Handler h, int what, @Nullable Object obj) {
+        mSatelliteRegistrationFailureRegistrants.add(h, what, obj);
+    }
+
+    /**
+     * Unregisters for the satellite registration failed.
+     *
+     * @param h Handler to be removed from the registrant list.
+     */
+    public void unregisterForSatelliteRegistrationFailure(@NonNull Handler h) {
+        mSatelliteRegistrationFailureRegistrants.remove(h);
+    }
+
+    /**
+     * Registers for the terrestrial network available changed.
+     *
+     * @param h Handler for notification message.
+     * @param what User-defined message code.
+     * @param obj User object.
+     */
+    public void registerForTerrestrialNetworkAvailableChanged(
+            @NonNull Handler h, int what, @Nullable Object obj) {
+        mTerrestrialNetworkAvailableChangedRegistrants.add(h, what, obj);
+    }
+
+    /**
+     * Unregisters for the terrestrial network available changed.
+     *
+     * @param h Handler to be removed from the registrant list.
+     */
+    public void unregisterForTerrestrialNetworkAvailableChanged(@NonNull Handler h) {
+        mTerrestrialNetworkAvailableChangedRegistrants.remove(h);
+    }
+
+    /**
      * Request to enable or disable the satellite service listening mode.
      * Listening mode allows the satellite service to listen for incoming pages.
      *
@@ -550,7 +629,7 @@ public class SatelliteModemInterface {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("requestSatelliteListeningEnabled: " + error);
+                                plogd("requestSatelliteListeningEnabled: " + error);
                                 Binder.withCleanCallingIdentity(() -> {
                                     if (message != null) {
                                         sendMessageWithResult(message, null, error);
@@ -559,14 +638,14 @@ public class SatelliteModemInterface {
                             }
                         });
             } catch (RemoteException e) {
-                loge("requestSatelliteListeningEnabled: RemoteException " + e);
+                ploge("requestSatelliteListeningEnabled: RemoteException " + e);
                 if (message != null) {
                     sendMessageWithResult(
                             message, null, SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
                 }
             }
         } else {
-            loge("requestSatelliteListeningEnabled: Satellite service is unavailable.");
+            ploge("requestSatelliteListeningEnabled: Satellite service is unavailable.");
             if (message != null) {
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
@@ -584,28 +663,35 @@ public class SatelliteModemInterface {
             @Nullable Message message) {
         if (mSatelliteService != null) {
             try {
-                mSatelliteService.enableCellularModemWhileSatelliteModeIsOn(enabled,
-                        new IIntegerConsumer.Stub() {
-                            @Override
-                            public void accept(int result) {
-                                int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("enableCellularModemWhileSatelliteModeIsOn: " + error);
-                                Binder.withCleanCallingIdentity(() -> {
-                                        if (message != null) {
-                                            sendMessageWithResult(message, null, error);
-                                        }
-                                });
+                IIntegerConsumer errorCallback = new IIntegerConsumer.Stub() {
+                    @Override
+                    public void accept(int result) {
+                        int error = SatelliteServiceUtils.fromSatelliteError(result);
+                        plogd("enableCellularModemWhileSatelliteModeIsOn: " + error);
+                        Binder.withCleanCallingIdentity(() -> {
+                            if (message != null) {
+                                sendMessageWithResult(message, null, error);
                             }
                         });
+                    }
+                };
+
+                if (mSatelliteController.isDemoModeEnabled()) {
+                    mDemoSimulator.enableTerrestrialNetworkScanWhileSatelliteModeIsOn(
+                            enabled, errorCallback);
+                } else {
+                    mSatelliteService.enableTerrestrialNetworkScanWhileSatelliteModeIsOn(
+                            enabled, errorCallback);
+                }
             } catch (RemoteException e) {
-                loge("enableCellularModemWhileSatelliteModeIsOn: RemoteException " + e);
+                ploge("enableTerrestrialNetworkScanWhileSatelliteModeIsOn: RemoteException " + e);
                 if (message != null) {
                     sendMessageWithResult(
                             message, null, SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
                 }
             }
         } else {
-            loge("enableCellularModemWhileSatelliteModeIsOn: Satellite service is unavailable.");
+            ploge("enableCellularModemWhileSatelliteModeIsOn: Satellite service is unavailable.");
             if (message != null) {
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
@@ -617,32 +703,31 @@ public class SatelliteModemInterface {
      * is enabled, this may also disable the cellular modem, and if the satellite modem is disabled,
      * this may also re-enable the cellular modem.
      *
-     * @param enableSatellite True to enable the satellite modem and false to disable.
-     * @param enableDemoMode True to enable demo mode and false to disable.
-     * @param isEmergency {@code true} to enable emergency mode, {@code false} otherwise.
+     * @param enableAttributes info needed to allow carrier to roam to satellite.
      * @param message The Message to send to result of the operation to.
      */
-    public void requestSatelliteEnabled(boolean enableSatellite, boolean enableDemoMode,
-            boolean isEmergency, @NonNull Message message) {
+    public void requestSatelliteEnabled(SatelliteModemEnableRequestAttributes enableAttributes,
+            @NonNull Message message) {
         if (mSatelliteService != null) {
             try {
-                mSatelliteService.requestSatelliteEnabled(enableSatellite, enableDemoMode,
-                        isEmergency, new IIntegerConsumer.Stub() {
+                mSatelliteService.requestSatelliteEnabled(SatelliteServiceUtils
+                        .toSatelliteModemEnableRequestAttributes(enableAttributes),
+                        new IIntegerConsumer.Stub() {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("setSatelliteEnabled: " + error);
+                                plogd("setSatelliteEnabled: " + error);
                                 Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 });
             } catch (RemoteException e) {
-                loge("setSatelliteEnabled: RemoteException " + e);
+                ploge("setSatelliteEnabled: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("setSatelliteEnabled: Satellite service is unavailable.");
+            ploge("setSatelliteEnabled: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -660,7 +745,7 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("requestIsSatelliteEnabled: " + error);
+                        plogd("requestIsSatelliteEnabled: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
@@ -670,18 +755,18 @@ public class SatelliteModemInterface {
                         // Convert for compatibility with SatelliteResponse
                         // TODO: This should just report result instead.
                         int[] enabled = new int[] {result ? 1 : 0};
-                        logd("requestIsSatelliteEnabled: " + Arrays.toString(enabled));
+                        plogd("requestIsSatelliteEnabled: " + Arrays.toString(enabled));
                         Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
                                 message, enabled, SatelliteManager.SATELLITE_RESULT_SUCCESS));
                     }
                 });
             } catch (RemoteException e) {
-                loge("requestIsSatelliteEnabled: RemoteException " + e);
+                ploge("requestIsSatelliteEnabled: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestIsSatelliteEnabled: Satellite service is unavailable.");
+            ploge("requestIsSatelliteEnabled: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -699,25 +784,25 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("requestIsSatelliteSupported: " + error);
+                        plogd("requestIsSatelliteSupported: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 }, new IBooleanConsumer.Stub() {
                     @Override
                     public void accept(boolean result) {
-                        logd("requestIsSatelliteSupported: " + result);
+                        plogd("requestIsSatelliteSupported: " + result);
                         Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
                                 message, result, SatelliteManager.SATELLITE_RESULT_SUCCESS));
                     }
                 });
             } catch (RemoteException e) {
-                loge("requestIsSatelliteSupported: RemoteException " + e);
+                ploge("requestIsSatelliteSupported: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestIsSatelliteSupported: Satellite service is unavailable.");
+            ploge("requestIsSatelliteSupported: Satellite service is unavailable.");
             sendMessageWithResult(
                     message, null, SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -735,7 +820,7 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("requestSatelliteCapabilities: " + error);
+                        plogd("requestSatelliteCapabilities: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
@@ -745,18 +830,18 @@ public class SatelliteModemInterface {
                             result) {
                         SatelliteCapabilities capabilities =
                                 SatelliteServiceUtils.fromSatelliteCapabilities(result);
-                        logd("requestSatelliteCapabilities: " + capabilities);
+                        plogd("requestSatelliteCapabilities: " + capabilities);
                         Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
                                 message, capabilities, SatelliteManager.SATELLITE_RESULT_SUCCESS));
                     }
                 });
             } catch (RemoteException e) {
-                loge("requestSatelliteCapabilities: RemoteException " + e);
+                ploge("requestSatelliteCapabilities: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestSatelliteCapabilities: Satellite service is unavailable.");
+            ploge("requestSatelliteCapabilities: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -776,18 +861,18 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("startSendingSatellitePointingInfo: " + error);
+                        plogd("startSendingSatellitePointingInfo: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 });
             } catch (RemoteException e) {
-                loge("startSendingSatellitePointingInfo: RemoteException " + e);
+                ploge("startSendingSatellitePointingInfo: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("startSendingSatellitePointingInfo: Satellite service is unavailable.");
+            ploge("startSendingSatellitePointingInfo: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -806,125 +891,18 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("stopSendingSatellitePointingInfo: " + error);
+                        plogd("stopSendingSatellitePointingInfo: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 });
             } catch (RemoteException e) {
-                loge("stopSendingSatellitePointingInfo: RemoteException " + e);
+                ploge("stopSendingSatellitePointingInfo: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("stopSendingSatellitePointingInfo: Satellite service is unavailable.");
-            sendMessageWithResult(message, null,
-                    SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
-        }
-    }
-
-    /**
-     * Provision the device with a satellite provider.
-     * This is needed if the provider allows dynamic registration.
-     * Once provisioned, ISatelliteListener#onSatelliteProvisionStateChanged should report true.
-     *
-     * @param token The token to be used as a unique identifier for provisioning with satellite
-     *              gateway.
-     * @param provisionData Data from the provisioning app that can be used by provisioning server
-     * @param message The Message to send to result of the operation to.
-     */
-    public void provisionSatelliteService(@NonNull String token, @NonNull byte[] provisionData,
-            @NonNull Message message) {
-        if (mSatelliteService != null) {
-            try {
-                mSatelliteService.provisionSatelliteService(token, provisionData,
-                        new IIntegerConsumer.Stub() {
-                            @Override
-                            public void accept(int result) {
-                                int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("provisionSatelliteService: " + error);
-                                Binder.withCleanCallingIdentity(() ->
-                                        sendMessageWithResult(message, null, error));
-                            }
-                        });
-            } catch (RemoteException e) {
-                loge("provisionSatelliteService: RemoteException " + e);
-                sendMessageWithResult(message, null,
-                        SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
-            }
-        } else {
-            loge("provisionSatelliteService: Satellite service is unavailable.");
-            sendMessageWithResult(message, null,
-                    SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
-        }
-    }
-
-    /**
-     * Deprovision the device with the satellite provider.
-     * This is needed if the provider allows dynamic registration.
-     * Once deprovisioned, ISatelliteListener#onSatelliteProvisionStateChanged should report false.
-     *
-     * @param token The token of the device/subscription to be deprovisioned.
-     * @param message The Message to send to result of the operation to.
-     */
-    public void deprovisionSatelliteService(@NonNull String token, @NonNull Message message) {
-        if (mSatelliteService != null) {
-            try {
-                mSatelliteService.deprovisionSatelliteService(token, new IIntegerConsumer.Stub() {
-                    @Override
-                    public void accept(int result) {
-                        int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("deprovisionSatelliteService: " + error);
-                        Binder.withCleanCallingIdentity(() ->
-                                sendMessageWithResult(message, null, error));
-                    }
-                });
-            } catch (RemoteException e) {
-                loge("deprovisionSatelliteService: RemoteException " + e);
-                sendMessageWithResult(message, null,
-                        SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
-            }
-        } else {
-            loge("deprovisionSatelliteService: Satellite service is unavailable.");
-            sendMessageWithResult(message, null,
-                    SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
-        }
-    }
-
-    /**
-     * Request to get whether this device is provisioned with a satellite provider.
-     *
-     * @param message The Message to send to result of the operation to.
-     */
-    public void requestIsSatelliteProvisioned(@NonNull Message message) {
-        if (mSatelliteService != null) {
-            try {
-                mSatelliteService.requestIsSatelliteProvisioned(new IIntegerConsumer.Stub() {
-                    @Override
-                    public void accept(int result) {
-                        int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("requestIsSatelliteProvisioned: " + error);
-                        Binder.withCleanCallingIdentity(() ->
-                                sendMessageWithResult(message, null, error));
-                    }
-                }, new IBooleanConsumer.Stub() {
-                    @Override
-                    public void accept(boolean result) {
-                        // Convert for compatibility with SatelliteResponse
-                        // TODO: This should just report result instead.
-                        int[] provisioned = new int[] {result ? 1 : 0};
-                        logd("requestIsSatelliteProvisioned: " + Arrays.toString(provisioned));
-                        Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
-                                message, provisioned, SatelliteManager.SATELLITE_RESULT_SUCCESS));
-                    }
-                });
-            } catch (RemoteException e) {
-                loge("requestIsSatelliteProvisioned: RemoteException " + e);
-                sendMessageWithResult(message, null,
-                        SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
-            }
-        } else {
-            loge("requestIsSatelliteProvisioned: Satellite service is unavailable.");
+            ploge("stopSendingSatellitePointingInfo: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -944,18 +922,18 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("pollPendingDatagrams: " + error);
+                        plogd("pollPendingDatagrams: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 });
             } catch (RemoteException e) {
-                loge("pollPendingDatagrams: RemoteException " + e);
+                ploge("pollPendingDatagrams: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("pollPendingDatagrams: Satellite service is unavailable.");
+            ploge("pollPendingDatagrams: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -980,18 +958,18 @@ public class SatelliteModemInterface {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("sendDatagram: " + error);
+                                plogd("sendDatagram: " + error);
                                 Binder.withCleanCallingIdentity(() ->
                                         sendMessageWithResult(message, null, error));
                             }
                         });
             } catch (RemoteException e) {
-                loge("sendDatagram: RemoteException " + e);
+                ploge("sendDatagram: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("sendDatagram: Satellite service is unavailable.");
+            ploge("sendDatagram: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1011,7 +989,7 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("requestSatelliteModemState: " + error);
+                        plogd("requestSatelliteModemState: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
@@ -1020,18 +998,18 @@ public class SatelliteModemInterface {
                     public void accept(int result) {
                         // Convert SatelliteModemState from service to frameworks definition.
                         int modemState = SatelliteServiceUtils.fromSatelliteModemState(result);
-                        logd("requestSatelliteModemState: " + modemState);
+                        plogd("requestSatelliteModemState: " + modemState);
                         Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
                                 message, modemState, SatelliteManager.SATELLITE_RESULT_SUCCESS));
                     }
                 });
             } catch (RemoteException e) {
-                loge("requestSatelliteModemState: RemoteException " + e);
+                ploge("requestSatelliteModemState: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestSatelliteModemState: Satellite service is unavailable.");
+            ploge("requestSatelliteModemState: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1052,7 +1030,7 @@ public class SatelliteModemInterface {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("requestTimeForNextSatelliteVisibility: " + error);
+                                plogd("requestTimeForNextSatelliteVisibility: " + error);
                                 Binder.withCleanCallingIdentity(() ->
                                         sendMessageWithResult(message, null, error));
                             }
@@ -1062,19 +1040,19 @@ public class SatelliteModemInterface {
                                 // Convert for compatibility with SatelliteResponse
                                 // TODO: This should just report result instead.
                                 int[] time = new int[] {result};
-                                logd("requestTimeForNextSatelliteVisibility: "
+                                plogd("requestTimeForNextSatelliteVisibility: "
                                         + Arrays.toString(time));
                                 Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
                                         message, time, SatelliteManager.SATELLITE_RESULT_SUCCESS));
                             }
                         });
             } catch (RemoteException e) {
-                loge("requestTimeForNextSatelliteVisibility: RemoteException " + e);
+                ploge("requestTimeForNextSatelliteVisibility: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestTimeForNextSatelliteVisibility: Satellite service is unavailable.");
+            ploge("requestTimeForNextSatelliteVisibility: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1107,18 +1085,18 @@ public class SatelliteModemInterface {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("setSatellitePlmn: " + error);
+                                plogd("setSatellitePlmn: " + error);
                                 Binder.withCleanCallingIdentity(() ->
                                         sendMessageWithResult(message, null, error));
                             }
                         });
             } catch (RemoteException e) {
-                loge("setSatellitePlmn: RemoteException " + e);
+                ploge("setSatellitePlmn: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("setSatellitePlmn: Satellite service is unavailable.");
+            ploge("setSatellitePlmn: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1142,18 +1120,18 @@ public class SatelliteModemInterface {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("requestSetSatelliteEnabledForCarrier: " + error);
+                                plogd("requestSetSatelliteEnabledForCarrier: " + error);
                                 Binder.withCleanCallingIdentity(() ->
                                         sendMessageWithResult(message, null, error));
                             }
                         });
             } catch (RemoteException e) {
-                loge("requestSetSatelliteEnabledForCarrier: RemoteException " + e);
+                ploge("requestSetSatelliteEnabledForCarrier: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestSetSatelliteEnabledForCarrier: Satellite service is unavailable.");
+            ploge("requestSetSatelliteEnabledForCarrier: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_REQUEST_NOT_SUPPORTED);
         }
@@ -1175,7 +1153,7 @@ public class SatelliteModemInterface {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("requestIsSatelliteEnabledForCarrier: " + error);
+                                plogd("requestIsSatelliteEnabledForCarrier: " + error);
                                 Binder.withCleanCallingIdentity(() ->
                                         sendMessageWithResult(message, null, error));
                             }
@@ -1185,7 +1163,7 @@ public class SatelliteModemInterface {
                                 // Convert for compatibility with SatelliteResponse
                                 // TODO: This should just report result instead.
                                 int[] enabled = new int[] {result ? 1 : 0};
-                                logd("requestIsSatelliteEnabledForCarrier: "
+                                plogd("requestIsSatelliteEnabledForCarrier: "
                                         + Arrays.toString(enabled));
                                 Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
                                         message, enabled,
@@ -1193,12 +1171,12 @@ public class SatelliteModemInterface {
                             }
                         });
             } catch (RemoteException e) {
-                loge("requestIsSatelliteEnabledForCarrier: RemoteException " + e);
+                ploge("requestIsSatelliteEnabledForCarrier: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestIsSatelliteEnabledForCarrier: Satellite service is unavailable.");
+            ploge("requestIsSatelliteEnabledForCarrier: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1217,7 +1195,7 @@ public class SatelliteModemInterface {
                             @Override
                             public void accept(int result) {
                                 int error = SatelliteServiceUtils.fromSatelliteError(result);
-                                logd("requestNtnSignalStrength: " + error);
+                                plogd("requestNtnSignalStrength: " + error);
                                 Binder.withCleanCallingIdentity(() ->
                                         sendMessageWithResult(message, null, error));
                             }
@@ -1227,19 +1205,19 @@ public class SatelliteModemInterface {
                                     android.telephony.satellite.stub.NtnSignalStrength result) {
                                 NtnSignalStrength ntnSignalStrength =
                                         SatelliteServiceUtils.fromNtnSignalStrength(result);
-                                logd("requestNtnSignalStrength: " + ntnSignalStrength);
+                                plogd("requestNtnSignalStrength: " + ntnSignalStrength);
                                 Binder.withCleanCallingIdentity(() -> sendMessageWithResult(
                                         message, ntnSignalStrength,
                                         SatelliteManager.SATELLITE_RESULT_SUCCESS));
                             }
                         });
             } catch (RemoteException e) {
-                loge("requestNtnSignalStrength: RemoteException " + e);
+                ploge("requestNtnSignalStrength: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("requestNtnSignalStrength: Satellite service is unavailable.");
+            ploge("requestNtnSignalStrength: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1258,18 +1236,18 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("startSendingNtnSignalStrength: " + error);
+                        plogd("startSendingNtnSignalStrength: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 });
             } catch (RemoteException e) {
-                loge("startSendingNtnSignalStrength: RemoteException " + e);
+                ploge("startSendingNtnSignalStrength: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("startSendingNtnSignalStrength: Satellite service is unavailable.");
+            ploge("startSendingNtnSignalStrength: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1287,18 +1265,18 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("stopSendingNtnSignalStrength: " + error);
+                        plogd("stopSendingNtnSignalStrength: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 });
             } catch (RemoteException e) {
-                loge("stopSendingNtnSignalStrength: RemoteException " + e);
+                ploge("stopSendingNtnSignalStrength: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("stopSendingNtnSignalStrength: Satellite service is unavailable.");
+            ploge("stopSendingNtnSignalStrength: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1316,18 +1294,18 @@ public class SatelliteModemInterface {
                     @Override
                     public void accept(int result) {
                         int error = SatelliteServiceUtils.fromSatelliteError(result);
-                        logd("abortSendingSatelliteDatagrams: " + error);
+                        plogd("abortSendingSatelliteDatagrams: " + error);
                         Binder.withCleanCallingIdentity(() ->
                                 sendMessageWithResult(message, null, error));
                     }
                 });
             } catch (RemoteException e) {
-                loge("abortSendingSatelliteDatagrams: RemoteException " + e);
+                ploge("abortSendingSatelliteDatagrams: RemoteException " + e);
                 sendMessageWithResult(message, null,
                         SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
             }
         } else {
-            loge("abortSendingSatelliteDatagrams: Satellite service is unavailable.");
+            ploge("abortSendingSatelliteDatagrams: Satellite service is unavailable.");
             sendMessageWithResult(message, null,
                     SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
         }
@@ -1345,6 +1323,34 @@ public class SatelliteModemInterface {
     }
 
     /**
+     * Provision UUID with a satellite provider.
+     */
+    public void updateSatelliteSubscription(@NonNull String iccId, @NonNull Message message) {
+        if (mSatelliteService != null) {
+            try {
+                mSatelliteService.updateSatelliteSubscription(iccId,
+                        new IIntegerConsumer.Stub() {
+                            @Override
+                            public void accept(int result) {
+                                int error = SatelliteServiceUtils.fromSatelliteError(result);
+                                plogd("updateSatelliteSubscription: " + error);
+                                Binder.withCleanCallingIdentity(() ->
+                                        sendMessageWithResult(message, null, error));
+                            }
+                        });
+            } catch (RemoteException e) {
+                ploge("updateSatelliteSubscription: RemoteException " + e);
+                sendMessageWithResult(message, null,
+                        SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
+            }
+        } else {
+            ploge("updateSatelliteSubscription: Satellite service is unavailable.");
+            sendMessageWithResult(message, null,
+                    SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
+        }
+    }
+
+    /**
      * This API can be used by only CTS to update satellite vendor service package name.
      *
      * @param servicePackageName The package name of the satellite vendor service.
@@ -1353,7 +1359,7 @@ public class SatelliteModemInterface {
      */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     public void setSatelliteServicePackageName(@Nullable String servicePackageName) {
-        logd("setSatelliteServicePackageName: config_satellite_service_package is "
+        plogd("setSatelliteServicePackageName: config_satellite_service_package is "
                 + "updated, new packageName=" + servicePackageName);
         mExponentialBackoff.stop();
         if (mSatelliteServiceConnection != null) {
@@ -1374,6 +1380,42 @@ public class SatelliteModemInterface {
         mExponentialBackoff.start();
     }
 
+    /**
+     * Request to update system selection channels
+     *
+     * @param systemSelectionSpecifiers system selection specifiers
+     * @param message The Message to send to result of the operation to.
+     */
+    public void updateSystemSelectionChannels(
+            @NonNull List<SystemSelectionSpecifier> systemSelectionSpecifiers,
+            @Nullable Message message) {
+        plogd("updateSystemSelectionChannels: SystemSelectionSpecifier: "
+                + systemSelectionSpecifiers.toString());
+        if (mSatelliteService != null) {
+            try {
+                mSatelliteService.updateSystemSelectionChannels(SatelliteServiceUtils
+                                .toSystemSelectionSpecifier(systemSelectionSpecifiers),
+                        new IIntegerConsumer.Stub() {
+                            @Override
+                            public void accept(int result) {
+                                int error = SatelliteServiceUtils.fromSatelliteError(result);
+                                plogd("updateSystemSelectionChannels: " + error);
+                                Binder.withCleanCallingIdentity(() ->
+                                        sendMessageWithResult(message, null, error));
+                            }
+                        });
+            } catch (RemoteException e) {
+                ploge("updateSystemSelectionChannels: RemoteException " + e);
+                sendMessageWithResult(message, null,
+                        SatelliteManager.SATELLITE_RESULT_SERVICE_ERROR);
+            }
+        } else {
+            ploge("updateSystemSelectionChannels: Satellite service is unavailable.");
+            sendMessageWithResult(message, null,
+                    SatelliteManager.SATELLITE_RESULT_RADIO_NOT_AVAILABLE);
+        }
+    }
+
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     protected static void sendMessageWithResult(@NonNull Message message, @Nullable Object result,
             @SatelliteManager.SatelliteResult int error) {
@@ -1389,5 +1431,19 @@ public class SatelliteModemInterface {
 
     private static void loge(@NonNull String log) {
         Rlog.e(TAG, log);
+    }
+
+    private void plogd(@NonNull String log) {
+        Rlog.d(TAG, log);
+        if (mPersistentLogger != null) {
+            mPersistentLogger.debug(TAG, log);
+        }
+    }
+
+    private void ploge(@NonNull String log) {
+        Rlog.e(TAG, log);
+        if (mPersistentLogger != null) {
+            mPersistentLogger.error(TAG, log);
+        }
     }
 }

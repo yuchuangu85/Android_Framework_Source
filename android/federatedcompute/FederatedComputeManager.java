@@ -23,6 +23,7 @@ import android.content.Context;
 import android.federatedcompute.aidl.IFederatedComputeCallback;
 import android.federatedcompute.aidl.IFederatedComputeService;
 import android.federatedcompute.common.ScheduleFederatedComputeRequest;
+import android.os.Binder;
 import android.os.OutcomeReceiver;
 
 import com.android.federatedcompute.internal.util.AbstractServiceBinder;
@@ -81,8 +82,8 @@ public final class FederatedComputeManager {
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(request);
-        final IFederatedComputeService service = mServiceBinder.getService(executor);
         try {
+            final IFederatedComputeService service = mServiceBinder.getService(executor);
             IFederatedComputeCallback federatedComputeCallback =
                     new IFederatedComputeCallback.Stub() {
                         @Override
@@ -105,8 +106,10 @@ public final class FederatedComputeManager {
                             unbindFromService();
                         }
                     };
+            String appPackageName =
+                    mContext.getPackageManager().getNameForUid(Binder.getCallingUid());
             service.schedule(
-                    mContext.getPackageName(),
+                    appPackageName,
                     request.getTrainingOptions(),
                     federatedComputeCallback);
         } catch (Exception e) {
@@ -127,8 +130,8 @@ public final class FederatedComputeManager {
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<Object, Exception> callback) {
         Objects.requireNonNull(populationName);
-        final IFederatedComputeService service = mServiceBinder.getService(executor);
         try {
+            final IFederatedComputeService service = mServiceBinder.getService(executor);
             IFederatedComputeCallback federatedComputeCallback =
                     new IFederatedComputeCallback.Stub() {
                         @Override

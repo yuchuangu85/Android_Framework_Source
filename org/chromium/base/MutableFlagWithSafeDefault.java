@@ -15,14 +15,25 @@ package org.chromium.base;
  */
 public class MutableFlagWithSafeDefault extends Flag {
     private final boolean mDefaultValue;
-    private final FeatureMap mFeatureMap;
     private Boolean mInMemoryCachedValue;
 
     public MutableFlagWithSafeDefault(
             FeatureMap featureMap, String featureName, boolean defaultValue) {
-        super(featureName);
-        mFeatureMap = featureMap;
+        super(featureMap, featureName);
         mDefaultValue = defaultValue;
+    }
+
+    /** Returns a new mutable boolean param with the given values. */
+    public MutableBooleanParamWithSafeDefault newBooleanParam(
+            String paramName, boolean defaultValue) {
+        return new MutableBooleanParamWithSafeDefault(
+                mFeatureMap, mFeatureName, paramName, defaultValue);
+    }
+
+    /** Returns a new mutable int param with the given values. */
+    public MutableIntParamWithSafeDefault newIntParam(String paramName, int defaultValue) {
+        return new MutableIntParamWithSafeDefault(
+                mFeatureMap, mFeatureName, paramName, defaultValue);
     }
 
     @Override

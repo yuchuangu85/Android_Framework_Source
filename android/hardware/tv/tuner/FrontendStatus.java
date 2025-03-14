@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash f8d74c149f04e76b6d622db2bd8e465dae24b08c --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common_interface/2/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/common/fmq/aidl/android.hardware.common.fmq_interface/1/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/tv/tuner/aidl/android.hardware.tv.tuner-V2-java-source/gen/android/hardware/tv/tuner/FrontendStatus.java.d -o out/soong/.intermediates/hardware/interfaces/tv/tuner/aidl/android.hardware.tv.tuner-V2-java-source/gen -Nhardware/interfaces/tv/tuner/aidl/aidl_api/android.hardware.tv.tuner/2 hardware/interfaces/tv/tuner/aidl/aidl_api/android.hardware.tv.tuner/2/android/hardware/tv/tuner/FrontendStatus.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash b0d0067a930514438d7772c2e02069c7370f3620 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common_interface/2/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/common/fmq/aidl/android.hardware.common.fmq_interface/1/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/tv/tuner/aidl/android.hardware.tv.tuner-V3-java-source/gen/android/hardware/tv/tuner/FrontendStatus.java.d -o out/soong/.intermediates/hardware/interfaces/tv/tuner/aidl/android.hardware.tv.tuner-V3-java-source/gen -Nhardware/interfaces/tv/tuner/aidl/aidl_api/android.hardware.tv.tuner/3 hardware/interfaces/tv/tuner/aidl/aidl_api/android.hardware.tv.tuner/3/android/hardware/tv/tuner/FrontendStatus.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.tv.tuner;
 /** @hide */
@@ -53,6 +57,7 @@ public final class FrontendStatus implements android.os.Parcelable {
   public final static int iptvPacketsLost = 44;  // long iptvPacketsLost;
   public final static int iptvWorstJitterMs = 45;  // int iptvWorstJitterMs;
   public final static int iptvAverageJitterMs = 46;  // int iptvAverageJitterMs;
+  public final static int standardExt = 47;  // android.hardware.tv.tuner.FrontendStandardExt standardExt;
 
   private int _tag;
   private Object _value;
@@ -781,6 +786,21 @@ public final class FrontendStatus implements android.os.Parcelable {
     _set(iptvAverageJitterMs, _value);
   }
 
+  // android.hardware.tv.tuner.FrontendStandardExt standardExt;
+
+  public static FrontendStatus standardExt(android.hardware.tv.tuner.FrontendStandardExt _value) {
+    return new FrontendStatus(standardExt, _value);
+  }
+
+  public android.hardware.tv.tuner.FrontendStandardExt getStandardExt() {
+    _assertTag(standardExt);
+    return (android.hardware.tv.tuner.FrontendStandardExt) _value;
+  }
+
+  public void setStandardExt(android.hardware.tv.tuner.FrontendStandardExt _value) {
+    _set(standardExt, _value);
+  }
+
   @Override
   public final int getStability() {
     return android.os.Parcelable.PARCELABLE_STABILITY_VINTF;
@@ -941,6 +961,9 @@ public final class FrontendStatus implements android.os.Parcelable {
       break;
     case iptvAverageJitterMs:
       _aidl_parcel.writeInt(getIptvAverageJitterMs());
+      break;
+    case standardExt:
+      _aidl_parcel.writeTypedObject(getStandardExt(), _aidl_flag);
       break;
     }
   }
@@ -1184,6 +1207,11 @@ public final class FrontendStatus implements android.os.Parcelable {
       _aidl_value = _aidl_parcel.readInt();
       _set(_aidl_tag, _aidl_value);
       return; }
+    case standardExt: {
+      android.hardware.tv.tuner.FrontendStandardExt _aidl_value;
+      _aidl_value = _aidl_parcel.readTypedObject(android.hardware.tv.tuner.FrontendStandardExt.CREATOR);
+      _set(_aidl_tag, _aidl_value);
+      return; }
     }
     throw new IllegalArgumentException("union: unknown tag: " + _aidl_tag);
   }
@@ -1218,6 +1246,9 @@ public final class FrontendStatus implements android.os.Parcelable {
       break;
     case allPlpInfo:
       _mask |= describeContents(getAllPlpInfo());
+      break;
+    case standardExt:
+      _mask |= describeContents(getStandardExt());
       break;
     }
     return _mask;
@@ -1292,6 +1323,7 @@ public final class FrontendStatus implements android.os.Parcelable {
     case iptvPacketsLost: return "iptvPacketsLost";
     case iptvWorstJitterMs: return "iptvWorstJitterMs";
     case iptvAverageJitterMs: return "iptvAverageJitterMs";
+    case standardExt: return "standardExt";
     }
     throw new IllegalStateException("unknown field: " + _tag);
   }
@@ -1348,5 +1380,6 @@ public final class FrontendStatus implements android.os.Parcelable {
     public static final int iptvPacketsLost = 44;
     public static final int iptvWorstJitterMs = 45;
     public static final int iptvAverageJitterMs = 46;
+    public static final int standardExt = 47;
   }
 }

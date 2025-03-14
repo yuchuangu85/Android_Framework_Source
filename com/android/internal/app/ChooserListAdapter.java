@@ -362,8 +362,7 @@ public class ChooserListAdapter extends ResolverListAdapter {
                     }
                     String resolvedTarget = info.getResolvedComponentName().getPackageName()
                             + '#' + info.getDisplayLabel()
-                            + '#' + ResolverActivity.getResolveInfoUserHandle(
-                                    info.getResolveInfo(), getUserHandle()).getIdentifier();
+                            + '#' + info.getResolveInfo().userHandle.getIdentifier();
                     DisplayResolveInfo multiDri = consolidated.get(resolvedTarget);
                     if (multiDri == null) {
                         consolidated.put(resolvedTarget, info);

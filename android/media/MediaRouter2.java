@@ -107,7 +107,8 @@ public final class MediaRouter2 {
      * #SCANNING_STATE_WHILE_INTERACTIVE}.
      *
      * <p>Routers requesting unrestricted scanning must hold {@link
-     * Manifest.permission#MEDIA_ROUTING_CONTROL}.
+     * Manifest.permission#MEDIA_ROUTING_CONTROL} or {@link
+     * Manifest.permission#MEDIA_CONTENT_CONTROL}.
      *
      * @hide
      */
@@ -280,15 +281,14 @@ public final class MediaRouter2 {
                     /* executor */ null,
                     /* onInstanceInvalidatedListener */ null);
         } catch (IllegalArgumentException ex) {
-            Log.e(TAG, "Package " + clientPackageName + " not found. Ignoring.");
+            Log.e(TAG, "Failed to create proxy router for package '" + clientPackageName + "'", ex);
             return null;
         }
     }
 
     /**
      * Returns a proxy MediaRouter2 instance that allows you to control the routing of an app
-     * specified by {@code clientPackageName}. Returns {@code null} if the specified package name
-     * does not exist.
+     * specified by {@code clientPackageName}.
      *
      * <p>Proxy MediaRouter2 instances operate differently than regular MediaRouter2 instances:
      *
@@ -522,11 +522,16 @@ public final class MediaRouter2 {
      *
      * <p>{@code scanRequest} specifies relevant scanning options, like whether the system should
      * scan with the screen off. Screen off scanning requires {@link
-     * Manifest.permission#MEDIA_ROUTING_CONTROL}
+     * Manifest.permission#MEDIA_ROUTING_CONTROL} or {@link
+     * Manifest.permission#MEDIA_CONTENT_CONTROL}.
      *
      * <p>Proxy routers use the registered {@link RouteDiscoveryPreference} of their target routers.
      *
      * @return A unique {@link ScanToken} that identifies the scan request.
+     * @throws SecurityException If a {@link ScanRequest} with {@link
+     *     ScanRequest.Builder#setScreenOffScan} true is passed, while not holding {@link
+     *     Manifest.permission#MEDIA_ROUTING_CONTROL} or {@link
+     *     Manifest.permission#MEDIA_CONTENT_CONTROL}.
      */
     @FlaggedApi(FLAG_ENABLE_SCREEN_OFF_SCANNING)
     @NonNull
@@ -681,8 +686,19 @@ public final class MediaRouter2 {
     /**
      * Registers a callback to discover routes and to receive events when they change.
      *
+     * <p>Clients can register multiple callbacks, as long as the {@link RouteCallback} instances
+     * are different. Each callback can provide a unique {@link RouteDiscoveryPreference preference}
+     * and will only receive updates related to that set preference.
+     *
      * <p>If the specified callback is already registered, its registration will be updated for the
      * given {@link Executor executor} and {@link RouteDiscoveryPreference discovery preference}.
+     *
+     * <p>{@link #getInstance(Context) Local routers} must register a route callback to register in
+     * the system and start receiving updates. Otherwise, all operations will be no-ops.
+     *
+     * <p>Any discovery preference passed by a {@link #getInstance(Context, String) proxy router}
+     * will be ignored and will receive route updates based on the preference set by its matching
+     * local router.
      */
     public void registerRouteCallback(
             @NonNull @CallbackExecutor Executor executor,
@@ -793,7 +809,7 @@ public final class MediaRouter2 {
      * updates} in order to keep the system UI in a consistent state. You can also call this method
      * at any other point to update the listing preference dynamically.
      *
-     * <p>Any calls to this method from a privileged router will throw an {@link
+     * <p>Calling this method on a proxy router instance will throw an {@link
      * UnsupportedOperationException}.
      *
      * <p>Notes:
@@ -991,9 +1007,7 @@ public final class MediaRouter2 {
     void requestCreateController(
             @NonNull RoutingController controller,
             @NonNull MediaRoute2Info route,
-            long managerRequestId,
-            @NonNull UserHandle transferInitiatorUserHandle,
-            @NonNull String transferInitiatorPackageName) {
+            long managerRequestId) {
 
         final int requestId = mNextRequestId.getAndIncrement();
 
@@ -1022,9 +1036,7 @@ public final class MediaRouter2 {
                         managerRequestId,
                         controller.getRoutingSessionInfo(),
                         route,
-                        controllerHints,
-                        transferInitiatorUserHandle,
-                        transferInitiatorPackageName);
+                        controllerHints);
             } catch (RemoteException ex) {
                 Log.e(TAG, "createControllerForTransfer: "
                                 + "Failed to request for creating a controller.", ex);
@@ -1366,29 +1378,31 @@ public final class MediaRouter2 {
     }
 
     void onRequestCreateControllerByManagerOnHandler(
-            RoutingSessionInfo oldSession,
-            MediaRoute2Info route,
-            long managerRequestId,
-            @NonNull UserHandle transferInitiatorUserHandle,
-            @NonNull String transferInitiatorPackageName) {
+            RoutingSessionInfo oldSession, MediaRoute2Info route, long managerRequestId) {
         Log.i(
                 TAG,
                 TextUtils.formatSimple(
                         "requestCreateSessionByManager | requestId: %d, oldSession: %s, route: %s",
                         managerRequestId, oldSession, route));
         RoutingController controller;
+        String oldSessionId = oldSession.getId();
         if (oldSession.isSystemSession()) {
             controller = getSystemController();
         } else {
             synchronized (mLock) {
-                controller = mNonSystemRoutingControllers.get(oldSession.getId());
+                controller = mNonSystemRoutingControllers.get(oldSessionId);
             }
         }
         if (controller == null) {
+            Log.w(
+                    TAG,
+                    TextUtils.formatSimple(
+                            "Ignoring requestCreateSessionByManager (requestId: %d) because no"
+                                + " controller for old session (id: %s) was found.",
+                            managerRequestId, oldSessionId));
             return;
         }
-        requestCreateController(controller, route, managerRequestId, transferInitiatorUserHandle,
-                transferInitiatorPackageName);
+        requestCreateController(controller, route, managerRequestId);
     }
 
     private List<MediaRoute2Info> getSortedRoutes(
@@ -1405,7 +1419,8 @@ public final class MediaRouter2 {
         ArrayList<MediaRoute2Info> sortedRoutes = new ArrayList<>(routes);
         // take the negative for descending order
         sortedRoutes.sort(
-                Comparator.comparingInt(r -> -packagePriority.getOrDefault(r.getPackageName(), 0)));
+                Comparator.comparingInt(
+                        r -> -packagePriority.getOrDefault(r.getProviderPackageName(), 0)));
         return sortedRoutes;
     }
 
@@ -1422,10 +1437,10 @@ public final class MediaRouter2 {
                 continue;
             }
             if (!mDiscoveryPreference.getAllowedPackages().isEmpty()
-                    && (route.getPackageName() == null
+                    && (route.getProviderPackageName() == null
                             || !mDiscoveryPreference
                                     .getAllowedPackages()
-                                    .contains(route.getPackageName()))) {
+                                    .contains(route.getProviderPackageName()))) {
                 continue;
             }
             if (mDiscoveryPreference.shouldRemoveDuplicates()) {
@@ -1743,8 +1758,9 @@ public final class MediaRouter2 {
 
             /**
              * Sets whether the app is requesting to scan even while the screen is off, bypassing
-             * default scanning restrictions. Only companion apps holding {@link
-             * Manifest.permission#MEDIA_ROUTING_CONTROL} should set this to {@code true}.
+             * default scanning restrictions. Only apps holding {@link
+             * Manifest.permission#MEDIA_ROUTING_CONTROL} or {@link
+             * Manifest.permission#MEDIA_CONTENT_CONTROL} should set this to {@code true}.
              *
              * @see #requestScan(ScanRequest)
              */
@@ -1763,10 +1779,12 @@ public final class MediaRouter2 {
     }
 
     /**
-     * A class to control media routing session in media route provider. For example,
-     * selecting/deselecting/transferring to routes of a session can be done through this. Instances
-     * are created when {@link TransferCallback#onTransfer(RoutingController, RoutingController)} is
-     * called, which is invoked after {@link #transferTo(MediaRoute2Info)} is called.
+     * Controls a media routing session.
+     *
+     * <p>Routing controllers wrap a {@link RoutingSessionInfo}, taking care of mapping route ids to
+     * {@link MediaRoute2Info} instances. You can still access the underlying session using {@link
+     * #getRoutingSessionInfo()}, but keep in mind it can be changed by other threads. Changes to
+     * the routing session are notified via {@link ControllerCallback}.
      */
     public class RoutingController {
         private final Object mControllerLock = new Object();
@@ -1828,7 +1846,9 @@ public final class MediaRouter2 {
         }
 
         /**
-         * @return the unmodifiable list of currently selected routes
+         * Returns the unmodifiable list of currently selected routes
+         *
+         * @see RoutingSessionInfo#getSelectedRoutes()
          */
         @NonNull
         public List<MediaRoute2Info> getSelectedRoutes() {
@@ -1840,7 +1860,9 @@ public final class MediaRouter2 {
         }
 
         /**
-         * @return the unmodifiable list of selectable routes for the session.
+         * Returns the unmodifiable list of selectable routes for the session.
+         *
+         * @see RoutingSessionInfo#getSelectableRoutes()
          */
         @NonNull
         public List<MediaRoute2Info> getSelectableRoutes() {
@@ -1852,7 +1874,9 @@ public final class MediaRouter2 {
         }
 
         /**
-         * @return the unmodifiable list of deselectable routes for the session.
+         * Returns the unmodifiable list of deselectable routes for the session.
+         *
+         * @see RoutingSessionInfo#getDeselectableRoutes()
          */
         @NonNull
         public List<MediaRoute2Info> getDeselectableRoutes() {
@@ -2423,20 +2447,14 @@ public final class MediaRouter2 {
 
         @Override
         public void requestCreateSessionByManager(
-                long managerRequestId,
-                RoutingSessionInfo oldSession,
-                MediaRoute2Info route,
-                UserHandle transferInitiatorUserHandle,
-                String transferInitiatorPackageName) {
+                long managerRequestId, RoutingSessionInfo oldSession, MediaRoute2Info route) {
             mHandler.sendMessage(
                     obtainMessage(
                             MediaRouter2::onRequestCreateControllerByManagerOnHandler,
                             MediaRouter2.this,
                             oldSession,
                             route,
-                            managerRequestId,
-                            transferInitiatorUserHandle,
-                            transferInitiatorPackageName));
+                            managerRequestId));
         }
     }
 
@@ -2665,13 +2683,16 @@ public final class MediaRouter2 {
         @Override
         public void setRouteListingPreference(@Nullable RouteListingPreference preference) {
             throw new UnsupportedOperationException(
-                    "RouteListingPreference cannot be set by a privileged MediaRouter2 instance.");
+                    "RouteListingPreference cannot be set by a proxy MediaRouter2 instance.");
         }
 
         @Override
         public boolean showSystemOutputSwitcher() {
-            throw new UnsupportedOperationException(
-                    "Cannot show system output switcher from a privileged router.");
+            try {
+                return mMediaRouterService.showMediaOutputSwitcherWithProxyRouter(mClient);
+            } catch (RemoteException ex) {
+                throw ex.rethrowFromSystemServer();
+            }
         }
 
         /** Gets the list of all discovered routes. */
@@ -2765,7 +2786,7 @@ public final class MediaRouter2 {
                     || isSystemRouteReselection) {
                 transferToRoute(sessionInfo, route, mClientUser, mClientPackageName);
             } else {
-                requestCreateSession(sessionInfo, route, mClientUser, mClientPackageName);
+                requestCreateSession(sessionInfo, route);
             }
         }
 
@@ -2821,10 +2842,7 @@ public final class MediaRouter2 {
          * @param route The {@link MediaRoute2Info route} to transfer to.
          */
         private void requestCreateSession(
-                @NonNull RoutingSessionInfo oldSession,
-                @NonNull MediaRoute2Info route,
-                @NonNull UserHandle transferInitiatorUserHandle,
-                @NonNull String transferInitiatorPackageName) {
+                @NonNull RoutingSessionInfo oldSession, @NonNull MediaRoute2Info route) {
             if (TextUtils.isEmpty(oldSession.getClientPackageName())) {
                 Log.w(TAG, "requestCreateSession: Can't create a session without package name.");
                 this.onTransferFailed(oldSession, route);
@@ -2835,12 +2853,7 @@ public final class MediaRouter2 {
 
             try {
                 mMediaRouterService.requestCreateSessionWithManager(
-                        mClient,
-                        requestId,
-                        oldSession,
-                        route,
-                        transferInitiatorUserHandle,
-                        transferInitiatorPackageName);
+                        mClient, requestId, oldSession, route);
             } catch (RemoteException ex) {
                 throw ex.rethrowFromSystemServer();
             }
@@ -3543,7 +3556,7 @@ public final class MediaRouter2 {
         public boolean showSystemOutputSwitcher() {
             synchronized (mLock) {
                 try {
-                    return mMediaRouterService.showMediaOutputSwitcher(mImpl.getPackageName());
+                    return mMediaRouterService.showMediaOutputSwitcherWithRouter2(mPackageName);
                 } catch (RemoteException ex) {
                     ex.rethrowFromSystemServer();
                 }
@@ -3581,12 +3594,7 @@ public final class MediaRouter2 {
 
             RoutingController controller = getCurrentController();
             if (!controller.tryTransferWithinProvider(route)) {
-                requestCreateController(
-                        controller,
-                        route,
-                        MANAGER_REQUEST_ID_NONE,
-                        Process.myUserHandle(),
-                        mContext.getPackageName());
+                requestCreateController(controller, route, MANAGER_REQUEST_ID_NONE);
             }
         }
 
@@ -3652,10 +3660,10 @@ public final class MediaRouter2 {
                     continue;
                 }
                 if (!discoveryPreference.getAllowedPackages().isEmpty()
-                        && (route.getPackageName() == null
+                        && (route.getProviderPackageName() == null
                                 || !discoveryPreference
                                         .getAllowedPackages()
-                                        .contains(route.getPackageName()))) {
+                                        .contains(route.getProviderPackageName()))) {
                     continue;
                 }
                 filteredRoutes.add(route);

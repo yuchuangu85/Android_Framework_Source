@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 78fb79bcb32590a868b3eb7affb39ab90e4ca782 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen/android/hardware/radio/voice/IRadioVoice.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3/android/hardware/radio/voice/IRadioVoice.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 576f05d082e9269bcf773b0c9b9112d507ab4b9a --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V4-java-source/gen/android/hardware/radio/voice/IRadioVoice.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/4/android/hardware/radio/voice/IRadioVoice.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.voice;
 /** @hide */
@@ -12,8 +16,8 @@ public interface IRadioVoice extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "78fb79bcb32590a868b3eb7affb39ab90e4ca782";
+  public static final int VERSION = 4;
+  public static final String HASH = "576f05d082e9269bcf773b0c9b9112d507ab4b9a";
   /** Default implementation for IRadioVoice. */
   public static class Default implements android.hardware.radio.voice.IRadioVoice
   {
@@ -89,6 +93,7 @@ public interface IRadioVoice extends android.os.IInterface
     @Override public void sendBurstDtmf(int serial, java.lang.String dtmf, int on, int off) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void sendCdmaFeatureCode(int serial, java.lang.String featureCode) throws android.os.RemoteException
     {
     }
@@ -150,7 +155,7 @@ public interface IRadioVoice extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.voice.IRadioVoice
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -960,6 +965,7 @@ public interface IRadioVoice extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void sendCdmaFeatureCode(int serial, java.lang.String featureCode) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1302,6 +1308,8 @@ public interface IRadioVoice extends android.os.IInterface
   public void rejectCall(int serial) throws android.os.RemoteException;
   public void responseAcknowledgement() throws android.os.RemoteException;
   public void sendBurstDtmf(int serial, java.lang.String dtmf, int on, int off) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void sendCdmaFeatureCode(int serial, java.lang.String featureCode) throws android.os.RemoteException;
   public void sendDtmf(int serial, java.lang.String s) throws android.os.RemoteException;
   public void sendUssd(int serial, java.lang.String ussd) throws android.os.RemoteException;

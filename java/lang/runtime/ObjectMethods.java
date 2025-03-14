@@ -37,6 +37,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Bootstrap methods for state-driven implementations of core methods,
  * including {@link Object#equals(Object)}, {@link Object#hashCode()}, and
@@ -334,6 +336,13 @@ public class ObjectMethods {
                                    Class<?> recordClass,
                                    String names,
                                    MethodHandle... getters) throws Throwable {
+        // Android-changed: nullchecks are from Java 21.
+        requireNonNull(lookup);
+        requireNonNull(methodName);
+        requireNonNull(type);
+        requireNonNull(recordClass);
+        requireNonNull(names);
+        requireNonNull(getters);
         MethodType methodType;
         if (type instanceof MethodType)
             methodType = (MethodType) type;

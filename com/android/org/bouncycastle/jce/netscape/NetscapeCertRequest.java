@@ -18,6 +18,7 @@ import java.security.spec.X509EncodedKeySpec;
 
 import com.android.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.org.bouncycastle.asn1.ASN1Encoding;
+import com.android.org.bouncycastle.asn1.ASN1IA5String;
 import com.android.org.bouncycastle.asn1.ASN1InputStream;
 import com.android.org.bouncycastle.asn1.ASN1Object;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
@@ -105,7 +106,7 @@ public class NetscapeCertRequest
                         + pkac.size());
             }
 
-            challenge = ((DERIA5String)pkac.getObjectAt(1)).getString();
+            challenge = ((ASN1IA5String)pkac.getObjectAt(1)).getString();
 
             //this could be dangerous, as ASN.1 decoding/encoding
             //could potentially alter the bytes

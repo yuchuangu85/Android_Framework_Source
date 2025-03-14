@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 58d15e9e2c355be7b3dda6d4d34effd672bfd1cb --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen/android/hardware/radio/RadioTechnology.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/3/android/hardware/radio/RadioTechnology.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash f6e4f3bf2ea241a74ffac5643f8941921f0a2b98 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V4-java-source/gen/android/hardware/radio/RadioTechnology.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio/4/android/hardware/radio/RadioTechnology.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio;
 /** @hide */
@@ -9,15 +13,29 @@ public @interface RadioTechnology {
   public static final int GPRS = 1;
   public static final int EDGE = 2;
   public static final int UMTS = 3;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int IS95A = 4;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int IS95B = 5;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int ONE_X_RTT = 6;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_0 = 7;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_A = 8;
   public static final int HSDPA = 9;
   public static final int HSUPA = 10;
   public static final int HSPA = 11;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_B = 12;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EHRPD = 13;
   public static final int LTE = 14;
   public static final int HSPAP = 15;

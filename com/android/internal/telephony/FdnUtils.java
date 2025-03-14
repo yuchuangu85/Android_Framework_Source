@@ -121,7 +121,8 @@ public class FdnUtils {
         try {
             PhoneNumber phoneNumber = phoneNumberUtil.parse(dialStr, defaultCountryIso);
             dialStrE164 = phoneNumberUtil.format(phoneNumber, PhoneNumberFormat.E164);
-            dialStrNational = String.valueOf(phoneNumber.getNationalNumber());
+            dialStrNational = String.valueOf(
+                    phoneNumberUtil.getNationalSignificantNumber(phoneNumber));
         } catch (NumberParseException ignored) {
             Rlog.w(LOG_TAG, "isFDN: could not parse dialStr");
             dialStr = extractSMSC(dialStr);

@@ -86,7 +86,6 @@ public class WindowContextController {
      * @param token The token used to attach to a window manager node. It is usually from
      *              {@link Context#getWindowContextToken()}.
      */
-    @VisibleForTesting
     public WindowContextController(@NonNull WindowTokenClient token) {
         mToken = token;
     }
@@ -156,6 +155,21 @@ public class WindowContextController {
                 Log.d(TAG, "Detach Window Context.");
             }
         }
+    }
+
+    /**
+     * Reparents the window context from the current attached display to another. {@code type} and
+     * {@code options} must be the same as the previous attach call, otherwise this will fail
+     * silently.
+     */
+    public void reparentToDisplayArea(
+            @WindowType int type, int displayId, @Nullable Bundle options) {
+        if (mAttachedToDisplayArea != AttachStatus.STATUS_ATTACHED) {
+            attachToDisplayArea(type, displayId, options);
+            return;
+        }
+        // No need to propagate type and options as this is already attached and they can't change.
+        getWindowTokenClientController().reparentToDisplayArea(mToken, displayId);
     }
 
     /** Gets the {@link WindowTokenClientController}. */

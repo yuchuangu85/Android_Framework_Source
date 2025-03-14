@@ -15,7 +15,6 @@
  */
 package android.net;
 
-import static android.net.IpSecManager.Flags.IPSEC_TRANSFORM_STATE;
 import static android.net.IpSecManager.INVALID_RESOURCE_ID;
 
 import android.annotation.CallbackExecutor;
@@ -35,6 +34,7 @@ import android.os.ServiceSpecificException;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.net.flags.Flags;
 
 import dalvik.system.CloseGuard;
 
@@ -220,7 +220,7 @@ public final class IpSecTransform implements AutoCloseable {
      *     occurs.
      * @see IpSecTransformState
      */
-    @FlaggedApi(IPSEC_TRANSFORM_STATE)
+    @FlaggedApi(Flags.FLAG_IPSEC_TRANSFORM_STATE)
     public void requestIpSecTransformState(
             @CallbackExecutor @NonNull Executor executor,
             @NonNull OutcomeReceiver<IpSecTransformState, RuntimeException> callback) {

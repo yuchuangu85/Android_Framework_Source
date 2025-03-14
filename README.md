@@ -1,10 +1,10 @@
 # Android Framework源码
 
-> 本分支基于Android 34版本的SDK-framework源码，添加了详细注释。
+> 本分支基于Android 36版本的SDK-framework源码，添加了详细注释。
 
 ## 更新时间：
 
-2024-12-28
+2025-03-15
 
 ## 各分支对应版本和注释内容请查看：
 

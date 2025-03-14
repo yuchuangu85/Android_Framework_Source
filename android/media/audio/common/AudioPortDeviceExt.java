@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 0c86a38729dd5d560fe3a0eca6aa9d8cf83efb00 --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen/android/media/audio/common/AudioPortDeviceExt.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3/android/media/audio/common/AudioPortDeviceExt.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash af71e6ae2c6861fc2b09bb477e7285e6777cd41c --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V4-java-source/gen/android/media/audio/common/AudioPortDeviceExt.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V4-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/4 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/4/android/media/audio/common/AudioPortDeviceExt.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.media.audio.common;
 /** @hide */
@@ -11,6 +15,7 @@ public class AudioPortDeviceExt implements android.os.Parcelable
   public android.media.audio.common.AudioFormatDescription[] encodedFormats;
   public int encapsulationModes = 0;
   public int encapsulationMetadataTypes = 0;
+  public android.media.audio.common.AudioChannelLayout speakerLayout;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
   public static final android.os.Parcelable.Creator<AudioPortDeviceExt> CREATOR = new android.os.Parcelable.Creator<AudioPortDeviceExt>() {
@@ -34,6 +39,7 @@ public class AudioPortDeviceExt implements android.os.Parcelable
     _aidl_parcel.writeTypedArray(encodedFormats, _aidl_flag);
     _aidl_parcel.writeInt(encapsulationModes);
     _aidl_parcel.writeInt(encapsulationMetadataTypes);
+    _aidl_parcel.writeTypedObject(speakerLayout, _aidl_flag);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -55,6 +61,8 @@ public class AudioPortDeviceExt implements android.os.Parcelable
       encapsulationModes = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       encapsulationMetadataTypes = _aidl_parcel.readInt();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      speakerLayout = _aidl_parcel.readTypedObject(android.media.audio.common.AudioChannelLayout.CREATOR);
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -71,6 +79,7 @@ public class AudioPortDeviceExt implements android.os.Parcelable
     _aidl_sj.add("encodedFormats: " + (java.util.Arrays.toString(encodedFormats)));
     _aidl_sj.add("encapsulationModes: " + (encapsulationModes));
     _aidl_sj.add("encapsulationMetadataTypes: " + (encapsulationMetadataTypes));
+    _aidl_sj.add("speakerLayout: " + (java.util.Objects.toString(speakerLayout)));
     return "AudioPortDeviceExt" + _aidl_sj.toString()  ;
   }
   @Override
@@ -84,18 +93,20 @@ public class AudioPortDeviceExt implements android.os.Parcelable
     if (!java.util.Objects.deepEquals(encodedFormats, that.encodedFormats)) return false;
     if (!java.util.Objects.deepEquals(encapsulationModes, that.encapsulationModes)) return false;
     if (!java.util.Objects.deepEquals(encapsulationMetadataTypes, that.encapsulationMetadataTypes)) return false;
+    if (!java.util.Objects.deepEquals(speakerLayout, that.speakerLayout)) return false;
     return true;
   }
 
   @Override
   public int hashCode() {
-    return java.util.Arrays.deepHashCode(java.util.Arrays.asList(device, flags, encodedFormats, encapsulationModes, encapsulationMetadataTypes).toArray());
+    return java.util.Arrays.deepHashCode(java.util.Arrays.asList(device, flags, encodedFormats, encapsulationModes, encapsulationMetadataTypes, speakerLayout).toArray());
   }
   @Override
   public int describeContents() {
     int _mask = 0;
     _mask |= describeContents(device);
     _mask |= describeContents(encodedFormats);
+    _mask |= describeContents(speakerLayout);
     return _mask;
   }
   private int describeContents(Object _v) {

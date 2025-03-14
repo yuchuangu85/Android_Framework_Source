@@ -16,23 +16,12 @@
 
 package com.android.net.module.util;
 
-import android.app.usage.NetworkStats;
-
-import com.android.internal.annotations.VisibleForTesting;
-
 /**
  * Various utilities used for NetworkStats related code.
  *
  * @hide
  */
 public class NetworkStatsUtils {
-    // These constants must be synced with the definition in android.net.NetworkStats.
-    // TODO: update to formal APIs once all downstreams have these APIs.
-    private static final int SET_ALL = -1;
-    private static final int METERED_ALL = -1;
-    private static final int ROAMING_ALL = -1;
-    private static final int DEFAULT_NETWORK_ALL = -1;
-
     /**
      * Safely multiple a value by a rational.
      * <p>
@@ -98,78 +87,5 @@ public class NetworkStatsUtils {
     public static long constrain(long amount, long low, long high) {
         if (low > high) throw new IllegalArgumentException("low(" + low + ") > high(" + high + ")");
         return amount < low ? low : (amount > high ? high : amount);
-    }
-
-    /**
-     * Convert structure from android.app.usage.NetworkStats to android.net.NetworkStats.
-     */
-    public static android.net.NetworkStats fromPublicNetworkStats(
-            NetworkStats publiceNetworkStats) {
-        android.net.NetworkStats stats = new android.net.NetworkStats(0L, 0);
-        while (publiceNetworkStats.hasNextBucket()) {
-            NetworkStats.Bucket bucket = new NetworkStats.Bucket();
-            publiceNetworkStats.getNextBucket(bucket);
-            final android.net.NetworkStats.Entry entry = fromBucket(bucket);
-            stats = stats.addEntry(entry);
-        }
-        return stats;
-    }
-
-    @VisibleForTesting
-    public static android.net.NetworkStats.Entry fromBucket(NetworkStats.Bucket bucket) {
-        return new android.net.NetworkStats.Entry(
-                null /* IFACE_ALL */, bucket.getUid(), convertBucketState(bucket.getState()),
-                convertBucketTag(bucket.getTag()), convertBucketMetered(bucket.getMetered()),
-                convertBucketRoaming(bucket.getRoaming()),
-                convertBucketDefaultNetworkStatus(bucket.getDefaultNetworkStatus()),
-                bucket.getRxBytes(), bucket.getRxPackets(),
-                bucket.getTxBytes(), bucket.getTxPackets(), 0 /* operations */);
-    }
-
-    private static int convertBucketState(int networkStatsSet) {
-        switch (networkStatsSet) {
-            case NetworkStats.Bucket.STATE_ALL: return SET_ALL;
-            case NetworkStats.Bucket.STATE_DEFAULT: return android.net.NetworkStats.SET_DEFAULT;
-            case NetworkStats.Bucket.STATE_FOREGROUND:
-                return android.net.NetworkStats.SET_FOREGROUND;
-        }
-        return 0;
-    }
-
-    private static int convertBucketTag(int tag) {
-        switch (tag) {
-            case NetworkStats.Bucket.TAG_NONE: return android.net.NetworkStats.TAG_NONE;
-        }
-        return tag;
-    }
-
-    private static int convertBucketMetered(int metered) {
-        switch (metered) {
-            case NetworkStats.Bucket.METERED_ALL: return METERED_ALL;
-            case NetworkStats.Bucket.METERED_NO: return android.net.NetworkStats.METERED_NO;
-            case NetworkStats.Bucket.METERED_YES: return android.net.NetworkStats.METERED_YES;
-        }
-        return 0;
-    }
-
-    private static int convertBucketRoaming(int roaming) {
-        switch (roaming) {
-            case NetworkStats.Bucket.ROAMING_ALL: return ROAMING_ALL;
-            case NetworkStats.Bucket.ROAMING_NO: return android.net.NetworkStats.ROAMING_NO;
-            case NetworkStats.Bucket.ROAMING_YES: return android.net.NetworkStats.ROAMING_YES;
-        }
-        return 0;
-    }
-
-    private static int convertBucketDefaultNetworkStatus(int defaultNetworkStatus) {
-        switch (defaultNetworkStatus) {
-            case NetworkStats.Bucket.DEFAULT_NETWORK_ALL:
-                return DEFAULT_NETWORK_ALL;
-            case NetworkStats.Bucket.DEFAULT_NETWORK_NO:
-                return android.net.NetworkStats.DEFAULT_NETWORK_NO;
-            case NetworkStats.Bucket.DEFAULT_NETWORK_YES:
-                return android.net.NetworkStats.DEFAULT_NETWORK_YES;
-        }
-        return 0;
     }
 }

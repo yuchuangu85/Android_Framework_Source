@@ -16,6 +16,9 @@
 
 package android.inputmethodservice;
 
+import static android.view.inputmethod.Flags.FLAG_VERIFY_KEY_EVENT;
+
+import android.annotation.FlaggedApi;
 import android.annotation.MainThread;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -29,6 +32,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.WindowManager;
 import android.view.WindowManagerGlobal;
+import android.view.inputmethod.Flags;
 import android.view.inputmethod.InputMethod;
 import android.view.inputmethod.InputMethodSession;
 import android.window.WindowProviderService;
@@ -186,6 +190,16 @@ public abstract class AbstractInputMethodService extends WindowProviderService
             if (callback != null) {
                 callback.finishedEvent(seq, handled);
             }
+            if (Flags.imeSwitcherRevamp() && !handled && event.getAction() == KeyEvent.ACTION_DOWN
+                    && event.getUnicodeChar() > 0 && mInputMethodServiceInternal != null) {
+                mInputMethodServiceInternal.notifyUserActionIfNecessary();
+            }
+        }
+
+        @FlaggedApi(FLAG_VERIFY_KEY_EVENT)
+        @Override
+        public boolean onShouldVerifyKeyEvent(@NonNull KeyEvent event) {
+            return AbstractInputMethodService.this.onShouldVerifyKeyEvent(event);
         }
 
         /**
@@ -300,6 +314,14 @@ public abstract class AbstractInputMethodService extends WindowProviderService
      * @see android.view.View#onGenericMotionEvent(MotionEvent)
      */
     public boolean onGenericMotionEvent(MotionEvent event) {
+        return false;
+    }
+
+    /**
+     * @see InputMethodService#onShouldVerifyKeyEvent(KeyEvent)
+     */
+    @FlaggedApi(FLAG_VERIFY_KEY_EVENT)
+    public boolean onShouldVerifyKeyEvent(@NonNull KeyEvent event) {
         return false;
     }
 

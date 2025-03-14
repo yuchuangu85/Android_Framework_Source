@@ -24,6 +24,7 @@ import android.os.Build;
 import android.os.Message;
 import android.telephony.ServiceState;
 
+import com.android.internal.R;
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
 import com.android.internal.telephony.InboundSmsHandler;
 import com.android.internal.telephony.Phone;
@@ -165,8 +166,13 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
                 + " SS=" + ss
                 + " " + SmsController.formatCrossStackMessageId(tracker.mMessageId));
 
+        boolean allowCheckMessageInNotConnected =
+                mContext.getResources()
+                        .getBoolean(R.bool.config_satellite_allow_check_message_in_not_connected);
+        boolean mtPollingMessageThatsAllowedInOOS =
+                tracker.isMtSmsPollingMessage(mContext) && allowCheckMessageInNotConnected;
         // if sms over IMS is not supported on data and voice is not available...
-        if (!isIms() && ss != ServiceState.STATE_IN_SERVICE) {
+        if (!isIms() && ss != ServiceState.STATE_IN_SERVICE && !mtPollingMessageThatsAllowedInOOS) {
         //In 5G case only Data Rat is reported.
             if(mPhone.getServiceState().getRilDataRadioTechnology()
                     != ServiceState.RIL_RADIO_TECHNOLOGY_NR) {

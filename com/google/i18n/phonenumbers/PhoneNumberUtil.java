@@ -85,6 +85,9 @@ public class PhoneNumberUtil {
   // considered to be an area code.
   private static final Set<Integer> GEO_MOBILE_COUNTRIES_WITHOUT_MOBILE_AREA_CODES;
 
+  // Set of country codes that doesn't have national prefix, but it has area codes.
+  private static final Set<Integer> COUNTRIES_WITHOUT_NATIONAL_PREFIX_WITH_AREA_CODES;
+
   // Set of country calling codes that have geographically assigned mobile numbers. This may not be
   // complete; we add calling codes case by case, as we find geographical mobile numbers or hear
   // from user reports. Note that countries like the US, where we can't distinguish between
@@ -126,6 +129,11 @@ public class PhoneNumberUtil {
     geoMobileCountriesWithoutMobileAreaCodes.add(86);  // China
     GEO_MOBILE_COUNTRIES_WITHOUT_MOBILE_AREA_CODES =
         Collections.unmodifiableSet(geoMobileCountriesWithoutMobileAreaCodes);
+
+    HashSet<Integer> countriesWithoutNationalPrefixWithAreaCodes = new HashSet<>();
+    countriesWithoutNationalPrefixWithAreaCodes.add(52);  // Mexico
+    COUNTRIES_WITHOUT_NATIONAL_PREFIX_WITH_AREA_CODES = 
+    		Collections.unmodifiableSet(countriesWithoutNationalPrefixWithAreaCodes);
 
     HashSet<Integer> geoMobileCountries = new HashSet<>();
     geoMobileCountries.add(52);  // Mexico
@@ -893,14 +901,18 @@ public class PhoneNumberUtil {
     if (metadata == null) {
       return 0;
     }
-    // If a country doesn't use a national prefix, and this number doesn't have an Italian leading
-    // zero, we assume it is a closed dialling plan with no area codes.
-    if (!metadata.hasNationalPrefix() && !number.isItalianLeadingZero()) {
-      return 0;
-    }
 
     PhoneNumberType type = getNumberType(number);
     int countryCallingCode = number.getCountryCode();
+    // If a country doesn't use a national prefix, and this number doesn't have an Italian leading
+    // zero, we assume it is a closed dialling plan with no area codes.
+    // Note:this is our general assumption, but there are exceptions which are tracked in
+    // COUNTRIES_WITHOUT_NATIONAL_PREFIX_WITH_AREA_CODES.
+    if (!metadata.hasNationalPrefix() && !number.isItalianLeadingZero() 
+    && !COUNTRIES_WITHOUT_NATIONAL_PREFIX_WITH_AREA_CODES.contains(countryCallingCode)) {
+      return 0;
+    }
+
     if (type == PhoneNumberType.MOBILE
         // Note this is a rough heuristic; it doesn't cover Indonesia well, for example, where area
         // codes are present for some mobile phones but not for others. We have no better way of
@@ -1866,8 +1878,11 @@ public class PhoneNumberUtil {
     String regionCode = getRegionCodeForCountryCode(countryCode);
     // Metadata cannot be null because the country calling code is valid.
     PhoneMetadata metadataForRegion = getMetadataForRegionOrCallingCode(countryCode, regionCode);
-    maybeAppendFormattedExtension(number, metadataForRegion,
-                                  PhoneNumberFormat.INTERNATIONAL, formattedNumber);
+    // Strip any extension
+    maybeStripExtension(formattedNumber);
+    // Append the formatted extension
+    maybeAppendFormattedExtension(
+        number, metadataForRegion, PhoneNumberFormat.INTERNATIONAL, formattedNumber);
     if (internationalPrefixForFormatting.length() > 0) {
       formattedNumber.insert(0, " ").insert(0, countryCode).insert(0, " ")
           .insert(0, internationalPrefixForFormatting);
@@ -2693,6 +2708,13 @@ public class PhoneNumberUtil {
    *        length (obviously includes the length of area codes for fixed line numbers), it will
    *        return false for the subscriber-number-only version.
    * </ol>
+   *
+   * <p>There is a known <a href="https://issuetracker.google.com/issues/335892662">issue</a> with this
+   * method: if a number is possible only in a certain region among several regions that share the
+   * same country calling code, this method will consider only the "main" region. For example,
+   * +1310xxxx are valid numbers in Canada. However, they are not possible in the US. As a result,
+   * this method will return IS_POSSIBLE_LOCAL_ONLY for +1310xxxx.
+   *
    * @param number  the number that needs to be checked
    * @return  a ValidationResult object which indicates whether the number is possible
    */
@@ -2721,6 +2743,12 @@ public class PhoneNumberUtil {
    *        length (obviously includes the length of area codes for fixed line numbers), it will
    *        return false for the subscriber-number-only version.
    * </ol>
+   *
+   * <p>There is a known <a href="https://issuetracker.google.com/issues/335892662">issue</a> with this
+   * method: if a number is possible only in a certain region among several regions that share the
+   * same country calling code, this method will consider only the "main" region. For example,
+   * +1310xxxx are valid numbers in Canada. However, they are not possible in the US. As a result,
+   * this method will return IS_POSSIBLE_LOCAL_ONLY for +1310xxxx.
    *
    * @param number  the number that needs to be checked
    * @param type  the type we are interested in

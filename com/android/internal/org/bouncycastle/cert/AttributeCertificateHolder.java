@@ -325,9 +325,9 @@ public class AttributeCertificateHolder
 
                 digOut.close();
 
-                if (!Arrays.areEqual(digCalc.getDigest(), getObjectDigest()))
+                if (Arrays.areEqual(digCalc.getDigest(), getObjectDigest()))
                 {
-                    return false;
+                    return true;
                 }
             }
             catch (Exception e)

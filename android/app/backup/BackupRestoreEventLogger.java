@@ -34,9 +34,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Class to log B&R stats for each data type that is backed up and restored by the calling app.
@@ -323,6 +325,21 @@ public final class BackupRestoreEventLogger {
         } else {
             return 15;
         }
+    }
+
+    /** @hide */
+    public static String toString(DataTypeResult result) {
+        Objects.requireNonNull(result, "result cannot be null");
+        StringBuilder string = new StringBuilder("type=").append(result.mDataType)
+                .append(", successCount=").append(result.mSuccessCount)
+                .append(", failCount=").append(result.mFailCount);
+        if (!result.mErrors.isEmpty()) {
+            string.append(", errors=").append(result.mErrors);
+        }
+        if (result.mMetadataHash != null) {
+            string.append(", metadataHash=").append(Arrays.toString(result.mMetadataHash));
+        }
+        return string.toString();
     }
 
     /**

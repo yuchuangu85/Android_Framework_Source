@@ -23,8 +23,10 @@ import android.app.appsearch.safeparcel.PackageIdentifierParcel;
 import java.util.Objects;
 
 /** This class represents a uniquely identifiable package. */
+// TODO(b/384721898): Switch to JSpecify annotations
+@SuppressWarnings("JSpecifyNullness")
 public class PackageIdentifier {
-    @NonNull private final PackageIdentifierParcel mPackageIdentifierParcel;
+    private final @NonNull PackageIdentifierParcel mPackageIdentifierParcel;
 
     /**
      * Creates a unique identifier for a package.
@@ -59,18 +61,17 @@ public class PackageIdentifier {
      *
      * @hide
      */
-    @NonNull
-    public PackageIdentifierParcel getPackageIdentifierParcel() {
+    public @NonNull PackageIdentifierParcel getPackageIdentifierParcel() {
         return mPackageIdentifierParcel;
     }
 
-    @NonNull
-    public String getPackageName() {
+    /** Returns the name for a package. */
+    public @NonNull String getPackageName() {
         return mPackageIdentifierParcel.getPackageName();
     }
 
-    @NonNull
-    public byte[] getSha256Certificate() {
+    /** Returns the SHA-256 certificate for a package. */
+    public @NonNull byte[] getSha256Certificate() {
         return mPackageIdentifierParcel.getSha256Certificate();
     }
 

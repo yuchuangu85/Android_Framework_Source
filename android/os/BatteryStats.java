@@ -69,16 +69,19 @@ import java.io.PrintWriter;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.Formatter;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 /**
  * A class providing access to battery usage statistics, including information on
@@ -1868,6 +1871,11 @@ public abstract class BatteryStats {
         @UnsupportedAppUsage
         public long time;
 
+        // Wall clock time of the event, GMT. Unlike `time`, this timestamp is affected
+        // by changes in the clock setting.  When the wall clock is adjusted, BatteryHistory
+        // records an event of type `CMD_CURRENT_TIME` or `CMD_RESET`.
+        public long currentTime;
+
         @UnsupportedAppUsage
         public static final byte CMD_UPDATE = 0;        // These can be written as deltas
         public static final byte CMD_NULL = -1;
@@ -1948,6 +1956,11 @@ public abstract class BatteryStats {
 
         public static final int SETTLE_TO_ZERO_STATES = 0xffff0000 & ~MOST_INTERESTING_STATES;
 
+        // STATES bits that are used for Power Stats tracking
+        public static final int IMPORTANT_FOR_POWER_STATS_STATES =
+                STATE_GPS_ON_FLAG | STATE_SENSOR_ON_FLAG | STATE_AUDIO_ON_FLAG
+                        | STATE_WAKE_LOCK_FLAG;
+
         @UnsupportedAppUsage
         public int states;
 
@@ -1987,6 +2000,13 @@ public abstract class BatteryStats {
                 | STATE2_CHARGING_FLAG | STATE2_PHONE_IN_CALL_FLAG | STATE2_BLUETOOTH_ON_FLAG;
 
         public static final int SETTLE_TO_ZERO_STATES2 = 0xffff0000 & ~MOST_INTERESTING_STATES2;
+
+        // STATES2 bits that are used for Power Stats tracking
+        public static final int IMPORTANT_FOR_POWER_STATS_STATES2 =
+                STATE2_VIDEO_ON_FLAG | STATE2_FLASHLIGHT_FLAG | STATE2_CAMERA_FLAG
+                | STATE2_GPS_SIGNAL_QUALITY_MASK;
+
+        public static final int GNSS_SIGNAL_QUALITY_NONE = 2;
 
         @UnsupportedAppUsage
         public int states2;
@@ -2053,9 +2073,13 @@ public abstract class BatteryStats {
         public static final int EVENT_WAKEUP_AP = 0x0013;
         // Event for reporting that a specific partial wake lock has been held for a long duration.
         public static final int EVENT_LONG_WAKE_LOCK = 0x0014;
+        // Event for reporting change of some device states, triggered by a specific UID
+        public static final int EVENT_STATE_CHANGE = 0x0015;
+        // Event for reporting change of screen states.
+        public static final int EVENT_DISPLAY_STATE_CHANGED = 0x0016;
 
         // Number of event types.
-        public static final int EVENT_COUNT = 0x0016;
+        public static final int EVENT_COUNT = 0x0017;
         // Mask to extract out only the type part of the event.
         public static final int EVENT_TYPE_MASK = ~(EVENT_FLAG_START|EVENT_FLAG_FINISH);
 
@@ -2091,9 +2115,6 @@ public abstract class BatteryStats {
         // For CMD_EVENT.
         public int eventCode;
         public HistoryTag eventTag;
-
-        // Only set for CMD_CURRENT_TIME or CMD_RESET, as per System.currentTimeMillis().
-        public long currentTime;
 
         // Meta-data when reading.
         public int numReadInts;
@@ -2209,7 +2230,7 @@ public abstract class BatteryStats {
             modemRailChargeMah = 0;
             wifiRailChargeMah = 0;
             states = 0;
-            states2 = 0;
+            states2 = GNSS_SIGNAL_QUALITY_NONE << HistoryItem.STATE2_GPS_SIGNAL_QUALITY_SHIFT;
             wakelockTag = null;
             wakeReasonTag = null;
             eventCode = EVENT_NONE;
@@ -2480,7 +2501,7 @@ public abstract class BatteryStats {
     public static final int SCREEN_BRIGHTNESS_LIGHT = 3;
     public static final int SCREEN_BRIGHTNESS_BRIGHT = 4;
 
-    static final String[] SCREEN_BRIGHTNESS_NAMES = {
+    public static final String[] SCREEN_BRIGHTNESS_NAMES = {
         "dark", "dim", "medium", "light", "bright"
     };
 
@@ -3066,13 +3087,15 @@ public abstract class BatteryStats {
     public static final String[] HISTORY_EVENT_NAMES = new String[] {
             "null", "proc", "fg", "top", "sync", "wake_lock_in", "job", "user", "userfg", "conn",
             "active", "pkginst", "pkgunin", "alarm", "stats", "pkginactive", "pkgactive",
-            "tmpwhitelist", "screenwake", "wakeupap", "longwake", "est_capacity"
+            "tmpwhitelist", "screenwake", "wakeupap", "longwake", "state",
+            "display_state_changed"
     };
 
     public static final String[] HISTORY_EVENT_CHECKIN_NAMES = new String[] {
             "Enl", "Epr", "Efg", "Etp", "Esy", "Ewl", "Ejb", "Eur", "Euf", "Ecn",
-            "Eac", "Epi", "Epu", "Eal", "Est", "Eai", "Eaa", "Etw",
-            "Esw", "Ewa", "Elw", "Eec"
+            "Eac", "Epi", "Epu", "Eal", "Est", "Eai", "Eaa",
+            "Etw", "Esw", "Ewa", "Elw", "Esc",
+            "Eds"
     };
 
     @FunctionalInterface
@@ -3087,7 +3110,7 @@ public abstract class BatteryStats {
             sUidToString, sUidToString, sUidToString, sUidToString, sUidToString, sUidToString,
             sUidToString, sUidToString, sUidToString, sUidToString, sUidToString, sIntToString,
             sUidToString, sUidToString, sUidToString, sUidToString, sUidToString, sUidToString,
-            sUidToString, sUidToString, sUidToString, sIntToString
+            sUidToString, sUidToString, sUidToString, sIntToString, sUidToString
     };
 
     /**
@@ -3607,6 +3630,21 @@ public abstract class BatteryStats {
      * @return The latest learned battery capacity in uAh.
      */
     public abstract int getLearnedBatteryCapacity();
+
+    /**
+     * Returns best known estimate of the battery capacity in milli-amp-hours.
+     */
+    public int getBatteryCapacity() {
+        int batteryCapacityUah = getLearnedBatteryCapacity();
+        if (batteryCapacityUah > 0) {
+            return batteryCapacityUah / 1000;
+        }
+        batteryCapacityUah = getMinLearnedBatteryCapacity();
+        if (batteryCapacityUah > 0) {
+            return batteryCapacityUah / 1000;
+        }
+        return getEstimatedBatteryCapacity();
+    }
 
     /**
      * Return the array of discharge step durations.
@@ -6857,7 +6895,9 @@ public abstract class BatteryStats {
                                 || wakelockTag.poolIdx == HistoryTag.HISTORY_TAG_POOL_OVERFLOW) {
                             UserHandle.formatUid(sb, wakelockTag.uid);
                             sb.append(":\"");
-                            sb.append(wakelockTag.string.replace("\"", "\"\""));
+                            if (wakelockTag.string != null) {
+                                sb.append(wakelockTag.string.replace("\"", "\"\""));
+                            }
                             sb.append("\"");
                         } else {
                             sb.append(wakelockTag.poolIdx);
@@ -6893,6 +6933,23 @@ public abstract class BatteryStats {
     }
 
     public static class HistoryPrinter {
+        private static final int FORMAT_LEGACY = 1;
+
+        // This constant MUST be incremented whenever the history dump format changes.
+        private static final int FORMAT_VERSION = 2;
+
+        private final SimpleDateFormat mHistoryItemTimestampFormat =
+                new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US);
+        private final SimpleDateFormat mCurrentTimeEventTimeFormat =
+                new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss", Locale.US);
+
+        // This API is error prone, but we are making an exception here to avoid excessive
+        // object allocations.
+        @SuppressWarnings("JavaUtilDate")
+        private final Date mDate = new Date();
+
+        private final int mFormatVersion;
+
         int oldState = 0;
         int oldState2 = 0;
         int oldLevel = -1;
@@ -6905,6 +6962,22 @@ public abstract class BatteryStats {
         double oldModemRailChargeMah = -1;
         double oldWifiRailChargeMah = -1;
         long lastTime = -1;
+
+        public HistoryPrinter() {
+            this(TimeZone.getDefault());
+        }
+
+        public HistoryPrinter(TimeZone timeZone) {
+            this(com.android.server.power.optimization.Flags
+                    .extendedBatteryHistoryContinuousCollectionEnabled()
+                    ? FORMAT_VERSION : FORMAT_LEGACY, timeZone);
+        }
+
+        private HistoryPrinter(int formatVersion, TimeZone timeZone) {
+            mFormatVersion = formatVersion;
+            mHistoryItemTimestampFormat.getCalendar().setTimeZone(timeZone);
+            mCurrentTimeEventTimeFormat.getCalendar().setTimeZone(timeZone);
+        }
 
         void reset() {
             oldState = oldState2 = 0;
@@ -6933,16 +7006,22 @@ public abstract class BatteryStats {
             }
         }
 
+        @SuppressWarnings("JavaUtilDate")
         private String printNextItem(HistoryItem rec, long baseTime, boolean checkin,
                 boolean verbose) {
             StringBuilder item = new StringBuilder();
             if (!checkin) {
                 item.append("  ");
-                TimeUtils.formatDuration(
-                        rec.time - baseTime, item, TimeUtils.HUNDRED_DAY_FIELD_LEN);
-                item.append(" (");
-                item.append(rec.numReadInts);
-                item.append(") ");
+                if (mFormatVersion == FORMAT_LEGACY) {
+                    TimeUtils.formatDuration(
+                            rec.time - baseTime, item, TimeUtils.HUNDRED_DAY_FIELD_LEN);
+                    item.append(" (");
+                    item.append(rec.numReadInts);
+                    item.append(") ");
+                } else {
+                    mDate.setTime(rec.currentTime);
+                    item.append(mHistoryItemTimestampFormat.format(mDate)).append(' ');
+                }
             } else {
                 item.append(BATTERY_STATS_CHECKIN_VERSION); item.append(',');
                 item.append(HISTORY_DATA); item.append(',');
@@ -6974,8 +7053,8 @@ public abstract class BatteryStats {
                     item.append("\n");
                 } else {
                     item.append(" ");
-                    item.append(DateFormat.format("yyyy-MM-dd-HH-mm-ss",
-                            rec.currentTime).toString());
+                    mDate.setTime(rec.currentTime);
+                    item.append(mCurrentTimeEventTimeFormat.format(mDate));
                     item.append("\n");
                 }
             } else if (rec.cmd == HistoryItem.CMD_SHUTDOWN) {
@@ -7496,11 +7575,31 @@ public abstract class BatteryStats {
     public static final int DUMP_DEVICE_WIFI_ONLY = 1<<6;
 
     private void dumpHistory(PrintWriter pw, int flags, long histStart, boolean checkin) {
+        final HistoryPrinter hprinter = new HistoryPrinter();
         synchronized (this) {
-            dumpHistoryTagPoolLocked(pw, checkin);
+            if (!checkin) {
+                final long historyTotalSize = getHistoryTotalSize();
+                final long historyUsedSize = getHistoryUsedSize();
+                pw.print("Battery History");
+                if (hprinter.mFormatVersion != HistoryPrinter.FORMAT_LEGACY) {
+                    pw.print(" [Format: " + hprinter.mFormatVersion + "]");
+                }
+                pw.print(" (");
+                pw.print((100 * historyUsedSize) / historyTotalSize);
+                pw.print("% used, ");
+                printSizeValue(pw, historyUsedSize);
+                pw.print(" used of ");
+                printSizeValue(pw, historyTotalSize);
+                pw.print(", ");
+                pw.print(getHistoryStringPoolSize());
+                pw.print(" strings using ");
+                printSizeValue(pw, getHistoryStringPoolBytes());
+                pw.println("):");
+            } else {
+                dumpHistoryTagPoolLocked(pw, checkin);
+            }
         }
 
-        final HistoryPrinter hprinter = new HistoryPrinter();
         long lastTime = -1;
         long baseTime = -1;
         boolean printed = false;
@@ -7612,20 +7711,6 @@ public abstract class BatteryStats {
                 pw.print("\"");
                 pw.println();
             }
-        } else {
-            final long historyTotalSize = getHistoryTotalSize();
-            final long historyUsedSize = getHistoryUsedSize();
-            pw.print("Battery History (");
-            pw.print((100 * historyUsedSize) / historyTotalSize);
-            pw.print("% used, ");
-            printSizeValue(pw, historyUsedSize);
-            pw.print(" used of ");
-            printSizeValue(pw, historyTotalSize);
-            pw.print(", ");
-            pw.print(getHistoryStringPoolSize());
-            pw.print(" strings using ");
-            printSizeValue(pw, getHistoryStringPoolBytes());
-            pw.println("):");
         }
     }
 
@@ -9014,6 +9099,10 @@ public abstract class BatteryStats {
 
             final int uid = consumer.getUid();
             final Uid u = uidStats.get(uid);
+            if (u == null) {
+                continue;
+            }
+
             final long rxPackets = u.getNetworkActivityPackets(
                     BatteryStats.NETWORK_MOBILE_RX_DATA, STATS_SINCE_CHARGED);
             final long txPackets = u.getNetworkActivityPackets(

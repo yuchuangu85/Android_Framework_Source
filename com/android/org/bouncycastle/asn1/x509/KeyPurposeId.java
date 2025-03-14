@@ -109,6 +109,30 @@ public class KeyPurposeId
      */
     public static final KeyPurposeId id_kp_capwapWTP = new KeyPurposeId(id_kp.branch("19"));
 
+
+    /**
+     * id-kp-cmcCA OBJECT IDENTIFIER ::= {
+     *          iso(1) identified-organization(3) dod(6) internet(1)
+     *          security(5) mechanisms(5) pkix(7) kp(3) 27 }
+     */
+    public static final KeyPurposeId id_kp_cmcCA = new KeyPurposeId(id_kp.branch("27"));
+
+    /**
+     * id-kp-cmcRA OBJECT IDENTIFIER ::= {
+     *          iso(1) identified-organization(3) dod(6) internet(1)
+     *          security(5) mechanisms(5) pkix(7) kp(3) 28 }
+     */
+    public static final KeyPurposeId id_kp_cmcRA = new KeyPurposeId(id_kp.branch("28"));
+
+    /**
+     * id-kp-cmKGA OBJECT IDENTIFIER ::= {
+     *          iso(1) identified-organization(3) dod(6) internet(1)
+     *          security(5) mechanisms(5) pkix(7) kp(3) 32 }
+     */
+    public static final KeyPurposeId id_kp_cmKGA = new KeyPurposeId(id_kp.branch("32"));
+
+
+
     //
     // microsoft key purpose ids
     //
@@ -140,15 +164,6 @@ public class KeyPurposeId
     private KeyPurposeId(ASN1ObjectIdentifier id)
     {
         this.id = id;
-    }
-
-    /**
-     * @param id string representation of an OID.
-     * @deprecated use getInstance and an OID or one of the constants above.
-     */
-    public KeyPurposeId(String id)
-    {
-        this(new ASN1ObjectIdentifier(id));
     }
 
     public static KeyPurposeId getInstance(Object o)

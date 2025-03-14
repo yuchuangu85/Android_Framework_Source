@@ -202,7 +202,7 @@ public interface Node<T> {
         Node<T> build();
 
         /**
-         * Specialized @{code Node.Builder} for int elements
+         * Specialized {@code Node.Builder} for int elements
          */
         interface OfInt extends Node.Builder<Integer>, Sink.OfInt {
             @Override
@@ -210,7 +210,7 @@ public interface Node<T> {
         }
 
         /**
-         * Specialized @{code Node.Builder} for long elements
+         * Specialized {@code Node.Builder} for long elements
          */
         interface OfLong extends Node.Builder<Long>, Sink.OfLong {
             @Override
@@ -218,7 +218,7 @@ public interface Node<T> {
         }
 
         /**
-         * Specialized @{code Node.Builder} for double elements
+         * Specialized {@code Node.Builder} for double elements
          */
         interface OfDouble extends Node.Builder<Double>, Sink.OfDouble {
             @Override
@@ -316,6 +316,7 @@ public interface Node<T> {
     /**
      * Specialized {@code Node} for int elements
      */
+    @SuppressWarnings("overloads")
     interface OfInt extends OfPrimitive<Integer, IntConsumer, int[], Spliterator.OfInt, OfInt> {
 
         /**
@@ -393,6 +394,7 @@ public interface Node<T> {
     /**
      * Specialized {@code Node} for long elements
      */
+    @SuppressWarnings("overloads")
     interface OfLong extends OfPrimitive<Long, LongConsumer, long[], Spliterator.OfLong, OfLong> {
 
         /**
@@ -470,6 +472,7 @@ public interface Node<T> {
     /**
      * Specialized {@code Node} for double elements
      */
+    @SuppressWarnings("overloads")
     interface OfDouble extends OfPrimitive<Double, DoubleConsumer, double[], Spliterator.OfDouble, OfDouble> {
 
         /**

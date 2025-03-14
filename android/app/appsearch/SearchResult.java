@@ -20,18 +20,24 @@ import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
-import android.app.appsearch.flags.Flags;
 import android.app.appsearch.safeparcel.AbstractSafeParcelable;
 import android.app.appsearch.safeparcel.GenericDocumentParcel;
 import android.app.appsearch.safeparcel.SafeParcelable;
+import android.app.appsearch.util.BundleUtil;
+import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.util.ArrayMap;
 
+import com.android.appsearch.flags.Flags;
 import com.android.internal.util.Preconditions;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * This class represents one of the results obtained from an AppSearch query.
@@ -50,12 +56,13 @@ import java.util.Objects;
  * @see SearchResults
  */
 @SafeParcelable.Class(creator = "SearchResultCreator")
-@SuppressWarnings("HiddenSuperclass")
+// TODO(b/384721898): Switch to JSpecify annotations
+@SuppressWarnings({"HiddenSuperclass", "JSpecifyNullness"})
 public final class SearchResult extends AbstractSafeParcelable {
 
     @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
-    @NonNull
-    public static final Parcelable.Creator<SearchResult> CREATOR = new SearchResultCreator();
+    public static final @NonNull Parcelable.Creator<SearchResult> CREATOR =
+            new SearchResultCreator();
 
     @Field(id = 1)
     final GenericDocumentParcel mDocument;
@@ -75,11 +82,27 @@ public final class SearchResult extends AbstractSafeParcelable {
     @Field(id = 6, getter = "getJoinedResults")
     private final List<SearchResult> mJoinedResults;
 
+    @Field(id = 7, getter = "getInformationalRankingSignals")
+    private final @NonNull List<Double> mInformationalRankingSignals;
+
+    /**
+     * Holds the map from schema type names to the list of their parent types.
+     *
+     * <p>The map includes entries for the {@link GenericDocument}'s own type and all of the nested
+     * documents' types. Child types are guaranteed to appear before parent types in each list.
+     *
+     * <p>Parent types include transitive parents.
+     *
+     * <p>All schema names in this map are un-prefixed, for both keys and values.
+     */
+    @Field(id = 8)
+    final @NonNull Bundle mParentTypeMap;
+
     /** Cache of the {@link GenericDocument}. Comes from mDocument at first use. */
-    @Nullable private GenericDocument mDocumentCached;
+    private @Nullable GenericDocument mDocumentCached;
 
     /** Cache of the inflated {@link MatchInfo}. Comes from inflating mMatchInfos at first use. */
-    @Nullable private List<MatchInfo> mMatchInfosCached;
+    private @Nullable List<MatchInfo> mMatchInfosCached;
 
     /** @hide */
     @Constructor
@@ -89,13 +112,26 @@ public final class SearchResult extends AbstractSafeParcelable {
             @Param(id = 3) @NonNull String packageName,
             @Param(id = 4) @NonNull String databaseName,
             @Param(id = 5) double rankingSignal,
-            @Param(id = 6) @NonNull List<SearchResult> joinedResults) {
+            @Param(id = 6) @NonNull List<SearchResult> joinedResults,
+            @Param(id = 7) @Nullable List<Double> informationalRankingSignals,
+            @Param(id = 8) @Nullable Bundle parentTypeMap) {
         mDocument = Objects.requireNonNull(document);
         mMatchInfos = Objects.requireNonNull(matchInfos);
         mPackageName = Objects.requireNonNull(packageName);
         mDatabaseName = Objects.requireNonNull(databaseName);
         mRankingSignal = rankingSignal;
-        mJoinedResults = Objects.requireNonNull(joinedResults);
+        mJoinedResults = Collections.unmodifiableList(Objects.requireNonNull(joinedResults));
+        if (informationalRankingSignals != null) {
+            mInformationalRankingSignals =
+                    Collections.unmodifiableList(informationalRankingSignals);
+        } else {
+            mInformationalRankingSignals = Collections.emptyList();
+        }
+        if (parentTypeMap != null) {
+            mParentTypeMap = parentTypeMap;
+        } else {
+            mParentTypeMap = Bundle.EMPTY;
+        }
     }
 
     /**
@@ -103,8 +139,7 @@ public final class SearchResult extends AbstractSafeParcelable {
      *
      * @return Document object which matched the query.
      */
-    @NonNull
-    public GenericDocument getGenericDocument() {
+    public @NonNull GenericDocument getGenericDocument() {
         if (mDocumentCached == null) {
             mDocumentCached = new GenericDocument(mDocument);
         }
@@ -120,8 +155,7 @@ public final class SearchResult extends AbstractSafeParcelable {
      *     SearchSpec.Builder#setSnippetCountPerProperty}, for all results after that value, this
      *     method returns an empty list.
      */
-    @NonNull
-    public List<MatchInfo> getMatchInfos() {
+    public @NonNull List<MatchInfo> getMatchInfos() {
         if (mMatchInfosCached == null) {
             mMatchInfosCached = new ArrayList<>(mMatchInfos.size());
             for (int i = 0; i < mMatchInfos.size(); i++) {
@@ -132,6 +166,7 @@ public final class SearchResult extends AbstractSafeParcelable {
                     mMatchInfosCached.add(matchInfo);
                 }
             }
+            mMatchInfosCached = Collections.unmodifiableList(mMatchInfosCached);
         }
         // This check is added for NullnessChecker, mMatchInfos will always be NonNull.
         return Objects.requireNonNull(mMatchInfosCached);
@@ -142,8 +177,7 @@ public final class SearchResult extends AbstractSafeParcelable {
      *
      * @return Package name that stored the document
      */
-    @NonNull
-    public String getPackageName() {
+    public @NonNull String getPackageName() {
         return mPackageName;
     }
 
@@ -152,8 +186,7 @@ public final class SearchResult extends AbstractSafeParcelable {
      *
      * @return Name of the database within which the document is stored
      */
-    @NonNull
-    public String getDatabaseName() {
+    public @NonNull String getDatabaseName() {
         return mDatabaseName;
     }
 
@@ -188,6 +221,39 @@ public final class SearchResult extends AbstractSafeParcelable {
     }
 
     /**
+     * Returns the informational ranking signals of the {@link GenericDocument}, according to the
+     * expressions added in {@link SearchSpec.Builder#addInformationalRankingExpressions}.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_INFORMATIONAL_RANKING_EXPRESSIONS)
+    public @NonNull List<Double> getInformationalRankingSignals() {
+        return mInformationalRankingSignals;
+    }
+
+    /**
+     * Returns the map from schema type names to the list of their parent types.
+     *
+     * <p>The map includes entries for the {@link GenericDocument}'s own type and all of the nested
+     * documents' types. Child types are guaranteed to appear before parent types in each list.
+     *
+     * <p>Parent types include transitive parents.
+     *
+     * <p>Calling this function repeatedly is inefficient. Prefer to retain the Map returned by this
+     * function, rather than calling it multiple times.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_SEARCH_RESULT_PARENT_TYPES)
+    public @NonNull Map<String, List<String>> getParentTypeMap() {
+        Set<String> schemaTypes = mParentTypeMap.keySet();
+        Map<String, List<String>> parentTypeMap = new ArrayMap<>(schemaTypes.size());
+        for (String schemaType : schemaTypes) {
+            ArrayList<String> parentTypes = mParentTypeMap.getStringArrayList(schemaType);
+            if (parentTypes != null) {
+                parentTypeMap.put(schemaType, parentTypes);
+            }
+        }
+        return parentTypeMap;
+    }
+
+    /**
      * Gets a list of {@link SearchResult} joined from the join operation.
      *
      * <p>These joined documents match the outer document as specified in the {@link JoinSpec} with
@@ -201,8 +267,7 @@ public final class SearchResult extends AbstractSafeParcelable {
      *
      * @return a List of SearchResults containing joined documents.
      */
-    @NonNull
-    public List<SearchResult> getJoinedResults() {
+    public @NonNull List<SearchResult> getJoinedResults() {
         return mJoinedResults;
     }
 
@@ -216,10 +281,12 @@ public final class SearchResult extends AbstractSafeParcelable {
     public static final class Builder {
         private final String mPackageName;
         private final String mDatabaseName;
-        private ArrayList<MatchInfo> mMatchInfos = new ArrayList<>();
+        private List<MatchInfo> mMatchInfos = new ArrayList<>();
         private GenericDocument mGenericDocument;
         private double mRankingSignal;
-        private ArrayList<SearchResult> mJoinedResults = new ArrayList<>();
+        private List<Double> mInformationalRankingSignals = new ArrayList<>();
+        private Bundle mParentTypeMap = new Bundle();
+        private List<SearchResult> mJoinedResults = new ArrayList<>();
         private boolean mBuilt = false;
 
         /**
@@ -240,6 +307,9 @@ public final class SearchResult extends AbstractSafeParcelable {
             mDatabaseName = searchResult.getDatabaseName();
             mGenericDocument = searchResult.getGenericDocument();
             mRankingSignal = searchResult.getRankingSignal();
+            mInformationalRankingSignals =
+                    new ArrayList<>(searchResult.getInformationalRankingSignals());
+            setParentTypeMap(searchResult.getParentTypeMap());
             List<MatchInfo> matchInfos = searchResult.getMatchInfos();
             for (int i = 0; i < matchInfos.size(); i++) {
                 addMatchInfo(new MatchInfo.Builder(matchInfos.get(i)).build());
@@ -252,8 +322,7 @@ public final class SearchResult extends AbstractSafeParcelable {
 
         /** Sets the document which matched. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setGenericDocument(@NonNull GenericDocument document) {
+        public @NonNull Builder setGenericDocument(@NonNull GenericDocument document) {
             Objects.requireNonNull(document);
             resetIfBuilt();
             mGenericDocument = document;
@@ -262,8 +331,7 @@ public final class SearchResult extends AbstractSafeParcelable {
 
         /** Adds another match to this SearchResult. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addMatchInfo(@NonNull MatchInfo matchInfo) {
+        public @NonNull Builder addMatchInfo(@NonNull MatchInfo matchInfo) {
             Preconditions.checkState(
                     matchInfo.mDocument == null,
                     "This MatchInfo is already associated with a SearchResult and can't be "
@@ -275,10 +343,52 @@ public final class SearchResult extends AbstractSafeParcelable {
 
         /** Sets the ranking signal of the matched document in this SearchResult. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setRankingSignal(double rankingSignal) {
+        public @NonNull Builder setRankingSignal(double rankingSignal) {
             resetIfBuilt();
             mRankingSignal = rankingSignal;
+            return this;
+        }
+
+        /** Adds the informational ranking signal of the matched document in this SearchResult. */
+        @CanIgnoreReturnValue
+        @FlaggedApi(Flags.FLAG_ENABLE_INFORMATIONAL_RANKING_EXPRESSIONS)
+        public @NonNull Builder addInformationalRankingSignal(double rankingSignal) {
+            resetIfBuilt();
+            mInformationalRankingSignals.add(rankingSignal);
+            return this;
+        }
+
+        /**
+         * Sets the map from schema type names to the list of their parent types.
+         *
+         * <p>The map should include entries for the {@link GenericDocument}'s own type and all of
+         * the nested documents' types.
+         *
+         * <p>Child types must appear before parent types in each list. Otherwise, the
+         * GenericDocument's toDocumentClass method (an AndroidX-only API) may not correctly
+         * identify the most concrete type. This could lead to unintended deserialization into a
+         * more general type instead of a more specific type.
+         *
+         * <p>Parent types should include transitive parents.
+         */
+        @CanIgnoreReturnValue
+        @FlaggedApi(Flags.FLAG_ENABLE_SEARCH_RESULT_PARENT_TYPES)
+        public @NonNull Builder setParentTypeMap(@NonNull Map<String, List<String>> parentTypeMap) {
+            Objects.requireNonNull(parentTypeMap);
+            resetIfBuilt();
+            mParentTypeMap.clear();
+
+            for (Map.Entry<String, List<String>> entry : parentTypeMap.entrySet()) {
+                Objects.requireNonNull(entry.getKey());
+                Objects.requireNonNull(entry.getValue());
+
+                ArrayList<String> parentTypes = new ArrayList<>(entry.getValue().size());
+                for (int i = 0; i < entry.getValue().size(); i++) {
+                    String parentType = entry.getValue().get(i);
+                    parentTypes.add(Objects.requireNonNull(parentType));
+                }
+                mParentTypeMap.putStringArrayList(entry.getKey(), parentTypes);
+            }
             return this;
         }
 
@@ -288,10 +398,21 @@ public final class SearchResult extends AbstractSafeParcelable {
          * @param joinedResult The joined SearchResult to add.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addJoinedResult(@NonNull SearchResult joinedResult) {
+        public @NonNull Builder addJoinedResult(@NonNull SearchResult joinedResult) {
             resetIfBuilt();
             mJoinedResults.add(joinedResult);
+            return this;
+        }
+
+        /**
+         * Clears the {@link MatchInfo}s.
+         *
+         * @hide
+         */
+        @CanIgnoreReturnValue
+        public @NonNull Builder clearMatchInfos() {
+            resetIfBuilt();
+            mMatchInfos.clear();
             return this;
         }
 
@@ -301,16 +422,14 @@ public final class SearchResult extends AbstractSafeParcelable {
          * @hide
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder clearJoinedResults() {
+        public @NonNull Builder clearJoinedResults() {
             resetIfBuilt();
             mJoinedResults.clear();
             return this;
         }
 
         /** Constructs a new {@link SearchResult}. */
-        @NonNull
-        public SearchResult build() {
+        public @NonNull SearchResult build() {
             mBuilt = true;
             return new SearchResult(
                     mGenericDocument.getDocumentParcel(),
@@ -318,13 +437,17 @@ public final class SearchResult extends AbstractSafeParcelable {
                     mPackageName,
                     mDatabaseName,
                     mRankingSignal,
-                    mJoinedResults);
+                    mJoinedResults,
+                    mInformationalRankingSignals,
+                    mParentTypeMap);
         }
 
         private void resetIfBuilt() {
             if (mBuilt) {
                 mMatchInfos = new ArrayList<>(mMatchInfos);
                 mJoinedResults = new ArrayList<>(mJoinedResults);
+                mInformationalRankingSignals = new ArrayList<>(mInformationalRankingSignals);
+                mParentTypeMap = BundleUtil.deepCopy(mParentTypeMap);
                 mBuilt = false;
             }
         }
@@ -410,8 +533,7 @@ public final class SearchResult extends AbstractSafeParcelable {
     public static final class MatchInfo extends AbstractSafeParcelable {
 
         @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
-        @NonNull
-        public static final Parcelable.Creator<MatchInfo> CREATOR = new MatchInfoCreator();
+        public static final @NonNull Parcelable.Creator<MatchInfo> CREATOR = new MatchInfoCreator();
 
         /** The path of the matching snippet property. */
         @Field(id = 1, getter = "getPropertyPath")
@@ -435,7 +557,7 @@ public final class SearchResult extends AbstractSafeParcelable {
         @Field(id = 7)
         final int mSnippetRangeEnd;
 
-        @Nullable private PropertyPath mPropertyPathObject = null;
+        private @Nullable PropertyPath mPropertyPathObject = null;
 
         /**
          * Document which the match comes from.
@@ -443,22 +565,22 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>If this is {@code null}, methods which require access to the document, like {@link
          * #getExactMatch}, will throw {@link NullPointerException}.
          */
-        @Nullable private GenericDocument mDocument = null;
+        private @Nullable GenericDocument mDocument = null;
 
         /** Full text of the matched property. Populated on first use. */
-        @Nullable private String mFullText;
+        private @Nullable String mFullText;
 
         /** Range of property that exactly matched the query. Populated on first use. */
-        @Nullable private MatchRange mExactMatchRangeCached;
+        private @Nullable MatchRange mExactMatchRangeCached;
 
         /**
          * Range of property that corresponds to the subsequence of the exact match that directly
          * matches a query term. Populated on first use.
          */
-        @Nullable private MatchRange mSubmatchRangeCached;
+        private @Nullable MatchRange mSubmatchRangeCached;
 
         /** Range of some reasonable amount of context around the query. Populated on first use. */
-        @Nullable private MatchRange mWindowRangeCached;
+        private @Nullable MatchRange mWindowRangeCached;
 
         @Constructor
         MatchInfo(
@@ -487,8 +609,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Example properties: 'body', 'sender.name', 'sender.emailaddress', etc. For class
          * example 1 this returns "subject"
          */
-        @NonNull
-        public String getPropertyPath() {
+        public @NonNull String getPropertyPath() {
             return mPropertyPath;
         }
 
@@ -504,8 +625,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * @see #getPropertyPath
          * @see PropertyPath
          */
-        @NonNull
-        public PropertyPath getPropertyPathObject() {
+        public @NonNull PropertyPath getPropertyPathObject() {
             if (mPropertyPathObject == null) {
                 mPropertyPathObject = new PropertyPath(mPropertyPath);
             }
@@ -521,8 +641,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Class example 2: for the first {@link MatchInfo}, this returns "Test Name Jr." and,
          * for the second {@link MatchInfo}, this returns "Testing 1 2 3".
          */
-        @NonNull
-        public String getFullText() {
+        public @NonNull String getFullText() {
             if (mFullText == null) {
                 if (mDocument == null) {
                     throw new IllegalStateException(
@@ -541,8 +660,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Class example 2: for the first {@link MatchInfo}, this returns [0, 4] and, for the
          * second {@link MatchInfo}, this returns [0, 7].
          */
-        @NonNull
-        public MatchRange getExactMatchRange() {
+        public @NonNull MatchRange getExactMatchRange() {
             if (mExactMatchRangeCached == null) {
                 mExactMatchRangeCached = new MatchRange(mExactMatchRangeStart, mExactMatchRangeEnd);
             }
@@ -557,8 +675,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Class example 2: for the first {@link MatchInfo}, this returns "Test" and, for the
          * second {@link MatchInfo}, this returns "Testing".
          */
-        @NonNull
-        public CharSequence getExactMatch() {
+        public @NonNull CharSequence getExactMatch() {
             return getSubstring(getExactMatchRange());
         }
 
@@ -571,8 +688,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Class example 2: for the first {@link MatchInfo}, this returns [0, 4] and, for the
          * second {@link MatchInfo}, this returns [0, 4].
          */
-        @NonNull
-        public MatchRange getSubmatchRange() {
+        public @NonNull MatchRange getSubmatchRange() {
             checkSubmatchSupported();
             if (mSubmatchRangeCached == null) {
                 mSubmatchRangeCached = new MatchRange(mSubmatchRangeStart, mSubmatchRangeEnd);
@@ -588,8 +704,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Class example 2: for the first {@link MatchInfo}, this returns "Test" and, for the
          * second {@link MatchInfo}, this returns "Test".
          */
-        @NonNull
-        public CharSequence getSubmatch() {
+        public @NonNull CharSequence getSubmatch() {
             checkSubmatchSupported();
             return getSubstring(getSubmatchRange());
         }
@@ -605,8 +720,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Class example 2: for the first {@link MatchInfo}, this returns [0, 9] and, for the
          * second {@link MatchInfo}, this returns [0, 13].
          */
-        @NonNull
-        public MatchRange getSnippetRange() {
+        public @NonNull MatchRange getSnippetRange() {
             if (mWindowRangeCached == null) {
                 mWindowRangeCached = new MatchRange(mSnippetRangeStart, mSnippetRangeEnd);
             }
@@ -626,8 +740,7 @@ public final class SearchResult extends AbstractSafeParcelable {
          * <p>Class example 2: for the first {@link MatchInfo}, this returns "Test Name" and, for
          * the second {@link MatchInfo}, this returns "Testing 1 2 3".
          */
-        @NonNull
-        public CharSequence getSnippet() {
+        public @NonNull CharSequence getSnippet() {
             return getSubstring(getSnippetRange());
         }
 
@@ -706,8 +819,7 @@ public final class SearchResult extends AbstractSafeParcelable {
 
             /** Sets the exact {@link MatchRange} corresponding to the given entry. */
             @CanIgnoreReturnValue
-            @NonNull
-            public Builder setExactMatchRange(@NonNull MatchRange matchRange) {
+            public @NonNull Builder setExactMatchRange(@NonNull MatchRange matchRange) {
                 mExactMatchRange = Objects.requireNonNull(matchRange);
                 return this;
             }
@@ -717,8 +829,7 @@ public final class SearchResult extends AbstractSafeParcelable {
              * entry.
              */
             @CanIgnoreReturnValue
-            @NonNull
-            public Builder setSubmatchRange(@NonNull MatchRange matchRange) {
+            public @NonNull Builder setSubmatchRange(@NonNull MatchRange matchRange) {
                 mSubmatchRangeStart = matchRange.getStart();
                 mSubmatchRangeEnd = matchRange.getEnd();
                 return this;
@@ -726,15 +837,13 @@ public final class SearchResult extends AbstractSafeParcelable {
 
             /** Sets the snippet {@link MatchRange} corresponding to the given entry. */
             @CanIgnoreReturnValue
-            @NonNull
-            public Builder setSnippetRange(@NonNull MatchRange matchRange) {
+            public @NonNull Builder setSnippetRange(@NonNull MatchRange matchRange) {
                 mSnippetRange = Objects.requireNonNull(matchRange);
                 return this;
             }
 
             /** Constructs a new {@link MatchInfo}. */
-            @NonNull
-            public MatchInfo build() {
+            public @NonNull MatchInfo build() {
                 return new MatchInfo(
                         mPropertyPath,
                         mExactMatchRange.getStart(),
@@ -801,8 +910,7 @@ public final class SearchResult extends AbstractSafeParcelable {
         }
 
         @Override
-        @NonNull
-        public String toString() {
+        public @NonNull String toString() {
             return "MatchRange { start: " + mStart + " , end: " + mEnd + "}";
         }
 

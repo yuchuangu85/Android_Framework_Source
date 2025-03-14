@@ -192,6 +192,8 @@ public final class PermissionUtils {
 
     /**
      * Enforces that the given package name belongs to the given uid.
+     * Note: b/377758490 - Figure out how to correct this to avoid mis-usage.
+     * Meanwhile, avoid calling this method from the networkstack.
      *
      * @param context {@link android.content.Context} for the process.
      * @param uid User ID to check the package ownership for.

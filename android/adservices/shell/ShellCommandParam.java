@@ -32,12 +32,15 @@ public class ShellCommandParam implements Parcelable {
     /* Array containing command name with all the args */
     private final String[] mCommandArgs;
 
-    public ShellCommandParam(String... commandArgs) {
+    private final long mMaxCommandDurationMillis;
+
+    public ShellCommandParam(long maxCommandDurationMillis, String... commandArgs) {
+        mMaxCommandDurationMillis = maxCommandDurationMillis;
         mCommandArgs = Objects.requireNonNull(commandArgs);
     }
 
     private ShellCommandParam(Parcel in) {
-        this(in.createStringArray());
+        this(in.readLong(), in.createStringArray());
     }
 
     public static final Creator<ShellCommandParam> CREATOR =
@@ -60,6 +63,7 @@ public class ShellCommandParam implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel dest, int flags) {
+        dest.writeLong(mMaxCommandDurationMillis);
         dest.writeStringArray(mCommandArgs);
     }
 
@@ -73,16 +77,25 @@ public class ShellCommandParam implements Parcelable {
         }
 
         ShellCommandParam that = (ShellCommandParam) o;
-        return Arrays.equals(mCommandArgs, that.mCommandArgs);
+        return (mMaxCommandDurationMillis == that.mMaxCommandDurationMillis)
+                && Arrays.equals(mCommandArgs, that.mCommandArgs);
     }
 
     @Override
     public int hashCode() {
-        return Arrays.hashCode(mCommandArgs);
+        return Objects.hash(mMaxCommandDurationMillis, Arrays.hashCode(mCommandArgs));
     }
 
     /** Get the command name with all the args as a list. */
     public String[] getCommandArgs() {
         return mCommandArgs;
+    }
+
+    /**
+     * Gets the max duration of the command for which service will wait to complete command
+     * execution.
+     */
+    public long getMaxCommandDurationMillis() {
+        return mMaxCommandDurationMillis;
     }
 }

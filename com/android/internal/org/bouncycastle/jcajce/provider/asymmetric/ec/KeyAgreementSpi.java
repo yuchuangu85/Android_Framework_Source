@@ -197,21 +197,18 @@ public class KeyAgreementSpi
         return null;
     }
 
-    protected void engineInit(
-        Key key,
-        AlgorithmParameterSpec params,
-        SecureRandom random)
+    protected void doInitFromKey(Key key, AlgorithmParameterSpec parameterSpec, SecureRandom random)
         throws InvalidKeyException, InvalidAlgorithmParameterException
     {
         // Android-removed: Unsupported algorithms
-        // if (params != null &&
-        //     !(params instanceof MQVParameterSpec || params instanceof UserKeyingMaterialSpec || params instanceof DHUParameterSpec))
-        if (params != null && !(params instanceof UserKeyingMaterialSpec))
+        // if (parameterSpec != null &&
+        //     !(parameterSpec instanceof MQVParameterSpec || parameterSpec instanceof UserKeyingMaterialSpec || params instanceof DHUParameterSpec))
+        if (parameterSpec != null && !(parameterSpec instanceof UserKeyingMaterialSpec))
         {
             throw new InvalidAlgorithmParameterException("No algorithm parameters supported");
         }
 
-        initFromKey(key, params);
+        initFromKey(key, parameterSpec);
     }
 
     protected void engineInit(
@@ -251,9 +248,9 @@ public class KeyAgreementSpi
             {
                 MQVPrivateKey mqvPrivKey = (MQVPrivateKey)key;
                 staticPrivKey = (ECPrivateKeyParameters)
-                    ECUtil.generatePrivateKeyParameter(mqvPrivKey.getStaticPrivateKey());
+                    ECUtils.generatePrivateKeyParameter(mqvPrivKey.getStaticPrivateKey());
                 ephemPrivKey = (ECPrivateKeyParameters)
-                    ECUtil.generatePrivateKeyParameter(mqvPrivKey.getEphemeralPrivateKey());
+                    ECUtils.generatePrivateKeyParameter(mqvPrivKey.getEphemeralPrivateKey());
 
                 ephemPubKey = null;
                 if (mqvPrivKey.getEphemeralPublicKey() != null)
@@ -267,9 +264,9 @@ public class KeyAgreementSpi
                 MQVParameterSpec mqvParameterSpec = (MQVParameterSpec)parameterSpec;
 
                 staticPrivKey = (ECPrivateKeyParameters)
-                    ECUtil.generatePrivateKeyParameter((PrivateKey)key);
+                    ECUtils.generatePrivateKeyParameter((PrivateKey)key);
                 ephemPrivKey = (ECPrivateKeyParameters)
-                    ECUtil.generatePrivateKeyParameter(mqvParameterSpec.getEphemeralPrivateKey());
+                    ECUtils.generatePrivateKeyParameter(mqvParameterSpec.getEphemeralPrivateKey());
 
                 ephemPubKey = null;
                 if (mqvParameterSpec.getEphemeralPublicKey() != null)
@@ -301,9 +298,9 @@ public class KeyAgreementSpi
             ECPublicKeyParameters ephemPubKey;
 
             staticPrivKey = (ECPrivateKeyParameters)
-                ECUtil.generatePrivateKeyParameter((PrivateKey)key);
+                ECUtils.generatePrivateKeyParameter((PrivateKey)key);
             ephemPrivKey = (ECPrivateKeyParameters)
-                ECUtil.generatePrivateKeyParameter(dheParameterSpec.getEphemeralPrivateKey());
+                ECUtils.generatePrivateKeyParameter(dheParameterSpec.getEphemeralPrivateKey());
 
             ephemPubKey = null;
             if (dheParameterSpec.getEphemeralPublicKey() != null)
@@ -332,7 +329,7 @@ public class KeyAgreementSpi
             {
                 throw new InvalidAlgorithmParameterException("no KDF specified for UserKeyingMaterialSpec");
             }
-            ECPrivateKeyParameters privKey = (ECPrivateKeyParameters)ECUtil.generatePrivateKeyParameter((PrivateKey)key);
+            ECPrivateKeyParameters privKey = (ECPrivateKeyParameters)ECUtils.generatePrivateKeyParameter((PrivateKey)key);
             this.parameters = privKey.getParameters();
             ukmParameters = (parameterSpec instanceof UserKeyingMaterialSpec) ? ((UserKeyingMaterialSpec)parameterSpec).getUserKeyingMaterial() : null;
             ((BasicAgreement)agreement).init(privKey);
@@ -346,7 +343,7 @@ public class KeyAgreementSpi
         return fullName.substring(fullName.lastIndexOf('.') + 1);
     }
     
-    protected byte[] calcSecret()
+    protected byte[] doCalcSecret()
     {
         return Arrays.clone(result);
     }
@@ -762,8 +759,8 @@ public class KeyAgreementSpi
    		{
    			super("ECKAEGwithSHA1KDF", new ECDHBasicAgreement(),
                    new KDF2BytesGenerator(DigestFactory.createSHA1()));
-   		}
-   	}
+           }
+       }
 
     /**
    	 * KeyAgreement according to BSI TR-03111 chapter 4.3.1
@@ -775,8 +772,8 @@ public class KeyAgreementSpi
    		{
    			super("ECKAEGwithRIPEMD160KDF", new ECDHBasicAgreement(),
                    new KDF2BytesGenerator(new RIPEMD160Digest()));
-   		}
-   	}
+           }
+       }
 
     /**
    	 * KeyAgreement according to BSI TR-03111 chapter 4.3.1
@@ -788,8 +785,8 @@ public class KeyAgreementSpi
    		{
    			super("ECKAEGwithSHA224KDF", new ECDHBasicAgreement(),
                    new KDF2BytesGenerator(DigestFactory.createSHA224()));
-   		}
-   	}
+           }
+       }
 
 	/**
 	 * KeyAgreement according to BSI TR-03111 chapter 4.3.1
@@ -801,8 +798,8 @@ public class KeyAgreementSpi
 		{
 			super("ECKAEGwithSHA256KDF", new ECDHBasicAgreement(),
                 new KDF2BytesGenerator(DigestFactory.createSHA256()));
-		}
-	}
+        }
+    }
 
 	/**
 	 * KeyAgreement according to BSI TR-03111 chapter 4.3.1
@@ -814,8 +811,8 @@ public class KeyAgreementSpi
 		{
 			super("ECKAEGwithSHA384KDF", new ECDHBasicAgreement(),
                 new KDF2BytesGenerator(DigestFactory.createSHA384()));
-		}
-	}
+        }
+    }
 
 	/**
 	 * KeyAgreement according to BSI TR-03111 chapter 4.3.1

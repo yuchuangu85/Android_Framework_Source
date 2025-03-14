@@ -18,6 +18,7 @@
 package com.android.org.conscrypt;
 
 import com.android.org.conscrypt.OpenSSLX509CertificateFactory.ParsingException;
+
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.math.BigInteger;
@@ -49,6 +50,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TimeZone;
+
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.security.auth.x500.X500Principal;
@@ -75,13 +77,6 @@ public final class OpenSSLX509Certificate extends X509Certificate {
         notAfter = toDate(NativeCrypto.X509_get_notAfter(mContext, this));
     }
 
-    // A non-throwing constructor used when we have already parsed the dates
-    private OpenSSLX509Certificate(long ctx, Date notBefore, Date notAfter) {
-        mContext = ctx;
-        this.notBefore = notBefore;
-        this.notAfter = notAfter;
-    }
-
     private static Date toDate(long asn1time) throws ParsingException {
         Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
         calendar.set(Calendar.MILLISECOND, 0);
@@ -91,7 +86,6 @@ public final class OpenSSLX509Certificate extends X509Certificate {
 
     public static OpenSSLX509Certificate fromX509DerInputStream(InputStream is)
             throws ParsingException {
-        @SuppressWarnings("resource")
         final OpenSSLBIOInputStream bis = new OpenSSLBIOInputStream(is, true);
 
         try {
@@ -118,7 +112,6 @@ public final class OpenSSLX509Certificate extends X509Certificate {
 
     public static List<OpenSSLX509Certificate> fromPkcs7DerInputStream(InputStream is)
             throws ParsingException {
-        @SuppressWarnings("resource")
         OpenSSLBIOInputStream bis = new OpenSSLBIOInputStream(is, true);
 
         final long[] certRefs;
@@ -149,7 +142,6 @@ public final class OpenSSLX509Certificate extends X509Certificate {
     @android.compat.annotation.UnsupportedAppUsage
     public static OpenSSLX509Certificate fromX509PemInputStream(InputStream is)
             throws ParsingException {
-        @SuppressWarnings("resource")
         final OpenSSLBIOInputStream bis = new OpenSSLBIOInputStream(is, true);
 
         try {
@@ -167,7 +159,6 @@ public final class OpenSSLX509Certificate extends X509Certificate {
 
     public static List<OpenSSLX509Certificate> fromPkcs7PemInputStream(InputStream is)
             throws ParsingException {
-        @SuppressWarnings("resource")
         OpenSSLBIOInputStream bis = new OpenSSLBIOInputStream(is, true);
 
         final long[] certRefs;
@@ -250,14 +241,14 @@ public final class OpenSSLX509Certificate extends X509Certificate {
     }
 
     @Override
-    @SuppressWarnings("JdkObsolete") // Needed for API compatibility
+    @SuppressWarnings({"JdkObsolete", "JavaUtilDate"}) // Needed for API compatibility
     public void checkValidity()
             throws CertificateExpiredException, CertificateNotYetValidException {
         checkValidity(new Date());
     }
 
     @Override
-    @SuppressWarnings("JdkObsolete") // Needed for API compatibility
+    @SuppressWarnings({"JdkObsolete", "JavaUtilDate"}) // Needed for API compatibility
     public void checkValidity(Date date)
             throws CertificateExpiredException, CertificateNotYetValidException {
         if (getNotBefore().compareTo(date) > 0) {
@@ -292,11 +283,13 @@ public final class OpenSSLX509Certificate extends X509Certificate {
     }
 
     @Override
+    @SuppressWarnings({"JavaUtilDate"}) // Needed for API compatibility
     public Date getNotBefore() {
         return (Date) notBefore.clone();
     }
 
     @Override
+    @SuppressWarnings({"JavaUtilDate"}) // Needed for API compatibility
     public Date getNotAfter() {
         return (Date) notAfter.clone();
     }
@@ -576,7 +569,7 @@ public final class OpenSSLX509Certificate extends X509Certificate {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("Finalize")
     protected void finalize() throws Throwable {
         try {
             long toFree = mContext;

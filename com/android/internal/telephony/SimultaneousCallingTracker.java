@@ -366,9 +366,8 @@ public class SimultaneousCallingTracker {
             SubscriptionInfo subInfo =
                     SubscriptionManagerService.getInstance().getSubscriptionInfo(subId);
 
-            if (mFeatureFlags.dataOnlyCellularService() &&
-                    subId > SubscriptionManager.INVALID_SUBSCRIPTION_ID && subInfo != null &&
-                    subInfo.getServiceCapabilities()
+            if (subId > SubscriptionManager.INVALID_SUBSCRIPTION_ID && subInfo != null
+                    && subInfo.getServiceCapabilities()
                             .contains(SubscriptionManager.SERVICE_CAPABILITY_VOICE)) {
                 Log.v(LOG_TAG, "generateVoiceCapablePhoneMapBasedOnUserAssociation: adding "
                         + "phoneId = " + phone.getPhoneId());
@@ -408,7 +407,7 @@ public class SimultaneousCallingTracker {
                 if (mPhoneConfigurationManager.isVirtualDsdaEnabled() ||
                         phone.isImsServiceSimultaneousCallingSupportCapable(mContext)) {
                     // Check if the transport types of each phone support simultaneous IMS calling:
-                    int phone1TransportType = ((ImsPhone) phone.getImsPhone()).getTransportType();
+                    int phone1TransportType = getImsTransportType(phone);
                     if (phone1TransportType == AccessNetworkConstants.TRANSPORT_TYPE_WLAN) {
                         // The transport type of this phone is WLAN so all combos are supported:
                         continue;
@@ -462,8 +461,7 @@ public class SimultaneousCallingTracker {
     }
 
     private boolean phonesSupportSimultaneousCallingViaCellularOrWlan(Phone phone1, Phone phone2) {
-        int phone2TransportType =
-                ((ImsPhone) phone2.getImsPhone()).getTransportType();
+        int phone2TransportType = getImsTransportType(phone2);
         return phone2TransportType == AccessNetworkConstants.TRANSPORT_TYPE_WLAN ||
                 phonesSupportCellularSimultaneousCalling(phone1, phone2);
     }
@@ -496,6 +494,16 @@ public class SimultaneousCallingTracker {
         } catch (Exception e) {
             Log.w(LOG_TAG, "handleSimultaneousCallingSupportChanged: Exception = " + e);
         }
+    }
+
+    private @AccessNetworkConstants.TransportType int getImsTransportType(Phone phone) {
+        ImsPhone imsPhone = (ImsPhone) phone.getImsPhone();
+        if (imsPhone != null) {
+            return imsPhone.getTransportType();
+        }
+        Log.d(LOG_TAG, "getImsTransportType: IMS not supported for phone = "
+            + phone);
+        return AccessNetworkConstants.TRANSPORT_TYPE_INVALID;
     }
 
     private String getStringFromMap(Map<Integer, Set<Phone>> phoneMap) {

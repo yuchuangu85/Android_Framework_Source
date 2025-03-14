@@ -18,6 +18,7 @@ package android.net.ipsec.ike;
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.net.vcn.util.PersistableBundleUtils;
 import android.os.PersistableBundle;
 import android.util.Pair;
 import android.util.SparseArray;
@@ -29,7 +30,6 @@ import com.android.internal.net.ipsec.ike.message.IkeSaPayload.IntegrityTransfor
 import com.android.internal.net.ipsec.ike.message.IkeSaPayload.PrfTransform;
 import com.android.internal.net.ipsec.ike.message.IkeSaPayload.Transform;
 import com.android.modules.utils.build.SdkLevel;
-import com.android.server.vcn.util.PersistableBundleUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;

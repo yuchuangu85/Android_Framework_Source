@@ -16,13 +16,17 @@
 
 package android.bluetooth.le;
 
+import static android.Manifest.permission.BLUETOOTH_SCAN;
+
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.bluetooth.Attributable;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.IBluetoothGatt;
+import android.bluetooth.IBluetoothScan;
 import android.bluetooth.annotations.RequiresBluetoothLocationPermission;
 import android.bluetooth.annotations.RequiresBluetoothScanPermission;
 import android.bluetooth.annotations.RequiresLegacyBluetoothAdminPermission;
@@ -33,7 +37,6 @@ import android.os.RemoteException;
 import android.util.Log;
 
 import java.util.IdentityHashMap;
-import java.util.Objects;
 
 /**
  * This class provides methods to perform periodic advertising related operations. An application
@@ -45,7 +48,6 @@ import java.util.Objects;
  * @hide
  */
 public final class PeriodicAdvertisingManager {
-
     private static final String TAG = "PeriodicAdvertisingManager";
 
     private static final int SKIP_MIN = 0;
@@ -66,7 +68,7 @@ public final class PeriodicAdvertisingManager {
      * @hide
      */
     public PeriodicAdvertisingManager(BluetoothAdapter bluetoothAdapter) {
-        mBluetoothAdapter = Objects.requireNonNull(bluetoothAdapter);
+        mBluetoothAdapter = requireNonNull(bluetoothAdapter);
         mAttributionSource = mBluetoothAdapter.getAttributionSource();
         mCallbackWrappers = new IdentityHashMap<>();
     }
@@ -91,7 +93,7 @@ public final class PeriodicAdvertisingManager {
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothScanPermission
     @RequiresBluetoothLocationPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
+    @RequiresPermission(BLUETOOTH_SCAN)
     public void registerSync(
             ScanResult scanResult, int skip, int timeout, PeriodicAdvertisingCallback callback) {
         registerSync(scanResult, skip, timeout, callback, null);
@@ -118,7 +120,7 @@ public final class PeriodicAdvertisingManager {
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothScanPermission
     @RequiresBluetoothLocationPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
+    @RequiresPermission(BLUETOOTH_SCAN)
     public void registerSync(
             ScanResult scanResult,
             int skip,
@@ -147,8 +149,6 @@ public final class PeriodicAdvertisingManager {
                     "timeout must be between " + TIMEOUT_MIN + " and " + TIMEOUT_MAX);
         }
 
-        IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
-
         if (handler == null) {
             handler = new Handler(Looper.getMainLooper());
         }
@@ -156,11 +156,12 @@ public final class PeriodicAdvertisingManager {
         IPeriodicAdvertisingCallback wrapped = wrap(callback, handler);
         mCallbackWrappers.put(callback, wrapped);
 
+        IBluetoothScan scan = mBluetoothAdapter.getBluetoothScan();
+
         try {
-            gatt.registerSync(scanResult, skip, timeout, wrapped, mAttributionSource);
+            scan.registerSync(scanResult, skip, timeout, wrapped, mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to register sync - ", e);
-            return;
         }
     }
 
@@ -173,24 +174,23 @@ public final class PeriodicAdvertisingManager {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothScanPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_SCAN)
+    @RequiresPermission(BLUETOOTH_SCAN)
     public void unregisterSync(PeriodicAdvertisingCallback callback) {
         if (callback == null) {
             throw new IllegalArgumentException("callback can't be null");
         }
-
-        IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
 
         IPeriodicAdvertisingCallback wrapper = mCallbackWrappers.remove(callback);
         if (wrapper == null) {
             throw new IllegalArgumentException("callback was not properly registered");
         }
 
+        IBluetoothScan scan = mBluetoothAdapter.getBluetoothScan();
+
         try {
-            gatt.unregisterSync(wrapper, mAttributionSource);
+            scan.unregisterSync(wrapper, mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to cancel sync creation - ", e);
-            return;
         }
     }
 
@@ -199,14 +199,15 @@ public final class PeriodicAdvertisingManager {
      *
      * @hide
      */
+    @RequiresBluetoothScanPermission
+    @RequiresPermission(BLUETOOTH_SCAN)
     public void transferSync(BluetoothDevice bda, int serviceData, int syncHandle) {
-        IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
+        IBluetoothScan scan = mBluetoothAdapter.getBluetoothScan();
 
         try {
-            gatt.transferSync(bda, serviceData, syncHandle, mAttributionSource);
+            scan.transferSync(bda, serviceData, syncHandle, mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to register sync - ", e);
-            return;
         }
     }
 
@@ -215,6 +216,8 @@ public final class PeriodicAdvertisingManager {
      *
      * @hide
      */
+    @RequiresBluetoothScanPermission
+    @RequiresPermission(BLUETOOTH_SCAN)
     public void transferSetInfo(
             BluetoothDevice bda,
             int serviceData,
@@ -228,6 +231,8 @@ public final class PeriodicAdvertisingManager {
      *
      * @hide
      */
+    @RequiresBluetoothScanPermission
+    @RequiresPermission(BLUETOOTH_SCAN)
     public void transferSetInfo(
             BluetoothDevice bda,
             int serviceData,
@@ -237,19 +242,22 @@ public final class PeriodicAdvertisingManager {
         if (callback == null) {
             throw new IllegalArgumentException("callback can't be null");
         }
-        IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
+
         if (handler == null) {
             handler = new Handler(Looper.getMainLooper());
         }
+
         IPeriodicAdvertisingCallback wrapper = wrap(callback, handler);
         if (wrapper == null) {
             throw new IllegalArgumentException("callback was not properly registered");
         }
+
+        IBluetoothScan scan = mBluetoothAdapter.getBluetoothScan();
+
         try {
-            gatt.transferSetInfo(bda, serviceData, advHandle, wrapper, mAttributionSource);
+            scan.transferSetInfo(bda, serviceData, advHandle, wrapper, mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to register sync - ", e);
-            return;
         }
     }
 

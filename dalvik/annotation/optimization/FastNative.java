@@ -29,15 +29,16 @@ import java.lang.annotation.Target;
  * that access the managed heap or call managed code also have faster internal transitions.
  *
  * <p>
- * While executing a {@literal @}{@code FastNative} method, the garbage collection cannot
- * suspend the thread for essential work and may become blocked. Use with caution. Do not use
- * this annotation for long-running methods, including usually-fast, but generally unbounded,
- * methods. In particular, the code should not perform significant I/O operations or acquire
- * native locks that can be held for a long time. (Some logging or native allocations, which
- * internally acquire native locks for a short time, are generally OK. However, as the cost
- * of several such operations adds up, the {@literal @}{@code FastNative} performance gain
- * can become insignificant and overshadowed by potential GC delays.)
- * Acquiring managed locks is OK as it internally allows thread suspension.
+ * While executing a {@literal @}{@code FastNative} method, the garbage collection cannot suspend
+ * the thread for essential work and may become blocked. Use with caution. Do not use this
+ * annotation for long-running methods, including usually-fast, but generally unbounded, methods.
+ * In particular, the code should not perform significant I/O operations or acquire native locks
+ * that can be held for a long time. Never acquire a native lock that can also be held while a
+ * thread invokes Java code. That virtually guarantees deadlocks. (Otherwise some logging or
+ * native allocations, which internally acquire native locks for a short time, are generally OK.
+ * However, as the cost of several such operations adds up, the {@literal @}{@code FastNative}
+ * performance gain can become insignificant and overshadowed by potential GC delays.) Acquiring
+ * managed locks is OK as it internally allows thread suspension.
  * </p>
  *
  * <p>

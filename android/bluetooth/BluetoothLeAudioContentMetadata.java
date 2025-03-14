@@ -130,9 +130,8 @@ public final class BluetoothLeAudioContentMetadata implements Parcelable {
      */
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeString(mProgramInfo);
-        out.writeString(mLanguage);
-        out.writeInt(mRawMetadata.length);
+        BluetoothUtils.writeStringToParcel(out, mProgramInfo);
+        BluetoothUtils.writeStringToParcel(out, mLanguage);
         out.writeByteArray(mRawMetadata);
     }
 
@@ -148,9 +147,7 @@ public final class BluetoothLeAudioContentMetadata implements Parcelable {
                         @NonNull Parcel in) {
                     final String programInfo = in.readString();
                     final String language = in.readString();
-                    final int rawMetadataLength = in.readInt();
-                    byte[] rawMetadata = new byte[rawMetadataLength];
-                    in.readByteArray(rawMetadata);
+                    byte[] rawMetadata = in.createByteArray();
                     return new BluetoothLeAudioContentMetadata(programInfo, language, rawMetadata);
                 }
 

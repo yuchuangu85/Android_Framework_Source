@@ -1,6 +1,7 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.asn1.x509;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.DERBitString;
 
 /**
@@ -80,7 +81,7 @@ public class ReasonFlags
     }
 
     public ReasonFlags(
-        DERBitString reasons)
+        ASN1BitString reasons)
     {
         super(reasons.getBytes(), reasons.getPadBits());
     }

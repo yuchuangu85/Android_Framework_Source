@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/capture_state_listener-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen/android/media/IAudioPolicyService.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/IAudioPolicyService.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/4/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/audio-permission-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audioclient-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/capture_state_listener-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/native/libs/permission/framework-permission-aidl_interface/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen/android/media/IAudioPolicyService.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/IAudioPolicyService.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.media;
 /**
@@ -16,7 +20,7 @@ public interface IAudioPolicyService extends android.os.IInterface
     @Override public void onNewAudioModulesAvailable() throws android.os.RemoteException
     {
     }
-    @Override public void setDeviceConnectionState(int state, android.media.audio.common.AudioPort port, android.media.audio.common.AudioFormatDescription encodedFormat) throws android.os.RemoteException
+    @Override public void setDeviceConnectionState(int state, android.media.audio.common.AudioPort port, android.media.audio.common.AudioFormatDescription encodedFormat, boolean deviceSwitch) throws android.os.RemoteException
     {
     }
     @Override public int getDeviceConnectionState(android.media.audio.common.AudioDevice device) throws android.os.RemoteException
@@ -41,7 +45,7 @@ public interface IAudioPolicyService extends android.os.IInterface
     {
       return 0;
     }
-    @Override public android.media.GetOutputForAttrResponse getOutputForAttr(android.media.audio.common.AudioAttributes attr, int session, android.content.AttributionSourceState attributionSource, android.media.audio.common.AudioConfig config, int flags, int selectedDeviceId) throws android.os.RemoteException
+    @Override public android.media.GetOutputForAttrResponse getOutputForAttr(android.media.audio.common.AudioAttributes attr, int session, android.content.AttributionSourceState attributionSource, android.media.audio.common.AudioConfig config, int flags, int[] selectedDeviceIds) throws android.os.RemoteException
     {
       return null;
     }
@@ -67,17 +71,20 @@ public interface IAudioPolicyService extends android.os.IInterface
     @Override public void releaseInput(int portId) throws android.os.RemoteException
     {
     }
+    @Override public void setDeviceAbsoluteVolumeEnabled(android.media.audio.common.AudioDevice device, boolean enabled, int streamToDriveAbs) throws android.os.RemoteException
+    {
+    }
     @Override public void initStreamVolume(int stream, int indexMin, int indexMax) throws android.os.RemoteException
     {
     }
-    @Override public void setStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device, int index) throws android.os.RemoteException
+    @Override public void setStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device, int index, boolean muted) throws android.os.RemoteException
     {
     }
     @Override public int getStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device) throws android.os.RemoteException
     {
       return 0;
     }
-    @Override public void setVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device, int index) throws android.os.RemoteException
+    @Override public void setVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device, int index, boolean muted) throws android.os.RemoteException
     {
     }
     @Override public int getVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device) throws android.os.RemoteException
@@ -504,6 +511,30 @@ public interface IAudioPolicyService extends android.os.IInterface
     @Override public void clearPreferredMixerAttributes(android.media.audio.common.AudioAttributes attr, int portId, int uid) throws android.os.RemoteException
     {
     }
+    /**
+     * Get the native permission controller for audioserver, to push package and permission info
+     * required to control audio access.
+     */
+    @Override public com.android.media.permission.INativePermissionController getPermissionController() throws android.os.RemoteException
+    {
+      return null;
+    }
+    /** Query mmap policy information. */
+    @Override public android.media.audio.common.AudioMMapPolicyInfo[] getMmapPolicyInfos(int policyType) throws android.os.RemoteException
+    {
+      return null;
+    }
+    /** Get all devices that support AAudio MMAP. */
+    @Override public void getMmapPolicyForDevice(int policyType, android.media.audio.common.AudioMMapPolicyInfo policyInfo) throws android.os.RemoteException
+    {
+    }
+    // When adding a new method, please review and update
+    // AudioPolicyService.cpp AudioPolicyService::onTransact()
+    // AudioPolicyService.cpp IAUDIOPOLICYSERVICE_BINDER_METHOD_MACRO_LIST
+    /** Enable hardening independent of flag or exemption state */
+    @Override public void setEnableHardening(boolean shouldEnable) throws android.os.RemoteException
+    {
+    }
     @Override
     public android.os.IBinder asBinder() {
       return null;
@@ -512,7 +543,7 @@ public interface IAudioPolicyService extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.media.IAudioPolicyService
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -562,8 +593,10 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg1 = data.readTypedObject(android.media.audio.common.AudioPort.CREATOR);
           android.media.audio.common.AudioFormatDescription _arg2;
           _arg2 = data.readTypedObject(android.media.audio.common.AudioFormatDescription.CREATOR);
+          boolean _arg3;
+          _arg3 = data.readBoolean();
           data.enforceNoDataAvail();
-          this.setDeviceConnectionState(_arg0, _arg1, _arg2);
+          this.setDeviceConnectionState(_arg0, _arg1, _arg2, _arg3);
           reply.writeNoException();
           break;
         }
@@ -644,8 +677,8 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg3 = data.readTypedObject(android.media.audio.common.AudioConfig.CREATOR);
           int _arg4;
           _arg4 = data.readInt();
-          int _arg5;
-          _arg5 = data.readInt();
+          int[] _arg5;
+          _arg5 = data.createIntArray();
           data.enforceNoDataAvail();
           android.media.GetOutputForAttrResponse _result = this.getOutputForAttr(_arg0, _arg1, _arg2, _arg3, _arg4, _arg5);
           reply.writeNoException();
@@ -730,6 +763,19 @@ public interface IAudioPolicyService extends android.os.IInterface
           reply.writeNoException();
           break;
         }
+        case TRANSACTION_setDeviceAbsoluteVolumeEnabled:
+        {
+          android.media.audio.common.AudioDevice _arg0;
+          _arg0 = data.readTypedObject(android.media.audio.common.AudioDevice.CREATOR);
+          boolean _arg1;
+          _arg1 = data.readBoolean();
+          int _arg2;
+          _arg2 = data.readInt();
+          data.enforceNoDataAvail();
+          this.setDeviceAbsoluteVolumeEnabled(_arg0, _arg1, _arg2);
+          reply.writeNoException();
+          break;
+        }
         case TRANSACTION_initStreamVolume:
         {
           int _arg0;
@@ -751,8 +797,10 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg1 = data.readTypedObject(android.media.audio.common.AudioDeviceDescription.CREATOR);
           int _arg2;
           _arg2 = data.readInt();
+          boolean _arg3;
+          _arg3 = data.readBoolean();
           data.enforceNoDataAvail();
-          this.setStreamVolumeIndex(_arg0, _arg1, _arg2);
+          this.setStreamVolumeIndex(_arg0, _arg1, _arg2, _arg3);
           reply.writeNoException();
           break;
         }
@@ -776,8 +824,10 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg1 = data.readTypedObject(android.media.audio.common.AudioDeviceDescription.CREATOR);
           int _arg2;
           _arg2 = data.readInt();
+          boolean _arg3;
+          _arg3 = data.readBoolean();
           data.enforceNoDataAvail();
-          this.setVolumeIndexForAttributes(_arg0, _arg1, _arg2);
+          this.setVolumeIndexForAttributes(_arg0, _arg1, _arg2, _arg3);
           reply.writeNoException();
           break;
         }
@@ -1046,7 +1096,9 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg2 = data.readTypedObject(android.media.audio.common.Int.CREATOR);
           android.media.AudioPortFw[] _arg3;
           int _arg3_length = data.readInt();
-          if (_arg3_length < 0) {
+          if (_arg3_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg3_length);
+          } else if (_arg3_length < 0) {
             _arg3 = null;
           } else {
             _arg3 = new android.media.AudioPortFw[_arg3_length];
@@ -1106,7 +1158,9 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg0 = data.readTypedObject(android.media.audio.common.Int.CREATOR);
           android.media.AudioPatchFw[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
             _arg1 = new android.media.AudioPatchFw[_arg1_length];
@@ -1302,14 +1356,18 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg0 = data.readTypedObject(android.media.audio.common.Int.CREATOR);
           android.media.audio.common.AudioFormatDescription[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
             _arg1 = new android.media.audio.common.AudioFormatDescription[_arg1_length];
           }
           boolean[] _arg2;
           int _arg2_length = data.readInt();
-          if (_arg2_length < 0) {
+          if (_arg2_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg2_length);
+          } else if (_arg2_length < 0) {
             _arg2 = null;
           } else {
             _arg2 = new boolean[_arg2_length];
@@ -1328,7 +1386,9 @@ public interface IAudioPolicyService extends android.os.IInterface
           _arg0 = data.readTypedObject(android.media.audio.common.Int.CREATOR);
           android.media.audio.common.AudioFormatDescription[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
             _arg1 = new android.media.audio.common.AudioFormatDescription[_arg1_length];
@@ -1692,6 +1752,44 @@ public interface IAudioPolicyService extends android.os.IInterface
           reply.writeNoException();
           break;
         }
+        case TRANSACTION_getPermissionController:
+        {
+          com.android.media.permission.INativePermissionController _result = this.getPermissionController();
+          reply.writeNoException();
+          reply.writeStrongInterface(_result);
+          break;
+        }
+        case TRANSACTION_getMmapPolicyInfos:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          data.enforceNoDataAvail();
+          android.media.audio.common.AudioMMapPolicyInfo[] _result = this.getMmapPolicyInfos(_arg0);
+          reply.writeNoException();
+          reply.writeTypedArray(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_getMmapPolicyForDevice:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          android.media.audio.common.AudioMMapPolicyInfo _arg1;
+          _arg1 = data.readTypedObject(android.media.audio.common.AudioMMapPolicyInfo.CREATOR);
+          data.enforceNoDataAvail();
+          this.getMmapPolicyForDevice(_arg0, _arg1);
+          reply.writeNoException();
+          reply.writeTypedObject(_arg1, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_setEnableHardening:
+        {
+          boolean _arg0;
+          _arg0 = data.readBoolean();
+          data.enforceNoDataAvail();
+          this.setEnableHardening(_arg0);
+          reply.writeNoException();
+          break;
+        }
         default:
         {
           return super.onTransact(code, data, reply, flags);
@@ -1725,7 +1823,7 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.recycle();
         }
       }
-      @Override public void setDeviceConnectionState(int state, android.media.audio.common.AudioPort port, android.media.audio.common.AudioFormatDescription encodedFormat) throws android.os.RemoteException
+      @Override public void setDeviceConnectionState(int state, android.media.audio.common.AudioPort port, android.media.audio.common.AudioFormatDescription encodedFormat, boolean deviceSwitch) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1734,6 +1832,7 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.writeInt(state);
           _data.writeTypedObject(port, 0);
           _data.writeTypedObject(encodedFormat, 0);
+          _data.writeBoolean(deviceSwitch);
           boolean _status = mRemote.transact(Stub.TRANSACTION_setDeviceConnectionState, _data, _reply, 0);
           _reply.readException();
         }
@@ -1846,7 +1945,7 @@ public interface IAudioPolicyService extends android.os.IInterface
         }
         return _result;
       }
-      @Override public android.media.GetOutputForAttrResponse getOutputForAttr(android.media.audio.common.AudioAttributes attr, int session, android.content.AttributionSourceState attributionSource, android.media.audio.common.AudioConfig config, int flags, int selectedDeviceId) throws android.os.RemoteException
+      @Override public android.media.GetOutputForAttrResponse getOutputForAttr(android.media.audio.common.AudioAttributes attr, int session, android.content.AttributionSourceState attributionSource, android.media.audio.common.AudioConfig config, int flags, int[] selectedDeviceIds) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1858,7 +1957,7 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.writeTypedObject(attributionSource, 0);
           _data.writeTypedObject(config, 0);
           _data.writeInt(flags);
-          _data.writeInt(selectedDeviceId);
+          _data.writeIntArray(selectedDeviceIds);
           boolean _status = mRemote.transact(Stub.TRANSACTION_getOutputForAttr, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readTypedObject(android.media.GetOutputForAttrResponse.CREATOR);
@@ -1984,6 +2083,23 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void setDeviceAbsoluteVolumeEnabled(android.media.audio.common.AudioDevice device, boolean enabled, int streamToDriveAbs) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(device, 0);
+          _data.writeBoolean(enabled);
+          _data.writeInt(streamToDriveAbs);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setDeviceAbsoluteVolumeEnabled, _data, _reply, 0);
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
       @Override public void initStreamVolume(int stream, int indexMin, int indexMax) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -2001,7 +2117,7 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.recycle();
         }
       }
-      @Override public void setStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device, int index) throws android.os.RemoteException
+      @Override public void setStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device, int index, boolean muted) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -2010,6 +2126,7 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.writeInt(stream);
           _data.writeTypedObject(device, 0);
           _data.writeInt(index);
+          _data.writeBoolean(muted);
           boolean _status = mRemote.transact(Stub.TRANSACTION_setStreamVolumeIndex, _data, _reply, 0);
           _reply.readException();
         }
@@ -2037,7 +2154,7 @@ public interface IAudioPolicyService extends android.os.IInterface
         }
         return _result;
       }
-      @Override public void setVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device, int index) throws android.os.RemoteException
+      @Override public void setVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device, int index, boolean muted) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -2046,6 +2163,7 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.writeTypedObject(attr, 0);
           _data.writeTypedObject(device, 0);
           _data.writeInt(index);
+          _data.writeBoolean(muted);
           boolean _status = mRemote.transact(Stub.TRANSACTION_setVolumeIndexForAttributes, _data, _reply, 0);
           _reply.readException();
         }
@@ -3620,6 +3738,85 @@ public interface IAudioPolicyService extends android.os.IInterface
           _data.recycle();
         }
       }
+      /**
+       * Get the native permission controller for audioserver, to push package and permission info
+       * required to control audio access.
+       */
+      @Override public com.android.media.permission.INativePermissionController getPermissionController() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        com.android.media.permission.INativePermissionController _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getPermissionController, _data, _reply, 0);
+          _reply.readException();
+          _result = com.android.media.permission.INativePermissionController.Stub.asInterface(_reply.readStrongBinder());
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      /** Query mmap policy information. */
+      @Override public android.media.audio.common.AudioMMapPolicyInfo[] getMmapPolicyInfos(int policyType) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        android.media.audio.common.AudioMMapPolicyInfo[] _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(policyType);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getMmapPolicyInfos, _data, _reply, 0);
+          _reply.readException();
+          _result = _reply.createTypedArray(android.media.audio.common.AudioMMapPolicyInfo.CREATOR);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      /** Get all devices that support AAudio MMAP. */
+      @Override public void getMmapPolicyForDevice(int policyType, android.media.audio.common.AudioMMapPolicyInfo policyInfo) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(policyType);
+          _data.writeTypedObject(policyInfo, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getMmapPolicyForDevice, _data, _reply, 0);
+          _reply.readException();
+          if ((0!=_reply.readInt())) {
+            policyInfo.readFromParcel(_reply);
+          }
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
+      // When adding a new method, please review and update
+      // AudioPolicyService.cpp AudioPolicyService::onTransact()
+      // AudioPolicyService.cpp IAUDIOPOLICYSERVICE_BINDER_METHOD_MACRO_LIST
+      /** Enable hardening independent of flag or exemption state */
+      @Override public void setEnableHardening(boolean shouldEnable) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeBoolean(shouldEnable);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setEnableHardening, _data, _reply, 0);
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
     }
     static final int TRANSACTION_onNewAudioModulesAvailable = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
     static final int TRANSACTION_setDeviceConnectionState = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
@@ -3637,97 +3834,102 @@ public interface IAudioPolicyService extends android.os.IInterface
     static final int TRANSACTION_startInput = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
     static final int TRANSACTION_stopInput = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
     static final int TRANSACTION_releaseInput = (android.os.IBinder.FIRST_CALL_TRANSACTION + 15);
-    static final int TRANSACTION_initStreamVolume = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
-    static final int TRANSACTION_setStreamVolumeIndex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
-    static final int TRANSACTION_getStreamVolumeIndex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
-    static final int TRANSACTION_setVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
-    static final int TRANSACTION_getVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 20);
-    static final int TRANSACTION_getMaxVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 21);
-    static final int TRANSACTION_getMinVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 22);
-    static final int TRANSACTION_getStrategyForStream = (android.os.IBinder.FIRST_CALL_TRANSACTION + 23);
-    static final int TRANSACTION_getDevicesForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 24);
-    static final int TRANSACTION_getOutputForEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 25);
-    static final int TRANSACTION_registerEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 26);
-    static final int TRANSACTION_unregisterEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 27);
-    static final int TRANSACTION_setEffectEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 28);
-    static final int TRANSACTION_moveEffectsToIo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 29);
-    static final int TRANSACTION_isStreamActive = (android.os.IBinder.FIRST_CALL_TRANSACTION + 30);
-    static final int TRANSACTION_isStreamActiveRemotely = (android.os.IBinder.FIRST_CALL_TRANSACTION + 31);
-    static final int TRANSACTION_isSourceActive = (android.os.IBinder.FIRST_CALL_TRANSACTION + 32);
-    static final int TRANSACTION_queryDefaultPreProcessing = (android.os.IBinder.FIRST_CALL_TRANSACTION + 33);
-    static final int TRANSACTION_addSourceDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 34);
-    static final int TRANSACTION_addStreamDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 35);
-    static final int TRANSACTION_removeSourceDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 36);
-    static final int TRANSACTION_removeStreamDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 37);
-    static final int TRANSACTION_setSupportedSystemUsages = (android.os.IBinder.FIRST_CALL_TRANSACTION + 38);
-    static final int TRANSACTION_setAllowedCapturePolicy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 39);
-    static final int TRANSACTION_getOffloadSupport = (android.os.IBinder.FIRST_CALL_TRANSACTION + 40);
-    static final int TRANSACTION_isDirectOutputSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 41);
-    static final int TRANSACTION_listAudioPorts = (android.os.IBinder.FIRST_CALL_TRANSACTION + 42);
-    static final int TRANSACTION_listDeclaredDevicePorts = (android.os.IBinder.FIRST_CALL_TRANSACTION + 43);
-    static final int TRANSACTION_getAudioPort = (android.os.IBinder.FIRST_CALL_TRANSACTION + 44);
-    static final int TRANSACTION_createAudioPatch = (android.os.IBinder.FIRST_CALL_TRANSACTION + 45);
-    static final int TRANSACTION_releaseAudioPatch = (android.os.IBinder.FIRST_CALL_TRANSACTION + 46);
-    static final int TRANSACTION_listAudioPatches = (android.os.IBinder.FIRST_CALL_TRANSACTION + 47);
-    static final int TRANSACTION_setAudioPortConfig = (android.os.IBinder.FIRST_CALL_TRANSACTION + 48);
-    static final int TRANSACTION_registerClient = (android.os.IBinder.FIRST_CALL_TRANSACTION + 49);
-    static final int TRANSACTION_setAudioPortCallbacksEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 50);
-    static final int TRANSACTION_setAudioVolumeGroupCallbacksEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 51);
-    static final int TRANSACTION_acquireSoundTriggerSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 52);
-    static final int TRANSACTION_releaseSoundTriggerSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 53);
-    static final int TRANSACTION_getPhoneState = (android.os.IBinder.FIRST_CALL_TRANSACTION + 54);
-    static final int TRANSACTION_registerPolicyMixes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 55);
-    static final int TRANSACTION_getRegisteredPolicyMixes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 56);
-    static final int TRANSACTION_updatePolicyMixes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 57);
-    static final int TRANSACTION_setUidDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 58);
-    static final int TRANSACTION_removeUidDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 59);
-    static final int TRANSACTION_setUserIdDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 60);
-    static final int TRANSACTION_removeUserIdDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 61);
-    static final int TRANSACTION_startAudioSource = (android.os.IBinder.FIRST_CALL_TRANSACTION + 62);
-    static final int TRANSACTION_stopAudioSource = (android.os.IBinder.FIRST_CALL_TRANSACTION + 63);
-    static final int TRANSACTION_setMasterMono = (android.os.IBinder.FIRST_CALL_TRANSACTION + 64);
-    static final int TRANSACTION_getMasterMono = (android.os.IBinder.FIRST_CALL_TRANSACTION + 65);
-    static final int TRANSACTION_getStreamVolumeDB = (android.os.IBinder.FIRST_CALL_TRANSACTION + 66);
-    static final int TRANSACTION_getSurroundFormats = (android.os.IBinder.FIRST_CALL_TRANSACTION + 67);
-    static final int TRANSACTION_getReportedSurroundFormats = (android.os.IBinder.FIRST_CALL_TRANSACTION + 68);
-    static final int TRANSACTION_getHwOffloadFormatsSupportedForBluetoothMedia = (android.os.IBinder.FIRST_CALL_TRANSACTION + 69);
-    static final int TRANSACTION_setSurroundFormatEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 70);
-    static final int TRANSACTION_setAssistantServicesUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 71);
-    static final int TRANSACTION_setActiveAssistantServicesUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 72);
-    static final int TRANSACTION_setA11yServicesUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 73);
-    static final int TRANSACTION_setCurrentImeUid = (android.os.IBinder.FIRST_CALL_TRANSACTION + 74);
-    static final int TRANSACTION_isHapticPlaybackSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 75);
-    static final int TRANSACTION_isUltrasoundSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 76);
-    static final int TRANSACTION_isHotwordStreamSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 77);
-    static final int TRANSACTION_listAudioProductStrategies = (android.os.IBinder.FIRST_CALL_TRANSACTION + 78);
-    static final int TRANSACTION_getProductStrategyFromAudioAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 79);
-    static final int TRANSACTION_listAudioVolumeGroups = (android.os.IBinder.FIRST_CALL_TRANSACTION + 80);
-    static final int TRANSACTION_getVolumeGroupFromAudioAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 81);
-    static final int TRANSACTION_setRttEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 82);
-    static final int TRANSACTION_isCallScreenModeSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 83);
-    static final int TRANSACTION_setDevicesRoleForStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 84);
-    static final int TRANSACTION_removeDevicesRoleForStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 85);
-    static final int TRANSACTION_clearDevicesRoleForStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 86);
-    static final int TRANSACTION_getDevicesForRoleAndStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 87);
-    static final int TRANSACTION_setDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 88);
-    static final int TRANSACTION_addDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 89);
-    static final int TRANSACTION_removeDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 90);
-    static final int TRANSACTION_clearDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 91);
-    static final int TRANSACTION_getDevicesForRoleAndCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 92);
-    static final int TRANSACTION_registerSoundTriggerCaptureStateListener = (android.os.IBinder.FIRST_CALL_TRANSACTION + 93);
-    static final int TRANSACTION_getSpatializer = (android.os.IBinder.FIRST_CALL_TRANSACTION + 94);
-    static final int TRANSACTION_canBeSpatialized = (android.os.IBinder.FIRST_CALL_TRANSACTION + 95);
-    static final int TRANSACTION_getDirectPlaybackSupport = (android.os.IBinder.FIRST_CALL_TRANSACTION + 96);
-    static final int TRANSACTION_getDirectProfilesForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 97);
-    static final int TRANSACTION_getSupportedMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 98);
-    static final int TRANSACTION_setPreferredMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 99);
-    static final int TRANSACTION_getPreferredMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 100);
-    static final int TRANSACTION_clearPreferredMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 101);
+    static final int TRANSACTION_setDeviceAbsoluteVolumeEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
+    static final int TRANSACTION_initStreamVolume = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
+    static final int TRANSACTION_setStreamVolumeIndex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
+    static final int TRANSACTION_getStreamVolumeIndex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
+    static final int TRANSACTION_setVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 20);
+    static final int TRANSACTION_getVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 21);
+    static final int TRANSACTION_getMaxVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 22);
+    static final int TRANSACTION_getMinVolumeIndexForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 23);
+    static final int TRANSACTION_getStrategyForStream = (android.os.IBinder.FIRST_CALL_TRANSACTION + 24);
+    static final int TRANSACTION_getDevicesForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 25);
+    static final int TRANSACTION_getOutputForEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 26);
+    static final int TRANSACTION_registerEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 27);
+    static final int TRANSACTION_unregisterEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 28);
+    static final int TRANSACTION_setEffectEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 29);
+    static final int TRANSACTION_moveEffectsToIo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 30);
+    static final int TRANSACTION_isStreamActive = (android.os.IBinder.FIRST_CALL_TRANSACTION + 31);
+    static final int TRANSACTION_isStreamActiveRemotely = (android.os.IBinder.FIRST_CALL_TRANSACTION + 32);
+    static final int TRANSACTION_isSourceActive = (android.os.IBinder.FIRST_CALL_TRANSACTION + 33);
+    static final int TRANSACTION_queryDefaultPreProcessing = (android.os.IBinder.FIRST_CALL_TRANSACTION + 34);
+    static final int TRANSACTION_addSourceDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 35);
+    static final int TRANSACTION_addStreamDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 36);
+    static final int TRANSACTION_removeSourceDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 37);
+    static final int TRANSACTION_removeStreamDefaultEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 38);
+    static final int TRANSACTION_setSupportedSystemUsages = (android.os.IBinder.FIRST_CALL_TRANSACTION + 39);
+    static final int TRANSACTION_setAllowedCapturePolicy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 40);
+    static final int TRANSACTION_getOffloadSupport = (android.os.IBinder.FIRST_CALL_TRANSACTION + 41);
+    static final int TRANSACTION_isDirectOutputSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 42);
+    static final int TRANSACTION_listAudioPorts = (android.os.IBinder.FIRST_CALL_TRANSACTION + 43);
+    static final int TRANSACTION_listDeclaredDevicePorts = (android.os.IBinder.FIRST_CALL_TRANSACTION + 44);
+    static final int TRANSACTION_getAudioPort = (android.os.IBinder.FIRST_CALL_TRANSACTION + 45);
+    static final int TRANSACTION_createAudioPatch = (android.os.IBinder.FIRST_CALL_TRANSACTION + 46);
+    static final int TRANSACTION_releaseAudioPatch = (android.os.IBinder.FIRST_CALL_TRANSACTION + 47);
+    static final int TRANSACTION_listAudioPatches = (android.os.IBinder.FIRST_CALL_TRANSACTION + 48);
+    static final int TRANSACTION_setAudioPortConfig = (android.os.IBinder.FIRST_CALL_TRANSACTION + 49);
+    static final int TRANSACTION_registerClient = (android.os.IBinder.FIRST_CALL_TRANSACTION + 50);
+    static final int TRANSACTION_setAudioPortCallbacksEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 51);
+    static final int TRANSACTION_setAudioVolumeGroupCallbacksEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 52);
+    static final int TRANSACTION_acquireSoundTriggerSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 53);
+    static final int TRANSACTION_releaseSoundTriggerSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 54);
+    static final int TRANSACTION_getPhoneState = (android.os.IBinder.FIRST_CALL_TRANSACTION + 55);
+    static final int TRANSACTION_registerPolicyMixes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 56);
+    static final int TRANSACTION_getRegisteredPolicyMixes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 57);
+    static final int TRANSACTION_updatePolicyMixes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 58);
+    static final int TRANSACTION_setUidDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 59);
+    static final int TRANSACTION_removeUidDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 60);
+    static final int TRANSACTION_setUserIdDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 61);
+    static final int TRANSACTION_removeUserIdDeviceAffinities = (android.os.IBinder.FIRST_CALL_TRANSACTION + 62);
+    static final int TRANSACTION_startAudioSource = (android.os.IBinder.FIRST_CALL_TRANSACTION + 63);
+    static final int TRANSACTION_stopAudioSource = (android.os.IBinder.FIRST_CALL_TRANSACTION + 64);
+    static final int TRANSACTION_setMasterMono = (android.os.IBinder.FIRST_CALL_TRANSACTION + 65);
+    static final int TRANSACTION_getMasterMono = (android.os.IBinder.FIRST_CALL_TRANSACTION + 66);
+    static final int TRANSACTION_getStreamVolumeDB = (android.os.IBinder.FIRST_CALL_TRANSACTION + 67);
+    static final int TRANSACTION_getSurroundFormats = (android.os.IBinder.FIRST_CALL_TRANSACTION + 68);
+    static final int TRANSACTION_getReportedSurroundFormats = (android.os.IBinder.FIRST_CALL_TRANSACTION + 69);
+    static final int TRANSACTION_getHwOffloadFormatsSupportedForBluetoothMedia = (android.os.IBinder.FIRST_CALL_TRANSACTION + 70);
+    static final int TRANSACTION_setSurroundFormatEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 71);
+    static final int TRANSACTION_setAssistantServicesUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 72);
+    static final int TRANSACTION_setActiveAssistantServicesUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 73);
+    static final int TRANSACTION_setA11yServicesUids = (android.os.IBinder.FIRST_CALL_TRANSACTION + 74);
+    static final int TRANSACTION_setCurrentImeUid = (android.os.IBinder.FIRST_CALL_TRANSACTION + 75);
+    static final int TRANSACTION_isHapticPlaybackSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 76);
+    static final int TRANSACTION_isUltrasoundSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 77);
+    static final int TRANSACTION_isHotwordStreamSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 78);
+    static final int TRANSACTION_listAudioProductStrategies = (android.os.IBinder.FIRST_CALL_TRANSACTION + 79);
+    static final int TRANSACTION_getProductStrategyFromAudioAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 80);
+    static final int TRANSACTION_listAudioVolumeGroups = (android.os.IBinder.FIRST_CALL_TRANSACTION + 81);
+    static final int TRANSACTION_getVolumeGroupFromAudioAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 82);
+    static final int TRANSACTION_setRttEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 83);
+    static final int TRANSACTION_isCallScreenModeSupported = (android.os.IBinder.FIRST_CALL_TRANSACTION + 84);
+    static final int TRANSACTION_setDevicesRoleForStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 85);
+    static final int TRANSACTION_removeDevicesRoleForStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 86);
+    static final int TRANSACTION_clearDevicesRoleForStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 87);
+    static final int TRANSACTION_getDevicesForRoleAndStrategy = (android.os.IBinder.FIRST_CALL_TRANSACTION + 88);
+    static final int TRANSACTION_setDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 89);
+    static final int TRANSACTION_addDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 90);
+    static final int TRANSACTION_removeDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 91);
+    static final int TRANSACTION_clearDevicesRoleForCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 92);
+    static final int TRANSACTION_getDevicesForRoleAndCapturePreset = (android.os.IBinder.FIRST_CALL_TRANSACTION + 93);
+    static final int TRANSACTION_registerSoundTriggerCaptureStateListener = (android.os.IBinder.FIRST_CALL_TRANSACTION + 94);
+    static final int TRANSACTION_getSpatializer = (android.os.IBinder.FIRST_CALL_TRANSACTION + 95);
+    static final int TRANSACTION_canBeSpatialized = (android.os.IBinder.FIRST_CALL_TRANSACTION + 96);
+    static final int TRANSACTION_getDirectPlaybackSupport = (android.os.IBinder.FIRST_CALL_TRANSACTION + 97);
+    static final int TRANSACTION_getDirectProfilesForAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 98);
+    static final int TRANSACTION_getSupportedMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 99);
+    static final int TRANSACTION_setPreferredMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 100);
+    static final int TRANSACTION_getPreferredMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 101);
+    static final int TRANSACTION_clearPreferredMixerAttributes = (android.os.IBinder.FIRST_CALL_TRANSACTION + 102);
+    static final int TRANSACTION_getPermissionController = (android.os.IBinder.FIRST_CALL_TRANSACTION + 103);
+    static final int TRANSACTION_getMmapPolicyInfos = (android.os.IBinder.FIRST_CALL_TRANSACTION + 104);
+    static final int TRANSACTION_getMmapPolicyForDevice = (android.os.IBinder.FIRST_CALL_TRANSACTION + 105);
+    static final int TRANSACTION_setEnableHardening = (android.os.IBinder.FIRST_CALL_TRANSACTION + 106);
   }
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android.media.IAudioPolicyService";
   public void onNewAudioModulesAvailable() throws android.os.RemoteException;
-  public void setDeviceConnectionState(int state, android.media.audio.common.AudioPort port, android.media.audio.common.AudioFormatDescription encodedFormat) throws android.os.RemoteException;
+  public void setDeviceConnectionState(int state, android.media.audio.common.AudioPort port, android.media.audio.common.AudioFormatDescription encodedFormat, boolean deviceSwitch) throws android.os.RemoteException;
   public int getDeviceConnectionState(android.media.audio.common.AudioDevice device) throws android.os.RemoteException;
   public void handleDeviceConfigChange(android.media.audio.common.AudioDevice device, java.lang.String deviceName, android.media.audio.common.AudioFormatDescription encodedFormat) throws android.os.RemoteException;
   public void setPhoneState(int state, int uid) throws android.os.RemoteException;
@@ -3735,7 +3937,7 @@ public interface IAudioPolicyService extends android.os.IInterface
   public int getForceUse(int usage) throws android.os.RemoteException;
   /** audio_io_handle_t */
   public int getOutput(int stream) throws android.os.RemoteException;
-  public android.media.GetOutputForAttrResponse getOutputForAttr(android.media.audio.common.AudioAttributes attr, int session, android.content.AttributionSourceState attributionSource, android.media.audio.common.AudioConfig config, int flags, int selectedDeviceId) throws android.os.RemoteException;
+  public android.media.GetOutputForAttrResponse getOutputForAttr(android.media.audio.common.AudioAttributes attr, int session, android.content.AttributionSourceState attributionSource, android.media.audio.common.AudioConfig config, int flags, int[] selectedDeviceIds) throws android.os.RemoteException;
   public void startOutput(int portId) throws android.os.RemoteException;
   public void stopOutput(int portId) throws android.os.RemoteException;
   public void releaseOutput(int portId) throws android.os.RemoteException;
@@ -3743,10 +3945,11 @@ public interface IAudioPolicyService extends android.os.IInterface
   public void startInput(int portId) throws android.os.RemoteException;
   public void stopInput(int portId) throws android.os.RemoteException;
   public void releaseInput(int portId) throws android.os.RemoteException;
+  public void setDeviceAbsoluteVolumeEnabled(android.media.audio.common.AudioDevice device, boolean enabled, int streamToDriveAbs) throws android.os.RemoteException;
   public void initStreamVolume(int stream, int indexMin, int indexMax) throws android.os.RemoteException;
-  public void setStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device, int index) throws android.os.RemoteException;
+  public void setStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device, int index, boolean muted) throws android.os.RemoteException;
   public int getStreamVolumeIndex(int stream, android.media.audio.common.AudioDeviceDescription device) throws android.os.RemoteException;
-  public void setVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device, int index) throws android.os.RemoteException;
+  public void setVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device, int index, boolean muted) throws android.os.RemoteException;
   public int getVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr, android.media.audio.common.AudioDeviceDescription device) throws android.os.RemoteException;
   public int getMaxVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr) throws android.os.RemoteException;
   public int getMinVolumeIndexForAttributes(android.media.audio.common.AudioAttributes attr) throws android.os.RemoteException;
@@ -3964,4 +4167,18 @@ public interface IAudioPolicyService extends android.os.IInterface
    *            if the uid is the same as the owner of current preferred mixer attributes.
    */
   public void clearPreferredMixerAttributes(android.media.audio.common.AudioAttributes attr, int portId, int uid) throws android.os.RemoteException;
+  /**
+   * Get the native permission controller for audioserver, to push package and permission info
+   * required to control audio access.
+   */
+  public com.android.media.permission.INativePermissionController getPermissionController() throws android.os.RemoteException;
+  /** Query mmap policy information. */
+  public android.media.audio.common.AudioMMapPolicyInfo[] getMmapPolicyInfos(int policyType) throws android.os.RemoteException;
+  /** Get all devices that support AAudio MMAP. */
+  public void getMmapPolicyForDevice(int policyType, android.media.audio.common.AudioMMapPolicyInfo policyInfo) throws android.os.RemoteException;
+  // When adding a new method, please review and update
+  // AudioPolicyService.cpp AudioPolicyService::onTransact()
+  // AudioPolicyService.cpp IAUDIOPOLICYSERVICE_BINDER_METHOD_MACRO_LIST
+  /** Enable hardening independent of flag or exemption state */
+  public void setEnableHardening(boolean shouldEnable) throws android.os.RemoteException;
 }

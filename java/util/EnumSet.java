@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2003, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2022, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -73,12 +73,15 @@ import jdk.internal.access.SharedSecrets;
  * <a href="{@docRoot}/java.base/java/util/package-summary.html#CollectionsFramework">
  * Java Collections Framework</a>.
  *
+ * @param <E> the enum type of elements maintained by this set
+ *
  * @author Josh Bloch
  * @since 1.5
  * @see EnumMap
  */
-public abstract class EnumSet<E extends Enum<E>> extends AbstractSet<E>
-    implements Cloneable, java.io.Serializable
+// Android-changed: remove sealed marker (there is no metalava support b/355648520).
+public abstract /*sealed*/ class EnumSet<E extends Enum<E>> extends AbstractSet<E>
+    implements Cloneable, java.io.Serializable // permits JumboEnumSet, RegularEnumSet
 {
     // declare EnumSet.class serialization compatibility with JDK 8
     @java.io.Serial

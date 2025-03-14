@@ -18,6 +18,8 @@ package android.net.wifi.aware;
 
 import static android.Manifest.permission.MANAGE_WIFI_NETWORK_SELECTION;
 
+import static com.android.ranging.flags.Flags.FLAG_RANGING_RTT_ENABLED;
+
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -112,12 +114,15 @@ public final class PublishConfig implements Parcelable {
     private final List<OuiKeyedData> mVendorData;
 
     /** @hide */
+    public final boolean mEnablePeriodicRangingResults;
+
+    /** @hide */
     public PublishConfig(byte[] serviceName, byte[] serviceSpecificInfo, byte[] matchFilter,
             int publishType, int ttlSec, boolean enableTerminateNotification,
             boolean enableRanging, boolean enableInstantMode, @WifiScanner.WifiBand int
             band, WifiAwareDataPathSecurityConfig securityConfig,
             AwarePairingConfig pairingConfig, boolean isSuspendable,
-            @NonNull List<OuiKeyedData> vendorData) {
+            @NonNull List<OuiKeyedData> vendorData, boolean enablePeriodicRangingResults) {
         mServiceName = serviceName;
         mServiceSpecificInfo = serviceSpecificInfo;
         mMatchFilter = matchFilter;
@@ -131,6 +136,7 @@ public final class PublishConfig implements Parcelable {
         mPairingConfig = pairingConfig;
         mIsSuspendable = isSuspendable;
         mVendorData = vendorData;
+        mEnablePeriodicRangingResults = enablePeriodicRangingResults;
     }
 
     @Override
@@ -152,7 +158,8 @@ public final class PublishConfig implements Parcelable {
                 + ", mSecurityConfig" + mSecurityConfig
                 + ", mPairingConfig" + mPairingConfig
                 + ", mIsSuspendable=" + mIsSuspendable
-                + ", mVendorData=" + mVendorData + "]";
+                + ", mVendorData=" + mVendorData + "]"
+                + ", mEnablePeriodicRangingResults=" + mEnablePeriodicRangingResults;
     }
 
     @Override
@@ -175,6 +182,7 @@ public final class PublishConfig implements Parcelable {
         dest.writeParcelable(mPairingConfig, flags);
         dest.writeBoolean(mIsSuspendable);
         dest.writeList(mVendorData);
+        dest.writeBoolean(mEnablePeriodicRangingResults);
     }
 
     @NonNull
@@ -201,10 +209,12 @@ public final class PublishConfig implements Parcelable {
                     .readParcelable(AwarePairingConfig.class.getClassLoader());
             boolean isSuspendable = in.readBoolean();
             List<OuiKeyedData> vendorData = ParcelUtil.readOuiKeyedDataList(in);
+            boolean enablePeriodicRangingResults = in.readBoolean();
 
             return new PublishConfig(serviceName, ssi, matchFilter, publishType, ttlSec,
                     enableTerminateNotification, enableRanging, enableInstantMode,
-                    band, securityConfig, pairingConfig, isSuspendable, vendorData);
+                    band, securityConfig, pairingConfig, isSuspendable, vendorData,
+                    enablePeriodicRangingResults);
         }
     };
 
@@ -226,6 +236,7 @@ public final class PublishConfig implements Parcelable {
                 && mTtlSec == lhs.mTtlSec
                 && mEnableTerminateNotification == lhs.mEnableTerminateNotification
                 && mEnableRanging == lhs.mEnableRanging
+                && mEnablePeriodicRangingResults == lhs.mEnablePeriodicRangingResults
                 && mEnableInstantMode == lhs.mEnableInstantMode
                 && mBand == lhs.mBand
                 && mIsSuspendable == lhs.mIsSuspendable
@@ -239,7 +250,7 @@ public final class PublishConfig implements Parcelable {
         return Objects.hash(Arrays.hashCode(mServiceName), Arrays.hashCode(mServiceSpecificInfo),
                 Arrays.hashCode(mMatchFilter), mPublishType, mTtlSec, mEnableTerminateNotification,
                 mEnableRanging, mEnableInstantMode, mBand, mSecurityConfig, mPairingConfig,
-                mIsSuspendable, mVendorData);
+                mIsSuspendable, mVendorData, mEnablePeriodicRangingResults);
     }
 
     /**
@@ -302,10 +313,18 @@ public final class PublishConfig implements Parcelable {
             if (mPairingConfig != null && !characteristics.isAwarePairingSupported()) {
                 throw new IllegalArgumentException("Aware Pairing is not supported");
             }
+            if (mPairingConfig != null && !mPairingConfig.assertValid(characteristics)) {
+                throw new IllegalArgumentException("Unsupported pairing config");
+            }
         }
 
         if (!rttSupported && mEnableRanging) {
             throw new IllegalArgumentException("Ranging is not supported");
+        }
+
+        if ((!rttSupported || !characteristics.isPeriodicRangingSupported())
+                && mEnablePeriodicRangingResults) {
+            throw new IllegalArgumentException("Periodic Ranging is not supported");
         }
     }
 
@@ -384,6 +403,18 @@ public final class PublishConfig implements Parcelable {
     }
 
     /**
+     * Check if periodic ranging reporting is enabled for publish session
+     * @see Builder#setPeriodicRangingResultsEnabled(boolean)
+     * @return true for enabled, false otherwise.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public boolean isPeriodicRangingResultsEnabled() {
+        return mEnablePeriodicRangingResults;
+    }
+
+    /**
      * Builder used to build {@link PublishConfig} objects.
      */
     public static final class Builder {
@@ -400,6 +431,7 @@ public final class PublishConfig implements Parcelable {
         private AwarePairingConfig mPairingConfig = null;
         private boolean mIsSuspendable = false;
         private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
+        private boolean mEnablePeriodicRangingResults = false;
 
         /**
          * Specify the service name of the publish session. The actual on-air
@@ -552,6 +584,33 @@ public final class PublishConfig implements Parcelable {
         }
 
         /**
+         * Configure whether periodic ranging results need to be notified to Publisher
+         * <p>
+         * Optional. Disabled by default - i.e. any ranging result will not be notified to
+         * the Publisher.
+         * <p>
+         * The device must support Periodic Ranging for this feature to be used.
+         * Feature support check is determined by
+         * {@link Characteristics#isPeriodicRangingSupported()}.
+         * <p>
+         * The ranging result will be notified to Publisher via
+         * {@link DiscoverySessionCallback#onRangingResultsReceived(RangingResults)}.
+         *
+         * @param enable If true, ranging result will be notified to Publisher.
+         *
+         * @return The builder to facilitate chaining
+         *         {@code builder.setXXX(..).setXXX(..)}.
+         * @hide
+         */
+        @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+        @SystemApi
+        @NonNull
+        public Builder setPeriodicRangingResultsEnabled(boolean enable) {
+            mEnablePeriodicRangingResults = enable;
+            return this;
+        }
+
+        /**
          * Configure whether to enable and use instant communication for this publish session.
          * Instant communication will speed up service discovery and any data-path set up as part of
          * this session. Use {@link Characteristics#isInstantCommunicationModeSupported()} to check
@@ -691,7 +750,8 @@ public final class PublishConfig implements Parcelable {
         public PublishConfig build() {
             return new PublishConfig(mServiceName, mServiceSpecificInfo, mMatchFilter, mPublishType,
                     mTtlSec, mEnableTerminateNotification, mEnableRanging, mEnableInstantMode,
-                    mBand, mSecurityConfig, mPairingConfig, mIsSuspendable, mVendorData);
+                    mBand, mSecurityConfig, mPairingConfig, mIsSuspendable, mVendorData,
+                    mEnablePeriodicRangingResults);
         }
     }
 }

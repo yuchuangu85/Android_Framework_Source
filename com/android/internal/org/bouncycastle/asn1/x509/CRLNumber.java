@@ -6,6 +6,7 @@ import java.math.BigInteger;
 import com.android.internal.org.bouncycastle.asn1.ASN1Integer;
 import com.android.internal.org.bouncycastle.asn1.ASN1Object;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
+import com.android.internal.org.bouncycastle.util.BigIntegers;
 
 /**
  * The CRLNumber object.
@@ -22,6 +23,10 @@ public class CRLNumber
     public CRLNumber(
         BigInteger number)
     {
+        if (BigIntegers.ZERO.compareTo(number) > 0)
+        {
+            throw new IllegalArgumentException("Invalid CRL number : not in (0..MAX)");
+        }
         this.number = number;
     }
 

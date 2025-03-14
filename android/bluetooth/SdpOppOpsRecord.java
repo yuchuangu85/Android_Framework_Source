@@ -86,7 +86,7 @@ public class SdpOppOpsRecord implements Parcelable {
         dest.writeInt(mRfcommChannel);
         dest.writeInt(mL2capPsm);
         dest.writeInt(mProfileVersion);
-        dest.writeString(mServiceName);
+        BluetoothUtils.writeStringToParcel(dest, mServiceName);
         if (mFormatsList != null && mFormatsList.length > 0) {
             dest.writeInt(mFormatsList.length);
             dest.writeByteArray(mFormatsList);

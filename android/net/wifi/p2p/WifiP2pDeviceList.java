@@ -17,6 +17,7 @@
 package android.net.wifi.p2p;
 
 import android.compat.annotation.UnsupportedAppUsage;
+import android.net.wifi.util.Environment;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -102,6 +103,10 @@ public class WifiP2pDeviceList implements Parcelable {
             d.deviceCapability = device.deviceCapability;
             d.groupCapability = device.groupCapability;
             d.wfdInfo = device.wfdInfo;
+            if (Environment.isSdkAtLeastB()) {
+                d.setPairingBootStrappingMethods(device.getPairingBootStrappingMethods());
+                d.dirInfo = device.dirInfo;
+            }
             return;
         }
         //Not found, add a new one

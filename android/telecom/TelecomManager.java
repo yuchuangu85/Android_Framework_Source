@@ -29,6 +29,7 @@ import android.annotation.SuppressAutoDoc;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
+import android.annotation.TestApi;
 import android.compat.annotation.ChangeId;
 import android.compat.annotation.EnabledSince;
 import android.compat.annotation.UnsupportedAppUsage;
@@ -1886,6 +1887,34 @@ public class TelecomManager {
     }
 
     /**
+     * This test API determines the foreground service delegation state for a VoIP app that adds
+     * calls via {@link TelecomManager#addCall(CallAttributes, Executor, OutcomeReceiver,
+     * CallControlCallback, CallEventCallback)}.  Foreground Service Delegation allows applications
+     * to operate in the background  starting in Android 14 and is granted by Telecom via a request
+     * to the ActivityManager.
+     *
+     * @param handle of the voip app that is being checked
+     * @return true if the app has foreground service delegation. Otherwise, false.
+     *
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_VOIP_CALL_MONITOR_REFACTOR)
+    @TestApi
+    public boolean hasForegroundServiceDelegation(@Nullable PhoneAccountHandle handle) {
+        ITelecomService service = getTelecomService();
+        if (service != null) {
+            try {
+                return service.hasForegroundServiceDelegation(handle, mContext.getOpPackageName());
+            } catch (RemoteException e) {
+                Log.e(TAG,
+                        "RemoteException calling ITelecomService#hasForegroundServiceDelegation.",
+                        e);
+            }
+        }
+        return false;
+    }
+
+    /**
      * Return the line 1 phone number for given phone account.
      *
      * <p>Requires Permission:
@@ -2049,11 +2078,15 @@ public class TelecomManager {
     /**
      * Ends the foreground call on the device.
      * <p>
-     * If there is a ringing call, calling this method rejects the ringing call.  Otherwise the
+     * If there is a ringing call, calling this method rejects the ringing call. Otherwise, the
      * foreground call is ended.
      * <p>
      * Note: this method CANNOT be used to end ongoing emergency calls and will return {@code false}
      * if an attempt is made to end an emergency call.
+     * <p>
+     * Note: If the foreground call on this device is self-managed, this method will only end
+     * the call if the caller of this method is privileged (i.e. system, shell, or root) or system
+     * UI.
      *
      * @return {@code true} if there is a call which will be rejected or terminated, {@code false}
      * otherwise.
@@ -2081,6 +2114,9 @@ public class TelecomManager {
      * If the incoming call is a video call, the call will be answered with the same video state as
      * the incoming call requests.  This means, for example, that an incoming call requesting
      * {@link VideoProfile#STATE_BIDIRECTIONAL} will be answered, accepting that state.
+     *
+     * If the ringing incoming call is self-managed, this method will only accept the call if the
+     * caller of this method is privileged (i.e. system, shell, or root) or system UI.
      *
      * @deprecated Companion apps for wearable devices should use the {@link InCallService} API
      * instead.
@@ -2339,6 +2375,7 @@ public class TelecomManager {
      * @return True if the digits were processed as an MMI code, false otherwise.
      */
     @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
+    @RequiresFeature(PackageManager.FEATURE_TELEPHONY_CALLING)
     public boolean handleMmi(String dialString) {
         ITelecomService service = getTelecomService();
         if (service != null) {
@@ -2364,6 +2401,7 @@ public class TelecomManager {
      * @return True if the digits were processed as an MMI code, false otherwise.
      */
     @RequiresPermission(android.Manifest.permission.MODIFY_PHONE_STATE)
+    @RequiresFeature(PackageManager.FEATURE_TELEPHONY_CALLING)
     public boolean handleMmi(String dialString, PhoneAccountHandle accountHandle) {
         ITelecomService service = getTelecomService();
         if (service != null) {

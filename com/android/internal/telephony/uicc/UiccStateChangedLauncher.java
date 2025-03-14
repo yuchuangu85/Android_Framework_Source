@@ -16,15 +16,18 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.NonNull;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Message;
+import android.os.UserHandle;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import com.android.internal.R;
 import com.android.internal.telephony.TelephonyIntents;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
 
 /**
@@ -46,7 +49,12 @@ public class UiccStateChangedLauncher extends Handler {
     private UiccController mUiccController;
     private boolean[] mIsRestricted = null;
 
-    public UiccStateChangedLauncher(Context context, UiccController controller) {
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
+
+    public UiccStateChangedLauncher(Context context, UiccController controller,
+            @NonNull FeatureFlags flags) {
+        mFeatureFlags = flags;
         sDeviceProvisioningPackage = context.getResources().getString(
                 R.string.config_deviceProvisioningPackage);
         if (sDeviceProvisioningPackage != null && !sDeviceProvisioningPackage.isEmpty()) {
@@ -92,7 +100,11 @@ public class UiccStateChangedLauncher extends Handler {
         Intent intent = new Intent(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         intent.setPackage(sDeviceProvisioningPackage);
         try {
-            mContext.sendBroadcast(intent);
+            if (mFeatureFlags.hsumBroadcast()) {
+                mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+            } else {
+                mContext.sendBroadcast(intent);
+            }
         } catch (Exception e) {
             Log.e(TAG, e.toString());
         }

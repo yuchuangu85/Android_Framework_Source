@@ -8,7 +8,7 @@ import java.io.OutputStream;
  * Base class for generators for indefinite-length structures.
  * @hide This class is not part of the Android public SDK API
  */
-public class BERGenerator
+public abstract class BERGenerator
     extends ASN1Generator
 {
     private boolean _tagged = false;
@@ -45,7 +45,7 @@ public class BERGenerator
     {
         if (_tagged)
         {
-            int tagNum = _tagNo | BERTags.TAGGED;
+            int tagNum = _tagNo | BERTags.CONTEXT_SPECIFIC;
 
             if (_isExplicit)
             {

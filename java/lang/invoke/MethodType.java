@@ -25,6 +25,8 @@
 
 package java.lang.invoke;
 
+import jdk.internal.util.ReferenceKey;
+import jdk.internal.util.ReferencedKeySet;
 import sun.invoke.util.Wrapper;
 import java.lang.ref.WeakReference;
 import java.lang.ref.Reference;
@@ -32,9 +34,13 @@ import java.lang.ref.ReferenceQueue;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
+
+import jdk.internal.vm.annotation.Stable;
 import sun.invoke.util.BytecodeDescriptor;
 import static java.lang.invoke.MethodHandleStatics.*;
 
@@ -105,22 +111,10 @@ class MethodType
     private @Stable String methodDescriptor;  // cache for toMethodDescriptorString
 
     /**
-     * Check the given parameters for validity and store them into the final fields.
+     * Constructor that performs no copying or validation.
+     * Should only be called from the factory method makeImpl
      */
-    private MethodType(Class<?> rtype, Class<?>[] ptypes, boolean trusted) {
-        checkRtype(rtype);
-        checkPtypes(ptypes);
-        this.rtype = rtype;
-        // defensively copy the array passed in by the user
-        this.ptypes = trusted ? ptypes : Arrays.copyOf(ptypes, ptypes.length);
-    }
-
-    /**
-     * Construct a temporary unchecked instance of MethodType for use only as a key to the intern table.
-     * Does not check the given parameters for validity, and must be discarded after it is used as a searching key.
-     * The parameters are reversed for this constructor, so that is is not accidentally used.
-     */
-    private MethodType(Class<?>[] ptypes, Class<?> rtype) {
+    private MethodType(Class<?> rtype, Class<?>[] ptypes) {
         this.rtype = rtype;
         this.ptypes = ptypes;
     }
@@ -196,7 +190,16 @@ class MethodType
         return new IndexOutOfBoundsException(num.toString());
     }
 
-    static final ConcurrentWeakInternSet<MethodType> internTable = new ConcurrentWeakInternSet<>();
+    static final ReferencedKeySet<MethodType> internTable =
+            // Android-changed: use method with explicit name.
+            // ReferencedKeySet.create(false, true, new Supplier<>() {
+            ReferencedKeySet.createWithNativeQueue(false, new Supplier<>() {
+                @Override
+                public Map<ReferenceKey<MethodType>, ReferenceKey<MethodType>> get() {
+                    return new ConcurrentHashMap<>(512);
+                }
+            });
+
 
     static final Class<?>[] NO_PTYPES = {};
 
@@ -305,16 +308,27 @@ class MethodType
      */
     /*trusted*/ static
     MethodType makeImpl(Class<?> rtype, Class<?>[] ptypes, boolean trusted) {
-        MethodType mt = internTable.get(new MethodType(ptypes, rtype));
-        if (mt != null)
-            return mt;
         if (ptypes.length == 0) {
             ptypes = NO_PTYPES; trusted = true;
         }
-        mt = new MethodType(rtype, ptypes, trusted);
+        MethodType primordialMT = new MethodType(rtype, ptypes);
+        MethodType mt = internTable.get(primordialMT);
+        if (mt != null)
+            return mt;
+
         // promote the object to the Real Thing, and reprobe
+        Objects.requireNonNull(rtype);
+        if (trusted) {
+            MethodType.checkPtypes(ptypes);
+            mt = primordialMT;
+        } else {
+            // Make defensive copy then validate
+            ptypes = Arrays.copyOf(ptypes, ptypes.length);
+            MethodType.checkPtypes(ptypes);
+            mt = new MethodType(rtype, ptypes);
+        }
         mt.form = MethodTypeForm.findForm(mt);
-        return internTable.add(mt);
+        return internTable.intern(mt);
     }
     private static final MethodType[] objectOnlyTypes = new MethodType[20];
 
@@ -1271,8 +1285,8 @@ s.writeObject(this.parameterArray());
         // store them into the implementation-specific final fields.
         checkRtype(rtype);
         checkPtypes(ptypes);
-        UNSAFE.putObject(this, rtypeOffset, rtype);
-        UNSAFE.putObject(this, ptypesOffset, ptypes);
+        UNSAFE.putReference(this, rtypeOffset, rtype);
+        UNSAFE.putReference(this, ptypesOffset, ptypes);
     }
 
     // Support for resetting final fields while deserializing
@@ -1299,106 +1313,4 @@ s.writeObject(this.parameterArray());
         // Verify all operands, and make sure ptypes is unshared:
         return methodType(rtype, ptypes);
     }
-
-    /**
-     * Simple implementation of weak concurrent intern set.
-     *
-     * @param <T> interned type
-     */
-    private static class ConcurrentWeakInternSet<T> {
-
-        private final ConcurrentMap<WeakEntry<T>, WeakEntry<T>> map;
-        private final ReferenceQueue<T> stale;
-
-        public ConcurrentWeakInternSet() {
-            this.map = new ConcurrentHashMap<>();
-            this.stale = new ReferenceQueue<>();
-        }
-
-        /**
-         * Get the existing interned element.
-         * This method returns null if no element is interned.
-         *
-         * @param elem element to look up
-         * @return the interned element
-         */
-        public T get(T elem) {
-            if (elem == null) throw new NullPointerException();
-            expungeStaleElements();
-
-            WeakEntry<T> value = map.get(new WeakEntry<>(elem));
-            if (value != null) {
-                T res = value.get();
-                if (res != null) {
-                    return res;
-                }
-            }
-            return null;
-        }
-
-        /**
-         * Interns the element.
-         * Always returns non-null element, matching the one in the intern set.
-         * Under the race against another add(), it can return <i>different</i>
-         * element, if another thread beats us to interning it.
-         *
-         * @param elem element to add
-         * @return element that was actually added
-         */
-        public T add(T elem) {
-            if (elem == null) throw new NullPointerException();
-
-            // Playing double race here, and so spinloop is required.
-            // First race is with two concurrent updaters.
-            // Second race is with GC purging weak ref under our feet.
-            // Hopefully, we almost always end up with a single pass.
-            T interned;
-            WeakEntry<T> e = new WeakEntry<>(elem, stale);
-            do {
-                expungeStaleElements();
-                WeakEntry<T> exist = map.putIfAbsent(e, e);
-                interned = (exist == null) ? elem : exist.get();
-            } while (interned == null);
-            return interned;
-        }
-
-        private void expungeStaleElements() {
-            Reference<? extends T> reference;
-            while ((reference = stale.poll()) != null) {
-                map.remove(reference);
-            }
-        }
-
-        private static class WeakEntry<T> extends WeakReference<T> {
-
-            public final int hashcode;
-
-            public WeakEntry(T key, ReferenceQueue<T> queue) {
-                super(key, queue);
-                hashcode = key.hashCode();
-            }
-
-            public WeakEntry(T key) {
-                super(key);
-                hashcode = key.hashCode();
-            }
-
-            @Override
-            public boolean equals(Object obj) {
-                if (obj instanceof WeakEntry) {
-                    Object that = ((WeakEntry) obj).get();
-                    Object mine = get();
-                    return (that == null || mine == null) ? (this == obj) : mine.equals(that);
-                }
-                return false;
-            }
-
-            @Override
-            public int hashCode() {
-                return hashcode;
-            }
-
-        }
-    }
-
 }

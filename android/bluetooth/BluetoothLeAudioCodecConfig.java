@@ -44,11 +44,15 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
     /** @hide */
     @IntDef(
             prefix = "SOURCE_CODEC_TYPE_",
-            value = {SOURCE_CODEC_TYPE_LC3, SOURCE_CODEC_TYPE_INVALID})
+            value = {SOURCE_CODEC_TYPE_LC3, SOURCE_CODEC_TYPE_OPUS, SOURCE_CODEC_TYPE_INVALID})
     @Retention(RetentionPolicy.SOURCE)
     public @interface SourceCodecType {};
 
     public static final int SOURCE_CODEC_TYPE_LC3 = 0;
+
+    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_OPUS_CODEC_TYPE)
+    public static final int SOURCE_CODEC_TYPE_OPUS = 1;
+
     public static final int SOURCE_CODEC_TYPE_INVALID = 1000 * 1000;
 
     /** @hide */
@@ -103,14 +107,12 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
     public static final int SAMPLE_RATE_8000 = 0x01 << 0;
 
     /** Codec sample rate 11025 Hz. */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_SAMPLING_FREQUENCIES)
     public static final int SAMPLE_RATE_11025 = 0x01 << 1;
 
     /** Codec sample rate 16000 Hz. */
     public static final int SAMPLE_RATE_16000 = 0x01 << 2;
 
     /** Codec sample rate 22050 Hz. */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_SAMPLING_FREQUENCIES)
     public static final int SAMPLE_RATE_22050 = 0x01 << 3;
 
     /** Codec sample rate 24000 Hz. */
@@ -126,23 +128,18 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
     public static final int SAMPLE_RATE_48000 = 0x01 << 7;
 
     /** Codec sample rate 88200 Hz. */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_SAMPLING_FREQUENCIES)
     public static final int SAMPLE_RATE_88200 = 0x01 << 8;
 
     /** Codec sample rate 96000 Hz. */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_SAMPLING_FREQUENCIES)
     public static final int SAMPLE_RATE_96000 = 0x01 << 9;
 
     /** Codec sample rate 176400 Hz. */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_SAMPLING_FREQUENCIES)
     public static final int SAMPLE_RATE_176400 = 0x01 << 10;
 
     /** Codec sample rate 192000 Hz. */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_SAMPLING_FREQUENCIES)
     public static final int SAMPLE_RATE_192000 = 0x01 << 11;
 
     /** Codec sample rate 384000 Hz. */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_ADD_SAMPLING_FREQUENCIES)
     public static final int SAMPLE_RATE_384000 = 0x01 << 12;
 
     /** @hide */
@@ -401,6 +398,11 @@ public final class BluetoothLeAudioCodecConfig implements Parcelable {
             case SOURCE_CODEC_TYPE_INVALID:
                 return "INVALID CODEC";
             default:
+                if (Flags.leaudioAddOpusCodecType()) {
+                    if (mCodecType == SOURCE_CODEC_TYPE_OPUS) {
+                        return "Opus";
+                    }
+                }
                 break;
         }
         return "UNKNOWN CODEC(" + mCodecType + ")";

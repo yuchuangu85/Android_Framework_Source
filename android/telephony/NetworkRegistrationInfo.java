@@ -209,7 +209,6 @@ public final class NetworkRegistrationInfo implements Parcelable {
     /**
      * MMS service
      */
-    @FlaggedApi(Flags.FLAG_CARRIER_ENABLED_SATELLITE_FLAG)
     public static final int SERVICE_TYPE_MMS = 6;
 
     /** @hide  */
@@ -713,7 +712,6 @@ public final class NetworkRegistrationInfo implements Parcelable {
      *
      * @return {@code true} if network is a non-terrestrial network else {@code false}.
      */
-    @FlaggedApi(Flags.FLAG_CARRIER_ENABLED_SATELLITE_FLAG)
     public boolean isNonTerrestrialNetwork() {
         return mIsNonTerrestrialNetwork;
     }
@@ -1198,7 +1196,6 @@ public final class NetworkRegistrationInfo implements Parcelable {
          *                                            else {@code false}.
          * @return The builder.
          */
-        @FlaggedApi(Flags.FLAG_CARRIER_ENABLED_SATELLITE_FLAG)
         public @NonNull Builder setIsNonTerrestrialNetwork(boolean isNonTerrestrialNetwork) {
             mIsNonTerrestrialNetwork = isNonTerrestrialNetwork;
             return this;

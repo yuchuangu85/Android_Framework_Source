@@ -3,8 +3,11 @@ package com.android.org.bouncycastle.crypto.engines;
 
 import com.android.org.bouncycastle.crypto.BlockCipher;
 import com.android.org.bouncycastle.crypto.CipherParameters;
+import com.android.org.bouncycastle.crypto.CryptoServicePurpose;
+import com.android.org.bouncycastle.crypto.CryptoServicesRegistrar;
 import com.android.org.bouncycastle.crypto.DataLengthException;
 import com.android.org.bouncycastle.crypto.OutputLengthException;
+import com.android.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
 import com.android.org.bouncycastle.crypto.params.KeyParameter;
 
 /**
@@ -317,6 +320,7 @@ implements BlockCipher
         S2 = new int[SBOX_SK];
         S3 = new int[SBOX_SK];
         P = new int[P_SZ];
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), bitsOfSecurity()));
     }
 
     /**
@@ -337,6 +341,7 @@ implements BlockCipher
             this.workingKey = ((KeyParameter)params).getKey();
             setKey(this.workingKey);
 
+            CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), bitsOfSecurity(), params, getPurpose()));
             return;
         }
 
@@ -433,6 +438,11 @@ implements BlockCipher
 
     private void setKey(byte[] key)
     {
+        if (key.length < 4 || key.length > 56)
+        {
+            throw new IllegalArgumentException("key length must be in range 32 to 448 bits");
+        }
+
         /*
          * - comments are from _Applied Crypto_, Schneier, p338
          * please be careful comparing the two, AC numbers the
@@ -576,5 +586,23 @@ implements BlockCipher
         b[offset + 2] = (byte)(in >> 8);
         b[offset + 1] = (byte)(in >> 16);
         b[offset]     = (byte)(in >> 24);
+    }
+
+    private int bitsOfSecurity()
+    {
+        if (workingKey == null)
+        {
+            return 256;
+        }
+        return (workingKey.length > 32) ? 256 : workingKey.length * 8;
+    }
+
+    private CryptoServicePurpose getPurpose()
+    {
+        if (workingKey == null)
+        {
+            return CryptoServicePurpose.ANY;
+        }
+        return encrypting ? CryptoServicePurpose.ENCRYPTION : CryptoServicePurpose.DECRYPTION;
     }
 }

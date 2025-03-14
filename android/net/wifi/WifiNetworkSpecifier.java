@@ -22,6 +22,7 @@ import static com.android.internal.util.Preconditions.checkNotNull;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.net.ConnectivityManager;
 import android.net.ConnectivityManager.NetworkCallback;
 import android.net.MacAddress;
@@ -191,6 +192,8 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
         @WifiBand private int mBand;
 
         private int[] mChannels;
+
+        private boolean mPreferSecondarySta;
 
         public Builder() {
             mSsidPatternMatcher = null;
@@ -480,6 +483,19 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
             return this;
         }
 
+        /**
+         * Hint the Wifi service to prefer using secondary STA for this connection.
+         *
+         * @param value - true to prefer this connection to be started on a secondary STA.
+         *                false to let the wifi framework decide
+         * @return Instance of {@link Builder} to enable chaining of the builder method.
+         * @hide
+         */
+        @NonNull @UnsupportedAppUsage public Builder setPreferSecondarySta(boolean value) {
+            mPreferSecondarySta = value;
+            return this;
+        }
+
         private void setSecurityParamsInWifiConfiguration(
                 @NonNull WifiConfiguration configuration) {
             if (!TextUtils.isEmpty(mWpa2PskPassphrase)) { // WPA-PSK network.
@@ -684,7 +700,8 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
                     mBssidPatternMatcher,
                     mBand,
                     buildWifiConfiguration(),
-                    mChannels);
+                    mChannels,
+                    mPreferSecondarySta);
         }
     }
 
@@ -707,6 +724,7 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
     @WifiBand private final int mBand;
 
     private final int[] mChannelFreqs;
+    private boolean mPreferSecondarySta;
 
     /**
      * Security credentials for the network.
@@ -729,7 +747,8 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
             @NonNull Pair<MacAddress, MacAddress> bssidPatternMatcher,
             @WifiBand int band,
             @NonNull WifiConfiguration wifiConfiguration,
-            @NonNull int[] channelFreqs) {
+            @NonNull int[] channelFreqs,
+            boolean preferSecondarySta) {
         checkNotNull(ssidPatternMatcher);
         checkNotNull(bssidPatternMatcher);
         checkNotNull(wifiConfiguration);
@@ -739,6 +758,7 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
         this.mBand = band;
         this.wifiConfiguration = wifiConfiguration;
         this.mChannelFreqs = channelFreqs;
+        this.mPreferSecondarySta = preferSecondarySta;
     }
 
     /**
@@ -756,6 +776,14 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
         return mChannelFreqs.clone();
     }
 
+    /**
+     * @see Builder#setPreferSecondarySta(boolean)
+     * @hide
+     */
+    @UnsupportedAppUsage public boolean isPreferSecondarySta() {
+        return mPreferSecondarySta;
+    }
+
     public static final @NonNull Creator<WifiNetworkSpecifier> CREATOR =
             new Creator<WifiNetworkSpecifier>() {
                 @Override
@@ -767,9 +795,10 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
                             Pair.create(baseAddress, mask);
                     int band = in.readInt();
                     WifiConfiguration wifiConfiguration = in.readParcelable(null);
-                    int[] mChannels = in.createIntArray();
+                    int[] channels = in.createIntArray();
+                    boolean preferSecondarySta = in.readBoolean();
                     return new WifiNetworkSpecifier(ssidPatternMatcher, bssidPatternMatcher, band,
-                            wifiConfiguration, mChannels);
+                            wifiConfiguration, channels, preferSecondarySta);
                 }
 
                 @Override
@@ -791,13 +820,15 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
         dest.writeInt(mBand);
         dest.writeParcelable(wifiConfiguration, flags);
         dest.writeIntArray(mChannelFreqs);
+        dest.writeBoolean(mPreferSecondarySta);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(
                 ssidPatternMatcher.getPath(), ssidPatternMatcher.getType(), bssidPatternMatcher,
-                mBand, wifiConfiguration.allowedKeyManagement, Arrays.hashCode(mChannelFreqs));
+                mBand, wifiConfiguration.allowedKeyManagement, Arrays.hashCode(mChannelFreqs),
+                mPreferSecondarySta);
     }
 
     @Override
@@ -818,7 +849,8 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
                 && this.mBand == lhs.mBand
                 && Objects.equals(this.wifiConfiguration.allowedKeyManagement,
                     lhs.wifiConfiguration.allowedKeyManagement)
-                && Arrays.equals(mChannelFreqs, lhs.mChannelFreqs);
+                && Arrays.equals(mChannelFreqs, lhs.mChannelFreqs)
+                && mPreferSecondarySta == lhs.mPreferSecondarySta;
     }
 
     @Override
@@ -829,7 +861,9 @@ public final class WifiNetworkSpecifier extends NetworkSpecifier implements Parc
                 .append(", BSSID Match pattern=").append(bssidPatternMatcher)
                 .append(", SSID=").append(wifiConfiguration.SSID)
                 .append(", BSSID=").append(wifiConfiguration.BSSID)
+                .append(", channels=").append(Arrays.toString(mChannelFreqs))
                 .append(", band=").append(mBand)
+                .append(", preferSecondarySta=").append(mPreferSecondarySta)
                 .append("]")
                 .toString();
     }

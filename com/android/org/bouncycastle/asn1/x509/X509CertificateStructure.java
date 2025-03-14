@@ -1,12 +1,12 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.asn1.x509;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Integer;
 import com.android.org.bouncycastle.asn1.ASN1Object;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
-import com.android.org.bouncycastle.asn1.DERBitString;
 import com.android.org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import com.android.org.bouncycastle.asn1.x500.X500Name;
 
@@ -29,7 +29,7 @@ public class X509CertificateStructure
     ASN1Sequence  seq;
     TBSCertificateStructure tbsCert;
     AlgorithmIdentifier     sigAlgId;
-    DERBitString            sig;
+    ASN1BitString sig;
 
     public static X509CertificateStructure getInstance(
         ASN1TaggedObject obj,
@@ -66,7 +66,7 @@ public class X509CertificateStructure
             tbsCert = TBSCertificateStructure.getInstance(seq.getObjectAt(0));
             sigAlgId = AlgorithmIdentifier.getInstance(seq.getObjectAt(1));
 
-            sig = DERBitString.getInstance(seq.getObjectAt(2));
+            sig = ASN1BitString.getInstance(seq.getObjectAt(2));
         }
         else
         {
@@ -119,7 +119,7 @@ public class X509CertificateStructure
         return sigAlgId;
     }
 
-    public DERBitString getSignature()
+    public ASN1BitString getSignature()
     {
         return sig;
     }

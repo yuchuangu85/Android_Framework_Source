@@ -2,8 +2,8 @@
 package com.android.org.bouncycastle.crypto.modes;
 
 import com.android.org.bouncycastle.crypto.BlockCipher;
-import com.android.org.bouncycastle.crypto.BufferedBlockCipher;
 import com.android.org.bouncycastle.crypto.DataLengthException;
+import com.android.org.bouncycastle.crypto.DefaultBufferedBlockCipher;
 import com.android.org.bouncycastle.crypto.InvalidCipherTextException;
 import com.android.org.bouncycastle.crypto.OutputLengthException;
 import com.android.org.bouncycastle.crypto.StreamBlockCipher;
@@ -14,7 +14,7 @@ import com.android.org.bouncycastle.crypto.StreamBlockCipher;
  * @hide This class is not part of the Android public SDK API
  */
 public class CTSBlockCipher
-    extends BufferedBlockCipher
+    extends DefaultBufferedBlockCipher
 {
     private int     blockSize;
 
@@ -223,9 +223,9 @@ public class CTSBlockCipher
                     buf[i] ^= block[i - blockSize];
                 }
 
-                if (cipher instanceof CBCBlockCipher)
+                if (cipher instanceof CBCModeCipher)
                 {
-                    BlockCipher c = ((CBCBlockCipher)cipher).getUnderlyingCipher();
+                    BlockCipher c = ((CBCModeCipher)cipher).getUnderlyingCipher();
 
                     c.processBlock(buf, blockSize, out, outOff);
                 }
@@ -252,9 +252,9 @@ public class CTSBlockCipher
 
             if (bufOff > blockSize)
             {
-                if (cipher instanceof CBCBlockCipher)
+                if (cipher instanceof CBCModeCipher)
                 {
-                    BlockCipher c = ((CBCBlockCipher)cipher).getUnderlyingCipher();
+                    BlockCipher c = ((CBCModeCipher)cipher).getUnderlyingCipher();
 
                     c.processBlock(buf, 0, block, 0);
                 }

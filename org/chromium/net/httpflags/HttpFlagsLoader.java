@@ -15,7 +15,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import org.chromium.base.Log;
-import org.chromium.net.impl.CronetManifest;
+import org.chromium.base.metrics.ScopedSysTraceEvent;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -68,11 +68,6 @@ public final class HttpFlagsLoader {
      */
     @Nullable
     public static Flags load(Context context) {
-        if (!CronetManifest.shouldReadHttpFlags(context)) {
-            Log.d(TAG, "Not loading HTTP flags because they are disabled in the manifest");
-            return null;
-        }
-
         try {
             ApplicationInfo providerApplicationInfo = getProviderApplicationInfo(context);
             if (providerApplicationInfo == null) return null;
@@ -81,7 +76,7 @@ public final class HttpFlagsLoader {
                     "Found application exporting HTTP flags: %s",
                     providerApplicationInfo.packageName);
 
-            File flagsFile = getFlagsFileFromProvider(context, providerApplicationInfo);
+            File flagsFile = getFlagsFileFromProvider(providerApplicationInfo);
             Log.d(TAG, "HTTP flags file path: %s", flagsFile.getAbsolutePath());
 
             Flags flags = loadFlagsFile(flagsFile);
@@ -90,35 +85,37 @@ public final class HttpFlagsLoader {
 
             return flags;
         } catch (RuntimeException exception) {
-            Log.e(TAG, "Unable to load HTTP flags file", exception);
+            Log.i(TAG, "Unable to load HTTP flags file", exception);
             return null;
         }
     }
 
     @Nullable
     private static ApplicationInfo getProviderApplicationInfo(Context context) {
-        ResolveInfo resolveInfo =
-                context.getPackageManager()
-                        .resolveService(
-                                new Intent(FLAGS_FILE_PROVIDER_INTENT_ACTION),
-                                // Make sure we only read flags files that are written by a package
-                                // from the system image. This prevents random third-party apps
-                                // from being able to inject flags into other apps, which would be
-                                // a security risk.
-                                PackageManager.MATCH_SYSTEM_ONLY);
-        if (resolveInfo == null) {
-            Log.w(
-                    TAG,
-                    "Unable to resolve the HTTP flags file provider package. This is expected if "
-                            + "the host system is not set up to provide HTTP flags.");
-            return null;
-        }
+        try (var traceEvent =
+                ScopedSysTraceEvent.scoped("HttpFlagsLoader#getProviderApplicationInfo")) {
+            ResolveInfo resolveInfo =
+                    context.getPackageManager()
+                            .resolveService(
+                                    new Intent(FLAGS_FILE_PROVIDER_INTENT_ACTION),
+                                    // Make sure we only read flags files that are written by a
+                                    // package from the system image. This prevents random
+                                    // third-party apps from being able to inject flags into other
+                                    // apps, which would be a security risk.
+                                    PackageManager.MATCH_SYSTEM_ONLY);
+            if (resolveInfo == null) {
+                Log.i(
+                        TAG,
+                        "Unable to resolve the HTTP flags file provider package. This is expected"
+                                + " if the host system is not set up to provide HTTP flags.");
+                return null;
+            }
 
-        return resolveInfo.serviceInfo.applicationInfo;
+            return resolveInfo.serviceInfo.applicationInfo;
+        }
     }
 
-    private static File getFlagsFileFromProvider(
-            Context context, ApplicationInfo providerApplicationInfo) {
+    private static File getFlagsFileFromProvider(ApplicationInfo providerApplicationInfo) {
         return new File(
                 new File(
                         new File(
@@ -131,17 +128,19 @@ public final class HttpFlagsLoader {
 
     @Nullable
     private static Flags loadFlagsFile(File file) {
-        try (FileInputStream fileInputStream = new FileInputStream(file)) {
-            return Flags.parseDelimitedFrom(fileInputStream);
-        } catch (FileNotFoundException exception) {
-            Log.w(
-                    TAG,
-                    "HTTP flags file `%s` is missing. This is expected if HTTP flags functionality "
-                            + "is currently disabled in the host system.",
-                    file.getPath());
-            return null;
-        } catch (IOException exception) {
-            throw new RuntimeException("Unable to read HTTP flags file", exception);
+        try (var traceEvent = ScopedSysTraceEvent.scoped("HttpFlagsLoader#loadFlagsFile")) {
+            try (FileInputStream fileInputStream = new FileInputStream(file)) {
+                return Flags.parseDelimitedFrom(fileInputStream);
+            } catch (FileNotFoundException exception) {
+                Log.i(
+                        TAG,
+                        "HTTP flags file `%s` is missing. This is expected if HTTP flags"
+                                + " functionality is currently disabled in the host system.",
+                        file.getPath());
+                return null;
+            } catch (IOException exception) {
+                throw new RuntimeException("Unable to read HTTP flags file", exception);
+            }
         }
     }
 }

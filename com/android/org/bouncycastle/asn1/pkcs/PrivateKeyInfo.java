@@ -166,7 +166,7 @@ public class PrivateKeyInfo
                     throw new IllegalArgumentException("'publicKey' requires version v2(1) or later");
                 }
 
-                this.publicKey = DERBitString.getInstance(tagged, false);
+                this.publicKey = ASN1BitString.getInstance(tagged, false);
                 break;
             }
             default:
@@ -195,6 +195,11 @@ public class PrivateKeyInfo
     public ASN1OctetString getPrivateKey()
     {
         return new DEROctetString(privateKey.getOctets());
+    }
+
+    public int getPrivateKeyLength()
+    {
+        return privateKey.getOctetsLength();
     }
 
     public ASN1Encodable parsePrivateKey()

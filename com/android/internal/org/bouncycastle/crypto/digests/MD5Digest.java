@@ -1,4 +1,5 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
+// BEGIN Android-changed: maintain old behaviour
 package com.android.internal.org.bouncycastle.crypto.digests;
 
 
@@ -361,3 +362,4 @@ public class MD5Digest
         return state;
     }
 }
+// END Android-changed: maintain old behaviour

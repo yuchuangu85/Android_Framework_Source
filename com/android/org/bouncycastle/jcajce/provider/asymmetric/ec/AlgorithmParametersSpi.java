@@ -16,6 +16,7 @@ import com.android.org.bouncycastle.asn1.x9.X9ECParameters;
 import com.android.org.bouncycastle.asn1.x9.X9ECPoint;
 import com.android.org.bouncycastle.jcajce.provider.asymmetric.util.EC5Util;
 import com.android.org.bouncycastle.jcajce.provider.asymmetric.util.ECUtil;
+import com.android.org.bouncycastle.jcajce.provider.config.ProviderConfiguration;
 import com.android.org.bouncycastle.jce.provider.BouncyCastleProvider;
 import com.android.org.bouncycastle.jce.spec.ECNamedCurveSpec;
 import com.android.org.bouncycastle.math.ec.ECCurve;
@@ -41,12 +42,14 @@ public class AlgorithmParametersSpi
         if (algorithmParameterSpec instanceof ECGenParameterSpec)
         {
             ECGenParameterSpec ecGenParameterSpec = (ECGenParameterSpec)algorithmParameterSpec;
-            X9ECParameters params = ECUtils.getDomainParametersFromGenSpec(ecGenParameterSpec);
+            ProviderConfiguration configuration = BouncyCastleProvider.CONFIGURATION;
 
-            if (params == null)
+            X9ECParameters params = ECUtils.getDomainParametersFromGenSpec(ecGenParameterSpec, configuration);
+            if (null == params)
             {
                 throw new InvalidParameterSpecException("EC curve name not recognized: " + ecGenParameterSpec.getName());
             }
+
             curveName = ecGenParameterSpec.getName();
             ECParameterSpec baseSpec = EC5Util.convertToSpec(params);
             ecParameterSpec = new ECNamedCurveSpec(curveName,

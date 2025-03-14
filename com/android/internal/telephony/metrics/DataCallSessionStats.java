@@ -309,6 +309,7 @@ public class DataCallSessionStats {
         copy.isIwlanCrossSim = call.isIwlanCrossSim;
         copy.isNtn = call.isNtn;
         copy.isSatelliteTransport = call.isSatelliteTransport;
+        copy.isProvisioningProfile = call.isProvisioningProfile;
         return copy;
     }
 
@@ -339,6 +340,7 @@ public class DataCallSessionStats {
         proto.isNtn = mSatelliteController != null
                 ? mSatelliteController.isInSatelliteModeForCarrierRoaming(mPhone) : false;
         proto.isSatelliteTransport = isSatellite;
+        proto.isProvisioningProfile = getIsProvisioningProfile();
         return proto;
     }
 
@@ -353,6 +355,17 @@ public class DataCallSessionStats {
         SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
                 .getSubscriptionInfoInternal(mPhone.getSubId());
         return subInfo != null && subInfo.isOpportunistic();
+    }
+
+    private boolean getIsProvisioningProfile() {
+        SubscriptionInfoInternal subInfo = SubscriptionManagerService.getInstance()
+                .getSubscriptionInfoInternal(mPhone.getSubId());
+        try {
+            return subInfo.getProfileClass() == SubscriptionManager.PROFILE_CLASS_PROVISIONING;
+        } catch (Exception ex) {
+            loge("getIsProvisioningProfile: " + ex.getMessage());
+            return false;
+        }
     }
 
     private boolean getIsOos() {

@@ -16,9 +16,13 @@
 
 package android.accounts;
 
+import static android.Manifest.permission.COPY_ACCOUNTS;
+import static android.Manifest.permission.REMOVE_ACCOUNTS;
 import static android.Manifest.permission.INTERACT_ACROSS_USERS_FULL;
+import static android.app.admin.flags.Flags.FLAG_SPLIT_CREATE_MANAGED_PROFILE_ENABLED;
 
 import android.annotation.BroadcastBehavior;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -385,7 +389,7 @@ public class AccountManager {
     /**
      * @hide
      */
-    public static final int CACHE_USER_DATA_SIZE = 4;
+    public static final int CACHE_USER_DATA_SIZE = 32;
 
     private static final class AccountKeyData {
         final public Account account;
@@ -1312,7 +1316,8 @@ public class AccountManager {
      * {@link AccountManagerFuture} must not be used on the main thread.
      *
      * <p>This method requires the caller to have a signature match with the
-     * authenticator that manages the specified account.
+     * authenticator that manages the specified account, be a profile owner or have the
+     * {@link android.Manifest.permission#REMOVE_ACCOUNTS} permission.
      *
      * <p><b>NOTE:</b> If targeting your app to work on API level 22 and before,
      * MANAGE_ACCOUNTS permission is needed for those platforms. See docs for
@@ -1344,6 +1349,8 @@ public class AccountManager {
      * </ul>
      */
     @UserHandleAware
+    @RequiresPermission(value = REMOVE_ACCOUNTS, conditional = true)
+    @FlaggedApi(FLAG_SPLIT_CREATE_MANAGED_PROFILE_ENABLED)
     public AccountManagerFuture<Bundle> removeAccount(final Account account,
             final Activity activity, AccountManagerCallback<Bundle> callback, Handler handler) {
         return removeAccountAsUser(account, activity, callback, handler, mContext.getUser());
@@ -2011,17 +2018,22 @@ public class AccountManager {
      * @param account the account to copy
      * @param fromUser the user to copy the account from
      * @param toUser the target user
-     * @param callback Callback to invoke when the request completes,
-     *     null for no callback
      * @param handler {@link Handler} identifying the callback thread,
      *     null for the main thread
+     * @param callback Callback to invoke when the request completes,
+     *     null for no callback
      * @return An {@link AccountManagerFuture} which resolves to a Boolean indicated whether it
      * succeeded.
      * @hide
      */
+    @NonNull
+    @SystemApi
+    @RequiresPermission(anyOf = {COPY_ACCOUNTS, INTERACT_ACROSS_USERS_FULL})
+    @FlaggedApi(FLAG_SPLIT_CREATE_MANAGED_PROFILE_ENABLED)
     public AccountManagerFuture<Boolean> copyAccountToUser(
-            final Account account, final UserHandle fromUser, final UserHandle toUser,
-            AccountManagerCallback<Boolean> callback, Handler handler) {
+            @NonNull final Account account, @NonNull final UserHandle fromUser,
+            @NonNull final UserHandle toUser, @Nullable Handler handler,
+            @Nullable AccountManagerCallback<Boolean> callback) {
         if (account == null) throw new IllegalArgumentException("account is null");
         if (toUser == null || fromUser == null) {
             throw new IllegalArgumentException("fromUser and toUser cannot be null");

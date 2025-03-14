@@ -34,8 +34,8 @@ import java.util.stream.StreamSupport;
 import jdk.internal.HotSpotIntrinsicCandidate;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
 
-import static java.lang.String.UTF16;
-import static java.lang.String.LATIN1;
+import static java.lang.String.CODER_UTF16;
+import static java.lang.String.CODER_LATIN1;
 
 public final class StringUTF16 {
 
@@ -639,10 +639,10 @@ public final class StringUTF16 {
                StringLatin1.canEncode(newChar)) {
                byte[] val = compress(buf, 0, len);
                if (val != null) {
-                   return new String(val, LATIN1);
+                   return new String(val, CODER_LATIN1);
                }
            }
-           return new String(buf, UTF16);
+           return new String(buf, CODER_UTF16);
         }
         return null;
     }

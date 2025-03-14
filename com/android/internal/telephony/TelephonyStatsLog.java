@@ -11,6 +11,7 @@ import androidx.annotation.RequiresApi;
 
 /**
  * Utility class for logging statistics events.
+ * @hide
  */
 public final class TelephonyStatsLog {
     // Constants for atom codes.
@@ -113,7 +114,7 @@ public final class TelephonyStatsLog {
 
     /**
      * VoiceCallSession voice_call_session<br>
-     * Usage: StatsLog.write(StatsLog.VOICE_CALL_SESSION, int bearer_at_start, int bearer_at_end, int direction, int setup_duration, boolean setup_failed, int disconnect_reason_code, int disconnect_extra_code, java.lang.String disconnect_extra_message, int rat_at_start, int rat_at_end, long rat_switch_count, long codec_bitmask, int concurrent_call_count_at_start, int concurrent_call_count_at_end, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, boolean srvcc_completed, long srvcc_failure_count, long srvcc_cancellation_count, boolean rtt_enabled, boolean is_emergency, boolean is_roaming, int dimension, int signal_strength_at_end, int band_at_end, int setup_duration_millis, int main_codec_quality, boolean video_enabled, int rat_at_connected, boolean is_multiparty, int call_duration, int last_known_rat, int fold_state, long rat_switch_count_after_connected, boolean handover_in_progress, boolean is_iwlan_cross_sim_at_start, boolean is_iwlan_cross_sim_at_end, boolean is_iwlan_cross_sim_at_connected, boolean vonr_enabled, boolean is_ntn);<br>
+     * Usage: StatsLog.write(StatsLog.VOICE_CALL_SESSION, int bearer_at_start, int bearer_at_end, int direction, int setup_duration, boolean setup_failed, int disconnect_reason_code, int disconnect_extra_code, java.lang.String disconnect_extra_message, int rat_at_start, int rat_at_end, long rat_switch_count, long codec_bitmask, int concurrent_call_count_at_start, int concurrent_call_count_at_end, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, boolean srvcc_completed, long srvcc_failure_count, long srvcc_cancellation_count, boolean rtt_enabled, boolean is_emergency, boolean is_roaming, int dimension, int signal_strength_at_end, int band_at_end, int setup_duration_millis, int main_codec_quality, boolean video_enabled, int rat_at_connected, boolean is_multiparty, int call_duration, int last_known_rat, int fold_state, long rat_switch_count_after_connected, boolean handover_in_progress, boolean is_iwlan_cross_sim_at_start, boolean is_iwlan_cross_sim_at_end, boolean is_iwlan_cross_sim_at_connected, boolean vonr_enabled, boolean is_ntn, boolean supports_business_call_composer, int call_composer_status, int call_state_on_setup);<br>
      */
     public static final int VOICE_CALL_SESSION = 10076;
 
@@ -137,13 +138,13 @@ public final class TelephonyStatsLog {
 
     /**
      * IncomingSms incoming_sms<br>
-     * Usage: StatsLog.write(StatsLog.INCOMING_SMS, int sms_format, int sms_tech, int rat, int sms_type, int total_parts, int received_parts, boolean blocked, int error, boolean is_roaming, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int count, boolean is_managed_profile, boolean is_ntn);<br>
+     * Usage: StatsLog.write(StatsLog.INCOMING_SMS, int sms_format, int sms_tech, int rat, int sms_type, int total_parts, int received_parts, boolean blocked, int error, boolean is_roaming, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int count, boolean is_managed_profile, boolean is_ntn, boolean is_emergency);<br>
      */
     public static final int INCOMING_SMS = 10086;
 
     /**
      * OutgoingSms outgoing_sms<br>
-     * Usage: StatsLog.write(StatsLog.OUTGOING_SMS, int sms_format, int sms_tech, int rat, int send_result, int error_code, boolean is_roaming, boolean is_from_default_app, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int retry_id, long interval_millis, int count, int send_error_code, int network_error_code, boolean is_managed_profile, boolean is_emergency, boolean is_ntn);<br>
+     * Usage: StatsLog.write(StatsLog.OUTGOING_SMS, int sms_format, int sms_tech, int rat, int send_result, int error_code, boolean is_roaming, boolean is_from_default_app, int sim_slot_index, boolean is_multi_sim, boolean is_esim, int carrier_id, long message_id, int retry_id, long interval_millis, int count, int send_error_code, int network_error_code, boolean is_managed_profile, boolean is_emergency, boolean is_ntn, boolean is_mt_sms_polling);<br>
      */
     public static final int OUTGOING_SMS = 10087;
 
@@ -155,7 +156,7 @@ public final class TelephonyStatsLog {
 
     /**
      * DataCallSession data_call_session<br>
-     * Usage: StatsLog.write(StatsLog.DATA_CALL_SESSION, int dimension, boolean is_multi_sim, boolean is_esim, int profile, int apn_type_bitmask, int carrier_id, boolean is_roaming, int rat_at_end, boolean oos_at_end, long rat_switch_count, boolean is_opportunistic, int ip_type, boolean setup_failed, int failure_cause, int suggested_retry_millis, int deactivate_reason, long duration_minutes, boolean ongoing, int band_at_end, int[] handover_failure_causes, int[] handover_failure_rat, boolean is_non_dds, boolean is_iwlan_cross_sim, boolean is_ntn, boolean is_satellite_transport);<br>
+     * Usage: StatsLog.write(StatsLog.DATA_CALL_SESSION, int dimension, boolean is_multi_sim, boolean is_esim, int profile, int apn_type_bitmask, int carrier_id, boolean is_roaming, int rat_at_end, boolean oos_at_end, long rat_switch_count, boolean is_opportunistic, int ip_type, boolean setup_failed, int failure_cause, int suggested_retry_millis, int deactivate_reason, long duration_minutes, boolean ongoing, int band_at_end, int[] handover_failure_causes, int[] handover_failure_rat, boolean is_non_dds, boolean is_iwlan_cross_sim, boolean is_ntn, boolean is_satellite_transport, boolean is_provisioning_profile);<br>
      */
     public static final int DATA_CALL_SESSION = 10089;
 
@@ -299,37 +300,37 @@ public final class TelephonyStatsLog {
 
     /**
      * SatelliteController satellite_controller<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_CONTROLLER, int count_of_satellite_service_enablements_success, int count_of_satellite_service_enablements_fail, int count_of_outgoing_datagram_success, int count_of_outgoing_datagram_fail, int count_of_incoming_datagram_success, int count_of_incoming_datagram_fail, int count_of_datagram_type_sos_sms_success, int count_of_datagram_type_sos_sms_fail, int count_of_datagram_type_location_sharing_success, int count_of_datagram_type_location_sharing_fail, int count_of_provision_success, int count_of_provision_fail, int count_of_deprovision_success, int count_of_deprovision_fail, int total_service_uptime_sec, int total_battery_consumption_percent, int total_battery_charged_time_sec, int count_of_demo_mode_satellite_service_enablements_success, int count_of_demo_mode_satellite_service_enablements_fail, int count_of_demo_mode_outgoing_datagram_success, int count_of_demo_mode_outgoing_datagram_fail, int count_of_demo_mode_incoming_datagram_success, int count_of_demo_mode_incoming_datagram_fail, int count_of_datagram_type_keep_alive_success, int count_of_datagram_type_keep_alive_fail);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_CONTROLLER, int count_of_satellite_service_enablements_success, int count_of_satellite_service_enablements_fail, int count_of_outgoing_datagram_success, int count_of_outgoing_datagram_fail, int count_of_incoming_datagram_success, int count_of_incoming_datagram_fail, int count_of_datagram_type_sos_sms_success, int count_of_datagram_type_sos_sms_fail, int count_of_datagram_type_location_sharing_success, int count_of_datagram_type_location_sharing_fail, int count_of_provision_success, int count_of_provision_fail, int count_of_deprovision_success, int count_of_deprovision_fail, int total_service_uptime_sec, int total_battery_consumption_percent, int total_battery_charged_time_sec, int count_of_demo_mode_satellite_service_enablements_success, int count_of_demo_mode_satellite_service_enablements_fail, int count_of_demo_mode_outgoing_datagram_success, int count_of_demo_mode_outgoing_datagram_fail, int count_of_demo_mode_incoming_datagram_success, int count_of_demo_mode_incoming_datagram_fail, int count_of_datagram_type_keep_alive_success, int count_of_datagram_type_keep_alive_fail, int count_of_allowed_satellite_access, int count_of_disallowed_satellite_access, int count_of_satellite_access_check_fail, boolean is_provisioned, int carrier_id, int count_of_satellite_allowed_state_changed_events, int count_of_successful_location_queries, int count_of_failed_location_queries, int count_of_p2p_sms_available_notification_shown, int count_of_p2p_sms_available_notification_removed, boolean is_ntn_only_carrier, int version_of_satellite_access_config);<br>
      */
     public static final int SATELLITE_CONTROLLER = 10182;
 
     /**
      * SatelliteSession satellite_session<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_SESSION, int satellite_service_initialization_result, int satellite_technology, int count, int satellite_service_termination_result, long initialization_processing_time_millis, long termination_processing_time_millis, int session_duration_seconds, int count_of_outgoing_datagram_success, int count_of_outgoing_datagram_failed, int count_of_incoming_datagram_success, int count_of_incoming_datagram_failed, boolean is_demo_mode);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_SESSION, int satellite_service_initialization_result, int satellite_technology, int count, int satellite_service_termination_result, long initialization_processing_time_millis, long termination_processing_time_millis, int session_duration_seconds, int count_of_outgoing_datagram_success, int count_of_outgoing_datagram_failed, int count_of_incoming_datagram_success, int count_of_incoming_datagram_failed, boolean is_demo_mode, int max_ntn_signal_strength_level, int carrier_id, int count_of_satellite_notification_displayed, int count_of_auto_exit_due_to_screen_off, int count_of_auto_exit_due_to_tn_network, boolean is_emergency, boolean is_ntn_only_carrier, int max_inactivity_duration_sec);<br>
      */
     public static final int SATELLITE_SESSION = 10183;
 
     /**
      * SatelliteIncomingDatagram satellite_incoming_datagram<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_INCOMING_DATAGRAM, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis, boolean is_demo_mode);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_INCOMING_DATAGRAM, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis, boolean is_demo_mode, int carrier_id, boolean is_ntn_only_carrier);<br>
      */
     public static final int SATELLITE_INCOMING_DATAGRAM = 10184;
 
     /**
      * SatelliteOutgoingDatagram satellite_outgoing_datagram<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_OUTGOING_DATAGRAM, int satellite_datagram_type, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis, boolean is_demo_mode);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_OUTGOING_DATAGRAM, int satellite_datagram_type, int result_code, int datagram_size_bytes, long datagram_transfer_time_millis, boolean is_demo_mode, int carrier_id, boolean is_ntn_only_carrier);<br>
      */
     public static final int SATELLITE_OUTGOING_DATAGRAM = 10185;
 
     /**
      * SatelliteProvision satellite_provision<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_PROVISION, int result_code, int processing_time_sec, boolean is_provision_request, boolean is_canceled);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_PROVISION, int result_code, int processing_time_sec, boolean is_provision_request, boolean is_canceled, int carrier_id, boolean is_ntn_only_carrier);<br>
      */
     public static final int SATELLITE_PROVISION = 10186;
 
     /**
      * SatelliteSosMessageRecommender satellite_sos_message_recommender<br>
-     * Usage: StatsLog.write(StatsLog.SATELLITE_SOS_MESSAGE_RECOMMENDER, boolean is_display_sos_message_sent, int count_of_timer_started, boolean is_ims_registered, int cellular_service_state, int count, boolean is_multi_sim, int recommending_handover_type, boolean is_satellite_allowed_in_current_location);<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_SOS_MESSAGE_RECOMMENDER, boolean is_display_sos_message_sent, int count_of_timer_started, boolean is_ims_registered, int cellular_service_state, int count, boolean is_multi_sim, int recommending_handover_type, boolean is_satellite_allowed_in_current_location, boolean is_wifi_connected, int carrier_id, boolean is_ntn_only_carrier);<br>
      */
     public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER = 10187;
 
@@ -347,13 +348,13 @@ public final class TelephonyStatsLog {
 
     /**
      * CarrierRoamingSatelliteControllerStats carrier_roaming_satellite_controller_stats<br>
-     * Usage: StatsLog.write(StatsLog.CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS, int config_data_source, int count_of_entitlement_status_query_request, int count_of_satellite_config_update_request, int count_of_satellite_notification_displayed, int satellite_session_gap_min_sec, int satellite_session_gap_avg_sec, int satellite_session_gap_max_sec);<br>
+     * Usage: StatsLog.write(StatsLog.CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS, int config_data_source, int count_of_entitlement_status_query_request, int count_of_satellite_config_update_request, int count_of_satellite_notification_displayed, int satellite_session_gap_min_sec, int satellite_session_gap_avg_sec, int satellite_session_gap_max_sec, int carrier_id, boolean is_device_entitled);<br>
      */
     public static final int CARRIER_ROAMING_SATELLITE_CONTROLLER_STATS = 10212;
 
     /**
      * ControllerStatsPerPackage controller_stats_per_package<br>
-     * Usage: StatsLog.write(StatsLog.CONTROLLER_STATS_PER_PACKAGE, int uid);<br>
+     * Usage: StatsLog.write(StatsLog.CONTROLLER_STATS_PER_PACKAGE, int uid, int carrier_id);<br>
      */
     public static final int CONTROLLER_STATS_PER_PACKAGE = 10213;
 
@@ -368,6 +369,12 @@ public final class TelephonyStatsLog {
      * Usage: StatsLog.write(StatsLog.SATELLITE_CONFIG_UPDATER, int config_version, int oem_config_result, int carrier_config_result, int count);<br>
      */
     public static final int SATELLITE_CONFIG_UPDATER = 10215;
+
+    /**
+     * SatelliteAccessController satellite_access_controller<br>
+     * Usage: StatsLog.write(StatsLog.SATELLITE_ACCESS_CONTROLLER, int access_control_type, long location_query_time_millis, long on_device_lookup_time_millis, long total_checking_time_millis, boolean is_allowed, boolean is_emergency, int result_code, java.lang.String[] country_codes, int config_data_source, int carrier_id, int triggering_event, boolean is_ntn_only_carrier);<br>
+     */
+    public static final int SATELLITE_ACCESS_CONTROLLER = 10219;
 
     // Constants for enum values.
 
@@ -705,6 +712,25 @@ public final class TelephonyStatsLog {
     public static final int VOICE_CALL_SESSION__FOLD_STATE__STATE_HALF_OPENED = 2;
     public static final int VOICE_CALL_SESSION__FOLD_STATE__STATE_OPENED = 3;
     public static final int VOICE_CALL_SESSION__FOLD_STATE__STATE_FLIPPED = 4;
+
+    // Values for VoiceCallSession.call_composer_status
+    public static final int VOICE_CALL_SESSION__CALL_COMPOSER_STATUS__CALL_COMPOSER_UNKNOWN = 0;
+    public static final int VOICE_CALL_SESSION__CALL_COMPOSER_STATUS__CALL_COMPOSER_STATUS_OFF = 1;
+    public static final int VOICE_CALL_SESSION__CALL_COMPOSER_STATUS__CALL_COMPOSER_STATUS_ON = 2;
+    public static final int VOICE_CALL_SESSION__CALL_COMPOSER_STATUS__CALL_COMPOSER_STATUS_BUSINESS_ONLY = 3;
+
+    // Values for VoiceCallSession.call_state_on_setup
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_UNKNOWN = 0;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_IDLE = 1;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_ACTIVE = 2;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_HOLDING = 3;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DIALING = 4;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_ALERTING = 5;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_INCOMING = 6;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_WAITING = 7;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DISCONNECTED = 8;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DISCONNECTING = 9;
+    public static final int VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_INCOMING_SETUP = 10;
 
     // Values for VoiceCallRatUsage.rat
     public static final int VOICE_CALL_RAT_USAGE__RAT__NETWORK_TYPE_UNKNOWN = 0;
@@ -1397,27 +1423,34 @@ public final class TelephonyStatsLog {
     public static final int EMERGENCY_NUMBERS_INFO__SOURCES__EMERGENCY_NUMBER_SOURCE_DEFAULT = 4;
 
     // Values for SatelliteSession.satellite_service_initialization_result
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_ERROR_NONE = 0;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_ERROR = 1;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_SERVER_ERROR = 2;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_SERVICE_ERROR = 3;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_MODEM_ERROR = 4;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_NETWORK_ERROR = 5;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_INVALID_TELEPHONY_STATE = 6;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_INVALID_MODEM_STATE = 7;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_INVALID_ARGUMENTS = 8;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_REQUEST_FAILED = 9;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RADIO_NOT_AVAILABLE = 10;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_REQUEST_NOT_SUPPORTED = 11;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_NO_RESOURCES = 12;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_SERVICE_NOT_PROVISIONED = 13;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_SERVICE_PROVISION_IN_PROGRESS = 14;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_REQUEST_ABORTED = 15;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_ACCESS_BARRED = 16;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_NETWORK_TIMEOUT = 17;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_NOT_REACHABLE = 18;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_NOT_AUTHORIZED = 19;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_SUCCESS = 0;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_ERROR = 1;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_SERVER_ERROR = 2;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_SERVICE_ERROR = 3;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_MODEM_ERROR = 4;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_NETWORK_ERROR = 5;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_INVALID_TELEPHONY_STATE = 6;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_INVALID_MODEM_STATE = 7;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_INVALID_ARGUMENTS = 8;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_REQUEST_FAILED = 9;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_RADIO_NOT_AVAILABLE = 10;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_REQUEST_NOT_SUPPORTED = 11;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_NO_RESOURCES = 12;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_SERVICE_NOT_PROVISIONED = 13;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_SERVICE_PROVISION_IN_PROGRESS = 14;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_REQUEST_ABORTED = 15;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_ACCESS_BARRED = 16;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_NETWORK_TIMEOUT = 17;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_NOT_REACHABLE = 18;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_NOT_AUTHORIZED = 19;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_REQUEST_IN_PROGRESS = 21;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_MODEM_BUSY = 22;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_ILLEGAL_STATE = 23;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_MODEM_TIMEOUT = 24;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_LOCATION_DISABLED = 25;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_LOCATION_NOT_AVAILABLE = 26;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_INITIALIZATION_RESULT__SATELLITE_RESULT_EMERGENCY_CALL_IN_PROGRESS = 27;
 
     // Values for SatelliteSession.satellite_technology
     public static final int SATELLITE_SESSION__SATELLITE_TECHNOLOGY__NT_RADIO_TECHNOLOGY_UNKNOWN = 0;
@@ -1427,102 +1460,133 @@ public final class TelephonyStatsLog {
     public static final int SATELLITE_SESSION__SATELLITE_TECHNOLOGY__NT_RADIO_TECHNOLOGY_PROPRIETARY = 4;
 
     // Values for SatelliteSession.satellite_service_termination_result
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_ERROR_NONE = 0;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_ERROR = 1;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVER_ERROR = 2;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVICE_ERROR = 3;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_MODEM_ERROR = 4;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NETWORK_ERROR = 5;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_INVALID_TELEPHONY_STATE = 6;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_INVALID_MODEM_STATE = 7;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_INVALID_ARGUMENTS = 8;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_REQUEST_FAILED = 9;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RADIO_NOT_AVAILABLE = 10;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_REQUEST_NOT_SUPPORTED = 11;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NO_RESOURCES = 12;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVICE_NOT_PROVISIONED = 13;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_SERVICE_PROVISION_IN_PROGRESS = 14;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_REQUEST_ABORTED = 15;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_ACCESS_BARRED = 16;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NETWORK_TIMEOUT = 17;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NOT_REACHABLE = 18;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NOT_AUTHORIZED = 19;
-    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_SUCCESS = 0;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_ERROR = 1;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_SERVER_ERROR = 2;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_SERVICE_ERROR = 3;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_MODEM_ERROR = 4;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_NETWORK_ERROR = 5;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_INVALID_TELEPHONY_STATE = 6;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_INVALID_MODEM_STATE = 7;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_INVALID_ARGUMENTS = 8;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_REQUEST_FAILED = 9;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_RADIO_NOT_AVAILABLE = 10;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_REQUEST_NOT_SUPPORTED = 11;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_NO_RESOURCES = 12;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_SERVICE_NOT_PROVISIONED = 13;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_SERVICE_PROVISION_IN_PROGRESS = 14;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_REQUEST_ABORTED = 15;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_ACCESS_BARRED = 16;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_NETWORK_TIMEOUT = 17;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_NOT_REACHABLE = 18;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_NOT_AUTHORIZED = 19;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_REQUEST_IN_PROGRESS = 21;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_MODEM_BUSY = 22;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_ILLEGAL_STATE = 23;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_MODEM_TIMEOUT = 24;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_LOCATION_DISABLED = 25;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_LOCATION_NOT_AVAILABLE = 26;
+    public static final int SATELLITE_SESSION__SATELLITE_SERVICE_TERMINATION_RESULT__SATELLITE_RESULT_EMERGENCY_CALL_IN_PROGRESS = 27;
 
     // Values for SatelliteIncomingDatagram.result_code
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_ERROR_NONE = 0;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_ERROR = 1;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_SERVER_ERROR = 2;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_SERVICE_ERROR = 3;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_MODEM_ERROR = 4;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_NETWORK_ERROR = 5;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_INVALID_TELEPHONY_STATE = 6;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_INVALID_MODEM_STATE = 7;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_INVALID_ARGUMENTS = 8;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_REQUEST_FAILED = 9;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RADIO_NOT_AVAILABLE = 10;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_REQUEST_NOT_SUPPORTED = 11;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_NO_RESOURCES = 12;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_SERVICE_NOT_PROVISIONED = 13;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_SERVICE_PROVISION_IN_PROGRESS = 14;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_REQUEST_ABORTED = 15;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_ACCESS_BARRED = 16;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_NETWORK_TIMEOUT = 17;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_NOT_REACHABLE = 18;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_NOT_AUTHORIZED = 19;
-    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SUCCESS = 0;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_ERROR = 1;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVER_ERROR = 2;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVICE_ERROR = 3;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_MODEM_ERROR = 4;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NETWORK_ERROR = 5;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_INVALID_TELEPHONY_STATE = 6;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_INVALID_MODEM_STATE = 7;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_INVALID_ARGUMENTS = 8;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_FAILED = 9;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_RADIO_NOT_AVAILABLE = 10;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_NOT_SUPPORTED = 11;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NO_RESOURCES = 12;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVICE_NOT_PROVISIONED = 13;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVICE_PROVISION_IN_PROGRESS = 14;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_ABORTED = 15;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_ACCESS_BARRED = 16;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NETWORK_TIMEOUT = 17;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NOT_REACHABLE = 18;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NOT_AUTHORIZED = 19;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_IN_PROGRESS = 21;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_MODEM_BUSY = 22;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_ILLEGAL_STATE = 23;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_MODEM_TIMEOUT = 24;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_LOCATION_DISABLED = 25;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_LOCATION_NOT_AVAILABLE = 26;
+    public static final int SATELLITE_INCOMING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_EMERGENCY_CALL_IN_PROGRESS = 27;
 
     // Values for SatelliteOutgoingDatagram.satellite_datagram_type
     public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_UNKNOWN = 0;
     public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_SOS_MESSAGE = 1;
     public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_LOCATION_SHARING = 2;
     public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_KEEP_ALIVE = 3;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_LAST_SOS_MESSAGE_STILL_NEED_HELP = 4;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_LAST_SOS_MESSAGE_NO_HELP_NEEDED = 5;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__SATELLITE_DATAGRAM_TYPE__DATAGRAM_TYPE_SMS = 6;
 
     // Values for SatelliteOutgoingDatagram.result_code
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_ERROR_NONE = 0;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_ERROR = 1;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_SERVER_ERROR = 2;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_SERVICE_ERROR = 3;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_MODEM_ERROR = 4;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_NETWORK_ERROR = 5;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_INVALID_TELEPHONY_STATE = 6;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_INVALID_MODEM_STATE = 7;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_INVALID_ARGUMENTS = 8;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_REQUEST_FAILED = 9;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RADIO_NOT_AVAILABLE = 10;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_REQUEST_NOT_SUPPORTED = 11;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_NO_RESOURCES = 12;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_SERVICE_NOT_PROVISIONED = 13;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_SERVICE_PROVISION_IN_PROGRESS = 14;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_REQUEST_ABORTED = 15;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_ACCESS_BARRED = 16;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_NETWORK_TIMEOUT = 17;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_NOT_REACHABLE = 18;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_NOT_AUTHORIZED = 19;
-    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SUCCESS = 0;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_ERROR = 1;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVER_ERROR = 2;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVICE_ERROR = 3;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_MODEM_ERROR = 4;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NETWORK_ERROR = 5;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_INVALID_TELEPHONY_STATE = 6;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_INVALID_MODEM_STATE = 7;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_INVALID_ARGUMENTS = 8;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_FAILED = 9;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_RADIO_NOT_AVAILABLE = 10;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_NOT_SUPPORTED = 11;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NO_RESOURCES = 12;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVICE_NOT_PROVISIONED = 13;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_SERVICE_PROVISION_IN_PROGRESS = 14;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_ABORTED = 15;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_ACCESS_BARRED = 16;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NETWORK_TIMEOUT = 17;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NOT_REACHABLE = 18;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NOT_AUTHORIZED = 19;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_REQUEST_IN_PROGRESS = 21;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_MODEM_BUSY = 22;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_ILLEGAL_STATE = 23;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_MODEM_TIMEOUT = 24;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_LOCATION_DISABLED = 25;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_LOCATION_NOT_AVAILABLE = 26;
+    public static final int SATELLITE_OUTGOING_DATAGRAM__RESULT_CODE__SATELLITE_RESULT_EMERGENCY_CALL_IN_PROGRESS = 27;
 
     // Values for SatelliteProvision.result_code
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_ERROR_NONE = 0;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_ERROR = 1;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_SERVER_ERROR = 2;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_SERVICE_ERROR = 3;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_MODEM_ERROR = 4;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_NETWORK_ERROR = 5;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_INVALID_TELEPHONY_STATE = 6;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_INVALID_MODEM_STATE = 7;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_INVALID_ARGUMENTS = 8;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_REQUEST_FAILED = 9;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RADIO_NOT_AVAILABLE = 10;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_REQUEST_NOT_SUPPORTED = 11;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_NO_RESOURCES = 12;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_SERVICE_NOT_PROVISIONED = 13;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_SERVICE_PROVISION_IN_PROGRESS = 14;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_REQUEST_ABORTED = 15;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_ACCESS_BARRED = 16;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_NETWORK_TIMEOUT = 17;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_NOT_REACHABLE = 18;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_NOT_AUTHORIZED = 19;
-    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_SUCCESS = 0;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_ERROR = 1;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_SERVER_ERROR = 2;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_SERVICE_ERROR = 3;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_MODEM_ERROR = 4;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_NETWORK_ERROR = 5;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_INVALID_TELEPHONY_STATE = 6;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_INVALID_MODEM_STATE = 7;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_INVALID_ARGUMENTS = 8;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_REQUEST_FAILED = 9;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_RADIO_NOT_AVAILABLE = 10;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_REQUEST_NOT_SUPPORTED = 11;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_NO_RESOURCES = 12;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_SERVICE_NOT_PROVISIONED = 13;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_SERVICE_PROVISION_IN_PROGRESS = 14;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_REQUEST_ABORTED = 15;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_ACCESS_BARRED = 16;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_NETWORK_TIMEOUT = 17;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_NOT_REACHABLE = 18;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_NOT_AUTHORIZED = 19;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_REQUEST_IN_PROGRESS = 21;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_MODEM_BUSY = 22;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_ILLEGAL_STATE = 23;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_MODEM_TIMEOUT = 24;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_LOCATION_DISABLED = 25;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_LOCATION_NOT_AVAILABLE = 26;
+    public static final int SATELLITE_PROVISION__RESULT_CODE__SATELLITE_RESULT_EMERGENCY_CALL_IN_PROGRESS = 27;
 
     // Values for SatelliteSosMessageRecommender.cellular_service_state
     public static final int SATELLITE_SOS_MESSAGE_RECOMMENDER__CELLULAR_SERVICE_STATE__SERVICE_STATE_IN_SERVICE = 0;
@@ -1613,6 +1677,56 @@ public final class TelephonyStatsLog {
     public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_COUNTRY_CODE = 9;
     public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_DEVICE_DATA_INVALID_S2_CELL_FILE = 10;
     public static final int SATELLITE_CONFIG_UPDATER__CARRIER_CONFIG_RESULT__CONFIG_UPDATE_RESULT_IO_ERROR = 11;
+
+    // Values for SatelliteAccessController.access_control_type
+    public static final int SATELLITE_ACCESS_CONTROLLER__ACCESS_CONTROL_TYPE__ACCESS_CONTROL_TYPE_UNKNOWN = 0;
+    public static final int SATELLITE_ACCESS_CONTROLLER__ACCESS_CONTROL_TYPE__ACCESS_CONTROL_TYPE_NETWORK_COUNTRY_CODE = 1;
+    public static final int SATELLITE_ACCESS_CONTROLLER__ACCESS_CONTROL_TYPE__ACCESS_CONTROL_TYPE_CURRENT_LOCATION = 2;
+    public static final int SATELLITE_ACCESS_CONTROLLER__ACCESS_CONTROL_TYPE__ACCESS_CONTROL_TYPE_LAST_KNOWN_LOCATION = 3;
+    public static final int SATELLITE_ACCESS_CONTROLLER__ACCESS_CONTROL_TYPE__ACCESS_CONTROL_TYPE_CACHED_COUNTRY_CODE = 4;
+
+    // Values for SatelliteAccessController.result_code
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_SUCCESS = 0;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_ERROR = 1;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_SERVER_ERROR = 2;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_SERVICE_ERROR = 3;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_MODEM_ERROR = 4;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_NETWORK_ERROR = 5;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_INVALID_TELEPHONY_STATE = 6;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_INVALID_MODEM_STATE = 7;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_INVALID_ARGUMENTS = 8;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_REQUEST_FAILED = 9;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_RADIO_NOT_AVAILABLE = 10;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_REQUEST_NOT_SUPPORTED = 11;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_NO_RESOURCES = 12;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_SERVICE_NOT_PROVISIONED = 13;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_SERVICE_PROVISION_IN_PROGRESS = 14;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_REQUEST_ABORTED = 15;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_ACCESS_BARRED = 16;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_NETWORK_TIMEOUT = 17;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_NOT_REACHABLE = 18;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_NOT_AUTHORIZED = 19;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_NOT_SUPPORTED = 20;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_REQUEST_IN_PROGRESS = 21;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_MODEM_BUSY = 22;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_ILLEGAL_STATE = 23;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_MODEM_TIMEOUT = 24;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_LOCATION_DISABLED = 25;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_LOCATION_NOT_AVAILABLE = 26;
+    public static final int SATELLITE_ACCESS_CONTROLLER__RESULT_CODE__SATELLITE_RESULT_EMERGENCY_CALL_IN_PROGRESS = 27;
+
+    // Values for SatelliteAccessController.config_data_source
+    public static final int SATELLITE_ACCESS_CONTROLLER__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_UNKNOWN = 0;
+    public static final int SATELLITE_ACCESS_CONTROLLER__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_ENTITLEMENT = 1;
+    public static final int SATELLITE_ACCESS_CONTROLLER__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_CONFIG_UPDATER = 2;
+    public static final int SATELLITE_ACCESS_CONTROLLER__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_CARRIER_CONFIG = 3;
+    public static final int SATELLITE_ACCESS_CONTROLLER__CONFIG_DATA_SOURCE__CONFIG_DATA_SOURCE_DEVICE_CONFIG = 4;
+
+    // Values for SatelliteAccessController.triggering_event
+    public static final int SATELLITE_ACCESS_CONTROLLER__TRIGGERING_EVENT__TRIGGERING_EVENT_UNKNOWN = 0;
+    public static final int SATELLITE_ACCESS_CONTROLLER__TRIGGERING_EVENT__TRIGGERING_EVENT_EXTERNAL_REQUEST = 1;
+    public static final int SATELLITE_ACCESS_CONTROLLER__TRIGGERING_EVENT__TRIGGERING_EVENT_MCC_CHANGED = 2;
+    public static final int SATELLITE_ACCESS_CONTROLLER__TRIGGERING_EVENT__TRIGGERING_EVENT_LOCATION_SETTINGS_ENABLED = 3;
 
     // Annotation constants.
     @android.annotation.SuppressLint("InlinedApi")
@@ -1826,7 +1940,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, boolean arg1, int arg2, boolean arg3, int arg4, int arg5, boolean arg6, int arg7, boolean arg8) {
+    public static StatsEvent buildStatsEvent(int code, boolean arg1, int arg2, boolean arg3, int arg4, int arg5, boolean arg6, int arg7, boolean arg8, boolean arg9, int arg10, boolean arg11) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeBoolean(arg1);
@@ -1837,6 +1951,9 @@ public final class TelephonyStatsLog {
         builder.writeBoolean(arg6);
         builder.writeInt(arg7);
         builder.writeBoolean(arg8);
+        builder.writeBoolean(arg9);
+        builder.writeInt(arg10);
+        builder.writeBoolean(arg11);
 
         return builder.build();
     }
@@ -1864,16 +1981,13 @@ public final class TelephonyStatsLog {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
-        if (CONTROLLER_STATS_PER_PACKAGE == code) {
-            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
-        }
 
         return builder.build();
     }
 
     @android.annotation.SuppressLint("ObsoleteSdkInt")
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, boolean arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, long arg10, boolean arg11, int arg12, boolean arg13, int arg14, int arg15, int arg16, long arg17, boolean arg18, int arg19, int[] arg20, int[] arg21, boolean arg22, boolean arg23, boolean arg24, boolean arg25) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, boolean arg2, boolean arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, long arg10, boolean arg11, int arg12, boolean arg13, int arg14, int arg15, int arg16, long arg17, boolean arg18, int arg19, int[] arg20, int[] arg21, boolean arg22, boolean arg23, boolean arg24, boolean arg25, boolean arg26) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -1901,6 +2015,7 @@ public final class TelephonyStatsLog {
         builder.writeBoolean(arg23);
         builder.writeBoolean(arg24);
         builder.writeBoolean(arg25);
+        builder.writeBoolean(arg26);
 
         return builder.build();
     }
@@ -1944,13 +2059,27 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, boolean arg3, boolean arg4) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        if (CONTROLLER_STATS_PER_PACKAGE == code) {
+            builder.addBooleanAnnotation(ANNOTATION_ID_IS_UID, true);
+        }
+        builder.writeInt(arg2);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, boolean arg3, boolean arg4, int arg5, boolean arg6) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
         builder.writeInt(arg2);
         builder.writeBoolean(arg3);
         builder.writeBoolean(arg4);
+        builder.writeInt(arg5);
+        builder.writeBoolean(arg6);
 
         return builder.build();
     }
@@ -2092,7 +2221,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, int arg6, int arg7, java.lang.String arg8, int arg9, int arg10, long arg11, long arg12, int arg13, int arg14, int arg15, boolean arg16, boolean arg17, int arg18, boolean arg19, long arg20, long arg21, boolean arg22, boolean arg23, boolean arg24, int arg25, int arg26, int arg27, int arg28, int arg29, boolean arg30, int arg31, boolean arg32, int arg33, int arg34, int arg35, long arg36, boolean arg37, boolean arg38, boolean arg39, boolean arg40, boolean arg41, boolean arg42) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, boolean arg5, int arg6, int arg7, java.lang.String arg8, int arg9, int arg10, long arg11, long arg12, int arg13, int arg14, int arg15, boolean arg16, boolean arg17, int arg18, boolean arg19, long arg20, long arg21, boolean arg22, boolean arg23, boolean arg24, int arg25, int arg26, int arg27, int arg28, int arg29, boolean arg30, int arg31, boolean arg32, int arg33, int arg34, int arg35, long arg36, boolean arg37, boolean arg38, boolean arg39, boolean arg40, boolean arg41, boolean arg42, boolean arg43, int arg44, int arg45) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -2137,6 +2266,9 @@ public final class TelephonyStatsLog {
         builder.writeBoolean(arg40);
         builder.writeBoolean(arg41);
         builder.writeBoolean(arg42);
+        builder.writeBoolean(arg43);
+        builder.writeInt(arg44);
+        builder.writeInt(arg45);
 
         return builder.build();
     }
@@ -2169,7 +2301,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, boolean arg7, int arg8, boolean arg9, boolean arg10, int arg11, long arg12, int arg13, long arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, boolean arg20) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, boolean arg6, boolean arg7, int arg8, boolean arg9, boolean arg10, int arg11, long arg12, int arg13, long arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, boolean arg20, boolean arg21) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -2192,6 +2324,7 @@ public final class TelephonyStatsLog {
         builder.writeBoolean(arg18);
         builder.writeBoolean(arg19);
         builder.writeBoolean(arg20);
+        builder.writeBoolean(arg21);
 
         return builder.build();
     }
@@ -2235,7 +2368,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, int arg10, boolean arg11, boolean arg12, int arg13, long arg14, int arg15, boolean arg16, boolean arg17) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, boolean arg7, int arg8, boolean arg9, int arg10, boolean arg11, boolean arg12, int arg13, long arg14, int arg15, boolean arg16, boolean arg17, boolean arg18) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -2255,6 +2388,7 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg15);
         builder.writeBoolean(arg16);
         builder.writeBoolean(arg17);
+        builder.writeBoolean(arg18);
 
         return builder.build();
     }
@@ -2269,6 +2403,22 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg5);
         builder.writeInt(arg6);
         builder.writeInt(arg7);
+
+        return builder.build();
+    }
+
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, boolean arg9) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeInt(arg5);
+        builder.writeInt(arg6);
+        builder.writeInt(arg7);
+        builder.writeInt(arg8);
+        builder.writeBoolean(arg9);
 
         return builder.build();
     }
@@ -2296,7 +2446,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int arg20, int arg21, int arg22, int arg23, int arg24, int arg25) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, int arg5, int arg6, int arg7, int arg8, int arg9, int arg10, int arg11, int arg12, int arg13, int arg14, int arg15, int arg16, int arg17, int arg18, int arg19, int arg20, int arg21, int arg22, int arg23, int arg24, int arg25, int arg26, int arg27, int arg28, boolean arg29, int arg30, int arg31, int arg32, int arg33, int arg34, int arg35, boolean arg36, int arg37) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -2324,6 +2474,18 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg23);
         builder.writeInt(arg24);
         builder.writeInt(arg25);
+        builder.writeInt(arg26);
+        builder.writeInt(arg27);
+        builder.writeInt(arg28);
+        builder.writeBoolean(arg29);
+        builder.writeInt(arg30);
+        builder.writeInt(arg31);
+        builder.writeInt(arg32);
+        builder.writeInt(arg33);
+        builder.writeInt(arg34);
+        builder.writeInt(arg35);
+        builder.writeBoolean(arg36);
+        builder.writeInt(arg37);
 
         return builder.build();
     }
@@ -2342,7 +2504,7 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, long arg5, long arg6, int arg7, int arg8, int arg9, int arg10, int arg11, boolean arg12) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, int arg4, long arg5, long arg6, int arg7, int arg8, int arg9, int arg10, int arg11, boolean arg12, int arg13, int arg14, int arg15, int arg16, int arg17, boolean arg18, boolean arg19, int arg20) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -2357,11 +2519,19 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg10);
         builder.writeInt(arg11);
         builder.writeBoolean(arg12);
+        builder.writeInt(arg13);
+        builder.writeInt(arg14);
+        builder.writeInt(arg15);
+        builder.writeInt(arg16);
+        builder.writeInt(arg17);
+        builder.writeBoolean(arg18);
+        builder.writeBoolean(arg19);
+        builder.writeInt(arg20);
 
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, long arg4, boolean arg5) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, int arg3, long arg4, boolean arg5, int arg6, boolean arg7) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
@@ -2369,6 +2539,8 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg3);
         builder.writeLong(arg4);
         builder.writeBoolean(arg5);
+        builder.writeInt(arg6);
+        builder.writeBoolean(arg7);
 
         return builder.build();
     }
@@ -2386,13 +2558,15 @@ public final class TelephonyStatsLog {
         return builder.build();
     }
 
-    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, long arg3, boolean arg4) {
+    public static StatsEvent buildStatsEvent(int code, int arg1, int arg2, long arg3, boolean arg4, int arg5, boolean arg6) {
         final StatsEvent.Builder builder = StatsEvent.newBuilder();
         builder.setAtomId(code);
         builder.writeInt(arg1);
         builder.writeInt(arg2);
         builder.writeLong(arg3);
         builder.writeBoolean(arg4);
+        builder.writeInt(arg5);
+        builder.writeBoolean(arg6);
 
         return builder.build();
     }
@@ -2404,6 +2578,27 @@ public final class TelephonyStatsLog {
         builder.writeInt(arg2);
         builder.writeLong(arg3);
         builder.writeLong(arg4);
+
+        return builder.build();
+    }
+
+    @android.annotation.SuppressLint("ObsoleteSdkInt")
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    public static StatsEvent buildStatsEvent(int code, int arg1, long arg2, long arg3, long arg4, boolean arg5, boolean arg6, int arg7, java.lang.String[] arg8, int arg9, int arg10, int arg11, boolean arg12) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeLong(arg2);
+        builder.writeLong(arg3);
+        builder.writeLong(arg4);
+        builder.writeBoolean(arg5);
+        builder.writeBoolean(arg6);
+        builder.writeInt(arg7);
+        builder.writeStringArray(null == arg8 ? new String[0] : arg8);
+        builder.writeInt(arg9);
+        builder.writeInt(arg10);
+        builder.writeInt(arg11);
+        builder.writeBoolean(arg12);
 
         return builder.build();
     }

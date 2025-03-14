@@ -28,7 +28,7 @@ import java.util.Objects;
 /**
  * This API is not generally intended for third party application developers.
  * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
- * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+ * <a href="{@docRoot}media/media3/session/control-playback">Media3 session
  * Library</a> for consistent behavior across all devices.
  * <p>
  * Define a command that a {@link MediaController2} can send to a {@link MediaSession2}.
@@ -36,9 +36,6 @@ import java.util.Objects;
  * If {@link #getCommandCode()} isn't {@link #COMMAND_CODE_CUSTOM}), it's predefined command.
  * If {@link #getCommandCode()} is {@link #COMMAND_CODE_CUSTOM}), it's custom command and
  * {@link #getCustomAction()} shouldn't be {@code null}.
- * <p>
- * Refer to the <a href="{@docRoot}reference/androidx/media2/session/SessionCommand.html">
- * AndroidX SessionCommand</a> class for the list of valid commands.
  */
 public final class Session2Command implements Parcelable {
     /**
@@ -163,7 +160,7 @@ public final class Session2Command implements Parcelable {
     /**
      * This API is not generally intended for third party application developers.
      * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
-     * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+     * <a href="{@docRoot}media/media3/session/control-playback">Media3 session
      * Library</a> for consistent behavior across all devices.
      * <p>
      * Contains the result of {@link Session2Command}.

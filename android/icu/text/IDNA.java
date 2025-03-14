@@ -25,7 +25,7 @@ import android.icu.impl.UTS46;
  * The IDNA class is not intended for public subclassing.
  * <p>
  * The non-static methods implement UTS #46 and IDNA2008.
- * IDNA2008 is implemented according to UTS #46, see getUTS46Instance().
+ * IDNA2008 is implemented according to UTS #46, see {@link #getUTS46Instance(int)}.
  * <p>
  * IDNA2003 is obsolete. The static methods implement IDNA2003. They are all deprecated.
  * <p>
@@ -33,33 +33,34 @@ import android.icu.impl.UTS46;
  * <p>
  * The static IDNA API methods implement the IDNA protocol as defined in the
  * <a href="http://www.ietf.org/rfc/rfc3490.txt">IDNA RFC</a>.
- * The draft defines 2 operations: ToASCII and ToUnicode. Domain labels 
+ * The draft defines 2 operations: ToASCII and ToUnicode. Domain labels
  * containing non-ASCII code points are required to be processed by
  * ToASCII operation before passing it to resolver libraries. Domain names
  * that are obtained from resolver libraries are required to be processed by
  * ToUnicode operation before displaying the domain name to the user.
- * IDNA requires that implementations process input strings with 
- * <a href="http://www.ietf.org/rfc/rfc3491.txt">Nameprep</a>, 
- * which is a profile of <a href="http://www.ietf.org/rfc/rfc3454.txt">Stringprep</a> , 
- * and then with <a href="http://www.ietf.org/rfc/rfc3492.txt">Punycode</a>. 
- * Implementations of IDNA MUST fully implement Nameprep and Punycode; 
+ * IDNA requires that implementations process input strings with
+ * <a href="http://www.ietf.org/rfc/rfc3491.txt">Nameprep</a>,
+ * which is a profile of <a href="http://www.ietf.org/rfc/rfc3454.txt">Stringprep</a> ,
+ * and then with <a href="http://www.ietf.org/rfc/rfc3492.txt">Punycode</a>.
+ * Implementations of IDNA MUST fully implement Nameprep and Punycode;
  * neither Nameprep nor Punycode are optional.
- * The input and output of ToASCII and ToUnicode operations are Unicode 
+ * The input and output of ToASCII and ToUnicode operations are Unicode
  * and are designed to be chainable, i.e., applying ToASCII or ToUnicode operations
  * multiple times to an input string will yield the same result as applying the operation
  * once.
- * ToUnicode(ToUnicode(ToUnicode...(ToUnicode(string)))) == ToUnicode(string) 
+ * ToUnicode(ToUnicode(ToUnicode...(ToUnicode(string)))) == ToUnicode(string)
  * ToASCII(ToASCII(ToASCII...(ToASCII(string))) == ToASCII(string).
- * 
+ *
  * @author Ram Viswanadha, Markus Scherer
  */
 public abstract class IDNA {
-    /** 
+    // Android-changed: ICU 76+ uses 0x30, but Android prefers not to change an API constant.
+    /**
      * Default options value: None of the other options are set.
-     * For use in static worker and factory methods.
      */
+    // public static final int DEFAULT = 0x30;
     public static final int DEFAULT = 0;
-    /** 
+    /**
      * Option to allow unassigned code points in domain names and labels.
      * For use in static worker and factory methods.
      * <p>This option is ignored by the UTS46 implementation.
@@ -69,7 +70,7 @@ public abstract class IDNA {
      */
     @Deprecated
     public static final int ALLOW_UNASSIGNED = 1;
-    /** 
+    /**
      * Option to check whether the input conforms to the STD3 ASCII rules,
      * for example the restriction of labels to LDH characters
      * (ASCII Letters, Digits and Hyphen-Minus).
@@ -93,7 +94,10 @@ public abstract class IDNA {
     /**
      * IDNA option for nontransitional processing in ToASCII().
      * For use in static worker and factory methods.
+     *
      * <p>By default, ToASCII() uses transitional processing.
+     * Unicode 15.1 UTS #46 deprecated transitional processing.
+     *
      * <p>This option is ignored by the IDNA2003 implementation.
      * (This is only relevant for compatibility of newer IDNA implementations with IDNA2003.)
      */
@@ -101,7 +105,10 @@ public abstract class IDNA {
     /**
      * IDNA option for nontransitional processing in ToUnicode().
      * For use in static worker and factory methods.
+     *
      * <p>By default, ToUnicode() uses transitional processing.
+     * Unicode 15.1 UTS #46 deprecated transitional processing.
+     *
      * <p>This option is ignored by the IDNA2003 implementation.
      * (This is only relevant for compatibility of newer IDNA implementations with IDNA2003.)
      */
@@ -127,8 +134,9 @@ public abstract class IDNA {
      * IDNA2003 and IDNA2008.
      * <p>
      * The worker functions use transitional processing, including deviation mappings,
-     * unless NONTRANSITIONAL_TO_ASCII or NONTRANSITIONAL_TO_UNICODE
+     * unless {@link #NONTRANSITIONAL_TO_ASCII} or {@link #NONTRANSITIONAL_TO_UNICODE}
      * is used in which case the deviation characters are passed through without change.
+     * <b>Unicode 15.1 UTS #46 deprecated transitional processing.</b>
      * <p>
      * Disallowed characters are mapped to U+FFFD.
      * <p>
@@ -140,6 +148,8 @@ public abstract class IDNA {
      * letters, digits, hyphen (LDH) and dot/full stop are disallowed and mapped to U+FFFD.
      *
      * @param options Bit set to modify the processing and error checking.
+     *                These should include {@link IDNA#DEFAULT}, or
+     *                {@link IDNA#NONTRANSITIONAL_TO_ASCII} | {@link IDNA#NONTRANSITIONAL_TO_UNICODE}.
      * @return the UTS #46 IDNA instance, if successful
      */
     public static IDNA getUTS46Instance(int options) {
@@ -454,22 +464,22 @@ public abstract class IDNA {
      * IDNA2003: This function implements the ToASCII operation as defined in the IDNA RFC.
      * This operation is done on <b>single labels</b> before sending it to something that expects
      * ASCII names. A label is an individual part of a domain name. Labels are usually
-     * separated by dots; e.g." "www.example.com" is composed of 3 labels 
+     * separated by dots; e.g." "www.example.com" is composed of 3 labels
      * "www","example", and "com".
      *
      * @param src       The input string to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              StringPrepParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @throws StringPrepParseException When an error occurs for parsing a string.
@@ -482,27 +492,27 @@ public abstract class IDNA {
         UCharacterIterator iter = UCharacterIterator.getInstance(src);
         return convertToASCII(iter,options);
     }
-    
+
     /**
      * IDNA2003: This function implements the ToASCII operation as defined in the IDNA RFC.
      * This operation is done on <b>single labels</b> before sending it to something that expects
      * ASCII names. A label is an individual part of a domain name. Labels are usually
-     * separated by dots; e.g." "www.example.com" is composed of 3 labels 
+     * separated by dots; e.g." "www.example.com" is composed of 3 labels
      * "www","example", and "com".
      *
      * @param src       The input string as StringBuffer to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -514,27 +524,27 @@ public abstract class IDNA {
         UCharacterIterator iter = UCharacterIterator.getInstance(src);
         return convertToASCII(iter,options);
     }
-    
+
     /**
      * IDNA2003: This function implements the ToASCII operation as defined in the IDNA RFC.
      * This operation is done on <b>single labels</b> before sending it to something that expects
      * ASCII names. A label is an individual part of a domain name. Labels are usually
-     * separated by dots; e.g." "www.example.com" is composed of 3 labels 
+     * separated by dots; e.g." "www.example.com" is composed of 3 labels
      * "www","example", and "com".
      *
      * @param src       The input string as UCharacterIterator to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -548,29 +558,29 @@ public abstract class IDNA {
 
     /**
      * IDNA2003: Convenience function that implements the IDNToASCII operation as defined in the IDNA RFC.
-     * This operation is done on complete domain names, e.g: "www.example.com". 
-     * It is important to note that this operation can fail. If it fails, then the input 
+     * This operation is done on complete domain names, e.g: "www.example.com".
+     * It is important to note that this operation can fail. If it fails, then the input
      * domain name cannot be used as an Internationalized Domain Name and the application
      * should have methods defined to deal with the failure.
-     * 
+     *
      * <b>Note:</b> IDNA RFC specifies that a conformant application should divide a domain name
-     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each, 
-     * and then convert. This function does not offer that level of granularity. The options once  
+     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each,
+     * and then convert. This function does not offer that level of granularity. The options once
      * set will apply to all labels in the domain name
      *
      * @param src       The input string as UCharacterIterator to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -579,34 +589,34 @@ public abstract class IDNA {
     @Deprecated
     public static StringBuffer convertIDNToASCII(UCharacterIterator src, int options)
             throws StringPrepParseException{
-        return convertIDNToASCII(src.getText(), options);          
+        return convertIDNToASCII(src.getText(), options);
     }
-    
+
     /**
      * IDNA2003: Convenience function that implements the IDNToASCII operation as defined in the IDNA RFC.
-     * This operation is done on complete domain names, e.g: "www.example.com". 
-     * It is important to note that this operation can fail. If it fails, then the input 
+     * This operation is done on complete domain names, e.g: "www.example.com".
+     * It is important to note that this operation can fail. If it fails, then the input
      * domain name cannot be used as an Internationalized Domain Name and the application
      * should have methods defined to deal with the failure.
-     * 
+     *
      * <b>Note:</b> IDNA RFC specifies that a conformant application should divide a domain name
-     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each, 
-     * and then convert. This function does not offer that level of granularity. The options once  
+     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each,
+     * and then convert. This function does not offer that level of granularity. The options once
      * set will apply to all labels in the domain name
      *
      * @param src       The input string as a StringBuffer to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -615,34 +625,34 @@ public abstract class IDNA {
     @Deprecated
     public static StringBuffer convertIDNToASCII(StringBuffer src, int options)
             throws StringPrepParseException{
-            return convertIDNToASCII(src.toString(), options);          
+            return convertIDNToASCII(src.toString(), options);
     }
-    
+
     /**
      * IDNA2003: Convenience function that implements the IDNToASCII operation as defined in the IDNA RFC.
-     * This operation is done on complete domain names, e.g: "www.example.com". 
-     * It is important to note that this operation can fail. If it fails, then the input 
+     * This operation is done on complete domain names, e.g: "www.example.com".
+     * It is important to note that this operation can fail. If it fails, then the input
      * domain name cannot be used as an Internationalized Domain Name and the application
      * should have methods defined to deal with the failure.
-     * 
+     *
      * <b>Note:</b> IDNA RFC specifies that a conformant application should divide a domain name
-     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each, 
-     * and then convert. This function does not offer that level of granularity. The options once  
+     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each,
+     * and then convert. This function does not offer that level of granularity. The options once
      * set will apply to all labels in the domain name
      *
      * @param src       The input string to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -654,27 +664,27 @@ public abstract class IDNA {
         return IDNA2003.convertIDNToASCII(src, options);
     }
 
-    
+
     /**
      * IDNA2003: This function implements the ToUnicode operation as defined in the IDNA RFC.
      * This operation is done on <b>single labels</b> before sending it to something that expects
      * Unicode names. A label is an individual part of a domain name. Labels are usually
-     * separated by dots; for e.g." "www.example.com" is composed of 3 labels 
+     * separated by dots; for e.g." "www.example.com" is composed of 3 labels
      * "www","example", and "com".
-     * 
+     *
      * @param src       The input string to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -686,27 +696,27 @@ public abstract class IDNA {
         UCharacterIterator iter = UCharacterIterator.getInstance(src);
         return convertToUnicode(iter,options);
     }
-    
+
     /**
      * IDNA2003: This function implements the ToUnicode operation as defined in the IDNA RFC.
      * This operation is done on <b>single labels</b> before sending it to something that expects
      * Unicode names. A label is an individual part of a domain name. Labels are usually
-     * separated by dots; for e.g." "www.example.com" is composed of 3 labels 
+     * separated by dots; for e.g." "www.example.com" is composed of 3 labels
      * "www","example", and "com".
-     * 
+     *
      * @param src       The input string as StringBuffer to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -718,27 +728,27 @@ public abstract class IDNA {
         UCharacterIterator iter = UCharacterIterator.getInstance(src);
         return convertToUnicode(iter,options);
     }
-       
+
     /**
      * IDNA2003: Function that implements the ToUnicode operation as defined in the IDNA RFC.
      * This operation is done on <b>single labels</b> before sending it to something that expects
      * Unicode names. A label is an individual part of a domain name. Labels are usually
-     * separated by dots; for e.g." "www.example.com" is composed of 3 labels 
+     * separated by dots; for e.g." "www.example.com" is composed of 3 labels
      * "www","example", and "com".
-     * 
+     *
      * @param src       The input string as UCharacterIterator to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -749,29 +759,29 @@ public abstract class IDNA {
            throws StringPrepParseException{
         return IDNA2003.convertToUnicode(src, options);
     }
-    
+
     /**
      * IDNA2003: Convenience function that implements the IDNToUnicode operation as defined in the IDNA RFC.
-     * This operation is done on complete domain names, e.g: "www.example.com". 
+     * This operation is done on complete domain names, e.g: "www.example.com".
      *
      * <b>Note:</b> IDNA RFC specifies that a conformant application should divide a domain name
-     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each, 
-     * and then convert. This function does not offer that level of granularity. The options once  
+     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each,
+     * and then convert. This function does not offer that level of granularity. The options once
      * set will apply to all labels in the domain name
      *
      * @param src       The input string as UCharacterIterator to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -782,29 +792,29 @@ public abstract class IDNA {
         throws StringPrepParseException{
         return convertIDNToUnicode(src.getText(), options);
     }
-    
+
     /**
      * IDNA2003: Convenience function that implements the IDNToUnicode operation as defined in the IDNA RFC.
-     * This operation is done on complete domain names, e.g: "www.example.com". 
+     * This operation is done on complete domain names, e.g: "www.example.com".
      *
      * <b>Note:</b> IDNA RFC specifies that a conformant application should divide a domain name
-     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each, 
-     * and then convert. This function does not offer that level of granularity. The options once  
+     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each,
+     * and then convert. This function does not offer that level of granularity. The options once
      * set will apply to all labels in the domain name
      *
      * @param src       The input string as StringBuffer to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -815,29 +825,29 @@ public abstract class IDNA {
         throws StringPrepParseException{
         return convertIDNToUnicode(src.toString(), options);
     }
-    
+
     /**
      * IDNA2003: Convenience function that implements the IDNToUnicode operation as defined in the IDNA RFC.
-     * This operation is done on complete domain names, e.g: "www.example.com". 
+     * This operation is done on complete domain names, e.g: "www.example.com".
      *
      * <b>Note:</b> IDNA RFC specifies that a conformant application should divide a domain name
-     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each, 
-     * and then convert. This function does not offer that level of granularity. The options once  
+     * into separate labels, decide whether to apply allowUnassigned and useSTD3ASCIIRules on each,
+     * and then convert. This function does not offer that level of granularity. The options once
      * set will apply to all labels in the domain name
      *
      * @param src       The input string to be processed
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return StringBuffer the converted String
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -848,30 +858,30 @@ public abstract class IDNA {
             throws StringPrepParseException{
         return IDNA2003.convertIDNToUnicode(src, options);
     }
-    
+
     /**
      * IDNA2003: Compare two IDN strings for equivalence.
      * This function splits the domain names into labels and compares them.
-     * According to IDN RFC, whenever two labels are compared, they are 
-     * considered equal if and only if their ASCII forms (obtained by 
+     * According to IDN RFC, whenever two labels are compared, they are
+     * considered equal if and only if their ASCII forms (obtained by
      * applying toASCII) match using an case-insensitive ASCII comparison.
-     * Two domain names are considered a match if and only if all labels 
+     * Two domain names are considered a match if and only if all labels
      * match regardless of whether label separators match.
-     * 
+     *
      * @param s1        First IDN string as StringBuffer
      * @param s2        Second IDN string as StringBuffer
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED    Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES      Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return 0 if the strings are equal, &gt; 0 if s1 &gt; s2 and &lt; 0 if s1 &lt; s2
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -885,30 +895,30 @@ public abstract class IDNA {
         }
         return IDNA2003.compare(s1.toString(), s2.toString(), options);
     }
-    
+
     /**
      * IDNA2003: Compare two IDN strings for equivalence.
      * This function splits the domain names into labels and compares them.
-     * According to IDN RFC, whenever two labels are compared, they are 
-     * considered equal if and only if their ASCII forms (obtained by 
+     * According to IDN RFC, whenever two labels are compared, they are
+     * considered equal if and only if their ASCII forms (obtained by
      * applying toASCII) match using an case-insensitive ASCII comparison.
-     * Two domain names are considered a match if and only if all labels 
+     * Two domain names are considered a match if and only if all labels
      * match regardless of whether label separators match.
-     * 
-     * @param s1        First IDN string 
+     *
+     * @param s1        First IDN string
      * @param s2        Second IDN string
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED    Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES      Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return 0 if the strings are equal, &gt; 0 if s1 &gt; s2 and &lt; 0 if s1 &lt; s2
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.
@@ -924,26 +934,26 @@ public abstract class IDNA {
     /**
      * IDNA2003: Compare two IDN strings for equivalence.
      * This function splits the domain names into labels and compares them.
-     * According to IDN RFC, whenever two labels are compared, they are 
-     * considered equal if and only if their ASCII forms (obtained by 
+     * According to IDN RFC, whenever two labels are compared, they are
+     * considered equal if and only if their ASCII forms (obtained by
      * applying toASCII) match using an case-insensitive ASCII comparison.
-     * Two domain names are considered a match if and only if all labels 
+     * Two domain names are considered a match if and only if all labels
      * match regardless of whether label separators match.
-     * 
+     *
      * @param s1        First IDN string as UCharacterIterator
      * @param s2        Second IDN string as UCharacterIterator
      * @param options   A bit set of options:
      *  - IDNA.DEFAULT              Use default options, i.e., do not process unassigned code points
      *                              and do not use STD3 ASCII rules
-     *                              If unassigned code points are found the operation fails with 
+     *                              If unassigned code points are found the operation fails with
      *                              ParseException.
      *
      *  - IDNA.ALLOW_UNASSIGNED     Unassigned values can be converted to ASCII for query operations
-     *                              If this option is set, the unassigned code points are in the input 
+     *                              If this option is set, the unassigned code points are in the input
      *                              are treated as normal Unicode code points.
-     *                          
+     *
      *  - IDNA.USE_STD3_RULES       Use STD3 ASCII rules for host name syntax restrictions
-     *                              If this option is set and the input does not satisfy STD3 rules,  
+     *                              If this option is set and the input does not satisfy STD3 rules,
      *                              the operation will fail with ParseException
      * @return 0 if the strings are equal, &gt; 0 if i1 &gt; i2 and &lt; 0 if i1 &lt; i2
      * @deprecated ICU 55 Use UTS 46 instead via {@link #getUTS46Instance(int)}.

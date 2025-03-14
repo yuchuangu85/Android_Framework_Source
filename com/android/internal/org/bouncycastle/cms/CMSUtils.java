@@ -22,6 +22,7 @@ import com.android.internal.org.bouncycastle.asn1.BERSet;
 import com.android.internal.org.bouncycastle.asn1.DERNull;
 import com.android.internal.org.bouncycastle.asn1.DERSet;
 import com.android.internal.org.bouncycastle.asn1.DERTaggedObject;
+import com.android.internal.org.bouncycastle.asn1.DLSet;
 import com.android.internal.org.bouncycastle.asn1.cms.CMSObjectIdentifiers;
 import com.android.internal.org.bouncycastle.asn1.cms.ContentInfo;
 // Android-removed: Unsupported algorithms
@@ -38,6 +39,7 @@ import com.android.internal.org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import com.android.internal.org.bouncycastle.cert.X509AttributeCertificateHolder;
 import com.android.internal.org.bouncycastle.cert.X509CRLHolder;
 import com.android.internal.org.bouncycastle.cert.X509CertificateHolder;
+import com.android.internal.org.bouncycastle.operator.DigestAlgorithmIdentifierFinder;
 import com.android.internal.org.bouncycastle.operator.DigestCalculator;
 import com.android.internal.org.bouncycastle.util.Store;
 import com.android.internal.org.bouncycastle.util.Strings;
@@ -59,7 +61,6 @@ class CMSUtils
         // BEGIN Android-removed: Unsupported algorithms
         /*
         des.add(OIWObjectIdentifiers.desCBC.getId());
-        des.add(PKCSObjectIdentifiers.des_EDE3_CBC.getId());
         des.add(PKCSObjectIdentifiers.des_EDE3_CBC.getId());
         des.add(PKCSObjectIdentifiers.id_alg_CMS3DESwrap.getId());
 
@@ -156,6 +157,23 @@ class CMSUtils
         return readContentInfo(new ASN1InputStream(input));
     }
 
+    static ASN1Set convertToDlSet(Set<AlgorithmIdentifier> digestAlgs)
+    {
+        return new DLSet((AlgorithmIdentifier[])digestAlgs.toArray(new AlgorithmIdentifier[digestAlgs.size()]));
+    }
+
+    static void addDigestAlgs(Set<AlgorithmIdentifier> digestAlgs, SignerInformation signer, DigestAlgorithmIdentifierFinder dgstAlgFinder)
+    {
+        digestAlgs.add(CMSSignedHelper.INSTANCE.fixDigestAlgID(signer.getDigestAlgorithmID(), dgstAlgFinder));
+        SignerInformationStore counterSignaturesStore = signer.getCounterSignatures();
+        Iterator<SignerInformation> counterSignatureIt = counterSignaturesStore.iterator();
+        while (counterSignatureIt.hasNext())
+        {
+            SignerInformation counterSigner = (SignerInformation)counterSignatureIt.next();
+            digestAlgs.add(CMSSignedHelper.INSTANCE.fixDigestAlgID(counterSigner.getDigestAlgorithmID(), dgstAlgFinder));
+        }
+    }
+
     static List getCertificatesFromStore(Store certStore)
         throws CMSException
     {
@@ -244,7 +262,7 @@ class CMSUtils
 
     // BEGIN Android-removed: OtherRevocationInfoFormat isn't supported
     /*
-    private static void validateInfoFormat(OtherRevocationInfoFormat infoFormat)
+    static void validateInfoFormat(OtherRevocationInfoFormat infoFormat)
     {
         if (CMSObjectIdentifiers.id_ri_ocsp_response.equals(infoFormat.getInfoFormat()))
         {
@@ -286,6 +304,18 @@ class CMSUtils
         }
 
         return new BERSet(v);
+    }
+
+    static ASN1Set createDlSetFromList(List derObjects)
+    {
+        ASN1EncodableVector v = new ASN1EncodableVector();
+
+        for (Iterator it = derObjects.iterator(); it.hasNext(); )
+        {
+            v.add((ASN1Encodable)it.next());
+        }
+
+        return new DLSet(v);
     }
 
     static ASN1Set createDerSetFromList(List derObjects)

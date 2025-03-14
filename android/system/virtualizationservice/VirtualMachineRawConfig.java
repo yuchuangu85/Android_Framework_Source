@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/VirtualMachineRawConfig.java.d -o out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/virtualizationservice/aidl packages/modules/Virtualization/virtualizationservice/aidl/android/system/virtualizationservice/VirtualMachineRawConfig.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/VirtualMachineRawConfig.java.d -o out/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/android/virtualizationservice/aidl packages/modules/Virtualization/android/virtualizationservice/aidl/android/system/virtualizationservice/VirtualMachineRawConfig.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.system.virtualizationservice;
 /** Raw configuration for running a VM. */
@@ -26,12 +30,16 @@ public class VirtualMachineRawConfig implements android.os.Parcelable
   public android.os.ParcelFileDescriptor bootloader;
   /** Disk images to be made available to the VM. */
   public android.system.virtualizationservice.DiskImage[] disks;
+  /** Shared paths between host and guest */
+  public android.system.virtualizationservice.SharedPath[] sharedPaths;
   /** Whether the VM should be a protected VM. */
   public boolean protectedVm = false;
   /** The amount of RAM to give the VM, in MiB. 0 or negative to use the default. */
   public int memoryMib = 0;
-  /** The vCPU topology that will be generated for the VM. Default to 1 vCPU. */
-  public byte cpuTopology = android.system.virtualizationservice.CpuTopology.ONE_CPU;
+  /** The amount of swiotlb to give the VM, in MiB. 0 or negative to use the default. */
+  public int swiotlbMib = 0;
+  /** The vCPU options that will be generated for the VM. */
+  public android.system.virtualizationservice.CpuOptions cpuOptions;
   /**
    * A version or range of versions of the virtual platform that this config is compatible with.
    * The format follows SemVer.
@@ -49,11 +57,31 @@ public class VirtualMachineRawConfig implements android.os.Parcelable
    *  https://docs.kernel.org/admin-guide/mm/transhuge.html
    */
   public boolean hugePages = false;
-  /** List of SysFS nodes of devices to be assigned */
-  public java.lang.String[] devices;
+  /** Assigned devices */
+  public android.system.virtualizationservice.AssignedDevices devices;
   public android.system.virtualizationservice.DisplayConfig displayConfig;
   /** List of input devices to the VM */
   public android.system.virtualizationservice.InputDevice[] inputDevices;
+  /** Whether the VM should have network feature. */
+  public boolean networkSupported = false;
+  /** The serial device for VM console input. */
+  public java.lang.String consoleInputDevice;
+  /** Enable boost UClamp for less variance during testing/benchmarking */
+  public boolean boostUclamp = false;
+  public android.system.virtualizationservice.GpuConfig gpuConfig;
+  public android.system.virtualizationservice.AudioConfig audioConfig;
+  public boolean balloon = false;
+  /** Enable or disable USB passthrough support */
+  public android.system.virtualizationservice.UsbConfig usbConfig;
+  /** List of tee services this VM wants to access */
+  public java.lang.String[] teeServices;
+  /**
+   * Set whether to use an alternate, hypervisor-specific authentication method for protected
+   * VMs.
+   */
+  public boolean enableHypervisorSpecificAuthMethod = false;
+  /** Custom memfds for a subset of guest memory */
+  public android.system.virtualizationservice.CustomMemoryBackingFile[] customMemoryBackingFiles;
   public static final android.os.Parcelable.Creator<VirtualMachineRawConfig> CREATOR = new android.os.Parcelable.Creator<VirtualMachineRawConfig>() {
     @Override
     public VirtualMachineRawConfig createFromParcel(android.os.Parcel _aidl_source) {
@@ -77,15 +105,27 @@ public class VirtualMachineRawConfig implements android.os.Parcelable
     _aidl_parcel.writeString(params);
     _aidl_parcel.writeTypedObject(bootloader, _aidl_flag);
     _aidl_parcel.writeTypedArray(disks, _aidl_flag);
+    _aidl_parcel.writeTypedArray(sharedPaths, _aidl_flag);
     _aidl_parcel.writeBoolean(protectedVm);
     _aidl_parcel.writeInt(memoryMib);
-    _aidl_parcel.writeByte(cpuTopology);
+    _aidl_parcel.writeInt(swiotlbMib);
+    _aidl_parcel.writeTypedObject(cpuOptions, _aidl_flag);
     _aidl_parcel.writeString(platformVersion);
     _aidl_parcel.writeInt(gdbPort);
     _aidl_parcel.writeBoolean(hugePages);
-    _aidl_parcel.writeStringArray(devices);
+    _aidl_parcel.writeTypedObject(devices, _aidl_flag);
     _aidl_parcel.writeTypedObject(displayConfig, _aidl_flag);
     _aidl_parcel.writeTypedArray(inputDevices, _aidl_flag);
+    _aidl_parcel.writeBoolean(networkSupported);
+    _aidl_parcel.writeString(consoleInputDevice);
+    _aidl_parcel.writeBoolean(boostUclamp);
+    _aidl_parcel.writeTypedObject(gpuConfig, _aidl_flag);
+    _aidl_parcel.writeTypedObject(audioConfig, _aidl_flag);
+    _aidl_parcel.writeBoolean(balloon);
+    _aidl_parcel.writeTypedObject(usbConfig, _aidl_flag);
+    _aidl_parcel.writeStringArray(teeServices);
+    _aidl_parcel.writeBoolean(enableHypervisorSpecificAuthMethod);
+    _aidl_parcel.writeTypedArray(customMemoryBackingFiles, _aidl_flag);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -112,11 +152,15 @@ public class VirtualMachineRawConfig implements android.os.Parcelable
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       disks = _aidl_parcel.createTypedArray(android.system.virtualizationservice.DiskImage.CREATOR);
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      sharedPaths = _aidl_parcel.createTypedArray(android.system.virtualizationservice.SharedPath.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       protectedVm = _aidl_parcel.readBoolean();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       memoryMib = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
-      cpuTopology = _aidl_parcel.readByte();
+      swiotlbMib = _aidl_parcel.readInt();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      cpuOptions = _aidl_parcel.readTypedObject(android.system.virtualizationservice.CpuOptions.CREATOR);
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       platformVersion = _aidl_parcel.readString();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
@@ -124,11 +168,31 @@ public class VirtualMachineRawConfig implements android.os.Parcelable
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       hugePages = _aidl_parcel.readBoolean();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
-      devices = _aidl_parcel.createStringArray();
+      devices = _aidl_parcel.readTypedObject(android.system.virtualizationservice.AssignedDevices.CREATOR);
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       displayConfig = _aidl_parcel.readTypedObject(android.system.virtualizationservice.DisplayConfig.CREATOR);
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       inputDevices = _aidl_parcel.createTypedArray(android.system.virtualizationservice.InputDevice.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      networkSupported = _aidl_parcel.readBoolean();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      consoleInputDevice = _aidl_parcel.readString();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      boostUclamp = _aidl_parcel.readBoolean();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      gpuConfig = _aidl_parcel.readTypedObject(android.system.virtualizationservice.GpuConfig.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      audioConfig = _aidl_parcel.readTypedObject(android.system.virtualizationservice.AudioConfig.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      balloon = _aidl_parcel.readBoolean();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      usbConfig = _aidl_parcel.readTypedObject(android.system.virtualizationservice.UsbConfig.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      teeServices = _aidl_parcel.createStringArray();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      enableHypervisorSpecificAuthMethod = _aidl_parcel.readBoolean();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      customMemoryBackingFiles = _aidl_parcel.createTypedArray(android.system.virtualizationservice.CustomMemoryBackingFile.CREATOR);
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -143,8 +207,15 @@ public class VirtualMachineRawConfig implements android.os.Parcelable
     _mask |= describeContents(initrd);
     _mask |= describeContents(bootloader);
     _mask |= describeContents(disks);
+    _mask |= describeContents(sharedPaths);
+    _mask |= describeContents(cpuOptions);
+    _mask |= describeContents(devices);
     _mask |= describeContents(displayConfig);
     _mask |= describeContents(inputDevices);
+    _mask |= describeContents(gpuConfig);
+    _mask |= describeContents(audioConfig);
+    _mask |= describeContents(usbConfig);
+    _mask |= describeContents(customMemoryBackingFiles);
     return _mask;
   }
   private int describeContents(Object _v) {

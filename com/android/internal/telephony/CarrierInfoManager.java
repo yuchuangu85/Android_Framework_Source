@@ -273,21 +273,25 @@ public class CarrierInfoManager {
 
     /**
      * Resets the Carrier Keys in the database. This involves 2 steps:
-     *  1. Delete the keys from the database.
-     *  2. Send an intent to download new Certificates.
-     * @param context Context
-     * @param mPhoneId phoneId
+     * 1. Delete the keys from the database.
+     * 2. Send an intent to download new Certificates.
      *
+     * @param context       Context
+     * @param mPhoneId      phoneId
+     * @param forceResetAll to skip the check of the RESET_CARRIER_KEY_RATE_LIMIT.
      */
-    public void resetCarrierKeysForImsiEncryption(Context context, int mPhoneId) {
-        Log.i(LOG_TAG, "resetting carrier key");
+    public void resetCarrierKeysForImsiEncryption(Context context, int mPhoneId,
+            boolean forceResetAll) {
+        Log.i(LOG_TAG, "resetting carrier key, forceResetAll = " +forceResetAll);
         // Check rate limit.
         long now = System.currentTimeMillis();
-        if (now - mLastAccessResetCarrierKey < RESET_CARRIER_KEY_RATE_LIMIT) {
-            Log.i(LOG_TAG, "resetCarrierKeysForImsiEncryption: Access rate exceeded");
-            return;
+        if (!forceResetAll) {
+            if (now - mLastAccessResetCarrierKey < RESET_CARRIER_KEY_RATE_LIMIT) {
+                Log.i(LOG_TAG, "resetCarrierKeysForImsiEncryption: Access rate exceeded");
+                return;
+            }
+            mLastAccessResetCarrierKey = now;
         }
-        mLastAccessResetCarrierKey = now;
 
         int subId = SubscriptionManager.getSubscriptionId(mPhoneId);
         if (!SubscriptionManager.isValidSubscriptionId(subId)) {

@@ -27,7 +27,6 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
-import android.annotation.TestApi;
 import android.app.Service;
 import android.app.ondeviceintelligence.DownloadCallback;
 import android.app.ondeviceintelligence.Feature;
@@ -59,6 +58,7 @@ import com.android.internal.infra.AndroidFuture;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -224,6 +224,7 @@ public abstract class OnDeviceIntelligenceService extends Service {
                                         Bundle bundle = new Bundle();
                                         parcelFileDescriptorMap.forEach(bundle::putParcelable);
                                         remoteCallback.sendResult(bundle);
+                                        tryClosePfds(parcelFileDescriptorMap.values());
                                     }));
                 }
 
@@ -258,10 +259,7 @@ public abstract class OnDeviceIntelligenceService extends Service {
      * Using this signal to assertively a signal each time service binds successfully, used only in
      * tests to get a signal that service instance is ready. This is needed because we cannot rely
      * on {@link #onCreate} or {@link #onBind} to be invoke on each binding.
-     *
-     * @hide
      */
-    @TestApi
     public void onReady() {
     }
 
@@ -442,6 +440,16 @@ public abstract class OnDeviceIntelligenceService extends Service {
                 }
             }
         };
+    }
+
+    private static void tryClosePfds(Collection<ParcelFileDescriptor> pfds) {
+        pfds.forEach(pfd -> {
+            try {
+                pfd.close();
+            } catch (Exception e) {
+                Log.w(TAG, "Error closing FD", e);
+            }
+        });
     }
 
     private void onGetReadOnlyFileDescriptor(@NonNull String fileName,

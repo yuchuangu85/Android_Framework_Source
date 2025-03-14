@@ -87,7 +87,9 @@ public class PerUidCounter {
         }
     }
 
-    @VisibleForTesting
+    /**
+     * Get the current counter value for the given uid.
+     */
     public synchronized int get(int uid) {
         return mUidToCount.get(uid, 0);
     }

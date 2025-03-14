@@ -36,6 +36,8 @@ import android.system.StructTimeval;
 import android.system.StructUcred;
 import android.system.StructUtsname;
 
+import dalvik.annotation.optimization.CriticalNative;
+
 import java.io.FileDescriptor;
 import java.io.InterruptedIOException;
 import java.net.InetAddress;
@@ -84,15 +86,41 @@ public final class Linux implements Os {
     public native void fsync(FileDescriptor fd) throws ErrnoException;
     public native void ftruncate(FileDescriptor fd, long length) throws ErrnoException;
     public native String gai_strerror(int error);
-    public native int getegid();
-    public native int geteuid();
-    public native int getgid();
+    @CriticalNative
+    private static native int nativeGetegid();
+    @Override
+    public int getegid() {
+        return nativeGetegid();
+    }
+    @CriticalNative
+    private static native int nativeGeteuid();
+    @Override
+    public int geteuid() {
+        return nativeGeteuid();
+    }
+    @CriticalNative
+    private static native int nativeGetgid();
+    @Override
+    public int getgid() {
+        return nativeGetgid();
+    }
     public native String getenv(String name);
     public native String getnameinfo(InetAddress address, int flags) throws GaiException;
     public native SocketAddress getpeername(FileDescriptor fd) throws ErrnoException;
-    public native int getpgid(int pid);
-    public native int getpid();
-    public native int getppid();
+
+    public native int getpgid(int pid) throws ErrnoException;
+    @CriticalNative
+    private static native int nativeGetpid();
+    @Override
+    public int getpid() {
+        return nativeGetpid();
+    }
+    @CriticalNative
+    private static native int nativeGetppid();
+    @Override
+    public int getppid() {
+        return nativeGetppid();
+    }
     public native StructPasswd getpwnam(String name) throws ErrnoException;
     public native StructPasswd getpwuid(int uid) throws ErrnoException;
     public native StructRlimit getrlimit(int resource) throws ErrnoException;
@@ -103,8 +131,18 @@ public final class Linux implements Os {
     public native StructLinger getsockoptLinger(FileDescriptor fd, int level, int option) throws ErrnoException;
     public native StructTimeval getsockoptTimeval(FileDescriptor fd, int level, int option) throws ErrnoException;
     public native StructUcred getsockoptUcred(FileDescriptor fd, int level, int option) throws ErrnoException;
-    public native int gettid();
-    public native int getuid();
+    @CriticalNative
+    private static native int nativeGettid();
+    @Override
+    public int gettid() {
+        return nativeGettid();
+    }
+    @CriticalNative
+    private static native int nativeGetuid();
+    @Override
+    public int getuid() {
+        return nativeGetuid();
+    }
     public native byte[] getxattr(String path, String name) throws ErrnoException;
     public native StructIfaddrs[] getifaddrs() throws ErrnoException;
     public native String if_indextoname(int index);
@@ -122,6 +160,7 @@ public final class Linux implements Os {
     public native String[] listxattr(String path) throws ErrnoException;
     public native long lseek(FileDescriptor fd, long offset, int whence) throws ErrnoException;
     public native StructStat lstat(String path) throws ErrnoException;
+    public native void madvise(long address, long byteCount, int advice) throws ErrnoException;
     public native FileDescriptor memfd_create(String name, int flags) throws ErrnoException;
     public native void mincore(long address, long byteCount, byte[] vector) throws ErrnoException;
     public native void mkdir(String path, int mode) throws ErrnoException;
@@ -265,7 +304,8 @@ public final class Linux implements Os {
     public native String strerror(int errno);
     public native String strsignal(int signal);
     public native void symlink(String oldPath, String newPath) throws ErrnoException;
-    public native long sysconf(int name);
+
+    public native long sysconf(int name); // throws ErrnoException;
     public native void tcdrain(FileDescriptor fd) throws ErrnoException;
     public native void tcsendbreak(FileDescriptor fd, int duration) throws ErrnoException;
     public int umask(int mask) {

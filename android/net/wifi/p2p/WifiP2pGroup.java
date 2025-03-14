@@ -17,6 +17,7 @@
 package android.net.wifi.p2p;
 
 import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
@@ -24,6 +25,7 @@ import android.compat.annotation.UnsupportedAppUsage;
 import android.net.MacAddress;
 import android.net.wifi.OuiKeyedData;
 import android.net.wifi.ParcelUtil;
+import android.net.wifi.util.Environment;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -34,6 +36,8 @@ import androidx.annotation.RequiresApi;
 import com.android.modules.utils.build.SdkLevel;
 import com.android.wifi.flags.Flags;
 
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.util.ArrayList;
@@ -75,6 +79,41 @@ public class WifiP2pGroup implements Parcelable {
     public static final int NETWORK_ID_PERSISTENT = -2;
 
     /**
+     * The definition of security type unknown. It is set when framework fails to derive the
+     * security type from the authentication key management provided by wpa_supplicant.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_UNKNOWN = -1;
+
+    /**
+     * The definition of security type WPA2-PSK.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_WPA2_PSK = 0;
+
+    /**
+     * The definition of security type WPA3-Compatibility Mode.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_WPA3_COMPATIBILITY = 1;
+
+    /**
+     * The definition of security type WPA3-SAE.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int SECURITY_TYPE_WPA3_SAE = 2;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "SECURITY_TYPE_" }, value = {
+            SECURITY_TYPE_UNKNOWN,
+            SECURITY_TYPE_WPA2_PSK,
+            SECURITY_TYPE_WPA3_COMPATIBILITY,
+            SECURITY_TYPE_WPA3_SAE,
+    })
+    public @interface SecurityType {}
+
+    /**
      * Group owner P2P interface MAC address.
      * @hide
      */
@@ -95,6 +134,10 @@ public class WifiP2pGroup implements Parcelable {
 
     /** The passphrase used for WPA2-PSK */
     private String mPassphrase;
+
+    /** The security type of the group */
+    @SecurityType
+    private int mSecurityType;
 
     private String mInterface;
 
@@ -363,6 +406,30 @@ public class WifiP2pGroup implements Parcelable {
         return mPassphrase;
     }
 
+    /**
+     * Set the security type of the group.
+     *
+     * @param securityType One of the {@code SECURITY_TYPE_*}.
+     * @hide
+     */
+    public void setSecurityType(@SecurityType int securityType) {
+        mSecurityType = securityType;
+    }
+
+    /**
+     * Get the security type of the group.
+     *
+     * @return One of the {@code SECURITY_TYPE_*}.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public @SecurityType int getSecurityType() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mSecurityType;
+    }
+
     /** @hide */
     @UnsupportedAppUsage
     public void setInterface(String intf) {
@@ -433,6 +500,31 @@ public class WifiP2pGroup implements Parcelable {
         mVendorData = new ArrayList<>(vendorData);
     }
 
+    /**
+     * Returns the BSSID, if this device is the group owner of the P2P group supporting Wi-Fi
+     * Direct R2 protocol.
+     * <p>
+     * The interface address of a Wi-Fi Direct R2 supported device is randomized. So for every
+     * group owner session a randomized interface address will be returned.
+     * <p>
+     * The BSSID returned will be {@code null}, if this device is a client device or a group owner
+     * which doesn't support Wi-Fi Direct R2 protocol.
+     * @return the BSSID.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    @Nullable
+    public MacAddress getGroupOwnerBssid() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        if (isGroupOwner() && getSecurityType() == SECURITY_TYPE_WPA3_SAE
+                && interfaceAddress != null) {
+            return MacAddress.fromBytes(interfaceAddress);
+        }
+        return null;
+    }
+
     public String toString() {
         StringBuffer sbuf = new StringBuffer();
         sbuf.append("network: ").append(mNetworkName);
@@ -443,6 +535,8 @@ public class WifiP2pGroup implements Parcelable {
         }
         sbuf.append("\n interface: ").append(mInterface);
         sbuf.append("\n networkId: ").append(mNetId);
+        sbuf.append("\n securityType: ").append(mSecurityType);
+
         sbuf.append("\n frequency: ").append(mFrequency);
         sbuf.append("\n vendorData: ").append(mVendorData);
         return sbuf.toString();
@@ -463,6 +557,9 @@ public class WifiP2pGroup implements Parcelable {
             mPassphrase = source.getPassphrase();
             mInterface = source.getInterface();
             mNetId = source.getNetworkId();
+            if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+                mSecurityType = source.getSecurityType();
+            }
             mFrequency = source.getFrequency();
             if (SdkLevel.isAtLeastV()) {
                 mVendorData = new ArrayList<>(source.getVendorData());
@@ -482,6 +579,9 @@ public class WifiP2pGroup implements Parcelable {
         dest.writeString(mPassphrase);
         dest.writeString(mInterface);
         dest.writeInt(mNetId);
+        if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+            dest.writeInt(mSecurityType);
+        }
         dest.writeInt(mFrequency);
         if (SdkLevel.isAtLeastV()) {
             dest.writeList(mVendorData);
@@ -490,28 +590,33 @@ public class WifiP2pGroup implements Parcelable {
 
     /** Implement the Parcelable interface */
     public static final @android.annotation.NonNull Creator<WifiP2pGroup> CREATOR =
-        new Creator<WifiP2pGroup>() {
-            public WifiP2pGroup createFromParcel(Parcel in) {
-                WifiP2pGroup group = new WifiP2pGroup();
-                group.setNetworkName(in.readString());
-                group.setOwner((WifiP2pDevice)in.readParcelable(null));
-                group.setIsGroupOwner(in.readByte() == (byte)1);
-                int clientCount = in.readInt();
-                for (int i=0; i<clientCount; i++) {
-                    group.addClient((WifiP2pDevice) in.readParcelable(null));
+            new Creator<WifiP2pGroup>() {
+                public WifiP2pGroup createFromParcel(Parcel in) {
+                    WifiP2pGroup group = new WifiP2pGroup();
+                    group.setNetworkName(in.readString());
+                    group.setOwner((WifiP2pDevice) in.readParcelable(
+                            WifiP2pDevice.class.getClassLoader()));
+                    group.setIsGroupOwner(in.readByte() == (byte) 1);
+                    int clientCount = in.readInt();
+                    for (int i = 0; i < clientCount; i++) {
+                        group.addClient((WifiP2pDevice) in.readParcelable(
+                                WifiP2pDevice.class.getClassLoader()));
+                    }
+                    group.setPassphrase(in.readString());
+                    group.setInterface(in.readString());
+                    group.setNetworkId(in.readInt());
+                    if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+                        group.setSecurityType(in.readInt());
+                    }
+                    group.setFrequency(in.readInt());
+                    if (SdkLevel.isAtLeastV()) {
+                        group.setVendorData(ParcelUtil.readOuiKeyedDataList(in));
+                    }
+                    return group;
                 }
-                group.setPassphrase(in.readString());
-                group.setInterface(in.readString());
-                group.setNetworkId(in.readInt());
-                group.setFrequency(in.readInt());
-                if (SdkLevel.isAtLeastV()) {
-                    group.setVendorData(ParcelUtil.readOuiKeyedDataList(in));
-                }
-                return group;
-            }
 
-            public WifiP2pGroup[] newArray(int size) {
-                return new WifiP2pGroup[size];
-            }
+                public WifiP2pGroup[] newArray(int size) {
+                    return new WifiP2pGroup[size];
+                }
         };
 }

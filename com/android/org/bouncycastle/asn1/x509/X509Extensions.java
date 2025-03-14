@@ -13,10 +13,11 @@ import com.android.org.bouncycastle.asn1.ASN1OctetString;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
+import com.android.org.bouncycastle.asn1.BERTags;
 import com.android.org.bouncycastle.asn1.DERSequence;
 
 /**
- * @deprecated use {@link Extensions}
+ * @deprecated use {@link Extension} and  {@link Extensions}
  * @hide This class is not part of the Android public SDK API
  */
 public class X509Extensions
@@ -238,7 +239,9 @@ public class X509Extensions
 
         if (obj instanceof ASN1TaggedObject)
         {
-            return getInstance(((ASN1TaggedObject)obj).getObject());
+            ASN1TaggedObject taggedObject = ASN1TaggedObject.getInstance(obj, BERTags.CONTEXT_SPECIFIC);
+
+            return getInstance(taggedObject.getBaseObject().toASN1Primitive());
         }
 
         throw new IllegalArgumentException("illegal object in getInstance: " + obj.getClass().getName());

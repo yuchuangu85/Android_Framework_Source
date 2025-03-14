@@ -100,6 +100,7 @@ public final class PowerStats {
          * to; or a custom power component ID (if the value
          * is &gt;= {@link BatteryConsumer#FIRST_CUSTOM_POWER_COMPONENT_ID}).
          */
+        @BatteryConsumer.PowerComponentId
         public final int powerComponentId;
         public final String name;
 
@@ -127,6 +128,7 @@ public final class PowerStats {
          * Extra parameters specific to the power component, e.g. the availability of power
          * monitors.
          */
+        @NonNull
         public final PersistableBundle extras;
 
         private PowerStatsFormatter mDeviceStatsFormatter;
@@ -142,9 +144,10 @@ public final class PowerStats {
                     extras);
         }
 
-        public Descriptor(int customPowerComponentId, String name, int statsArrayLength,
-                @Nullable SparseArray<String> stateLabels, int stateStatsArrayLength,
-                int uidStatsArrayLength, @NonNull PersistableBundle extras) {
+        public Descriptor(@BatteryConsumer.PowerComponentId int powerComponentId, String name,
+                int statsArrayLength, @Nullable SparseArray<String> stateLabels,
+                int stateStatsArrayLength, int uidStatsArrayLength,
+                @NonNull PersistableBundle extras) {
             if (statsArrayLength > MAX_STATS_ARRAY_LENGTH) {
                 throw new IllegalArgumentException(
                         "statsArrayLength is too high. Max = " + MAX_STATS_ARRAY_LENGTH);
@@ -157,7 +160,7 @@ public final class PowerStats {
                 throw new IllegalArgumentException(
                         "uidStatsArrayLength is too high. Max = " + MAX_UID_STATS_ARRAY_LENGTH);
             }
-            this.powerComponentId = customPowerComponentId;
+            this.powerComponentId = powerComponentId;
             this.name = name;
             this.statsArrayLength = statsArrayLength;
             this.stateLabels = stateLabels != null ? stateLabels : new SparseArray<>();
@@ -267,20 +270,41 @@ public final class PowerStats {
                     stateStatsArrayLength, uidStatsArrayLength, extras);
         }
 
+        @SuppressWarnings("deprecation")
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof Descriptor)) return false;
             Descriptor that = (Descriptor) o;
-            return powerComponentId == that.powerComponentId
-                    && statsArrayLength == that.statsArrayLength
-                    && stateLabels.contentEquals(that.stateLabels)
-                    && stateStatsArrayLength == that.stateStatsArrayLength
-                    && uidStatsArrayLength == that.uidStatsArrayLength
-                    && Objects.equals(name, that.name)
-                    && extras.size() == that.extras.size()        // Unparcel the Parcel if not yet
-                    && Bundle.kindofEquals(extras,
-                    that.extras);  // Since the Parcel is now unparceled, do a deep comparison
+            if (powerComponentId != that.powerComponentId
+                    || statsArrayLength != that.statsArrayLength
+                    || !stateLabels.contentEquals(that.stateLabels)
+                    || stateStatsArrayLength != that.stateStatsArrayLength
+                    || uidStatsArrayLength != that.uidStatsArrayLength
+                    || !Objects.equals(name, that.name)) {
+                return false;
+            }
+
+            // Getting the size has the side-effect of unparceling the Bundle if not yet
+            if (extras.size() != that.extras.size()) {
+                return false;
+            }
+
+            if (Bundle.kindofEquals(extras, that.extras)) {
+                return true;
+            }
+
+            // Since `kindofEquals` does not deep-compare arrays, we do that separately, albeit at
+            // the expense of creating an iterator and using a deprecated API, `bundle.get`.
+            // There is no performance concern, because the situation where PowerStatsDescriptors
+            // are changed in an incompatible way are exceedingly rare, occurring at most
+            // once per power component after a system upgrade.
+            for (String key : extras.keySet()) {
+                if (!Objects.deepEquals(extras.get(key), that.extras.get(key))) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         /**
@@ -580,10 +604,15 @@ public final class PowerStats {
         }
         PowerStatsFormatter uidStatsFormatter = descriptor.getUidStatsFormatter();
         for (int i = 0; i < uidStats.size(); i++) {
+            String formattedStats = uidStatsFormatter.format(uidStats.valueAt(i));
+            if (formattedStats.isBlank()) {
+                continue;
+            }
+
             pw.print("UID ");
             pw.print(UserHandle.formatUid(uidStats.keyAt(i)));
             pw.print(": ");
-            pw.print(uidStatsFormatter.format(uidStats.valueAt(i)));
+            pw.print(formattedStats);
             pw.println();
         }
         pw.decreaseIndent();

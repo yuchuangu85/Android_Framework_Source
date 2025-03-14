@@ -1714,6 +1714,7 @@ public class SimpleDateFormat extends DateFormat {
     }
 
 
+    // Android-changed: Added a warning of deserialization.
     /**
      * Parses text from a string to produce a {@code Date}.
      * <p>
@@ -1741,6 +1742,12 @@ public class SimpleDateFormat extends DateFormat {
      * TimeZone} value that has previously been set by a call to
      * {@link #setTimeZone(java.util.TimeZone) setTimeZone} may need
      * to be restored for further operations.
+     *
+     * <p> <b>WARNING:</b> Don't use this method to deserialize a date. The underlying localized
+     * date/time format and parsing behaviors can change across Android versions as common usage
+     * in the locale changes. Consider using <code>long</code> type for storing a timestamp or
+     * {@link java.time.format.DateTimeFormatter#ISO_INSTANT} for deserializing the ISO-8601
+     * instant format.</p>
      *
      * @param text  A {@code String}, part of which should be parsed.
      * @param pos   A {@code ParsePosition} object with index and error

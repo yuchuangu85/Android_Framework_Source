@@ -19,6 +19,7 @@ package android.media.soundtrigger;
 import static android.hardware.soundtrigger.SoundTrigger.STATUS_ERROR;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
@@ -26,6 +27,7 @@ import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
+import android.annotation.WorkerThread;
 import android.app.ActivityThread;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
@@ -42,7 +44,6 @@ import android.media.permission.ClearCallingIdentityContext;
 import android.media.permission.Identity;
 import android.media.permission.SafeCloseable;
 import android.os.Binder;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -463,13 +464,19 @@ public final class SoundTriggerManager {
     public static final String EXTRA_STATUS = "android.media.soundtrigger.STATUS";
 
     /**
-     * Loads a given sound model into the sound trigger. Note the model will be unloaded if there is
-     * an error/the system service is restarted.
-     * @hide
+     * Loads a given sound model into the sound trigger.
+     *
+     * <p><b>Note:</b> the model will be unloaded if there is an error/the system service is
+     * restarted.
+     *
+     * @return {@link SoundTrigger#STATUS_OK} if the model was loaded successfully, error code
+     *         otherwise
      */
+    @SuppressLint("AndroidFrameworkRequiresPermission")
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     @UnsupportedAppUsage
-    @TestApi
+    @FlaggedApi(Flags.FLAG_MANAGER_API)
+    @WorkerThread
     public int loadSoundModel(@NonNull SoundModel soundModel) {
         if (mSoundTriggerSession == null) {
             throw new IllegalStateException("No underlying SoundTriggerModule available");
@@ -508,11 +515,12 @@ public final class SoundTriggerManager {
      *
      * @return {@link SoundTrigger#STATUS_OK} if the recognition could be started, error code
      *         otherwise
-     *
-     * @hide
      */
+    @SuppressLint("AndroidFrameworkRequiresPermission")
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     @UnsupportedAppUsage
+    @FlaggedApi(Flags.FLAG_MANAGER_API)
+    @WorkerThread
     public int startRecognition(@NonNull UUID soundModelId, @Nullable Bundle params,
         @NonNull ComponentName detectionService, @NonNull RecognitionConfig config) {
         Objects.requireNonNull(soundModelId);
@@ -531,11 +539,16 @@ public final class SoundTriggerManager {
 
     /**
      * Stops the given model's recognition.
-     * @hide
+     *
+     * @return {@link SoundTrigger#STATUS_OK} if the recognition could be stopped, error code
+     *         otherwise
      */
+    @SuppressLint("AndroidFrameworkRequiresPermission")
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    public int stopRecognition(UUID soundModelId) {
+    @UnsupportedAppUsage
+    @FlaggedApi(Flags.FLAG_MANAGER_API)
+    @WorkerThread
+    public int stopRecognition(@NonNull UUID soundModelId) {
         if (mSoundTriggerSession == null) {
             throw new IllegalStateException("No underlying SoundTriggerModule available");
         }
@@ -548,12 +561,19 @@ public final class SoundTriggerManager {
     }
 
     /**
-     * Removes the given model from memory. Will also stop any pending recognitions.
-     * @hide
+     * Removes the given model from memory.
+     *
+     * <p>Will also stop any pending recognitions.
+     *
+     * @return {@link SoundTrigger#STATUS_OK} if the model was unloaded successfully, error code
+     *         otherwise
      */
+    @SuppressLint("AndroidFrameworkRequiresPermission")
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    public int unloadSoundModel(UUID soundModelId) {
+    @UnsupportedAppUsage
+    @FlaggedApi(Flags.FLAG_MANAGER_API)
+    @WorkerThread
+    public int unloadSoundModel(@NonNull UUID soundModelId) {
         if (mSoundTriggerSession == null) {
             throw new IllegalStateException("No underlying SoundTriggerModule available");
         }
@@ -566,12 +586,14 @@ public final class SoundTriggerManager {
     }
 
     /**
-     * Returns true if the given model has had detection started on it.
-     * @hide
+     * Returns whether the given model has had detection started on it.
      */
+    @SuppressLint("AndroidFrameworkRequiresPermission")
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     @UnsupportedAppUsage
-    public boolean isRecognitionActive(UUID soundModelId) {
+    @FlaggedApi(Flags.FLAG_MANAGER_API)
+    @WorkerThread
+    public boolean isRecognitionActive(@NonNull UUID soundModelId) {
         if (soundModelId == null || mSoundTriggerSession == null) {
             return false;
         }
@@ -599,14 +621,17 @@ public final class SoundTriggerManager {
     }
 
     /**
-     * Asynchronously get state of the indicated model.  The model state is returned as
-     * a recognition event in the callback that was registered in the startRecognition
-     * method.
-     * @hide
+     * Asynchronously gets state of the indicated model.
+     *
+     * <p>The model state is returned as a recognition event in the callback that was registered
+     * in the {@link #startRecognition(UUID, Bundle, ComponentName, RecognitionConfig)} method.
      */
+    @SuppressLint("AndroidFrameworkRequiresPermission")
     @RequiresPermission(android.Manifest.permission.MANAGE_SOUND_TRIGGER)
     @UnsupportedAppUsage
-    public int getModelState(UUID soundModelId) {
+    @FlaggedApi(Flags.FLAG_MANAGER_API)
+    @WorkerThread
+    public int getModelState(@NonNull UUID soundModelId) {
         if (mSoundTriggerSession == null) {
             throw new IllegalStateException("No underlying SoundTriggerModule available");
         }
@@ -621,7 +646,7 @@ public final class SoundTriggerManager {
     }
 
     /**
-     * Get the hardware sound trigger module properties currently loaded.
+     * Gets the hardware sound trigger module properties currently loaded.
      *
      * @return The properties currently loaded. Returns null if no supported hardware loaded.
      */
@@ -639,9 +664,11 @@ public final class SoundTriggerManager {
     }
 
     /**
-     * Set a model specific {@link ModelParams} with the given value. This
-     * parameter will keep its value for the duration the model is loaded regardless of starting and
-     * stopping recognition. Once the model is unloaded, the value will be lost.
+     * Sets a model specific {@link ModelParams} with the given value.
+     *
+     * <p>This parameter will keep its value for the duration the model is loaded regardless of
+     * starting and stopping recognition. Once the model is unloaded, the value will be lost.
+     *
      * {@link SoundTriggerManager#queryParameter} should be checked first before calling this
      * method.
      *
@@ -671,12 +698,15 @@ public final class SoundTriggerManager {
     }
 
     /**
-     * Get a model specific {@link ModelParams}. This parameter will keep its value
-     * for the duration the model is loaded regardless of starting and stopping recognition.
-     * Once the model is unloaded, the value will be lost. If the value is not set, a default
-     * value is returned. See {@link ModelParams} for parameter default values.
-     * {@link SoundTriggerManager#queryParameter} should be checked first before
-     * calling this method. Otherwise, an exception can be thrown.
+     * Gets a model specific {@link ModelParams}.
+     *
+     * <p>This parameter will keep its value for the duration the model is loaded regardless
+     * of starting and stopping recognition. Once the model is unloaded, the value will be lost.
+     * If the value is not set, a default value is returned. See {@link ModelParams} for
+     * parameter default values.
+     *
+     * {@link SoundTriggerManager#queryParameter} should be checked first before calling this
+     * method. Otherwise, an exception can be thrown.
      *
      * @param soundModelId UUID of model to get parameter
      * @param modelParam   {@link ModelParams}
@@ -697,9 +727,10 @@ public final class SoundTriggerManager {
     }
 
     /**
-     * Determine if parameter control is supported for the given model handle.
-     * This method should be checked prior to calling {@link SoundTriggerManager#setParameter} or
-     * {@link SoundTriggerManager#getParameter}.
+     * Determines if parameter control is supported for the given model handle.
+     *
+     * <p>This method should be checked prior to calling {@link SoundTriggerManager#setParameter}
+     * or {@link SoundTriggerManager#getParameter}.
      *
      * @param soundModelId handle of model to get parameter
      * @param modelParam {@link ModelParams}

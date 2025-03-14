@@ -47,10 +47,12 @@ import android.telephony.TelephonyManager;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
 
+import com.android.internal.os.BackgroundThread;
 import com.android.internal.telephony.InboundSmsHandler;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.ServiceStateTracker;
+import com.android.internal.telephony.flags.Flags;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -116,9 +118,14 @@ public class TelephonyAnalytics {
         mSubscriptionManager = mContext.getSystemService(SubscriptionManager.class);
         mSlotIndex = mPhone.getPhoneId();
 
-        mHandlerThread = new HandlerThread(TelephonyAnalytics.class.getSimpleName());
-        mHandlerThread.start();
-        mHandler = new Handler(mHandlerThread.getLooper());
+        if (Flags.threadShred()) {
+            mHandlerThread = null; // TODO: maybe this doesn't need to be a member variable
+            mHandler = new Handler(BackgroundThread.get().getLooper());
+        } else {
+            mHandlerThread = new HandlerThread(TelephonyAnalytics.class.getSimpleName());
+            mHandlerThread.start();
+            mHandler = new Handler(mHandlerThread.getLooper());
+        }
         mExecutorService = Executors.newSingleThreadExecutor();
         mTelephonyAnalyticsUtil = TelephonyAnalyticsUtil.getInstance(mContext);
         initializeAnalyticsClasses();

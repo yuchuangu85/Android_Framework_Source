@@ -19,12 +19,13 @@ package android.app.appsearch;
 import static android.app.appsearch.SearchSessionUtil.safeExecute;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.app.appsearch.aidl.AppSearchAttributionSource;
+import android.app.appsearch.aidl.AppSearchResultCallback;
 import android.app.appsearch.aidl.AppSearchResultParcel;
 import android.app.appsearch.aidl.IAppSearchManager;
 import android.app.appsearch.aidl.IAppSearchObserverProxy;
-import android.app.appsearch.aidl.IAppSearchResultCallback;
 import android.app.appsearch.aidl.PersistToDiskAidlRequest;
 import android.app.appsearch.aidl.RegisterObserverCallbackAidlRequest;
 import android.app.appsearch.aidl.ReportUsageAidlRequest;
@@ -41,6 +42,7 @@ import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Log;
 
+import com.android.appsearch.flags.Flags;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
 
@@ -48,6 +50,7 @@ import java.io.Closeable;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
@@ -103,11 +106,11 @@ public class GlobalSearchSession extends ReadOnlyGlobalSearchSession implements 
     /**
      * Retrieves {@link GenericDocument} documents, belonging to the specified package name and
      * database name and identified by the namespace and ids in the request, from the {@link
-     * GlobalSearchSession} database.
-     *
-     * <p>If the package or database doesn't exist or if the calling package doesn't have access,
-     * the gets will be handled as failures in an {@link AppSearchBatchResult} object in the
-     * callback.
+     * GlobalSearchSession} database. When a call is successful, the result will be returned in the
+     * successes section of the {@link AppSearchBatchResult} object in the callback. If the package
+     * doesn't exist, database doesn't exist, or if the calling package doesn't have access, these
+     * failures will be reflected as {@link AppSearchResult} objects with a RESULT_NOT_FOUND status
+     * code in the failures section of the {@link AppSearchBatchResult} object.
      *
      * @param packageName the name of the package to get from
      * @param databaseName the name of the database to get from
@@ -133,13 +136,38 @@ public class GlobalSearchSession extends ReadOnlyGlobalSearchSession implements 
     }
 
     /**
+     * Opens a batch of AppSearch Blobs for reading.
+     *
+     * <p>See {@link AppSearchSession#openBlobForRead} for a general description when a blob is for
+     * read.
+     *
+     * <p class="caution">The returned {@link OpenBlobForReadResponse} must be closed after use to
+     * avoid resource leaks. Failing to close it will result in system file descriptor exhaustion.
+     *
+     * @param handles The {@link AppSearchBlobHandle}s that identifies the blobs.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the {@link OpenBlobForReadResponse}.
+     * @see GenericDocument.Builder#setPropertyBlobHandle
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_BLOB_STORE)
+    public void openBlobForRead(
+            @NonNull Set<AppSearchBlobHandle> handles,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<AppSearchResult<OpenBlobForReadResponse>> callback) {
+        Preconditions.checkState(!mIsClosed, "GlobalSearchSession has already been closed");
+        super.openBlobForRead(handles, executor, callback);
+    }
+
+    /**
      * Retrieves documents from all AppSearch databases that the querying application has access to.
      *
      * <p>Applications can be granted access to documents by specifying {@link
-     * SetSchemaRequest.Builder#setSchemaTypeVisibilityForPackage} when building a schema.
+     * SetSchemaRequest.Builder#setSchemaTypeVisibilityForPackage}, or {@link
+     * SetSchemaRequest.Builder#setDocumentClassVisibilityForPackage} when building a schema.
      *
      * <p>Document access can also be granted to system UIs by specifying {@link
-     * SetSchemaRequest.Builder#setSchemaTypeDisplayedBySystem} when building a schema.
+     * SetSchemaRequest.Builder#setSchemaTypeDisplayedBySystem}, or {@link
+     * SetSchemaRequest.Builder#setDocumentClassDisplayedBySystem} when building a schema.
      *
      * <p>See {@link AppSearchSession#search} for a detailed explanation on forming a query string.
      *
@@ -168,9 +196,11 @@ public class GlobalSearchSession extends ReadOnlyGlobalSearchSession implements 
      *
      * @param packageName the package that owns the requested {@link AppSearchSchema} instances.
      * @param databaseName the database that owns the requested {@link AppSearchSchema} instances.
-     * @return The pending {@link GetSchemaResponse} containing the schemas that the caller has
-     *     access to or an empty GetSchemaResponse if the request package and database does not
-     *     exist, has not set a schema or contains no schemas that are accessible to the caller.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the pending {@link GetSchemaResponse} containing the
+     *     schemas that the caller has access to or an empty GetSchemaResponse if the request
+     *     package and database does not exist, has not set a schema or contains no schemas that are
+     *     accessible to the caller.
      */
     @Override
     public void getSchema(
@@ -221,14 +251,10 @@ public class GlobalSearchSession extends ReadOnlyGlobalSearchSession implements 
                             /* systemUsage= */ true,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<Void>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
-                            safeExecute(
-                                    executor,
-                                    callback,
-                                    () -> callback.accept(resultParcel.getResult()));
+                        public void onResult(@NonNull AppSearchResult<Void> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
                         }
                     });
             mIsMutated = true;
@@ -258,7 +284,7 @@ public class GlobalSearchSession extends ReadOnlyGlobalSearchSession implements 
      * @param spec Specification of what types of changes to listen for
      * @param executor Executor on which to call the {@code observer} callback methods.
      * @param observer Callback to trigger when a schema or document changes
-     * @throws AppSearchException If an unexpected error occurs when trying to register an observer.
+     * @throws AppSearchException if an error occurs trying to register the observer
      */
     @SuppressWarnings("unchecked")
     public void registerObserverCallback(
@@ -437,10 +463,7 @@ public class GlobalSearchSession extends ReadOnlyGlobalSearchSession implements 
         }
     }
 
-    /**
-     * Closes the {@link GlobalSearchSession}. Persists all mutations, including usage reports, to
-     * disk.
-     */
+    /** Closes the {@link GlobalSearchSession}. */
     @Override
     public void close() {
         if (mIsMutated && !mIsClosed) {

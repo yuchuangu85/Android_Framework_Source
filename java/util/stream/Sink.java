@@ -188,6 +188,7 @@ public interface Sink<T> extends Consumer<T> {
      * {@code accept(int)}, and wires {@code accept(Integer)} to bridge to
      * {@code accept(int)}.
      */
+    @SuppressWarnings("overloads")
     interface OfInt extends Sink<Integer>, IntConsumer {
         @Override
         void accept(int value);
@@ -205,6 +206,7 @@ public interface Sink<T> extends Consumer<T> {
      * {@code accept(long)}, and wires {@code accept(Long)} to bridge to
      * {@code accept(long)}.
      */
+    @SuppressWarnings("overloads")
     interface OfLong extends Sink<Long>, LongConsumer {
         @Override
         void accept(long value);
@@ -222,6 +224,7 @@ public interface Sink<T> extends Consumer<T> {
      * {@code accept(double)}, and wires {@code accept(Double)} to bridge to
      * {@code accept(double)}.
      */
+    @SuppressWarnings("overloads")
     interface OfDouble extends Sink<Double>, DoubleConsumer {
         @Override
         void accept(double value);

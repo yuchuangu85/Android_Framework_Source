@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.internal.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encoding;
@@ -20,9 +21,12 @@ import com.android.internal.org.bouncycastle.asn1.ASN1GeneralizedTime;
 import com.android.internal.org.bouncycastle.asn1.ASN1Object;
 import com.android.internal.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
+import com.android.internal.org.bouncycastle.asn1.ASN1Sequence;
+import com.android.internal.org.bouncycastle.asn1.ASN1TaggedObject;
 import com.android.internal.org.bouncycastle.asn1.DERBitString;
 import com.android.internal.org.bouncycastle.asn1.DERNull;
 import com.android.internal.org.bouncycastle.asn1.DERSequence;
+import com.android.internal.org.bouncycastle.asn1.DERTaggedObject;
 import com.android.internal.org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import com.android.internal.org.bouncycastle.asn1.x509.AttributeCertificate;
 import com.android.internal.org.bouncycastle.asn1.x509.AttributeCertificateInfo;
@@ -76,28 +80,6 @@ class CertUtils
         {
             throw new IllegalStateException("cannot produce attribute certificate signature");
         }
-    }
-
-    static X509CRLHolder generateFullCRL(ContentSigner signer, TBSCertList tbsCertList)
-    {
-        try
-        {
-            return new X509CRLHolder(generateCRLStructure(tbsCertList, signer.getAlgorithmIdentifier(), generateSig(signer, tbsCertList)));
-        }
-        catch (IOException e)
-        {
-            throw new IllegalStateException("cannot produce certificate signature");
-        }
-    }
-
-    private static byte[] generateSig(ContentSigner signer, ASN1Object tbsObj)
-        throws IOException
-    {
-        OutputStream sOut = signer.getOutputStream();
-        tbsObj.encodeTo(sOut, ASN1Encoding.DER);
-        sOut.close();
-
-        return signer.getSignature();
     }
 
     private static Certificate generateStructure(TBSCertificate tbsCert, AlgorithmIdentifier sigAlgId, byte[] signature)
@@ -198,12 +180,12 @@ class CertUtils
         }
     }
 
-    static boolean[] bitStringToBoolean(DERBitString bitString)
+    static boolean[] bitStringToBoolean(ASN1BitString bitString)
     {
         if (bitString != null)
         {
-            byte[]          bytes = bitString.getBytes();
-            boolean[]       boolId = new boolean[bytes.length * 8 - bitString.getPadBits()];
+            byte[] bytes = bitString.getBytes();
+            boolean[] boolId = new boolean[bytes.length * 8 - bitString.getPadBits()];
 
             for (int i = 0; i != boolId.length; i++)
             {
@@ -235,40 +217,40 @@ class CertUtils
              return false;
          }
 
-         if (Properties.isOverrideSet("com.android.internal.org.bouncycastle.x509.allow_absent_equiv_NULL"))
-         {
-             if (id1.getParameters() == null)
-             {
-                 if (id2.getParameters() != null && !id2.getParameters().equals(DERNull.INSTANCE))
-                 {
-                     return false;
-                 }
+        if (Properties.isOverrideSet("com.android.internal.org.bouncycastle.x509.allow_absent_equiv_NULL"))
+        {
+            if (id1.getParameters() == null)
+            {
+                if (id2.getParameters() != null && !id2.getParameters().equals(DERNull.INSTANCE))
+                {
+                    return false;
+                }
 
-                 return true;
-             }
+                return true;
+            }
 
-             if (id2.getParameters() == null)
-             {
-                 if (id1.getParameters() != null && !id1.getParameters().equals(DERNull.INSTANCE))
-                 {
-                     return false;
-                 }
+            if (id2.getParameters() == null)
+            {
+                if (id1.getParameters() != null && !id1.getParameters().equals(DERNull.INSTANCE))
+                {
+                    return false;
+                }
 
-                 return true;
-             }
-         }
+                return true;
+            }
+        }
 
-         if (id1.getParameters() != null)
-         {
-             return id1.getParameters().equals(id2.getParameters());
-         }
+        if (id1.getParameters() != null)
+        {
+            return id1.getParameters().equals(id2.getParameters());
+        }
 
-         if (id2.getParameters() != null)
-         {
-             return id2.getParameters().equals(id1.getParameters());
-         }
+        if (id2.getParameters() != null)
+        {
+            return id2.getParameters().equals(id1.getParameters());
+        }
 
-         return true;
+        return true;
     }
 
     static ExtensionsGenerator doReplaceExtension(ExtensionsGenerator extGenerator, Extension ext)
@@ -277,7 +259,7 @@ class CertUtils
         Extensions exts = extGenerator.generate();
         extGenerator = new ExtensionsGenerator();
 
-        for (Enumeration en = exts.oids(); en.hasMoreElements();)
+        for (Enumeration en = exts.oids(); en.hasMoreElements(); )
         {
             ASN1ObjectIdentifier extOid = (ASN1ObjectIdentifier)en.nextElement();
 
@@ -300,13 +282,13 @@ class CertUtils
         return extGenerator;
     }
 
-    static ExtensionsGenerator doRemoveExtension(ExtensionsGenerator extGenerator, ASN1ObjectIdentifier  oid)
+    static ExtensionsGenerator doRemoveExtension(ExtensionsGenerator extGenerator, ASN1ObjectIdentifier oid)
     {
         boolean isRemoved = false;
         Extensions exts = extGenerator.generate();
         extGenerator = new ExtensionsGenerator();
 
-        for (Enumeration en = exts.oids(); en.hasMoreElements();)
+        for (Enumeration en = exts.oids(); en.hasMoreElements(); )
         {
             ASN1ObjectIdentifier extOid = (ASN1ObjectIdentifier)en.nextElement();
 
@@ -326,5 +308,32 @@ class CertUtils
         }
 
         return extGenerator;
+    }
+
+    private static byte[] generateSig(ContentSigner signer, ASN1Object tbsObj)
+        throws IOException
+    {
+        OutputStream sOut = signer.getOutputStream();
+        tbsObj.encodeTo(sOut, ASN1Encoding.DER);
+        sOut.close();
+
+        return signer.getSignature();
+    }
+
+    static ASN1TaggedObject trimExtensions(int tagNo, Extensions exts)
+    {
+        ASN1Sequence extSeq = ASN1Sequence.getInstance(exts.toASN1Primitive());
+        ASN1EncodableVector extV = new ASN1EncodableVector();
+        for (int i = 0; i != extSeq.size(); i++)
+        {
+            ASN1Sequence ext = ASN1Sequence.getInstance(extSeq.getObjectAt(i));
+
+            if (!Extension.altSignatureValue.equals(ext.getObjectAt(0)))
+            {
+                extV.add(ext);
+            }
+        }
+
+        return new DERTaggedObject(true, tagNo, new DERSequence(extV));
     }
 }

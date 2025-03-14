@@ -47,6 +47,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.data.AccessNetworksManager;
 import com.android.internal.telephony.data.AccessNetworksManager.QualifiedNetworks;
 import com.android.internal.telephony.emergency.EmergencyStateTracker;
+import com.android.internal.telephony.flags.Flags;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -196,6 +197,32 @@ public class EmergencyCallDomainSelectionConnection extends DomainSelectionConne
         AccessNetworksManager anm = mPhone.getAccessNetworksManager();
         anm.unregisterForQualifiedNetworksChanged(mHandler);
         super.cancelSelection();
+    }
+
+    @Override
+    public @NonNull CompletableFuture<Integer> reselectDomain(
+        @NonNull DomainSelectionService.SelectionAttributes attr) {
+        if (Flags.hangupEmergencyCallForCrossSimRedialing()) {
+            int disconnectCause = getDisconnectCause();
+            int preciseDisconnectCause = attr.getCsDisconnectCause();
+            if (disconnectCause == android.telephony.DisconnectCause.EMERGENCY_TEMP_FAILURE) {
+                preciseDisconnectCause = PreciseDisconnectCause.EMERGENCY_TEMP_FAILURE;
+            } else if (disconnectCause
+                    == android.telephony.DisconnectCause.EMERGENCY_PERM_FAILURE) {
+                preciseDisconnectCause = PreciseDisconnectCause.EMERGENCY_PERM_FAILURE;
+            }
+            if (preciseDisconnectCause != attr.getCsDisconnectCause()) {
+                attr = EmergencyCallDomainSelectionConnection.getSelectionAttributes(
+                        attr.getSlotIndex(), attr.getSubscriptionId(),
+                        attr.isExitedFromAirplaneMode(), attr.getCallId(),
+                        (attr.getAddress() != null)
+                        ? attr.getAddress().getSchemeSpecificPart() : "",
+                        attr.isTestEmergencyNumber(), preciseDisconnectCause,
+                        attr.getPsDisconnectCause(),
+                        attr.getEmergencyRegistrationResult());
+            }
+        }
+        return super.reselectDomain(attr);
     }
 
     /**

@@ -1,9 +1,12 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.crypto.engines;
 
+import com.android.internal.org.bouncycastle.crypto.BlockCipher;
 import com.android.internal.org.bouncycastle.crypto.CipherParameters;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicesRegistrar;
 import com.android.internal.org.bouncycastle.crypto.DataLengthException;
 import com.android.internal.org.bouncycastle.crypto.OutputLengthException;
+import com.android.internal.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
 import com.android.internal.org.bouncycastle.crypto.params.KeyParameter;
 
 /**
@@ -11,34 +14,36 @@ import com.android.internal.org.bouncycastle.crypto.params.KeyParameter;
  * @hide This class is not part of the Android public SDK API
  */
 public class DESedeEngine
-    extends DESEngine
+    extends DESBase
+    implements BlockCipher
 {
-    protected static final int  BLOCK_SIZE = 8;
+    protected static final int BLOCK_SIZE = 8;
 
-    private int[]               workingKey1 = null;
-    private int[]               workingKey2 = null;
-    private int[]               workingKey3 = null;
+    private int[] workingKey1 = null;
+    private int[] workingKey2 = null;
+    private int[] workingKey3 = null;
 
-    private boolean             forEncryption;
+    private boolean forEncryption;
 
     /**
      * standard constructor.
      */
     public DESedeEngine()
     {
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), bitsOfSecurity()));
     }
 
     /**
      * initialise a DESede cipher.
      *
      * @param encrypting whether or not we are for encryption.
-     * @param params the parameters required to set up the cipher.
-     * @exception IllegalArgumentException if the params argument is
-     * inappropriate.
+     * @param params     the parameters required to set up the cipher.
+     * @throws IllegalArgumentException if the params argument is
+     *                                  inappropriate.
      */
     public void init(
-        boolean           encrypting,
-        CipherParameters  params)
+        boolean encrypting,
+        CipherParameters params)
     {
         if (!(params instanceof KeyParameter))
         {
@@ -72,6 +77,8 @@ public class DESedeEngine
         {
             workingKey3 = workingKey1;
         }
+
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), bitsOfSecurity(), params, Utils.getPurpose(forEncryption)));
     }
 
     public String getAlgorithmName()
@@ -125,5 +132,15 @@ public class DESedeEngine
 
     public void reset()
     {
+    }
+
+    // Service Definitions
+    private int bitsOfSecurity()
+    {
+        if (workingKey1 != null && workingKey1 == workingKey3)
+        {
+            return 80;
+        }
+        return 112;
     }
 }

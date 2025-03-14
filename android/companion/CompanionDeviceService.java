@@ -62,10 +62,11 @@ import java.util.concurrent.Executor;
  *
  * <p>
  * If the companion application has requested observing device presence (see
- * {@link CompanionDeviceManager#startObservingDevicePresence(String)}) the system will
- * <a href="https://developer.android.com/guide/components/bound-services"> bind the service</a>
- * when it detects the device nearby (for BLE devices) or when the device is connected
- * (for Bluetooth devices).
+ * {@link CompanionDeviceManager#stopObservingDevicePresence(ObservingDevicePresenceRequest)})
+ * the system will <a href="https://developer.android.com/guide/components/bound-services">
+ * bind the service</a> when one of the {@link DevicePresenceEvent#EVENT_BLE_APPEARED},
+ * {@link DevicePresenceEvent#EVENT_BT_CONNECTED},
+ * {@link DevicePresenceEvent#EVENT_SELF_MANAGED_APPEARED} event is notified.
  *
  * <p>
  * The system binding {@link CompanionDeviceService} elevates the priority of the process that
@@ -102,15 +103,25 @@ public abstract class CompanionDeviceService extends Service {
 
     /**
      * An intent action for a service to be bound whenever this app's companion device(s)
-     * are nearby.
+     * are nearby or self-managed device(s) report app appeared.
      *
-     * <p>The app will be kept alive for as long as the device is nearby or companion app reports
-     * appeared.
-     * If the app is not running at the time device gets connected, the app will be woken up.</p>
+     * <p>The app will be kept bound by the system when one of the
+     * {@link DevicePresenceEvent#EVENT_BLE_APPEARED},
+     * {@link DevicePresenceEvent#EVENT_BT_CONNECTED},
+     * {@link DevicePresenceEvent#EVENT_SELF_MANAGED_APPEARED} event is notified.
      *
-     * <p>Shortly after the device goes out of range or the companion app reports disappeared,
-     * the service will be unbound, and the app will be eligible for cleanup, unless any other
-     * user-visible components are running.</p>
+     * If the app is not running when one of the
+     * {@link DevicePresenceEvent#EVENT_BLE_APPEARED},
+     * {@link DevicePresenceEvent#EVENT_BT_CONNECTED},
+     * {@link DevicePresenceEvent#EVENT_SELF_MANAGED_APPEARED} event is notified, the app will be
+     * kept bound by the system.</p>
+     *
+     * <p>Shortly, the service will be unbound if both
+     * {@link DevicePresenceEvent#EVENT_BLE_DISAPPEARED} and
+     * {@link DevicePresenceEvent#EVENT_BT_DISCONNECTED} are notified, or
+     * {@link DevicePresenceEvent#EVENT_SELF_MANAGED_DISAPPEARED} event is notified.
+     * The app will be eligible for cleanup, unless any other user-visible components are
+     * running.</p>
      *
      * If running in background is not essential for the devices that this app can manage,
      * app should avoid declaring this service.</p>
@@ -247,12 +258,14 @@ public abstract class CompanionDeviceService extends Service {
                 .detachSystemDataTransport(associationId);
     }
 
-    // TODO(b/315163162) Add @Deprecated keyword after 24Q2 cut.
     /**
-     * Called by system whenever a device associated with this app is connected.
+     * Called by the system when an associated device is nearby or connected.
      *
      * @param associationInfo A record for the companion device.
+     * @deprecated use {@link #onDevicePresenceEvent(DevicePresenceEvent)}} instead.
      */
+    @FlaggedApi(Flags.FLAG_DEVICE_PRESENCE)
+    @Deprecated
     @MainThread
     public void onDeviceAppeared(@NonNull AssociationInfo associationInfo) {
         if (!associationInfo.isSelfManaged()) {
@@ -260,12 +273,14 @@ public abstract class CompanionDeviceService extends Service {
         }
     }
 
-    // TODO(b/315163162) Add @Deprecated keyword after 24Q2 cut.
     /**
-     * Called by system whenever a device associated with this app is disconnected.
+     * Called by the system when an associated device is out of range or disconnected.
      *
      * @param associationInfo A record for the companion device.
+     * @deprecated use {@link #onDevicePresenceEvent(DevicePresenceEvent)}} instead.
      */
+    @FlaggedApi(Flags.FLAG_DEVICE_PRESENCE)
+    @Deprecated
     @MainThread
     public void onDeviceDisappeared(@NonNull AssociationInfo associationInfo) {
         if (!associationInfo.isSelfManaged()) {
@@ -274,7 +289,7 @@ public abstract class CompanionDeviceService extends Service {
     }
 
     /**
-     * Called by the system during device events.
+     * Called by the system when an associated device's presence state changes.
      *
      * @see CompanionDeviceManager#startObservingDevicePresence(ObservingDevicePresenceRequest)
      */

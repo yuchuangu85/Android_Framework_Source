@@ -25,6 +25,7 @@ import java.text.FieldPosition;
 import java.text.Format;
 import java.text.ParseException;
 import java.text.ParsePosition;
+import java.time.temporal.Temporal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -42,6 +43,7 @@ import android.icu.text.MessagePattern.ArgType;
 import android.icu.text.MessagePattern.Part;
 import android.icu.text.PluralRules.IFixedDecimal;
 import android.icu.text.PluralRules.PluralType;
+import android.icu.util.Calendar;
 import android.icu.util.ICUUncheckedIOException;
 import android.icu.util.ULocale;
 import android.icu.util.ULocale.Category;
@@ -1673,8 +1675,14 @@ public class MessageFormat extends UFormat {
                 if (arg instanceof Number) {
                     // format number if can
                     dest.formatAndAppend(getStockNumberFormatter(), arg);
-                 } else if (arg instanceof Date) {
+                } else if (arg instanceof Date) {
                     // format a Date if can
+                    dest.formatAndAppend(getStockDateFormatter(), arg);
+                } else if (arg instanceof Calendar) {
+                    // format a Calendar if can
+                    dest.formatAndAppend(getStockDateFormatter(), arg);
+                } else if (arg instanceof Temporal) {
+                    // format a Temporal if can
                     dest.formatAndAppend(getStockDateFormatter(), arg);
                 } else {
                     dest.append(arg.toString());

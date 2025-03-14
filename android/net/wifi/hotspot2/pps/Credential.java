@@ -145,7 +145,7 @@ public final class Credential implements Parcelable {
          * Maximum string length for username.  Refer to Credential/UsernamePassword/Username
          * node in Hotspot 2.0 Release 2 Technical Specification Section 9.1 for more info.
          */
-        private static final int MAX_USERNAME_BYTES = 63;
+        private static final int MAX_USERNAME_BYTES = 253;
 
         /**
          * Maximum string length for password.  Refer to Credential/UsernamePassword/Password

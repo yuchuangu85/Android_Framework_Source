@@ -15,9 +15,10 @@
  */
 package com.android.adservices;
 
+import static android.adservices.common.AdServicesStatusUtils.SERVICE_UNAVAILABLE_ERROR_MESSAGE;
+
 import static com.android.adservices.AdServicesCommon.ACTION_ADID_PROVIDER_SERVICE;
 import static com.android.adservices.AdServicesCommon.ACTION_ADID_SERVICE;
-import static com.android.adservices.AdServicesCommon.ACTION_AD_EXT_DATA_STORAGE_SERVICE;
 import static com.android.adservices.AdServicesCommon.ACTION_AD_SELECTION_SERVICE;
 import static com.android.adservices.AdServicesCommon.ACTION_AD_SERVICES_COBALT_UPLOAD_SERVICE;
 import static com.android.adservices.AdServicesCommon.ACTION_AD_SERVICES_COMMON_SERVICE;
@@ -45,7 +46,7 @@ import android.os.Process;
 import android.os.SystemProperties;
 import android.text.TextUtils;
 
-import com.android.adservices.shared.common.ServiceUnavailableException;
+import com.android.adservices.shared.common.exception.ServiceUnavailableException;
 import com.android.internal.annotations.GuardedBy;
 
 import java.util.List;
@@ -61,8 +62,8 @@ import java.util.function.Function;
  * @hide
  */
 // TODO(b/251429601): Add unit test for this class.
-class AndroidServiceBinder<T> extends ServiceBinder<T> {
-    // TODO: Revisit it.
+final class AndroidServiceBinder<T> extends ServiceBinder<T> {
+    // TODO(b/218519915): Revisit it.
     private static final int BIND_FLAGS = Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT;
 
     // It likely causes ANR if a binder call blocks the main thread for >5 seconds.
@@ -112,6 +113,9 @@ class AndroidServiceBinder<T> extends ServiceBinder<T> {
                 SystemProperties.getInt(
                         SYSTEM_PROPERTY_FOR_DEBUGGING_BINDER_TIMEOUT,
                         DEFAULT_BINDER_CONNECTION_TIMEOUT_MS);
+        LogUtil.d(
+                "AndroidServiceBinder(): serviceIntentAction=%s, fromUser=%d, toUser=%s",
+                serviceIntentAction, Process.myUserHandle().getIdentifier(), getUserIdForLogging());
     }
 
     @Override
@@ -136,12 +140,16 @@ class AndroidServiceBinder<T> extends ServiceBinder<T> {
                 // There's no other pending connection, creating one.
                 ComponentName componentName = getServiceComponentName();
                 if (componentName == null) {
-                    LogUtil.e("Failed to find AdServices service");
+                    // Already logged
                     return null;
                 }
-                final Intent intent = new Intent(mServiceIntentAction).setComponent(componentName);
+                Intent intent = new Intent(mServiceIntentAction).setComponent(componentName);
 
-                LogUtil.d("bindService: " + mServiceIntentAction);
+                LogUtil.d(
+                        "getService(): binding (on user %d) to %s (on user %s)",
+                        Process.myUserHandle().getIdentifier(),
+                        mServiceIntentAction,
+                        getUserIdForLogging());
 
                 // This latch will open when the connection is established or any error occurs.
                 mConnectionCountDownLatch = new CountDownLatch(1);
@@ -150,27 +158,28 @@ class AndroidServiceBinder<T> extends ServiceBinder<T> {
                 // We use Runnable::run so that the callback is called on a binder thread.
                 // Otherwise we'd use the main thread, which could cause a deadlock.
                 try {
-                    final boolean success =
+                    boolean success =
                             mContext.bindService(
                                     intent, BIND_FLAGS, Runnable::run, mServiceConnection);
                     if (!success) {
-                        LogUtil.e("Failed to bindService: " + intent);
+                        LogUtil.e(
+                                "getService(): failed to bind to %s on user %s",
+                                mServiceIntentAction, getUserIdForLogging());
                         mServiceConnection = null;
                         return null;
                     } else {
-                        LogUtil.d(
-                                "bindService() started on user %d...",
-                                Process.myUserHandle().getIdentifier());
+                        LogUtil.d("getService(): bound!");
                     }
                 } catch (Exception e) {
                     LogUtil.e(
-                            "Caught unexpected exception during service binding: "
-                                    + e.getMessage());
+                            "getService(): caught unexpected exception during service binding to %s"
+                                    + " on user %s: %s",
+                            mServiceIntentAction, getUserIdForLogging(), e);
                     mServiceConnection = null;
                     return null;
                 }
             } else {
-                LogUtil.d("There is already a pending connection!");
+                LogUtil.d("getService(): There is already a pending connection!");
             }
         }
 
@@ -178,52 +187,68 @@ class AndroidServiceBinder<T> extends ServiceBinder<T> {
         // Note: We must not hold the lock while waiting for the connection since the
         // onServiceConnected callback also needs to acquire the lock. This would cause a deadlock.
         try {
-            LogUtil.v("Binder Timeout is: %d", mBinderTimeout);
+            LogUtil.v("getService(): waiting up to %dms for binder connection", mBinderTimeout);
             // TODO(b/218519915): Better timeout handling
-            mConnectionCountDownLatch.await(mBinderTimeout, TimeUnit.MILLISECONDS);
+            if (!mConnectionCountDownLatch.await(mBinderTimeout, TimeUnit.MILLISECONDS)) {
+                LogUtil.e(
+                        "getService(): timed out (%dms) waiting for binder connection",
+                        mBinderTimeout);
+            }
         } catch (InterruptedException e) {
-            throw new RuntimeException("Thread interrupted"); // TODO Handle it better.
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(
+                    "Thread interrupted", e); // TODO(b/218519915) Handle it better.
         }
 
         synchronized (mLock) {
             if (mService == null) {
-                throw new ServiceUnavailableException();
+                throw new ServiceUnavailableException(SERVICE_UNAVAILABLE_ERROR_MESSAGE);
             }
             return mService;
         }
     }
 
     // A class to handle the connection to the AdService Services.
-    private class AdServicesServiceConnection implements ServiceConnection {
+    private final class AdServicesServiceConnection implements ServiceConnection {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
-            LogUtil.d("onServiceConnected " + mServiceIntentAction);
-            synchronized (mLock) {
-                mService = mBinderConverter.apply(service);
-            }
-            // Connection is established, open the latch.
-            mConnectionCountDownLatch.countDown();
+            onCallback(
+                    "onServiceConnected",
+                    name,
+                    () -> {
+                        synchronized (mLock) {
+                            // Connection is established, open the latch.
+                            mService = mBinderConverter.apply(service);
+                        }
+                    });
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
-            LogUtil.d("onServiceDisconnected " + mServiceIntentAction);
-            unbindFromService();
-            mConnectionCountDownLatch.countDown();
+            onCallback("onServiceDisconnected", name, () -> unbindFromService());
         }
 
         @Override
         public void onBindingDied(ComponentName name) {
-            LogUtil.d("onBindingDied " + mServiceIntentAction);
-            unbindFromService();
-            mConnectionCountDownLatch.countDown();
+            onCallback("onBindingDied", name, () -> unbindFromService());
         }
 
         @Override
         public void onNullBinding(ComponentName name) {
-            LogUtil.e("onNullBinding " + mServiceIntentAction);
-            unbindFromService();
-            mConnectionCountDownLatch.countDown();
+            onCallback("onNullBinding", name, () -> unbindFromService());
+        }
+
+        private void onCallback(String callback, @Nullable ComponentName name, Runnable runnable) {
+            // Shouldn't be null, but it doesn't hurt to check...
+            String service = name == null ? "N/A" : name.flattenToShortString();
+            LogUtil.d(
+                    "%s(userId=%s, action=%s, service=%s)",
+                    callback, getUserIdForLogging(), mServiceIntentAction, service);
+            try {
+                runnable.run();
+            } finally {
+                mConnectionCountDownLatch.countDown();
+            }
         }
     }
 
@@ -239,24 +264,31 @@ class AndroidServiceBinder<T> extends ServiceBinder<T> {
                 && !mServiceIntentAction.equals(ACTION_APPSETID_PROVIDER_SERVICE)
                 && !mServiceIntentAction.equals(ACTION_AD_SERVICES_COBALT_UPLOAD_SERVICE)
                 && !mServiceIntentAction.equals(ACTION_AD_SERVICES_COMMON_SERVICE)
-                && !mServiceIntentAction.equals(ACTION_AD_EXT_DATA_STORAGE_SERVICE)
                 && !mServiceIntentAction.equals(ACTION_SHELL_COMMAND_SERVICE)
                 && !mServiceIntentAction.equals(ACTION_PROTECTED_SIGNALS_SERVICE)) {
-            LogUtil.e("Bad service intent action: " + mServiceIntentAction);
+            LogUtil.e("Bad service intent action: %s", mServiceIntentAction);
             return null;
         }
-        final Intent intent = new Intent(mServiceIntentAction);
+        Intent intent = new Intent(mServiceIntentAction);
 
-        final List<ResolveInfo> resolveInfos =
+        List<ResolveInfo> resolveInfos =
                 mContext.getPackageManager()
                         .queryIntentServices(intent, PackageManager.MATCH_SYSTEM_ONLY);
-        final ServiceInfo serviceInfo =
+        ServiceInfo serviceInfo =
                 AdServicesCommon.resolveAdServicesService(resolveInfos, mServiceIntentAction);
         if (serviceInfo == null) {
-            LogUtil.e("Failed to find serviceInfo for adServices service");
+            LogUtil.e(
+                    "Failed to find serviceInfo for adServices service on user %s using intent %s",
+                    getUserIdForLogging(), mServiceIntentAction);
             return null;
         }
         return new ComponentName(serviceInfo.packageName, serviceInfo.name);
+    }
+
+    private String getUserIdForLogging() {
+        return Build.VERSION.SDK_INT > Build.VERSION_CODES.R
+                ? String.valueOf(mContext.getUser().getIdentifier())
+                : "N/A";
     }
 
     @Override
@@ -276,9 +308,6 @@ class AndroidServiceBinder<T> extends ServiceBinder<T> {
             mService = null;
         }
     }
-
-    // TODO(b/293894199, b/284744130): members below were adapted from BuildCompatUtils, it would
-    // be better to move BuildCompatUtils to this package
 
     private static final boolean IS_DEBUGGABLE = computeIsDebuggable();
 

@@ -18,7 +18,7 @@ package android.health.connect.aidl;
 
 import android.annotation.NonNull;
 import android.health.connect.datatypes.Record;
-import android.health.connect.internal.datatypes.utils.RecordMapper;
+import android.health.connect.internal.datatypes.utils.HealthConnectMappings;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -52,9 +52,11 @@ public final class ActivityDatesRequestParcel implements Parcelable {
 
     public ActivityDatesRequestParcel(@NonNull List<Class<? extends Record>> recordTypes) {
         Objects.requireNonNull(recordTypes);
-        RecordMapper recordMapper = RecordMapper.getInstance();
+        HealthConnectMappings healthConnectMappings = HealthConnectMappings.getInstance();
         mRecordTypes =
-                recordTypes.stream().map(recordMapper::getRecordType).collect(Collectors.toList());
+                recordTypes.stream()
+                        .map(healthConnectMappings::getRecordType)
+                        .collect(Collectors.toList());
     }
 
     private ActivityDatesRequestParcel(Parcel in) {
@@ -89,7 +91,7 @@ public final class ActivityDatesRequestParcel implements Parcelable {
     @NonNull
     public List<Class<? extends Record>> getRecordTypes() {
         final Map<Integer, Class<? extends Record>> mRecordIdToExternalRecordClassMap =
-                RecordMapper.getInstance().getRecordIdToExternalRecordClassMap();
+                HealthConnectMappings.getInstance().getRecordIdToExternalRecordClassMap();
         return mRecordTypes.stream()
                 .map(mRecordIdToExternalRecordClassMap::get)
                 .collect(Collectors.toList());

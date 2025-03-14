@@ -31,6 +31,7 @@ import android.annotation.RequiresPermission;
 import android.annotation.UiThread;
 import android.annotation.WorkerThread;
 import android.app.ActivityThread;
+import android.app.Application;
 import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;
@@ -184,10 +185,12 @@ public class InteractionJankMonitor {
     @GuardedBy("mLock")
     private final SparseArray<RunningTracker> mRunningTrackers = new SparseArray<>();
     private final Handler mWorker;
+    private final Application mCurrentApplication;
     private final DisplayResolutionTracker mDisplayResolutionTracker;
     private final Object mLock = new Object();
     private @ColorInt int mDebugBgColor = Color.CYAN;
     private double mDebugYOffset = 0.1;
+    @GuardedBy("mLock")
     private InteractionMonitorDebugOverlay mDebugOverlay;
 
     private volatile boolean mEnabled = DEFAULT_ENABLED;
@@ -216,13 +219,15 @@ public class InteractionJankMonitor {
         mWorker = worker.getThreadHandler();
         mDisplayResolutionTracker = new DisplayResolutionTracker(mWorker);
 
-        final Context context = ActivityThread.currentApplication();
-        if (context == null || context.checkCallingOrSelfPermission(READ_DEVICE_CONFIG) != PERMISSION_GRANTED) {
+        mCurrentApplication = ActivityThread.currentApplication();
+        if (mCurrentApplication == null || mCurrentApplication.checkCallingOrSelfPermission(
+                READ_DEVICE_CONFIG) != PERMISSION_GRANTED) {
             Log.w(TAG, "Initializing without READ_DEVICE_CONFIG permission."
                     + " enabled=" + mEnabled + ", interval=" + mSamplingInterval
                     + ", missedFrameThreshold=" + mTraceThresholdMissedFrames
                     + ", frameTimeThreshold=" + mTraceThresholdFrameTimeMillis
-                    + ", package=" + (context == null ? "null" : context.getPackageName()));
+                    + ", package=" + (mCurrentApplication == null ? "null"
+                    : mCurrentApplication.getPackageName()));
             return;
         }
 
@@ -234,8 +239,8 @@ public class InteractionJankMonitor {
                         new HandlerExecutor(mWorker), this::updateProperties);
             } catch (SecurityException ex) {
                 Log.d(TAG, "Can't get properties: READ_DEVICE_CONFIG granted="
-                        + context.checkCallingOrSelfPermission(READ_DEVICE_CONFIG)
-                        + ", package=" + context.getPackageName());
+                        + mCurrentApplication.checkCallingOrSelfPermission(READ_DEVICE_CONFIG)
+                        + ", package=" + mCurrentApplication.getPackageName());
             }
         });
     }
@@ -325,6 +330,50 @@ public class InteractionJankMonitor {
     /**
      * Begins a trace session.
      *
+     * @param surface a handle for the surface to begin tracing for.
+     * @param context context to provide display and handler information.
+     * @param cujType the specific {@link Cuj.CujType}.
+     * @return boolean true if the tracker is started successfully, false otherwise.
+     */
+    public boolean begin(SurfaceControl surface, Context context, Handler handler,
+            @Cuj.CujType int cujType) {
+        try {
+            return begin(Configuration.Builder.withSurface(cujType, context, surface, handler));
+        } catch (IllegalArgumentException ex) {
+            Log.d(TAG, "Build configuration failed!", ex);
+            return false;
+        }
+    }
+
+    /**
+     * Begins a trace session.
+     *
+     * @param surface a handle for the surface to begin tracing for.
+     * @param context context to provide display and handler information.
+     * @param cujType the specific {@link Cuj.CujType}.
+     * @param tag a tag containing extra information about the interaction.
+     * @return boolean true if the tracker is started successfully, false otherwise.
+     */
+    public boolean begin(SurfaceControl surface, Context context, Handler handler,
+            @Cuj.CujType int cujType,
+            String tag) {
+        try {
+            final Configuration.Builder builder =
+                    Configuration.Builder.withSurface(cujType, context, surface, handler);
+            if (!TextUtils.isEmpty(tag)) {
+                builder.setTag(tag);
+            }
+            return begin(builder);
+        } catch (IllegalArgumentException ex) {
+            Log.d(TAG, "Build configuration failed!", ex);
+            return false;
+        }
+    }
+
+
+    /**
+     * Begins a trace session.
+     *
      * @param builder the builder of the configurations for instrumenting the CUJ.
      * @return boolean true if the tracker is begun successfully, false otherwise.
      */
@@ -354,11 +403,18 @@ public class InteractionJankMonitor {
         int cujType = conf.mCujType;
         if (!shouldMonitor()) {
             return false;
+        } else if (!conf.hasValidView()) {
+            Log.w(TAG, "The view has since become invalid, aborting the CUJ.");
+            return false;
         }
 
         RunningTracker tracker = putTrackerIfNoCurrent(cujType, () ->
                 new RunningTracker(
-                    conf, createFrameTracker(conf), () -> cancel(cujType, REASON_CANCEL_TIMEOUT)));
+                    conf, createFrameTracker(conf), () -> {
+                        Log.w(TAG, "CUJ cancelled due to timeout, CUJ="
+                                + Cuj.getNameOfCuj(cujType));
+                        cancel(cujType, REASON_CANCEL_TIMEOUT);
+                    }));
         if (tracker == null) {
             return false;
         }
@@ -487,7 +543,7 @@ public class InteractionJankMonitor {
 
             mRunningTrackers.put(cuj, tracker);
             if (mDebugOverlay != null) {
-                mDebugOverlay.onTrackerAdded(cuj, tracker);
+                mDebugOverlay.onTrackerAdded(cuj, tracker.mTracker.hashCode());
             }
 
             return tracker;
@@ -522,7 +578,7 @@ public class InteractionJankMonitor {
             running.mConfig.getHandler().removeCallbacks(running.mTimeoutAction);
             mRunningTrackers.remove(cuj);
             if (mDebugOverlay != null) {
-                mDebugOverlay.onTrackerRemoved(cuj, reason, mRunningTrackers);
+                mDebugOverlay.onTrackerRemoved(cuj, reason, tracker.hashCode());
             }
             return false;
         }
@@ -545,14 +601,18 @@ public class InteractionJankMonitor {
                         mEnabled = properties.getBoolean(property, DEFAULT_ENABLED);
                 case SETTINGS_DEBUG_OVERLAY_ENABLED_KEY -> {
                     // Never allow the debug overlay to be used on user builds
-                    boolean debugOverlayEnabled = Build.IS_DEBUGGABLE
-                            && properties.getBoolean(property, DEFAULT_DEBUG_OVERLAY_ENABLED);
-                    if (debugOverlayEnabled && mDebugOverlay == null) {
-                        mDebugOverlay = new InteractionMonitorDebugOverlay(
-                                mLock, mDebugBgColor, mDebugYOffset);
-                    } else if (!debugOverlayEnabled && mDebugOverlay != null) {
-                        mDebugOverlay.dispose();
-                        mDebugOverlay = null;
+                    if (Build.IS_USER) break;
+                    boolean debugOverlayEnabled = properties.getBoolean(property,
+                            DEFAULT_DEBUG_OVERLAY_ENABLED);
+                    synchronized (mLock) {
+                        if (debugOverlayEnabled && mDebugOverlay == null) {
+                            // Use the worker thread as the UI thread for the debug overlay:
+                            mDebugOverlay = new InteractionMonitorDebugOverlay(
+                                    mCurrentApplication, mWorker, mDebugBgColor, mDebugYOffset);
+                        } else if (!debugOverlayEnabled && mDebugOverlay != null) {
+                            mDebugOverlay.dispose();
+                            mDebugOverlay = null;
+                        }
                     }
                 }
                 default -> Log.w(TAG, "Got a change event for an unknown property: "
@@ -644,20 +704,23 @@ public class InteractionJankMonitor {
             private SurfaceControl mAttrSurfaceControl;
             private final @Cuj.CujType int mAttrCujType;
             private boolean mAttrDeferMonitor = true;
+            private Handler mHandler = null;
 
             /**
              * Creates a builder which instruments only surface.
              * @param cuj The enum defined in {@link Cuj.CujType}.
              * @param context context
              * @param surfaceControl surface control
+             * @param uiThreadHandler UI thread for that surface
              * @return builder
              */
             public static Builder withSurface(@Cuj.CujType int cuj, @NonNull Context context,
-                    @NonNull SurfaceControl surfaceControl) {
+                    @NonNull SurfaceControl surfaceControl, @NonNull Handler uiThreadHandler) {
                 return new Builder(cuj)
                         .setContext(context)
                         .setSurfaceControl(surfaceControl)
-                        .setSurfaceOnly(true);
+                        .setSurfaceOnly(true)
+                        .setHandler(uiThreadHandler);
             }
 
             /**
@@ -674,6 +737,18 @@ public class InteractionJankMonitor {
 
             private Builder(@Cuj.CujType int cuj) {
                 mAttrCujType = cuj;
+            }
+
+            /**
+             * Specifies the UI thread handler. If not provided, the View's one will be used.
+             * If only a surface is provided without handler, the app main thread will be used.
+             *
+             * @param uiThreadHandler handler associated to the cuj UI thread
+             * @return builder
+             */
+            public Builder setHandler(Handler uiThreadHandler) {
+                mHandler = uiThreadHandler;
+                return this;
             }
 
             /**
@@ -753,13 +828,13 @@ public class InteractionJankMonitor {
                 return new Configuration(
                         mAttrCujType, mAttrView, mAttrTag, mAttrTimeout,
                         mAttrSurfaceOnly, mAttrContext, mAttrSurfaceControl,
-                        mAttrDeferMonitor);
+                        mAttrDeferMonitor, mHandler);
             }
         }
 
         private Configuration(@Cuj.CujType int cuj, View view, @NonNull String tag, long timeout,
                 boolean surfaceOnly, Context context, SurfaceControl surfaceControl,
-                boolean deferMonitor) {
+                boolean deferMonitor, Handler handler) {
             mCujType = cuj;
             mTag = tag;
             mSessionName = generateSessionName(Cuj.getNameOfCuj(cuj), tag);
@@ -771,8 +846,16 @@ public class InteractionJankMonitor {
                     : (view != null ? view.getContext().getApplicationContext() : null);
             mSurfaceControl = surfaceControl;
             mDeferMonitor = deferMonitor;
+            if (handler != null) {
+                mHandler = handler;
+            } else if (mSurfaceOnly) {
+                Log.w(TAG, "No UIThread provided for " + mSessionName
+                        + " (surface only). Defaulting to app main thread.");
+                mHandler = mContext.getMainThreadHandler();
+            } else {
+                mHandler = mView.getHandler();
+            }
             validate();
-            mHandler = mSurfaceOnly ? mContext.getMainThreadHandler() : mView.getHandler();
         }
 
         @VisibleForTesting
@@ -812,6 +895,12 @@ public class InteractionJankMonitor {
                 if (mSurfaceControl == null || !mSurfaceControl.isValid()) {
                     shouldThrow = true;
                     msg.append("Must pass in a valid surface control if only instrument surface; ");
+                }
+                if (mHandler == null) {
+                    shouldThrow = true;
+                    msg.append(
+                            "Must pass a UI thread handler when only a surface control is "
+                                    + "provided.");
                 }
             } else {
                 if (!hasValidView()) {

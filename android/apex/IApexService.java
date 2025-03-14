@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version 28 --ninja -d out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen/android/apex/IApexService.java.d -o out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen -Nsystem/apex/apexd/aidl system/apex/apexd/aidl/android/apex/IApexService.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.apex;
 public interface IApexService extends android.os.IInterface
@@ -76,14 +80,6 @@ public interface IApexService extends android.os.IInterface
     {
     }
     /**
-     * Returns the active package corresponding to |package_name| and null
-     * if none exists.
-     */
-    @Override public android.apex.ApexInfo getActivePackage(java.lang.String package_name) throws android.os.RemoteException
-    {
-      return null;
-    }
-    /**
      * Not meant for use outside of testing. The call will not be
      * functional on user builds.
      */
@@ -98,43 +94,12 @@ public interface IApexService extends android.os.IInterface
     {
     }
     /**
-     * Forces apexd to remount all active packages.
-     * 
-     * This call is mostly useful for speeding up development of APEXes.
-     * Instead of going through a full APEX installation that requires a reboot,
-     * developers can incorporate this method in much faster `adb sync` based
-     * workflow:
-     * 
-     * 1. adb shell stop
-     * 2. adb sync
-     * 3. adb shell cmd -w apexservice remountPackages
-     * 4. adb shell start
-     * 
-     * Note, that for an APEX package will be successfully remounted only if
-     * there are no alive processes holding a reference to it.
+     * Forces apexd to recollect pre-installed data from all the supported built-in dirs.
      * 
      * Not meant for use outside of testing. This call will not be functional
      * on user builds. Only root is allowed to call this method.
      */
-    @Override public void remountPackages() throws android.os.RemoteException
-    {
-    }
-    /**
-     * Forces apexd to recollect pre-installed data from the given |paths|.
-     * 
-     * Not meant for use outside of testing. This call will not be functional
-     * on user builds. Only root is allowed to call this method.
-     */
-    @Override public void recollectPreinstalledData(java.util.List<java.lang.String> paths) throws android.os.RemoteException
-    {
-    }
-    /**
-     * Forces apexd to recollect data apex from the given |path|.
-     * 
-     * Not meant for use outside of testing. This call will not be functional
-     * on user builds. Only root is allowed to call this method.
-     */
-    @Override public void recollectDataApex(java.lang.String path, java.lang.String decompression_dir) throws android.os.RemoteException
+    @Override public void recollectPreinstalledData() throws android.os.RemoteException
     {
     }
     /** Informs apexd that the boot has completed. */
@@ -169,7 +134,7 @@ public interface IApexService extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.apex.IApexService
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -346,15 +311,6 @@ public interface IApexService extends android.os.IInterface
           reply.writeNoException();
           break;
         }
-        case TRANSACTION_getActivePackage:
-        {
-          java.lang.String _arg0;
-          _arg0 = data.readString();
-          android.apex.ApexInfo _result = this.getActivePackage(_arg0);
-          reply.writeNoException();
-          reply.writeTypedObject(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
-          break;
-        }
         case TRANSACTION_stagePackages:
         {
           java.util.List<java.lang.String> _arg0;
@@ -369,27 +325,9 @@ public interface IApexService extends android.os.IInterface
           reply.writeNoException();
           break;
         }
-        case TRANSACTION_remountPackages:
-        {
-          this.remountPackages();
-          reply.writeNoException();
-          break;
-        }
         case TRANSACTION_recollectPreinstalledData:
         {
-          java.util.List<java.lang.String> _arg0;
-          _arg0 = data.createStringArrayList();
-          this.recollectPreinstalledData(_arg0);
-          reply.writeNoException();
-          break;
-        }
-        case TRANSACTION_recollectDataApex:
-        {
-          java.lang.String _arg0;
-          _arg0 = data.readString();
-          java.lang.String _arg1;
-          _arg1 = data.readString();
-          this.recollectDataApex(_arg0, _arg1);
+          this.recollectPreinstalledData();
           reply.writeNoException();
           break;
         }
@@ -724,28 +662,6 @@ public interface IApexService extends android.os.IInterface
         }
       }
       /**
-       * Returns the active package corresponding to |package_name| and null
-       * if none exists.
-       */
-      @Override public android.apex.ApexInfo getActivePackage(java.lang.String package_name) throws android.os.RemoteException
-      {
-        android.os.Parcel _data = android.os.Parcel.obtain();
-        android.os.Parcel _reply = android.os.Parcel.obtain();
-        android.apex.ApexInfo _result;
-        try {
-          _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeString(package_name);
-          boolean _status = mRemote.transact(Stub.TRANSACTION_getActivePackage, _data, _reply, 0);
-          _reply.readException();
-          _result = _reply.readTypedObject(android.apex.ApexInfo.CREATOR);
-        }
-        finally {
-          _reply.recycle();
-          _data.recycle();
-        }
-        return _result;
-      }
-      /**
        * Not meant for use outside of testing. The call will not be
        * functional on user builds.
        */
@@ -783,74 +699,18 @@ public interface IApexService extends android.os.IInterface
         }
       }
       /**
-       * Forces apexd to remount all active packages.
-       * 
-       * This call is mostly useful for speeding up development of APEXes.
-       * Instead of going through a full APEX installation that requires a reboot,
-       * developers can incorporate this method in much faster `adb sync` based
-       * workflow:
-       * 
-       * 1. adb shell stop
-       * 2. adb sync
-       * 3. adb shell cmd -w apexservice remountPackages
-       * 4. adb shell start
-       * 
-       * Note, that for an APEX package will be successfully remounted only if
-       * there are no alive processes holding a reference to it.
+       * Forces apexd to recollect pre-installed data from all the supported built-in dirs.
        * 
        * Not meant for use outside of testing. This call will not be functional
        * on user builds. Only root is allowed to call this method.
        */
-      @Override public void remountPackages() throws android.os.RemoteException
+      @Override public void recollectPreinstalledData() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain();
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          boolean _status = mRemote.transact(Stub.TRANSACTION_remountPackages, _data, _reply, 0);
-          _reply.readException();
-        }
-        finally {
-          _reply.recycle();
-          _data.recycle();
-        }
-      }
-      /**
-       * Forces apexd to recollect pre-installed data from the given |paths|.
-       * 
-       * Not meant for use outside of testing. This call will not be functional
-       * on user builds. Only root is allowed to call this method.
-       */
-      @Override public void recollectPreinstalledData(java.util.List<java.lang.String> paths) throws android.os.RemoteException
-      {
-        android.os.Parcel _data = android.os.Parcel.obtain();
-        android.os.Parcel _reply = android.os.Parcel.obtain();
-        try {
-          _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeStringList(paths);
           boolean _status = mRemote.transact(Stub.TRANSACTION_recollectPreinstalledData, _data, _reply, 0);
-          _reply.readException();
-        }
-        finally {
-          _reply.recycle();
-          _data.recycle();
-        }
-      }
-      /**
-       * Forces apexd to recollect data apex from the given |path|.
-       * 
-       * Not meant for use outside of testing. This call will not be functional
-       * on user builds. Only root is allowed to call this method.
-       */
-      @Override public void recollectDataApex(java.lang.String path, java.lang.String decompression_dir) throws android.os.RemoteException
-      {
-        android.os.Parcel _data = android.os.Parcel.obtain();
-        android.os.Parcel _reply = android.os.Parcel.obtain();
-        try {
-          _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeString(path);
-          _data.writeString(decompression_dir);
-          boolean _status = mRemote.transact(Stub.TRANSACTION_recollectDataApex, _data, _reply, 0);
           _reply.readException();
         }
         finally {
@@ -951,16 +811,13 @@ public interface IApexService extends android.os.IInterface
     static final int TRANSACTION_destroyCeSnapshots = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
     static final int TRANSACTION_destroyCeSnapshotsNotSpecified = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
     static final int TRANSACTION_unstagePackages = (android.os.IBinder.FIRST_CALL_TRANSACTION + 15);
-    static final int TRANSACTION_getActivePackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
-    static final int TRANSACTION_stagePackages = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
-    static final int TRANSACTION_resumeRevertIfNeeded = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
-    static final int TRANSACTION_remountPackages = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
-    static final int TRANSACTION_recollectPreinstalledData = (android.os.IBinder.FIRST_CALL_TRANSACTION + 20);
-    static final int TRANSACTION_recollectDataApex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 21);
-    static final int TRANSACTION_markBootCompleted = (android.os.IBinder.FIRST_CALL_TRANSACTION + 22);
-    static final int TRANSACTION_calculateSizeForCompressedApex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 23);
-    static final int TRANSACTION_reserveSpaceForCompressedApex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 24);
-    static final int TRANSACTION_installAndActivatePackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 25);
+    static final int TRANSACTION_stagePackages = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
+    static final int TRANSACTION_resumeRevertIfNeeded = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
+    static final int TRANSACTION_recollectPreinstalledData = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
+    static final int TRANSACTION_markBootCompleted = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
+    static final int TRANSACTION_calculateSizeForCompressedApex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 20);
+    static final int TRANSACTION_reserveSpaceForCompressedApex = (android.os.IBinder.FIRST_CALL_TRANSACTION + 21);
+    static final int TRANSACTION_installAndActivatePackage = (android.os.IBinder.FIRST_CALL_TRANSACTION + 22);
   }
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android.apex.IApexService";
@@ -995,11 +852,6 @@ public interface IApexService extends android.os.IInterface
   public void destroyCeSnapshotsNotSpecified(int user_id, int[] retain_rollback_ids) throws android.os.RemoteException;
   public void unstagePackages(java.util.List<java.lang.String> active_package_paths) throws android.os.RemoteException;
   /**
-   * Returns the active package corresponding to |package_name| and null
-   * if none exists.
-   */
-  public android.apex.ApexInfo getActivePackage(java.lang.String package_name) throws android.os.RemoteException;
-  /**
    * Not meant for use outside of testing. The call will not be
    * functional on user builds.
    */
@@ -1010,39 +862,12 @@ public interface IApexService extends android.os.IInterface
    */
   public void resumeRevertIfNeeded() throws android.os.RemoteException;
   /**
-   * Forces apexd to remount all active packages.
-   * 
-   * This call is mostly useful for speeding up development of APEXes.
-   * Instead of going through a full APEX installation that requires a reboot,
-   * developers can incorporate this method in much faster `adb sync` based
-   * workflow:
-   * 
-   * 1. adb shell stop
-   * 2. adb sync
-   * 3. adb shell cmd -w apexservice remountPackages
-   * 4. adb shell start
-   * 
-   * Note, that for an APEX package will be successfully remounted only if
-   * there are no alive processes holding a reference to it.
+   * Forces apexd to recollect pre-installed data from all the supported built-in dirs.
    * 
    * Not meant for use outside of testing. This call will not be functional
    * on user builds. Only root is allowed to call this method.
    */
-  public void remountPackages() throws android.os.RemoteException;
-  /**
-   * Forces apexd to recollect pre-installed data from the given |paths|.
-   * 
-   * Not meant for use outside of testing. This call will not be functional
-   * on user builds. Only root is allowed to call this method.
-   */
-  public void recollectPreinstalledData(java.util.List<java.lang.String> paths) throws android.os.RemoteException;
-  /**
-   * Forces apexd to recollect data apex from the given |path|.
-   * 
-   * Not meant for use outside of testing. This call will not be functional
-   * on user builds. Only root is allowed to call this method.
-   */
-  public void recollectDataApex(java.lang.String path, java.lang.String decompression_dir) throws android.os.RemoteException;
+  public void recollectPreinstalledData() throws android.os.RemoteException;
   /** Informs apexd that the boot has completed. */
   public void markBootCompleted() throws android.os.RemoteException;
   /**

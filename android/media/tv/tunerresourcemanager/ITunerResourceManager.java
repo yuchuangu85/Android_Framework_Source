@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/base/media/java/android/media/tv/tunerresourcemanager/tv_tuner_resource_manager_aidl_interface-java-source/gen/android/media/tv/tunerresourcemanager/ITunerResourceManager.java.d -o out/soong/.intermediates/frameworks/base/media/java/android/media/tv/tunerresourcemanager/tv_tuner_resource_manager_aidl_interface-java-source/gen -Nframeworks/base/media/java/android/media/tv/tunerresourcemanager/aidl frameworks/base/media/java/android/media/tv/tunerresourcemanager/aidl/android/media/tv/tunerresourcemanager/ITunerResourceManager.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.media.tv.tunerresourcemanager;
 /**
@@ -139,7 +143,21 @@ public interface ITunerResourceManager extends android.os.IInterface
      * 
      * @param lnbIds ids of the updating lnbs.
      */
-    @Override public void setLnbInfoList(int[] lnbIds) throws android.os.RemoteException
+    @Override public void setLnbInfoList(long[] lnbIds) throws android.os.RemoteException
+    {
+    }
+    /**
+     * Determines whether the Resource Holder retains ownership of the resource during a challenge
+     * scenario, when both Resource Holder and Resource Challenger have same processId and same
+     * priority.
+     * 
+     * @param clientId The client id used to set ownership of resource in case of resource
+     *     challenger situation.
+     * @param enabled Set to {@code true} to allow the Resource Holder to retain ownership,
+     *     or false to allow the Resource Challenger to acquire the resource.
+     *     If not explicitly set, enabled is set to {@code false}.
+     */
+    @Override public void setResourceOwnershipRetention(int clientId, boolean enabled) throws android.os.RemoteException
     {
     }
     /**
@@ -176,7 +194,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * 
      * @return true if there is frontend granted.
      */
-    @Override public boolean requestFrontend(android.media.tv.tunerresourcemanager.TunerFrontendRequest request, int[] frontendHandle) throws android.os.RemoteException
+    @Override public boolean requestFrontend(android.media.tv.tunerresourcemanager.TunerFrontendRequest request, long[] frontendHandle) throws android.os.RemoteException
     {
       return false;
     }
@@ -253,7 +271,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * 
      * @return true if there is demux granted.
      */
-    @Override public boolean requestDemux(android.media.tv.tunerresourcemanager.TunerDemuxRequest request, int[] demuxHandle) throws android.os.RemoteException
+    @Override public boolean requestDemux(android.media.tv.tunerresourcemanager.TunerDemuxRequest request, long[] demuxHandle) throws android.os.RemoteException
     {
       return false;
     }
@@ -279,7 +297,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * 
      * @return true if there is Descrambler granted.
      */
-    @Override public boolean requestDescrambler(android.media.tv.tunerresourcemanager.TunerDescramblerRequest request, int[] descramblerHandle) throws android.os.RemoteException
+    @Override public boolean requestDescrambler(android.media.tv.tunerresourcemanager.TunerDescramblerRequest request, long[] descramblerHandle) throws android.os.RemoteException
     {
       return false;
     }
@@ -307,7 +325,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * 
      * @return true if there is CAS session granted.
      */
-    @Override public boolean requestCasSession(android.media.tv.tunerresourcemanager.CasSessionRequest request, int[] casSessionHandle) throws android.os.RemoteException
+    @Override public boolean requestCasSession(android.media.tv.tunerresourcemanager.CasSessionRequest request, long[] casSessionHandle) throws android.os.RemoteException
     {
       return false;
     }
@@ -334,7 +352,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * 
      * @return true if there is CiCam granted.
      */
-    @Override public boolean requestCiCam(android.media.tv.tunerresourcemanager.TunerCiCamRequest request, int[] ciCamHandle) throws android.os.RemoteException
+    @Override public boolean requestCiCam(android.media.tv.tunerresourcemanager.TunerCiCamRequest request, long[] ciCamHandle) throws android.os.RemoteException
     {
       return false;
     }
@@ -360,7 +378,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * 
      * @return true if there is Lnb granted.
      */
-    @Override public boolean requestLnb(android.media.tv.tunerresourcemanager.TunerLnbRequest request, int[] lnbHandle) throws android.os.RemoteException
+    @Override public boolean requestLnb(android.media.tv.tunerresourcemanager.TunerLnbRequest request, long[] lnbHandle) throws android.os.RemoteException
     {
       return false;
     }
@@ -375,7 +393,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * @param frontendHandle the handle of the released frontend.
      * @param clientId the id of the client that is releasing the frontend.
      */
-    @Override public void releaseFrontend(int frontendHandle, int clientId) throws android.os.RemoteException
+    @Override public void releaseFrontend(long frontendHandle, int clientId) throws android.os.RemoteException
     {
     }
     /**
@@ -386,7 +404,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * @param demuxHandle the handle of the released Tuner Demux.
      * @param clientId the id of the client that is releasing the demux.
      */
-    @Override public void releaseDemux(int demuxHandle, int clientId) throws android.os.RemoteException
+    @Override public void releaseDemux(long demuxHandle, int clientId) throws android.os.RemoteException
     {
     }
     /**
@@ -397,7 +415,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * @param descramblerHandle the handle of the released Tuner Descrambler.
      * @param clientId the id of the client that is releasing the descrambler.
      */
-    @Override public void releaseDescrambler(int descramblerHandle, int clientId) throws android.os.RemoteException
+    @Override public void releaseDescrambler(long descramblerHandle, int clientId) throws android.os.RemoteException
     {
     }
     /**
@@ -410,7 +428,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * @param casSessionHandle the handle of the released CAS session.
      * @param clientId the id of the client that is releasing the cas session.
      */
-    @Override public void releaseCasSession(int casSessionHandle, int clientId) throws android.os.RemoteException
+    @Override public void releaseCasSession(long casSessionHandle, int clientId) throws android.os.RemoteException
     {
     }
     /**
@@ -424,7 +442,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * @param ciCamHandle the handle of the releasing CiCam.
      * @param clientId the id of the client that is releasing the CiCam.
      */
-    @Override public void releaseCiCam(int ciCamHandle, int clientId) throws android.os.RemoteException
+    @Override public void releaseCiCam(long ciCamHandle, int clientId) throws android.os.RemoteException
     {
     }
     /**
@@ -437,7 +455,7 @@ public interface ITunerResourceManager extends android.os.IInterface
      * @param lnbHandle the handle of the released Tuner Lnb.
      * @param clientId the id of the client that is releasing the lnb.
      */
-    @Override public void releaseLnb(int lnbHandle, int clientId) throws android.os.RemoteException
+    @Override public void releaseLnb(long lnbHandle, int clientId) throws android.os.RemoteException
     {
     }
     /**
@@ -561,7 +579,7 @@ public interface ITunerResourceManager extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.media.tv.tunerresourcemanager.ITunerResourceManager
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -606,7 +624,9 @@ public interface ITunerResourceManager extends android.os.IInterface
           _arg1 = android.media.tv.tunerresourcemanager.IResourcesReclaimListener.Stub.asInterface(data.readStrongBinder());
           int[] _arg2;
           int _arg2_length = data.readInt();
-          if (_arg2_length < 0) {
+          if (_arg2_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg2_length);
+          } else if (_arg2_length < 0) {
             _arg2 = null;
           } else {
             _arg2 = new int[_arg2_length];
@@ -693,10 +713,21 @@ public interface ITunerResourceManager extends android.os.IInterface
         }
         case TRANSACTION_setLnbInfoList:
         {
-          int[] _arg0;
-          _arg0 = data.createIntArray();
+          long[] _arg0;
+          _arg0 = data.createLongArray();
           data.enforceNoDataAvail();
           this.setLnbInfoList(_arg0);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_setResourceOwnershipRetention:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          boolean _arg1;
+          _arg1 = data.readBoolean();
+          data.enforceNoDataAvail();
+          this.setResourceOwnershipRetention(_arg0, _arg1);
           reply.writeNoException();
           break;
         }
@@ -704,18 +735,20 @@ public interface ITunerResourceManager extends android.os.IInterface
         {
           android.media.tv.tunerresourcemanager.TunerFrontendRequest _arg0;
           _arg0 = data.readTypedObject(android.media.tv.tunerresourcemanager.TunerFrontendRequest.CREATOR);
-          int[] _arg1;
+          long[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
-            _arg1 = new int[_arg1_length];
+            _arg1 = new long[_arg1_length];
           }
           data.enforceNoDataAvail();
           boolean _result = this.requestFrontend(_arg0, _arg1);
           reply.writeNoException();
           reply.writeBoolean(_result);
-          reply.writeIntArray(_arg1);
+          reply.writeLongArray(_arg1);
           break;
         }
         case TRANSACTION_setMaxNumberOfFrontends:
@@ -769,96 +802,106 @@ public interface ITunerResourceManager extends android.os.IInterface
         {
           android.media.tv.tunerresourcemanager.TunerDemuxRequest _arg0;
           _arg0 = data.readTypedObject(android.media.tv.tunerresourcemanager.TunerDemuxRequest.CREATOR);
-          int[] _arg1;
+          long[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
-            _arg1 = new int[_arg1_length];
+            _arg1 = new long[_arg1_length];
           }
           data.enforceNoDataAvail();
           boolean _result = this.requestDemux(_arg0, _arg1);
           reply.writeNoException();
           reply.writeBoolean(_result);
-          reply.writeIntArray(_arg1);
+          reply.writeLongArray(_arg1);
           break;
         }
         case TRANSACTION_requestDescrambler:
         {
           android.media.tv.tunerresourcemanager.TunerDescramblerRequest _arg0;
           _arg0 = data.readTypedObject(android.media.tv.tunerresourcemanager.TunerDescramblerRequest.CREATOR);
-          int[] _arg1;
+          long[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
-            _arg1 = new int[_arg1_length];
+            _arg1 = new long[_arg1_length];
           }
           data.enforceNoDataAvail();
           boolean _result = this.requestDescrambler(_arg0, _arg1);
           reply.writeNoException();
           reply.writeBoolean(_result);
-          reply.writeIntArray(_arg1);
+          reply.writeLongArray(_arg1);
           break;
         }
         case TRANSACTION_requestCasSession:
         {
           android.media.tv.tunerresourcemanager.CasSessionRequest _arg0;
           _arg0 = data.readTypedObject(android.media.tv.tunerresourcemanager.CasSessionRequest.CREATOR);
-          int[] _arg1;
+          long[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
-            _arg1 = new int[_arg1_length];
+            _arg1 = new long[_arg1_length];
           }
           data.enforceNoDataAvail();
           boolean _result = this.requestCasSession(_arg0, _arg1);
           reply.writeNoException();
           reply.writeBoolean(_result);
-          reply.writeIntArray(_arg1);
+          reply.writeLongArray(_arg1);
           break;
         }
         case TRANSACTION_requestCiCam:
         {
           android.media.tv.tunerresourcemanager.TunerCiCamRequest _arg0;
           _arg0 = data.readTypedObject(android.media.tv.tunerresourcemanager.TunerCiCamRequest.CREATOR);
-          int[] _arg1;
+          long[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
-            _arg1 = new int[_arg1_length];
+            _arg1 = new long[_arg1_length];
           }
           data.enforceNoDataAvail();
           boolean _result = this.requestCiCam(_arg0, _arg1);
           reply.writeNoException();
           reply.writeBoolean(_result);
-          reply.writeIntArray(_arg1);
+          reply.writeLongArray(_arg1);
           break;
         }
         case TRANSACTION_requestLnb:
         {
           android.media.tv.tunerresourcemanager.TunerLnbRequest _arg0;
           _arg0 = data.readTypedObject(android.media.tv.tunerresourcemanager.TunerLnbRequest.CREATOR);
-          int[] _arg1;
+          long[] _arg1;
           int _arg1_length = data.readInt();
-          if (_arg1_length < 0) {
+          if (_arg1_length > 1000000) {
+            throw new android.os.BadParcelableException("Array too large: " + _arg1_length);
+          } else if (_arg1_length < 0) {
             _arg1 = null;
           } else {
-            _arg1 = new int[_arg1_length];
+            _arg1 = new long[_arg1_length];
           }
           data.enforceNoDataAvail();
           boolean _result = this.requestLnb(_arg0, _arg1);
           reply.writeNoException();
           reply.writeBoolean(_result);
-          reply.writeIntArray(_arg1);
+          reply.writeLongArray(_arg1);
           break;
         }
         case TRANSACTION_releaseFrontend:
         {
-          int _arg0;
-          _arg0 = data.readInt();
+          long _arg0;
+          _arg0 = data.readLong();
           int _arg1;
           _arg1 = data.readInt();
           data.enforceNoDataAvail();
@@ -868,8 +911,8 @@ public interface ITunerResourceManager extends android.os.IInterface
         }
         case TRANSACTION_releaseDemux:
         {
-          int _arg0;
-          _arg0 = data.readInt();
+          long _arg0;
+          _arg0 = data.readLong();
           int _arg1;
           _arg1 = data.readInt();
           data.enforceNoDataAvail();
@@ -879,8 +922,8 @@ public interface ITunerResourceManager extends android.os.IInterface
         }
         case TRANSACTION_releaseDescrambler:
         {
-          int _arg0;
-          _arg0 = data.readInt();
+          long _arg0;
+          _arg0 = data.readLong();
           int _arg1;
           _arg1 = data.readInt();
           data.enforceNoDataAvail();
@@ -890,8 +933,8 @@ public interface ITunerResourceManager extends android.os.IInterface
         }
         case TRANSACTION_releaseCasSession:
         {
-          int _arg0;
-          _arg0 = data.readInt();
+          long _arg0;
+          _arg0 = data.readLong();
           int _arg1;
           _arg1 = data.readInt();
           data.enforceNoDataAvail();
@@ -901,8 +944,8 @@ public interface ITunerResourceManager extends android.os.IInterface
         }
         case TRANSACTION_releaseCiCam:
         {
-          int _arg0;
-          _arg0 = data.readInt();
+          long _arg0;
+          _arg0 = data.readLong();
           int _arg1;
           _arg1 = data.readInt();
           data.enforceNoDataAvail();
@@ -912,8 +955,8 @@ public interface ITunerResourceManager extends android.os.IInterface
         }
         case TRANSACTION_releaseLnb:
         {
-          int _arg0;
-          _arg0 = data.readInt();
+          long _arg0;
+          _arg0 = data.readLong();
           int _arg1;
           _arg1 = data.readInt();
           data.enforceNoDataAvail();
@@ -1245,14 +1288,41 @@ public interface ITunerResourceManager extends android.os.IInterface
        * 
        * @param lnbIds ids of the updating lnbs.
        */
-      @Override public void setLnbInfoList(int[] lnbIds) throws android.os.RemoteException
+      @Override public void setLnbInfoList(long[] lnbIds) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeIntArray(lnbIds);
+          _data.writeLongArray(lnbIds);
           boolean _status = mRemote.transact(Stub.TRANSACTION_setLnbInfoList, _data, _reply, 0);
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
+      /**
+       * Determines whether the Resource Holder retains ownership of the resource during a challenge
+       * scenario, when both Resource Holder and Resource Challenger have same processId and same
+       * priority.
+       * 
+       * @param clientId The client id used to set ownership of resource in case of resource
+       *     challenger situation.
+       * @param enabled Set to {@code true} to allow the Resource Holder to retain ownership,
+       *     or false to allow the Resource Challenger to acquire the resource.
+       *     If not explicitly set, enabled is set to {@code false}.
+       */
+      @Override public void setResourceOwnershipRetention(int clientId, boolean enabled) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(clientId);
+          _data.writeBoolean(enabled);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setResourceOwnershipRetention, _data, _reply, 0);
           _reply.readException();
         }
         finally {
@@ -1294,7 +1364,7 @@ public interface ITunerResourceManager extends android.os.IInterface
        * 
        * @return true if there is frontend granted.
        */
-      @Override public boolean requestFrontend(android.media.tv.tunerresourcemanager.TunerFrontendRequest request, int[] frontendHandle) throws android.os.RemoteException
+      @Override public boolean requestFrontend(android.media.tv.tunerresourcemanager.TunerFrontendRequest request, long[] frontendHandle) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1306,7 +1376,7 @@ public interface ITunerResourceManager extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_requestFrontend, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readBoolean();
-          _reply.readIntArray(frontendHandle);
+          _reply.readLongArray(frontendHandle);
         }
         finally {
           _reply.recycle();
@@ -1445,7 +1515,7 @@ public interface ITunerResourceManager extends android.os.IInterface
        * 
        * @return true if there is demux granted.
        */
-      @Override public boolean requestDemux(android.media.tv.tunerresourcemanager.TunerDemuxRequest request, int[] demuxHandle) throws android.os.RemoteException
+      @Override public boolean requestDemux(android.media.tv.tunerresourcemanager.TunerDemuxRequest request, long[] demuxHandle) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1457,7 +1527,7 @@ public interface ITunerResourceManager extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_requestDemux, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readBoolean();
-          _reply.readIntArray(demuxHandle);
+          _reply.readLongArray(demuxHandle);
         }
         finally {
           _reply.recycle();
@@ -1487,7 +1557,7 @@ public interface ITunerResourceManager extends android.os.IInterface
        * 
        * @return true if there is Descrambler granted.
        */
-      @Override public boolean requestDescrambler(android.media.tv.tunerresourcemanager.TunerDescramblerRequest request, int[] descramblerHandle) throws android.os.RemoteException
+      @Override public boolean requestDescrambler(android.media.tv.tunerresourcemanager.TunerDescramblerRequest request, long[] descramblerHandle) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1499,7 +1569,7 @@ public interface ITunerResourceManager extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_requestDescrambler, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readBoolean();
-          _reply.readIntArray(descramblerHandle);
+          _reply.readLongArray(descramblerHandle);
         }
         finally {
           _reply.recycle();
@@ -1531,7 +1601,7 @@ public interface ITunerResourceManager extends android.os.IInterface
        * 
        * @return true if there is CAS session granted.
        */
-      @Override public boolean requestCasSession(android.media.tv.tunerresourcemanager.CasSessionRequest request, int[] casSessionHandle) throws android.os.RemoteException
+      @Override public boolean requestCasSession(android.media.tv.tunerresourcemanager.CasSessionRequest request, long[] casSessionHandle) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1543,7 +1613,7 @@ public interface ITunerResourceManager extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_requestCasSession, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readBoolean();
-          _reply.readIntArray(casSessionHandle);
+          _reply.readLongArray(casSessionHandle);
         }
         finally {
           _reply.recycle();
@@ -1574,7 +1644,7 @@ public interface ITunerResourceManager extends android.os.IInterface
        * 
        * @return true if there is CiCam granted.
        */
-      @Override public boolean requestCiCam(android.media.tv.tunerresourcemanager.TunerCiCamRequest request, int[] ciCamHandle) throws android.os.RemoteException
+      @Override public boolean requestCiCam(android.media.tv.tunerresourcemanager.TunerCiCamRequest request, long[] ciCamHandle) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1586,7 +1656,7 @@ public interface ITunerResourceManager extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_requestCiCam, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readBoolean();
-          _reply.readIntArray(ciCamHandle);
+          _reply.readLongArray(ciCamHandle);
         }
         finally {
           _reply.recycle();
@@ -1616,7 +1686,7 @@ public interface ITunerResourceManager extends android.os.IInterface
        * 
        * @return true if there is Lnb granted.
        */
-      @Override public boolean requestLnb(android.media.tv.tunerresourcemanager.TunerLnbRequest request, int[] lnbHandle) throws android.os.RemoteException
+      @Override public boolean requestLnb(android.media.tv.tunerresourcemanager.TunerLnbRequest request, long[] lnbHandle) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
@@ -1628,7 +1698,7 @@ public interface ITunerResourceManager extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_requestLnb, _data, _reply, 0);
           _reply.readException();
           _result = _reply.readBoolean();
-          _reply.readIntArray(lnbHandle);
+          _reply.readLongArray(lnbHandle);
         }
         finally {
           _reply.recycle();
@@ -1647,13 +1717,13 @@ public interface ITunerResourceManager extends android.os.IInterface
        * @param frontendHandle the handle of the released frontend.
        * @param clientId the id of the client that is releasing the frontend.
        */
-      @Override public void releaseFrontend(int frontendHandle, int clientId) throws android.os.RemoteException
+      @Override public void releaseFrontend(long frontendHandle, int clientId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeInt(frontendHandle);
+          _data.writeLong(frontendHandle);
           _data.writeInt(clientId);
           boolean _status = mRemote.transact(Stub.TRANSACTION_releaseFrontend, _data, _reply, 0);
           _reply.readException();
@@ -1671,13 +1741,13 @@ public interface ITunerResourceManager extends android.os.IInterface
        * @param demuxHandle the handle of the released Tuner Demux.
        * @param clientId the id of the client that is releasing the demux.
        */
-      @Override public void releaseDemux(int demuxHandle, int clientId) throws android.os.RemoteException
+      @Override public void releaseDemux(long demuxHandle, int clientId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeInt(demuxHandle);
+          _data.writeLong(demuxHandle);
           _data.writeInt(clientId);
           boolean _status = mRemote.transact(Stub.TRANSACTION_releaseDemux, _data, _reply, 0);
           _reply.readException();
@@ -1695,13 +1765,13 @@ public interface ITunerResourceManager extends android.os.IInterface
        * @param descramblerHandle the handle of the released Tuner Descrambler.
        * @param clientId the id of the client that is releasing the descrambler.
        */
-      @Override public void releaseDescrambler(int descramblerHandle, int clientId) throws android.os.RemoteException
+      @Override public void releaseDescrambler(long descramblerHandle, int clientId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeInt(descramblerHandle);
+          _data.writeLong(descramblerHandle);
           _data.writeInt(clientId);
           boolean _status = mRemote.transact(Stub.TRANSACTION_releaseDescrambler, _data, _reply, 0);
           _reply.readException();
@@ -1721,13 +1791,13 @@ public interface ITunerResourceManager extends android.os.IInterface
        * @param casSessionHandle the handle of the released CAS session.
        * @param clientId the id of the client that is releasing the cas session.
        */
-      @Override public void releaseCasSession(int casSessionHandle, int clientId) throws android.os.RemoteException
+      @Override public void releaseCasSession(long casSessionHandle, int clientId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeInt(casSessionHandle);
+          _data.writeLong(casSessionHandle);
           _data.writeInt(clientId);
           boolean _status = mRemote.transact(Stub.TRANSACTION_releaseCasSession, _data, _reply, 0);
           _reply.readException();
@@ -1748,13 +1818,13 @@ public interface ITunerResourceManager extends android.os.IInterface
        * @param ciCamHandle the handle of the releasing CiCam.
        * @param clientId the id of the client that is releasing the CiCam.
        */
-      @Override public void releaseCiCam(int ciCamHandle, int clientId) throws android.os.RemoteException
+      @Override public void releaseCiCam(long ciCamHandle, int clientId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeInt(ciCamHandle);
+          _data.writeLong(ciCamHandle);
           _data.writeInt(clientId);
           boolean _status = mRemote.transact(Stub.TRANSACTION_releaseCiCam, _data, _reply, 0);
           _reply.readException();
@@ -1774,13 +1844,13 @@ public interface ITunerResourceManager extends android.os.IInterface
        * @param lnbHandle the handle of the released Tuner Lnb.
        * @param clientId the id of the client that is releasing the lnb.
        */
-      @Override public void releaseLnb(int lnbHandle, int clientId) throws android.os.RemoteException
+      @Override public void releaseLnb(long lnbHandle, int clientId) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeInt(lnbHandle);
+          _data.writeLong(lnbHandle);
           _data.writeInt(clientId);
           boolean _status = mRemote.transact(Stub.TRANSACTION_releaseLnb, _data, _reply, 0);
           _reply.readException();
@@ -2023,30 +2093,31 @@ public interface ITunerResourceManager extends android.os.IInterface
     static final int TRANSACTION_updateCasInfo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
     static final int TRANSACTION_setDemuxInfoList = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
     static final int TRANSACTION_setLnbInfoList = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
-    static final int TRANSACTION_requestFrontend = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
-    static final int TRANSACTION_setMaxNumberOfFrontends = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
-    static final int TRANSACTION_getMaxNumberOfFrontends = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
-    static final int TRANSACTION_shareFrontend = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
-    static final int TRANSACTION_transferOwner = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
-    static final int TRANSACTION_requestDemux = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
-    static final int TRANSACTION_requestDescrambler = (android.os.IBinder.FIRST_CALL_TRANSACTION + 15);
-    static final int TRANSACTION_requestCasSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
-    static final int TRANSACTION_requestCiCam = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
-    static final int TRANSACTION_requestLnb = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
-    static final int TRANSACTION_releaseFrontend = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
-    static final int TRANSACTION_releaseDemux = (android.os.IBinder.FIRST_CALL_TRANSACTION + 20);
-    static final int TRANSACTION_releaseDescrambler = (android.os.IBinder.FIRST_CALL_TRANSACTION + 21);
-    static final int TRANSACTION_releaseCasSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 22);
-    static final int TRANSACTION_releaseCiCam = (android.os.IBinder.FIRST_CALL_TRANSACTION + 23);
-    static final int TRANSACTION_releaseLnb = (android.os.IBinder.FIRST_CALL_TRANSACTION + 24);
-    static final int TRANSACTION_isHigherPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 25);
-    static final int TRANSACTION_storeResourceMap = (android.os.IBinder.FIRST_CALL_TRANSACTION + 26);
-    static final int TRANSACTION_clearResourceMap = (android.os.IBinder.FIRST_CALL_TRANSACTION + 27);
-    static final int TRANSACTION_restoreResourceMap = (android.os.IBinder.FIRST_CALL_TRANSACTION + 28);
-    static final int TRANSACTION_acquireLock = (android.os.IBinder.FIRST_CALL_TRANSACTION + 29);
-    static final int TRANSACTION_releaseLock = (android.os.IBinder.FIRST_CALL_TRANSACTION + 30);
-    static final int TRANSACTION_getClientPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 31);
-    static final int TRANSACTION_getConfigPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 32);
+    static final int TRANSACTION_setResourceOwnershipRetention = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
+    static final int TRANSACTION_requestFrontend = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
+    static final int TRANSACTION_setMaxNumberOfFrontends = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
+    static final int TRANSACTION_getMaxNumberOfFrontends = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
+    static final int TRANSACTION_shareFrontend = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
+    static final int TRANSACTION_transferOwner = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
+    static final int TRANSACTION_requestDemux = (android.os.IBinder.FIRST_CALL_TRANSACTION + 15);
+    static final int TRANSACTION_requestDescrambler = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
+    static final int TRANSACTION_requestCasSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
+    static final int TRANSACTION_requestCiCam = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
+    static final int TRANSACTION_requestLnb = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
+    static final int TRANSACTION_releaseFrontend = (android.os.IBinder.FIRST_CALL_TRANSACTION + 20);
+    static final int TRANSACTION_releaseDemux = (android.os.IBinder.FIRST_CALL_TRANSACTION + 21);
+    static final int TRANSACTION_releaseDescrambler = (android.os.IBinder.FIRST_CALL_TRANSACTION + 22);
+    static final int TRANSACTION_releaseCasSession = (android.os.IBinder.FIRST_CALL_TRANSACTION + 23);
+    static final int TRANSACTION_releaseCiCam = (android.os.IBinder.FIRST_CALL_TRANSACTION + 24);
+    static final int TRANSACTION_releaseLnb = (android.os.IBinder.FIRST_CALL_TRANSACTION + 25);
+    static final int TRANSACTION_isHigherPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 26);
+    static final int TRANSACTION_storeResourceMap = (android.os.IBinder.FIRST_CALL_TRANSACTION + 27);
+    static final int TRANSACTION_clearResourceMap = (android.os.IBinder.FIRST_CALL_TRANSACTION + 28);
+    static final int TRANSACTION_restoreResourceMap = (android.os.IBinder.FIRST_CALL_TRANSACTION + 29);
+    static final int TRANSACTION_acquireLock = (android.os.IBinder.FIRST_CALL_TRANSACTION + 30);
+    static final int TRANSACTION_releaseLock = (android.os.IBinder.FIRST_CALL_TRANSACTION + 31);
+    static final int TRANSACTION_getClientPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 32);
+    static final int TRANSACTION_getConfigPriority = (android.os.IBinder.FIRST_CALL_TRANSACTION + 33);
   }
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android.media.tv.tunerresourcemanager.ITunerResourceManager";
@@ -2139,7 +2210,19 @@ public interface ITunerResourceManager extends android.os.IInterface
    * 
    * @param lnbIds ids of the updating lnbs.
    */
-  public void setLnbInfoList(int[] lnbIds) throws android.os.RemoteException;
+  public void setLnbInfoList(long[] lnbIds) throws android.os.RemoteException;
+  /**
+   * Determines whether the Resource Holder retains ownership of the resource during a challenge
+   * scenario, when both Resource Holder and Resource Challenger have same processId and same
+   * priority.
+   * 
+   * @param clientId The client id used to set ownership of resource in case of resource
+   *     challenger situation.
+   * @param enabled Set to {@code true} to allow the Resource Holder to retain ownership,
+   *     or false to allow the Resource Challenger to acquire the resource.
+   *     If not explicitly set, enabled is set to {@code false}.
+   */
+  public void setResourceOwnershipRetention(int clientId, boolean enabled) throws android.os.RemoteException;
   /**
    * This API is used by the Tuner framework to request a frontend from the TunerHAL.
    * 
@@ -2174,7 +2257,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * 
    * @return true if there is frontend granted.
    */
-  public boolean requestFrontend(android.media.tv.tunerresourcemanager.TunerFrontendRequest request, int[] frontendHandle) throws android.os.RemoteException;
+  public boolean requestFrontend(android.media.tv.tunerresourcemanager.TunerFrontendRequest request, long[] frontendHandle) throws android.os.RemoteException;
   /**
    * Sets the maximum usable frontends number of a given frontend type. It is used to enable or
    * disable frontends when cable connection status is changed by user.
@@ -2237,7 +2320,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * 
    * @return true if there is demux granted.
    */
-  public boolean requestDemux(android.media.tv.tunerresourcemanager.TunerDemuxRequest request, int[] demuxHandle) throws android.os.RemoteException;
+  public boolean requestDemux(android.media.tv.tunerresourcemanager.TunerDemuxRequest request, long[] demuxHandle) throws android.os.RemoteException;
   /**
    * This API is used by the Tuner framework to request an available descrambler from the
    * TunerHAL.
@@ -2260,7 +2343,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * 
    * @return true if there is Descrambler granted.
    */
-  public boolean requestDescrambler(android.media.tv.tunerresourcemanager.TunerDescramblerRequest request, int[] descramblerHandle) throws android.os.RemoteException;
+  public boolean requestDescrambler(android.media.tv.tunerresourcemanager.TunerDescramblerRequest request, long[] descramblerHandle) throws android.os.RemoteException;
   /**
    * This API is used by the Tuner framework to request an available Cas session. This session
    * needs to be under the CAS system with the id indicated in the {@code request}.
@@ -2285,7 +2368,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * 
    * @return true if there is CAS session granted.
    */
-  public boolean requestCasSession(android.media.tv.tunerresourcemanager.CasSessionRequest request, int[] casSessionHandle) throws android.os.RemoteException;
+  public boolean requestCasSession(android.media.tv.tunerresourcemanager.CasSessionRequest request, long[] casSessionHandle) throws android.os.RemoteException;
   /**
    * This API is used by the Tuner framework to request an available CuCam.
    * 
@@ -2309,7 +2392,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * 
    * @return true if there is CiCam granted.
    */
-  public boolean requestCiCam(android.media.tv.tunerresourcemanager.TunerCiCamRequest request, int[] ciCamHandle) throws android.os.RemoteException;
+  public boolean requestCiCam(android.media.tv.tunerresourcemanager.TunerCiCamRequest request, long[] ciCamHandle) throws android.os.RemoteException;
   /**
    * This API is used by the Tuner framework to request an available Lnb from the TunerHAL.
    * 
@@ -2332,7 +2415,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * 
    * @return true if there is Lnb granted.
    */
-  public boolean requestLnb(android.media.tv.tunerresourcemanager.TunerLnbRequest request, int[] lnbHandle) throws android.os.RemoteException;
+  public boolean requestLnb(android.media.tv.tunerresourcemanager.TunerLnbRequest request, long[] lnbHandle) throws android.os.RemoteException;
   /**
    * Notifies the TRM that the given frontend has been released.
    * 
@@ -2344,7 +2427,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * @param frontendHandle the handle of the released frontend.
    * @param clientId the id of the client that is releasing the frontend.
    */
-  public void releaseFrontend(int frontendHandle, int clientId) throws android.os.RemoteException;
+  public void releaseFrontend(long frontendHandle, int clientId) throws android.os.RemoteException;
   /**
    * Notifies the TRM that the Demux with the given handle was released.
    * 
@@ -2353,7 +2436,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * @param demuxHandle the handle of the released Tuner Demux.
    * @param clientId the id of the client that is releasing the demux.
    */
-  public void releaseDemux(int demuxHandle, int clientId) throws android.os.RemoteException;
+  public void releaseDemux(long demuxHandle, int clientId) throws android.os.RemoteException;
   /**
    * Notifies the TRM that the Descrambler with the given handle was released.
    * 
@@ -2362,7 +2445,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * @param descramblerHandle the handle of the released Tuner Descrambler.
    * @param clientId the id of the client that is releasing the descrambler.
    */
-  public void releaseDescrambler(int descramblerHandle, int clientId) throws android.os.RemoteException;
+  public void releaseDescrambler(long descramblerHandle, int clientId) throws android.os.RemoteException;
   /**
    * Notifies the TRM that the given Cas session has been released.
    * 
@@ -2373,7 +2456,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * @param casSessionHandle the handle of the released CAS session.
    * @param clientId the id of the client that is releasing the cas session.
    */
-  public void releaseCasSession(int casSessionHandle, int clientId) throws android.os.RemoteException;
+  public void releaseCasSession(long casSessionHandle, int clientId) throws android.os.RemoteException;
   /**
    * Notifies the TRM that the given CiCam has been released.
    * 
@@ -2385,7 +2468,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * @param ciCamHandle the handle of the releasing CiCam.
    * @param clientId the id of the client that is releasing the CiCam.
    */
-  public void releaseCiCam(int ciCamHandle, int clientId) throws android.os.RemoteException;
+  public void releaseCiCam(long ciCamHandle, int clientId) throws android.os.RemoteException;
   /**
    * Notifies the TRM that the Lnb with the given handle was released.
    * 
@@ -2396,7 +2479,7 @@ public interface ITunerResourceManager extends android.os.IInterface
    * @param lnbHandle the handle of the released Tuner Lnb.
    * @param clientId the id of the client that is releasing the lnb.
    */
-  public void releaseLnb(int lnbHandle, int clientId) throws android.os.RemoteException;
+  public void releaseLnb(long lnbHandle, int clientId) throws android.os.RemoteException;
   /**
    * Compare two clients' priority.
    * 

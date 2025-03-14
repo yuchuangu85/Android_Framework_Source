@@ -61,7 +61,7 @@ public class EventLogTags {
   /** 2749 storage_state (uuid|3),(old_state|1),(new_state|1),(usable|2),(total|2) */
   public static final int STORAGE_STATE = 2749;
 
-  /** 2750 notification_enqueue (uid|1|5),(pid|1|5),(pkg|3),(id|1|5),(tag|3),(userid|1|5),(notification|3),(status|1) */
+  /** 2750 notification_enqueue (uid|1|5),(pid|1|5),(pkg|3),(id|1|5),(tag|3),(userid|1|5),(notification|3),(status|1),(app_provided|1) */
   public static final int NOTIFICATION_ENQUEUE = 2750;
 
   /** 2751 notification_cancel (uid|1|5),(pid|1|5),(pkg|3),(id|1|5),(tag|3),(userid|1|5),(required_flags|1),(forbidden_flags|1),(reason|1|5),(listener|3) */
@@ -94,7 +94,7 @@ public class EventLogTags {
   /** 27531 notification_visibility (key|3),(visibile|1),(lifespan|1),(freshness|1),(exposure|1),(rank|1) */
   public static final int NOTIFICATION_VISIBILITY = 27531;
 
-  /** 27532 notification_alert (key|3),(buzz|1),(beep|1),(blink|1),(politeness|1) */
+  /** 27532 notification_alert (key|3),(buzz|1),(beep|1),(blink|1),(politeness|1),(mute_reason|1) */
   public static final int NOTIFICATION_ALERT = 27532;
 
   /** 27533 notification_autogrouped (key|3) */
@@ -105,6 +105,12 @@ public class EventLogTags {
 
   /** 27535 notification_adjusted (key|3),(adjustment_type|3),(new_value|3) */
   public static final int NOTIFICATION_ADJUSTED = 27535;
+
+  /** 27536 notification_cancel_prevented (key|3) */
+  public static final int NOTIFICATION_CANCEL_PREVENTED = 27536;
+
+  /** 27537 notification_summary_converted (key|3) */
+  public static final int NOTIFICATION_SUMMARY_CONVERTED = 27537;
 
   /** 2802 watchdog (Service|3) */
   public static final int WATCHDOG = 2802;
@@ -456,8 +462,8 @@ public class EventLogTags {
     android.util.EventLog.writeEvent(STORAGE_STATE, uuid, oldState, newState, usable, total);
   }
 
-  public static void writeNotificationEnqueue(int uid, int pid, String pkg, int id, String tag, int userid, String notification, int status) {
-    android.util.EventLog.writeEvent(NOTIFICATION_ENQUEUE, uid, pid, pkg, id, tag, userid, notification, status);
+  public static void writeNotificationEnqueue(int uid, int pid, String pkg, int id, String tag, int userid, String notification, int status, int appProvided) {
+    android.util.EventLog.writeEvent(NOTIFICATION_ENQUEUE, uid, pid, pkg, id, tag, userid, notification, status, appProvided);
   }
 
   public static void writeNotificationCancel(int uid, int pid, String pkg, int id, String tag, int userid, int requiredFlags, int forbiddenFlags, int reason, String listener) {
@@ -500,8 +506,8 @@ public class EventLogTags {
     android.util.EventLog.writeEvent(NOTIFICATION_VISIBILITY, key, visibile, lifespan, freshness, exposure, rank);
   }
 
-  public static void writeNotificationAlert(String key, int buzz, int beep, int blink, int politeness) {
-    android.util.EventLog.writeEvent(NOTIFICATION_ALERT, key, buzz, beep, blink, politeness);
+  public static void writeNotificationAlert(String key, int buzz, int beep, int blink, int politeness, int muteReason) {
+    android.util.EventLog.writeEvent(NOTIFICATION_ALERT, key, buzz, beep, blink, politeness, muteReason);
   }
 
   public static void writeNotificationAutogrouped(String key) {
@@ -514,6 +520,14 @@ public class EventLogTags {
 
   public static void writeNotificationAdjusted(String key, String adjustmentType, String newValue) {
     android.util.EventLog.writeEvent(NOTIFICATION_ADJUSTED, key, adjustmentType, newValue);
+  }
+
+  public static void writeNotificationCancelPrevented(String key) {
+    android.util.EventLog.writeEvent(NOTIFICATION_CANCEL_PREVENTED, key);
+  }
+
+  public static void writeNotificationSummaryConverted(String key) {
+    android.util.EventLog.writeEvent(NOTIFICATION_SUMMARY_CONVERTED, key);
   }
 
   public static void writeWatchdog(String service) {

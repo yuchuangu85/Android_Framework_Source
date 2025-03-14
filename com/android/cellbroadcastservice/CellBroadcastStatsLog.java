@@ -10,13 +10,14 @@ import android.util.StatsLog;
 
 /**
  * Utility class for logging statistics events.
+ * @hide
  */
 public final class CellBroadcastStatsLog {
     // Constants for atom codes.
 
     /**
      * CellBroadcastMessageReported cb_message_reported<br>
-     * Usage: StatsLog.write(StatsLog.CB_MESSAGE_REPORTED, int type, int source, int serial_number, int message_id);<br>
+     * Usage: StatsLog.write(StatsLog.CB_MESSAGE_REPORTED, int type, int source, int serial_number, int message_id, java.lang.String roaming_mcc_mnc, java.lang.String language_indicator);<br>
      */
     public static final int CB_MESSAGE_REPORTED = 249;
 
@@ -223,6 +224,20 @@ public final class CellBroadcastStatsLog {
         builder.writeInt(arg2);
         builder.writeInt(arg3);
         builder.writeInt(arg4);
+
+        builder.usePooledBuffer();
+        StatsLog.write(builder.build());
+    }
+
+    public static void write(int code, int arg1, int arg2, int arg3, int arg4, java.lang.String arg5, java.lang.String arg6) {
+        final StatsEvent.Builder builder = StatsEvent.newBuilder();
+        builder.setAtomId(code);
+        builder.writeInt(arg1);
+        builder.writeInt(arg2);
+        builder.writeInt(arg3);
+        builder.writeInt(arg4);
+        builder.writeString(arg5);
+        builder.writeString(arg6);
 
         builder.usePooledBuffer();
         StatsLog.write(builder.build());

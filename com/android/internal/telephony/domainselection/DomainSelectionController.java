@@ -44,7 +44,9 @@ import com.android.internal.telephony.ExponentialBackoff;
 import com.android.internal.telephony.IDomainSelectionServiceController;
 import com.android.internal.telephony.ITransportSelectorCallback;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.internal.telephony.util.WorkerThread;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -80,10 +82,9 @@ public class DomainSelectionController {
         long getMaximumDelay();
     }
 
-    private final HandlerThread mHandlerThread =
-            new HandlerThread("DomainSelectionControllerHandler");
-
+    private HandlerThread mHandlerThread; // effectively final
     private final Handler mHandler;
+
     // Only added or removed, never accessed on purpose.
     private final LocalLog mLocalLog = new LocalLog(30);
 
@@ -255,9 +256,15 @@ public class DomainSelectionController {
             @Nullable Looper looper, @Nullable BindRetry bindRetry) {
         mContext = context;
 
+        mHandlerThread = null;
         if (looper == null) {
-            mHandlerThread.start();
-            looper = mHandlerThread.getLooper();
+            if (Flags.threadShred()) {
+                looper = WorkerThread.get().getLooper();
+            } else {
+                mHandlerThread = new HandlerThread("DomainSelectionControllerHandler");
+                mHandlerThread.start();
+                looper = mHandlerThread.getLooper();
+            }
         }
         mHandler = new DomainSelectionControllerHandler(looper);
 
@@ -271,7 +278,9 @@ public class DomainSelectionController {
                 mHandler,
                 mRestartBindingRunnable);
 
-        int numPhones = TelephonyManager.getDefault().getActiveModemCount();
+        TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
+        int numPhones = tm.getSupportedModemCount();
+        logi("numPhones=" + numPhones);
         mConnectionCounts = new int[numPhones];
         for (int i = 0; i < numPhones; i++) {
             mConnectionCounts[i] = 0;

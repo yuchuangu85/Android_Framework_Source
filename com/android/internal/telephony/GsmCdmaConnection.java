@@ -30,6 +30,7 @@ import android.telephony.CarrierConfigManager;
 import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.ServiceState;
+import android.telephony.emergency.EmergencyNumber;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.PhoneInternalInterface.DialArgs;
@@ -139,7 +140,7 @@ public class GsmCdmaConnection extends Connection {
         mHandler = new MyHandler(mOwner.getLooper());
 
         mAddress = dc.number;
-        setEmergencyCallInfo(mOwner);
+        setEmergencyCallInfo(mOwner, null);
 
         String forwardedNumber = TextUtils.isEmpty(dc.forwardedNumber) ? null : dc.forwardedNumber;
         Rlog.i(LOG_TAG, "create, forwardedNumber=" + Rlog.pii(LOG_TAG, forwardedNumber));
@@ -186,13 +187,13 @@ public class GsmCdmaConnection extends Connection {
 
         mAddress = PhoneNumberUtils.extractNetworkPortionAlt(dialString);
         if (dialArgs.isEmergency) {
-            setEmergencyCallInfo(mOwner);
+            setEmergencyCallInfo(mOwner, dialArgs);
 
             // There was no emergency number info found for this call, however it is
             // still marked as an emergency number. This may happen if it was a redialed
             // non-detectable emergency call from IMS.
             if (getEmergencyNumberInfo() == null) {
-                setNonDetectableEmergencyCallInfo(dialArgs.eccCategory);
+                setNonDetectableEmergencyCallInfo(dialArgs.eccCategory, new ArrayList<String>());
             }
         }
 

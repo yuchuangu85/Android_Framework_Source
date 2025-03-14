@@ -17,6 +17,7 @@
 package android.service.quickaccesswallet;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.TestApi;
@@ -24,6 +25,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
+import android.os.UserHandle;
 
 import java.io.Closeable;
 import java.util.concurrent.Executor;
@@ -181,6 +183,23 @@ public interface QuickAccessWalletClient extends Closeable {
     }
 
     /**
+     * Gets the {@link PendingIntent} provided by QuickAccessWalletService to be sent when the user
+     * launches Wallet via gesture.
+     */
+    @FlaggedApi(Flags.FLAG_LAUNCH_WALLET_OPTION_ON_POWER_DOUBLE_TAP)
+    void getGestureTargetActivityPendingIntent(
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull GesturePendingIntentCallback gesturePendingIntentCallback);
+
+    /** Callback interface for getGesturePendingIntent. */
+    @FlaggedApi(Flags.FLAG_LAUNCH_WALLET_OPTION_ON_POWER_DOUBLE_TAP)
+    interface GesturePendingIntentCallback {
+        /** Callback method for getGesturePendingIntent */
+        @FlaggedApi(Flags.FLAG_LAUNCH_WALLET_OPTION_ON_POWER_DOUBLE_TAP)
+        void onGesturePendingIntentRetrieved(@Nullable PendingIntent pendingIntent);
+    }
+
+    /**
      * The manifest entry for the QuickAccessWalletService may also publish information about the
      * activity that hosts the Wallet view. This is typically the home screen of the Wallet
      * application.
@@ -212,6 +231,15 @@ public interface QuickAccessWalletClient extends Closeable {
      */
     @Nullable
     Drawable getTileIcon();
+
+    /**
+     * Returns the user that should receive the wallet intents
+     *
+     * @return UserHandle
+     * @hide
+     */
+    @Nullable
+    UserHandle getUser();
 
     /**
      * Returns the service label specified by {@code android:label} in the service manifest entry.

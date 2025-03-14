@@ -16,6 +16,8 @@
 
 package android.widget;
 
+import static android.view.accessibility.Flags.triStateChecked;
+
 import android.annotation.DrawableRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -209,6 +211,10 @@ public abstract class CompoundButton extends Button implements Checkable {
             mCheckedFromResource = false;
             mChecked = checked;
             refreshDrawableState();
+            if (triStateChecked()) {
+                notifyViewAccessibilityStateChangedIfNeeded(
+                        AccessibilityEvent.CONTENT_CHANGE_TYPE_CHECKED);
+            }
 
             // Avoid infinite recursions if setChecked() is called from a listener
             if (mBroadcasting) {
@@ -267,7 +273,7 @@ public abstract class CompoundButton extends Button implements Checkable {
          * @param buttonView The compound button view whose state has changed.
          * @param isChecked  The new checked state of buttonView.
          */
-        void onCheckedChanged(CompoundButton buttonView, boolean isChecked);
+        void onCheckedChanged(@NonNull CompoundButton buttonView, boolean isChecked);
     }
 
     /**
@@ -490,7 +496,12 @@ public abstract class CompoundButton extends Button implements Checkable {
     public void onInitializeAccessibilityNodeInfoInternal(AccessibilityNodeInfo info) {
         super.onInitializeAccessibilityNodeInfoInternal(info);
         info.setCheckable(true);
-        info.setChecked(mChecked);
+        if (triStateChecked()) {
+            info.setChecked(mChecked ? AccessibilityNodeInfo.CHECKED_STATE_TRUE :
+                    AccessibilityNodeInfo.CHECKED_STATE_FALSE);
+        } else {
+            info.setChecked(mChecked);
+        }
     }
 
     @Override

@@ -49,7 +49,9 @@ public final class Counter {
     public static void logIncrement(@NonNull String metricId, long amount) {
         final long metricIdHash =
                 MetricIds.getMetricIdHash(metricId, MetricIds.METRIC_TYPE_COUNTER);
-        StatsExpressLog.write(StatsExpressLog.EXPRESS_EVENT_REPORTED, metricIdHash, amount);
+        if (metricIdHash != MetricIds.INVALID_METRIC_ID) {
+          StatsExpressLog.write(StatsExpressLog.EXPRESS_EVENT_REPORTED, metricIdHash, amount);
+        }
     }
 
     /**
@@ -61,7 +63,9 @@ public final class Counter {
     public static void logIncrementWithUid(@NonNull String metricId, int uid, long amount) {
         final long metricIdHash =
                 MetricIds.getMetricIdHash(metricId, MetricIds.METRIC_TYPE_COUNTER_WITH_UID);
-        StatsExpressLog.write(
-            StatsExpressLog.EXPRESS_UID_EVENT_REPORTED, metricIdHash, amount, uid);
+        if (metricIdHash != MetricIds.INVALID_METRIC_ID) {
+          StatsExpressLog.write(
+              StatsExpressLog.EXPRESS_UID_EVENT_REPORTED, metricIdHash, amount, uid);
+        }
     }
 }

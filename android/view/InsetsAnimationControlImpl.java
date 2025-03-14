@@ -35,8 +35,8 @@ import static android.view.InsetsController.LAYOUT_INSETS_DURING_ANIMATION_SHOWN
 import static android.view.InsetsController.LayoutInsetsDuringAnimation;
 import static android.view.InsetsSource.ID_IME;
 import static android.view.InsetsSource.SIDE_BOTTOM;
-import static android.view.InsetsSource.SIDE_NONE;
 import static android.view.InsetsSource.SIDE_LEFT;
+import static android.view.InsetsSource.SIDE_NONE;
 import static android.view.InsetsSource.SIDE_RIGHT;
 import static android.view.InsetsSource.SIDE_TOP;
 import static android.view.WindowInsets.Type.ime;
@@ -99,7 +99,10 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
     private final @InsetsType int mTypes;
     private @InsetsType int mControllingTypes;
     private final InsetsAnimationControlCallbacks mController;
+    private final SurfaceParamsApplier mSurfaceParamsApplier;
     private final WindowInsetsAnimation mAnimation;
+    private final long mDurationMs;
+    private final Interpolator mInterpolator;
     /** @see WindowInsetsAnimationController#hasZeroInsetsIme */
     private final boolean mHasZeroInsetsIme;
     private final CompatibilityInfo.Translator mTranslator;
@@ -109,6 +112,7 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
     private Insets mPendingInsets;
     private float mPendingFraction;
     private boolean mFinished;
+    private boolean mCancelling;
     private boolean mCancelled;
     private boolean mShownOnFinish;
     private float mCurrentAlpha = 1.0f;
@@ -120,8 +124,9 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
     @VisibleForTesting
     public InsetsAnimationControlImpl(SparseArray<InsetsSourceControl> controls,
             @Nullable Rect frame, InsetsState state, WindowInsetsAnimationControlListener listener,
-            @InsetsType int types, InsetsAnimationControlCallbacks controller, long durationMs,
-            Interpolator interpolator, @AnimationType int animationType,
+            @InsetsType int types, InsetsAnimationControlCallbacks controller,
+            SurfaceParamsApplier surfaceParamsApplier,
+            InsetsAnimationSpec insetsAnimationSpec, @AnimationType int animationType,
             @LayoutInsetsDuringAnimation int layoutInsetsDuringAnimation,
             CompatibilityInfo.Translator translator, @Nullable ImeTracker.Token statsToken) {
         mControls = controls;
@@ -129,6 +134,7 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
         mTypes = types;
         mControllingTypes = types;
         mController = controller;
+        mSurfaceParamsApplier = surfaceParamsApplier;
         mInitialInsetsState = new InsetsState(state, true /* copySources */);
         if (frame != null) {
             final SparseIntArray idSideMap = new SparseIntArray();
@@ -155,8 +161,10 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
         }
         mPendingInsets = mCurrentInsets;
 
-        mAnimation = new WindowInsetsAnimation(mTypes, interpolator,
-                durationMs);
+        mDurationMs = insetsAnimationSpec.getDurationMs(mHasZeroInsetsIme);
+        mInterpolator = insetsAnimationSpec.getInsetsInterpolator(mHasZeroInsetsIme);
+
+        mAnimation = new WindowInsetsAnimation(mTypes, mInterpolator, mDurationMs);
         mAnimation.setAlpha(getCurrentAlpha());
         mAnimationType = animationType;
         mLayoutInsetsDuringAnimation = layoutInsetsDuringAnimation;
@@ -183,6 +191,16 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
     @Override
     public boolean hasZeroInsetsIme() {
         return mHasZeroInsetsIme;
+    }
+
+    @Override
+    public long getDurationMs() {
+        return mDurationMs;
+    }
+
+    @Override
+    public Interpolator getInsetsInterpolator() {
+        return mInterpolator;
     }
 
     @Override
@@ -244,6 +262,11 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
     }
 
     @Override
+    public SurfaceParamsApplier getSurfaceParamsApplier() {
+        return mSurfaceParamsApplier;
+    }
+
+    @Override
     @Nullable
     public ImeTracker.Token getStatsToken() {
         return mStatsToken;
@@ -291,7 +314,7 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
         updateLeashesForSide(SIDE_RIGHT, offset.right, params, outState, mPendingAlpha);
         updateLeashesForSide(SIDE_BOTTOM, offset.bottom, params, outState, mPendingAlpha);
 
-        mController.applySurfaceParams(params.toArray(new SurfaceParams[params.size()]));
+        mSurfaceParamsApplier.applySurfaceParams(params.toArray(new SurfaceParams[params.size()]));
         mCurrentInsets = mPendingInsets;
         mAnimation.setFraction(mPendingFraction);
         mCurrentAlpha = mPendingAlpha;
@@ -349,6 +372,7 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
         mPendingInsets = mLayoutInsetsDuringAnimation == LAYOUT_INSETS_DURING_ANIMATION_SHOWN
                 ? mShownInsets : mHiddenInsets;
         mPendingAlpha = 1f;
+        mCancelling = true;
         applyChangeInsets(null);
         mCancelled = true;
         mListener.onCancelled(mReadyDispatched ? this : null);
@@ -464,6 +488,17 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
         if (controls == null) {
             return;
         }
+
+        final boolean visible = mFinished
+                ? mShownOnFinish
+                : (mCancelling
+                        // If the animation is being cancelled, mShownOnFinish is not valid.
+                        // Here uses mLayoutInsetsDuringAnimation to decide if it should be visible.
+                        ? mLayoutInsetsDuringAnimation == LAYOUT_INSETS_DURING_ANIMATION_SHOWN
+                        // The first frame of ANIMATION_TYPE_SHOW should be invisible since it is
+                        // animated from the hidden state.
+                        : (mAnimationType != ANIMATION_TYPE_SHOW || mPendingFraction != 0));
+
         // TODO: Implement behavior when inset spans over multiple types
         for (int i = controls.size() - 1; i >= 0; i--) {
             final InsetsSourceControl control = controls.valueAt(i);
@@ -475,12 +510,6 @@ public class InsetsAnimationControlImpl implements InternalInsetsAnimationContro
                 mTmpFrame.set(source.getFrame());
             }
             addTranslationToMatrix(side, offset, mTmpMatrix, mTmpFrame);
-
-            // The first frame of ANIMATION_TYPE_SHOW should be invisible since it is animated from
-            // the hidden state.
-            final boolean visible = mPendingFraction == 0
-                    ? mAnimationType != ANIMATION_TYPE_SHOW
-                    : !mFinished || mShownOnFinish;
 
             if (outState != null && source != null) {
                 outState.addSource(new InsetsSource(source)

@@ -164,9 +164,11 @@ public class SignalStrengthController extends Handler {
         CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
         mCarrierConfig = getCarrierConfig();
         // Callback which directly handle config change should be executed on handler thread
-        ccm.registerCarrierConfigChangeListener(this::post,
-                (slotIndex, subId, carrierId, specificCarrierId) ->
-                        onCarrierConfigurationChanged(slotIndex));
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(this::post,
+                    (slotIndex, subId, carrierId, specificCarrierId) ->
+                            onCarrierConfigurationChanged(slotIndex));
+        }
 
         mPhone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
     }

@@ -1,12 +1,12 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.asn1.x509;
 
+import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Integer;
 import com.android.org.bouncycastle.asn1.ASN1Object;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
-import com.android.org.bouncycastle.asn1.DERBitString;
 import com.android.org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import com.android.org.bouncycastle.asn1.x500.X500Name;
 
@@ -45,8 +45,8 @@ public class TBSCertificateStructure
     Time                    startDate, endDate;
     X500Name                subject;
     SubjectPublicKeyInfo    subjectPublicKeyInfo;
-    DERBitString            issuerUniqueId;
-    DERBitString            subjectUniqueId;
+    ASN1BitString           issuerUniqueId;
+    ASN1BitString           subjectUniqueId;
     X509Extensions          extensions;
 
     public static TBSCertificateStructure getInstance(
@@ -118,10 +118,10 @@ public class TBSCertificateStructure
             switch (extra.getTagNo())
             {
             case 1:
-                issuerUniqueId = DERBitString.getInstance(extra, false);
+                issuerUniqueId = ASN1BitString.getInstance(extra, false);
                 break;
             case 2:
-                subjectUniqueId = DERBitString.getInstance(extra, false);
+                subjectUniqueId = ASN1BitString.getInstance(extra, false);
                 break;
             case 3:
                 extensions = X509Extensions.getInstance(extra);
@@ -174,12 +174,12 @@ public class TBSCertificateStructure
         return subjectPublicKeyInfo;
     }
 
-    public DERBitString getIssuerUniqueId()
+    public ASN1BitString getIssuerUniqueId()
     {
         return issuerUniqueId;
     }
 
-    public DERBitString getSubjectUniqueId()
+    public ASN1BitString getSubjectUniqueId()
     {
         return subjectUniqueId;
     }

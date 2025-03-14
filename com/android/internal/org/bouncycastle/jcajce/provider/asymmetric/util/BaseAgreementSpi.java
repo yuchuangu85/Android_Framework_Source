@@ -1,7 +1,12 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.jcajce.provider.asymmetric.util;
 
+import java.security.InvalidAlgorithmParameterException;
+import java.security.InvalidKeyException;
+import java.security.Key;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.security.spec.AlgorithmParameterSpec;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.Map;
@@ -27,6 +32,7 @@ import com.android.internal.org.bouncycastle.crypto.DerivationFunction;
 // import org.bouncycastle.crypto.agreement.kdf.DHKEKGenerator;
 import com.android.internal.org.bouncycastle.crypto.params.DESParameters;
 import com.android.internal.org.bouncycastle.crypto.params.KDFParameters;
+import com.android.internal.org.bouncycastle.jcajce.spec.HybridValueParameterSpec;
 import com.android.internal.org.bouncycastle.util.Arrays;
 import com.android.internal.org.bouncycastle.util.Integers;
 import com.android.internal.org.bouncycastle.util.Strings;
@@ -152,6 +158,7 @@ public abstract class BaseAgreementSpi
     protected final DerivationFunction kdf;
 
     protected byte[]     ukmParameters;
+    private HybridValueParameterSpec hybridSpec;
 
     public BaseAgreementSpi(String kaAlgorithm, DerivationFunction kdf)
     {
@@ -222,6 +229,40 @@ public abstract class BaseAgreementSpi
             System.arraycopy(secret, ind, rv, 0, rv.length);
 
             return rv;
+        }
+    }
+
+    protected void engineInit(
+        Key             key,
+        SecureRandom    random)
+        throws InvalidKeyException
+    {
+        try
+        {
+            doInitFromKey(key, null, random);
+        }
+        catch (InvalidAlgorithmParameterException e)
+        {
+            // this should never occur.
+            throw new InvalidKeyException(e.getMessage());
+        }
+    }
+
+    protected void engineInit(
+        Key key,
+        AlgorithmParameterSpec params,
+        SecureRandom random)
+        throws InvalidKeyException, InvalidAlgorithmParameterException
+    {
+        if (params instanceof HybridValueParameterSpec)
+        {
+            this.hybridSpec = (HybridValueParameterSpec)params;
+            doInitFromKey(key, hybridSpec.getBaseParameterSpec(), random);
+        }
+        else
+        {
+            this.hybridSpec = null;
+            doInitFromKey(key, params, random);
         }
     }
 
@@ -351,5 +392,26 @@ public abstract class BaseAgreementSpi
         }
     }
 
-    protected abstract byte[] calcSecret();
+    private byte[] calcSecret()
+    {
+        if (hybridSpec != null)
+        {
+            // Set Z' to Z || T
+            byte[] s = doCalcSecret();
+            byte[] sec = Arrays.concatenate(s, hybridSpec.getT());
+
+            Arrays.clear(s);
+
+            return sec;
+        }
+        else
+        {
+            return doCalcSecret();
+        }
+    }
+
+    protected abstract byte[] doCalcSecret();
+
+    protected abstract void doInitFromKey(Key key, AlgorithmParameterSpec parameterSpec, SecureRandom random)
+        throws InvalidKeyException, InvalidAlgorithmParameterException;
 }

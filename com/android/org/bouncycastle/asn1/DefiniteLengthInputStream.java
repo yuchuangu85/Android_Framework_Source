@@ -26,18 +26,18 @@ class DefiniteLengthInputStream
     {
         super(in, limit);
 
-        if (length < 0)
+        if (length <= 0)
         {
-            throw new IllegalArgumentException("negative lengths not allowed");
+            if (length < 0)
+            {
+                throw new IllegalArgumentException("negative lengths not allowed");
+            }
+
+            setParentEofDetect(true);
         }
 
         this._originalLength = length;
         this._remaining = length;
-
-        if (length == 0)
-        {
-            setParentEofDetect(true);
-        }
     }
 
     int getRemaining()
@@ -112,7 +112,7 @@ class DefiniteLengthInputStream
             throw new IOException("corrupted stream - out of bounds length found: " + _remaining + " >= " + limit);
         }
 
-        if ((_remaining -= Streams.readFully(_in, buf)) != 0)
+        if ((_remaining -= Streams.readFully(_in, buf, 0, buf.length)) != 0)
         {
             throw new EOFException("DEF length " + _originalLength + " object truncated by " + _remaining);
         }
@@ -135,7 +135,7 @@ class DefiniteLengthInputStream
         }
 
         byte[] bytes = new byte[_remaining];
-        if ((_remaining -= Streams.readFully(_in, bytes)) != 0)
+        if ((_remaining -= Streams.readFully(_in, bytes, 0, bytes.length)) != 0)
         {
             throw new EOFException("DEF length " + _originalLength + " object truncated by " + _remaining);
         }

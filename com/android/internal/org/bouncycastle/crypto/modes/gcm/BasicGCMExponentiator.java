@@ -1,8 +1,6 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.crypto.modes.gcm;
 
-import com.android.internal.org.bouncycastle.util.Arrays;
-
 /**
  * @hide This class is not part of the Android public SDK API
  */
@@ -23,7 +21,9 @@ public class BasicGCMExponentiator
 
         if (pow > 0)
         {
-            long[] powX = Arrays.clone(x);
+            long[] powX = new long[GCMUtil.SIZE_LONGS];
+            GCMUtil.copy(x, powX);
+
             do
             {
                 if ((pow & 1L) != 0)

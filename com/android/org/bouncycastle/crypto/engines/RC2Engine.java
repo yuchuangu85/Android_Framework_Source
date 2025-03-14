@@ -1,10 +1,8 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.org.bouncycastle.crypto.engines;
 
-import com.android.org.bouncycastle.crypto.BlockCipher;
-import com.android.org.bouncycastle.crypto.CipherParameters;
-import com.android.org.bouncycastle.crypto.DataLengthException;
-import com.android.org.bouncycastle.crypto.OutputLengthException;
+import com.android.org.bouncycastle.crypto.*;
+import com.android.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
 import com.android.org.bouncycastle.crypto.params.KeyParameter;
 import com.android.org.bouncycastle.crypto.params.RC2Parameters;
 
@@ -124,17 +122,18 @@ public class RC2Engine
         CipherParameters  params)
     {
         this.encrypting = encrypting;
-
+        byte[] key;
         if (params instanceof RC2Parameters)
         {
             RC2Parameters   param = (RC2Parameters)params;
 
             workingKey = generateWorkingKey(param.getKey(),
                                             param.getEffectiveKeyBits());
+            key = param.getKey();
         }
         else if (params instanceof KeyParameter)
         {
-            byte[]    key = ((KeyParameter)params).getKey();
+            key = ((KeyParameter)params).getKey();
 
             workingKey = generateWorkingKey(key, key.length * 8);
         }
@@ -143,6 +142,7 @@ public class RC2Engine
             throw new IllegalArgumentException("invalid parameter passed to RC2 init - " + params.getClass().getName());
         }
 
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), key.length * 8, params, Utils.getPurpose(encrypting)));
     }
 
     public void reset()

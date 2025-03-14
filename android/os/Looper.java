@@ -70,6 +70,13 @@ public final class Looper {
 
     private static final String TAG = "Looper";
 
+    private static class NoImagePreloadHolder {
+        // Enable/Disable verbose logging with a system prop. e.g.
+        // adb shell 'setprop log.looper.slow.verbose false && stop && start'
+        private static final boolean sVerboseLogging =
+                SystemProperties.getBoolean("log.looper.slow.verbose", false);
+    }
+
     // sThreadLocal.get() will return null unless you've called prepare().
     @UnsupportedAppUsage
     static final ThreadLocal<Looper> sThreadLocal = new ThreadLocal<Looper>();
@@ -192,7 +199,16 @@ public final class Looper {
             return false;
         }
 
-        // This must be in a local variable, in case a UI event sets the logger
+        PerfettoTrace.begin(PerfettoTrace.MQ_CATEGORY, "message_queue_receive")
+                .beginProto()
+                .beginNested(2004 /* message_queue */)
+                .addField(1 /* sending_thread_name */, msg.mSendingThreadName)
+                .endNested()
+                .endProto()
+                .addTerminatingFlow(msg.mEventId.get())
+                .emit();
+
+        // This must be in a local variabe, in case a UI event sets the logger
         final Printer logging = me.mLogging;
         if (logging != null) {
             logging.println(">>>>> Dispatching to " + msg.target + " "
@@ -246,17 +262,21 @@ public final class Looper {
             }
         }
         if (logSlowDelivery) {
+            boolean slow = false;
+
+            if (!me.mSlowDeliveryDetected || NoImagePreloadHolder.sVerboseLogging) {
+                slow = showSlowLog(slowDeliveryThresholdMs, msg.when, dispatchStart,
+                        "delivery", msg);
+            }
             if (me.mSlowDeliveryDetected) {
-                if ((dispatchStart - msg.when) <= 10) {
+                if (!slow && (dispatchStart - msg.when) <= 10) {
                     Slog.w(TAG, "Drained");
                     me.mSlowDeliveryDetected = false;
                 }
-            } else {
-                if (showSlowLog(slowDeliveryThresholdMs, msg.when, dispatchStart, "delivery",
-                        msg)) {
-                    // Once we write a slow delivery log, suppress until the queue drains.
-                    me.mSlowDeliveryDetected = true;
-                }
+            } else if (slow) {
+                // A slow delivery is detected, suppressing further logs unless verbose logging
+                // is enabled.
+                me.mSlowDeliveryDetected = true;
             }
         }
         if (logSlowDispatch) {
@@ -278,6 +298,7 @@ public final class Looper {
                     + msg.callback + " what=" + msg.what);
         }
 
+        PerfettoTrace.end(PerfettoTrace.MQ_CATEGORY).emit();
         msg.recycleUnchecked();
 
         return true;
@@ -322,6 +343,23 @@ public final class Looper {
 
     @android.ravenwood.annotation.RavenwoodReplace
     private static int getThresholdOverride() {
+        // Allow overriding the threshold for all processes' main looper with a system prop.
+        // e.g. adb shell 'setprop log.looper.any.main.slow 1 && stop && start'
+        if (myLooper() == getMainLooper()) {
+            final int globalOverride = SystemProperties.getInt("log.looper.any.main.slow", -1);
+            if (globalOverride >= 0) {
+                return globalOverride;
+            }
+        }
+
+        // Allow overriding the threshold for all threads within a process with a system prop.
+        // e.g. adb shell 'setprop log.looper.1000.any.slow 1 && stop && start'
+        final int processOverride = SystemProperties.getInt("log.looper."
+                + Process.myUid() + ".any.slow", -1);
+        if (processOverride >= 0) {
+            return processOverride;
+        }
+
         return SystemProperties.getInt("log.looper."
                 + Process.myUid() + "."
                 + Thread.currentThread().getName()
@@ -332,16 +370,55 @@ public final class Looper {
         return -1;
     }
 
+    private static int getThreadGroup() {
+        int threadGroup = Process.THREAD_GROUP_DEFAULT;
+
+        if (!Process.isIsolated()) {
+            threadGroup = Process.getProcessGroup(Process.myTid());
+        }
+        return threadGroup;
+    }
+
+    private static String threadGroupToString(int threadGroup) {
+        switch (threadGroup) {
+            case Process.THREAD_GROUP_BACKGROUND:
+                return "BACKGROUND";
+            case Process.THREAD_GROUP_FOREGROUND:
+                return "FOREGROUND";
+            case Process.THREAD_GROUP_SYSTEM:
+                return "SYSTEM";
+            case Process.THREAD_GROUP_AUDIO_APP:
+                return "AUDIO_APP";
+            case Process.THREAD_GROUP_AUDIO_SYS:
+                return "AUDIO_SYS";
+            case Process.THREAD_GROUP_TOP_APP:
+                return "TOP_APP";
+            case Process.THREAD_GROUP_RT_APP:
+                return "RT_APP";
+            case Process.THREAD_GROUP_RESTRICTED:
+                return "RESTRICTED";
+            default:
+                return "UNKNOWN";
+        }
+    }
+
     private static boolean showSlowLog(long threshold, long measureStart, long measureEnd,
             String what, Message msg) {
         final long actualTime = measureEnd - measureStart;
         if (actualTime < threshold) {
             return false;
         }
+
+        String name = Process.myProcessName();
+        String threadGroup = threadGroupToString(getThreadGroup());
+        boolean isMain = myLooper() == getMainLooper();
+
         // For slow delivery, the current message isn't really important, but log it anyway.
         Slog.w(TAG, "Slow " + what + " took " + actualTime + "ms "
-                + Thread.currentThread().getName() + " h="
-                + msg.target.getClass().getName() + " c=" + msg.callback + " m=" + msg.what);
+                + Thread.currentThread().getName() + " app=" + name
+                + " main=" + isMain + " group=" + threadGroup
+                + " h=" + msg.target.getClass().getName() + " c=" + msg.callback
+                + " m=" + msg.what);
         return true;
     }
 

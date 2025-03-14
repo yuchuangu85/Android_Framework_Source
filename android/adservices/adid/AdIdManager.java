@@ -16,9 +16,14 @@
 package android.adservices.adid;
 
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_AD_ID;
+import static android.adservices.common.AdServicesStatusUtils.SERVICE_UNAVAILABLE_ERROR_MESSAGE;
+import static android.adservices.common.AndroidRCommonUtil.invokeCallbackOnErrorOnRvc;
 
 import android.adservices.common.AdServicesOutcomeReceiver;
+import android.adservices.common.AdServicesStatusUtils;
+import android.adservices.common.CallerMetadata;
 import android.adservices.common.OutcomeReceiverConverter;
+import android.adservices.common.SandboxedSdkContextUtils;
 import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
@@ -27,11 +32,18 @@ import android.app.sdksandbox.SandboxedSdkContext;
 import android.content.Context;
 import android.os.Build;
 import android.os.OutcomeReceiver;
+import android.os.RemoteException;
+import android.os.SystemClock;
 
 import androidx.annotation.RequiresApi;
 
+import com.android.adservices.AdServicesCommon;
+import com.android.adservices.LogUtil;
+import com.android.adservices.ServiceBinder;
 import com.android.adservices.flags.Flags;
+import com.android.adservices.shared.common.exception.ServiceUnavailableException;
 
+import java.util.Objects;
 import java.util.concurrent.Executor;
 
 /**
@@ -51,7 +63,8 @@ public class AdIdManager {
     // When an app calls the AdId API directly, it sets the SDK name to empty string.
     static final String EMPTY_SDK = "";
 
-    private final AdIdCompatibleManager mImpl;
+    private Context mContext;
+    private ServiceBinder<IAdIdService> mServiceBinder;
 
     /**
      * Factory method for creating an instance of AdIdManager.
@@ -75,7 +88,7 @@ public class AdIdManager {
     public AdIdManager(Context context) {
         // In case the AdIdManager is initiated from inside a sdk_sandbox process the fields
         // will be immediately rewritten by the initialize method below.
-        mImpl = new AdIdCompatibleManager(context);
+        initialize(context);
     }
 
     /**
@@ -89,8 +102,36 @@ public class AdIdManager {
      * @see android.app.sdksandbox.SdkSandboxSystemServiceRegistry
      */
     public AdIdManager initialize(Context context) {
-        mImpl.initialize(context);
+        mContext = context;
+        mServiceBinder =
+                ServiceBinder.getServiceBinder(
+                        context,
+                        AdServicesCommon.ACTION_ADID_SERVICE,
+                        IAdIdService.Stub::asInterface);
         return this;
+    }
+
+    @SuppressWarnings("NewApi")
+    private IAdIdService getService(
+            @CallbackExecutor Executor executor, OutcomeReceiver<AdId, Exception> callback) {
+        IAdIdService service = null;
+        try {
+            service = mServiceBinder.getService();
+
+            // Throw ServiceUnavailableException and set it to the callback.
+            if (service == null) {
+                throw new ServiceUnavailableException(SERVICE_UNAVAILABLE_ERROR_MESSAGE);
+            }
+        } catch (RuntimeException e) {
+            LogUtil.e(e, "Failed binding to AdId service");
+            executor.execute(() -> callback.onError(e));
+        }
+
+        return service;
+    }
+
+    private Context getContext() {
+        return mContext;
     }
 
     /**
@@ -105,7 +146,68 @@ public class AdIdManager {
     public void getAdId(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull OutcomeReceiver<AdId, Exception> callback) {
-        mImpl.getAdId(executor, OutcomeReceiverConverter.toAdServicesOutcomeReceiver(callback));
+        Objects.requireNonNull(executor, "executor must not be null");
+        Objects.requireNonNull(callback, "callback must not be null");
+        CallerMetadata callerMetadata =
+                new CallerMetadata.Builder()
+                        .setBinderElapsedTimestamp(SystemClock.elapsedRealtime())
+                        .build();
+        String appPackageName = "";
+        String sdkPackageName = "";
+        // First check if context is SandboxedSdkContext or not
+        Context getAdIdRequestContext = getContext();
+        SandboxedSdkContext requestContext =
+                SandboxedSdkContextUtils.getAsSandboxedSdkContext(getAdIdRequestContext);
+        if (requestContext != null) {
+            sdkPackageName = requestContext.getSdkPackageName();
+            appPackageName = requestContext.getClientPackageName();
+        } else { // This is the case without the Sandbox.
+            appPackageName = getAdIdRequestContext.getPackageName();
+        }
+
+        try {
+            IAdIdService service = getService(executor, callback);
+            if (service == null) {
+                LogUtil.w("Unable to find AdId service");
+                return;
+            }
+
+            service.getAdId(
+                    new GetAdIdParam.Builder()
+                            .setAppPackageName(appPackageName)
+                            .setSdkPackageName(sdkPackageName)
+                            .build(),
+                    callerMetadata,
+                    new IGetAdIdCallback.Stub() {
+                        @Override
+                        public void onResult(GetAdIdResult resultParcel) {
+                            executor.execute(
+                                    () -> {
+                                        if (resultParcel.isSuccess()) {
+                                            callback.onResult(
+                                                    new AdId(
+                                                            resultParcel.getAdId(),
+                                                            resultParcel.isLatEnabled()));
+                                        } else {
+                                            callback.onError(
+                                                    AdServicesStatusUtils.asException(
+                                                            resultParcel));
+                                        }
+                                    });
+                        }
+
+                        @Override
+                        public void onError(int resultCode) {
+                            executor.execute(
+                                    () ->
+                                            callback.onError(
+                                                    AdServicesStatusUtils.asException(resultCode)));
+                        }
+                    });
+        } catch (RemoteException e) {
+            LogUtil.e(e, "RemoteException");
+            callback.onError(e);
+        }
     }
 
     /**
@@ -113,14 +215,22 @@ public class AdIdManager {
      *
      * @param executor The executor to run callback.
      * @param callback The callback that's called after adid are available or an error occurs.
+     * @deprecated use {@link #getAdId(Executor, OutcomeReceiver)} instead. Android R is no longer
+     *     supported.
      */
-    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_ENABLED)
     @RequiresPermission(ACCESS_ADSERVICES_AD_ID)
+    @Deprecated
+    @FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
+    @SuppressWarnings("NewApi")
     @NonNull
     public void getAdId(
             @NonNull @CallbackExecutor Executor executor,
             @NonNull AdServicesOutcomeReceiver<AdId, Exception> callback) {
-        mImpl.getAdId(executor, callback);
+        if (invokeCallbackOnErrorOnRvc(callback)) {
+            return;
+        }
+
+        getAdId(executor, OutcomeReceiverConverter.toOutcomeReceiver(callback));
     }
 
     /**
@@ -131,6 +241,6 @@ public class AdIdManager {
      */
     // TODO: change to @VisibleForTesting
     public void unbindFromService() {
-        mImpl.unbindFromService();
+        mServiceBinder.unbindFromService();
     }
 }

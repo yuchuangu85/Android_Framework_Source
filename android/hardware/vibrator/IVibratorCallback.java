@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash ea8742d6993e1a82917da38b9938e537aa7fcb54 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen/android/hardware/vibrator/IVibratorCallback.java.d -o out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen -Nhardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2 hardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2/android/hardware/vibrator/IVibratorCallback.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 720a16b521507c378f14c516749ae178a60dfc44 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V3-java-source/gen/android/hardware/vibrator/IVibratorCallback.java.d -o out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V3-java-source/gen -Iframeworks/native/aidl/binder -Nhardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/3 hardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/3/android/hardware/vibrator/IVibratorCallback.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.vibrator;
 public interface IVibratorCallback extends android.os.IInterface
@@ -11,8 +15,8 @@ public interface IVibratorCallback extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "ea8742d6993e1a82917da38b9938e537aa7fcb54";
+  public static final int VERSION = 3;
+  public static final String HASH = "720a16b521507c378f14c516749ae178a60dfc44";
   /** Default implementation for IVibratorCallback. */
   public static class Default implements android.hardware.vibrator.IVibratorCallback
   {
@@ -35,7 +39,7 @@ public interface IVibratorCallback extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.vibrator.IVibratorCallback
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {

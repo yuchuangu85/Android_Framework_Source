@@ -30,7 +30,7 @@ import java.nio.ByteBuffer;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.util.*;
-import sun.misc.Unsafe;
+import jdk.internal.misc.Unsafe;
 import sun.misc.Cleaner;
 import sun.security.action.GetPropertyAction;
 

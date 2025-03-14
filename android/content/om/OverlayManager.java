@@ -59,7 +59,6 @@ import java.util.List;
 public class OverlayManager {
 
     private final IOverlayManager mService;
-    private final Context mContext;
     private final OverlayManagerImpl mOverlayManagerImpl;
 
     /**
@@ -78,7 +77,8 @@ public class OverlayManager {
 
     /**
      * Applications can use OverlayManager to create overlays to overlay on itself resources. The
-     * overlay target is itself and the work range is only in caller application.
+     * overlay target is itself, or the Android package, and the work range is only in caller
+     * application.
      *
      * <p>In {@link android.content.Context#getSystemService(String)}, it crashes because of {@link
      * java.lang.NullPointerException} if the parameter is OverlayManager. if the self-targeting is
@@ -136,7 +136,6 @@ public class OverlayManager {
      */
     @SuppressLint("ReferencesHidden")
     public OverlayManager(@NonNull Context context, @Nullable IOverlayManager service) {
-        mContext = context;
         mService = service;
         mOverlayManagerImpl = new OverlayManagerImpl(context);
     }
@@ -160,7 +159,7 @@ public class OverlayManager {
      * @param packageName the name of the overlay package to enable.
      * @param user The user for which to change the overlay.
      *
-     * @throws SecurityException when caller is not allowed to enable {@param packageName}
+     * @throws SecurityException when caller is not allowed to enable {@code packageName}
      * @throws IllegalStateException when enabling fails otherwise
      *
      * @hide
@@ -195,7 +194,7 @@ public class OverlayManager {
      * @param enable {@code false} if the overlay should be turned off.
      * @param user The user for which to change the overlay.
      *
-     * @throws SecurityException when caller is not allowed to enable/disable {@param packageName}
+     * @throws SecurityException when caller is not allowed to enable/disable {@code packageName}
      * @throws IllegalStateException when enabling/disabling fails otherwise
      *
      * @hide
@@ -210,6 +209,43 @@ public class OverlayManager {
         try {
             if (!mService.setEnabled(packageName, enable, user.getIdentifier())) {
                 throw new IllegalStateException("setEnabled failed");
+            }
+        } catch (SecurityException e) {
+            rethrowSecurityException(e);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Enable an overlay package for a specific set of constraints. In case of multiple constraints,
+     * the overlay would be enabled when any of the given constraints are satisfied.
+     *
+     * Re-enabling an overlay with new constraints updates the constraints for the overlay.
+     *
+     * The caller must pass the actor requirements specified in the class comment.
+     *
+     * @param packageName the name of the overlay package to enable.
+     * @param user The user for which to change the overlay.
+     * @param constraints list of {@link OverlayConstraint} for enabling the overlay.
+     *
+     * @throws SecurityException when caller is not allowed to enable {@code packageName}
+     * @throws IllegalStateException when enabling fails otherwise
+     *
+     * @see OverlayConstraint
+     *
+     * @hide
+     */
+    @RequiresPermission(anyOf = {
+            "android.permission.INTERACT_ACROSS_USERS",
+            "android.permission.INTERACT_ACROSS_USERS_FULL"
+    })
+    public void enableWithConstraints(@NonNull final String packageName, @NonNull UserHandle user,
+            @Nullable final List<OverlayConstraint> constraints)
+            throws SecurityException, IllegalStateException {
+        try {
+            if (!mService.enableWithConstraints(packageName, user.getIdentifier(), constraints)) {
+                throw new IllegalStateException("enableWithConstraints failed");
             }
         } catch (SecurityException e) {
             rethrowSecurityException(e);
@@ -298,7 +334,6 @@ public class OverlayManager {
     @RequiresPermission(anyOf = {
             "android.permission.INTERACT_ACROSS_USERS",
     })
-    @NonNull
     public void invalidateCachesForOverlay(@NonNull final String targetPackageName,
             @NonNull UserHandle user) {
         try {
@@ -401,7 +436,7 @@ public class OverlayManager {
     }
 
     /**
-     * Get the related information of overlays for {@code targetPackageName}.
+     * Get the related information of self-targeting overlays for {@code targetPackageName}.
      *
      * @param targetPackageName the target package name
      * @return a list of overlay information

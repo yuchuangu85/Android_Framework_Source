@@ -260,9 +260,11 @@ public class ApkSignatureVerifier {
             Certificate[][] nonstreamingCerts = null;
 
             int v3BlockId = APK_SIGNATURE_SCHEME_DEFAULT;
-            // If V4 contains additional signing blocks then we need to always run v2/v3 verifier
-            // to figure out which block they use.
-            if (verifyFull || signingInfos.signingInfoBlocks.length > 0) {
+            // We need to always run v2/v3 verifier to figure out which block they use so we can
+            // return the past signers as well as the current one - the rotation chain is important
+            // for many callers who verify the signature origin as well as the apk integrity.
+            if (android.content.pm.Flags.alwaysLoadPastCertsV4()
+                    || verifyFull || signingInfos.signingInfoBlocks.length > 0) {
                 try {
                     // v4 is an add-on and requires v2 or v3 signature to validate against its
                     // certificate and digest

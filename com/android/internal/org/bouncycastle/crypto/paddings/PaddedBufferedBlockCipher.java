@@ -2,9 +2,9 @@
 package com.android.internal.org.bouncycastle.crypto.paddings;
 
 import com.android.internal.org.bouncycastle.crypto.BlockCipher;
-import com.android.internal.org.bouncycastle.crypto.BufferedBlockCipher;
 import com.android.internal.org.bouncycastle.crypto.CipherParameters;
 import com.android.internal.org.bouncycastle.crypto.DataLengthException;
+import com.android.internal.org.bouncycastle.crypto.DefaultBufferedBlockCipher;
 import com.android.internal.org.bouncycastle.crypto.InvalidCipherTextException;
 import com.android.internal.org.bouncycastle.crypto.OutputLengthException;
 import com.android.internal.org.bouncycastle.crypto.params.ParametersWithRandom;
@@ -18,7 +18,7 @@ import com.android.internal.org.bouncycastle.crypto.params.ParametersWithRandom;
  * @hide This class is not part of the Android public SDK API
  */
 public class PaddedBufferedBlockCipher
-    extends BufferedBlockCipher
+    extends DefaultBufferedBlockCipher
 {
     BlockCipherPadding  padding;
 

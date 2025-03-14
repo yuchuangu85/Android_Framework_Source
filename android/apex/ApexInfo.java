@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version 28 --ninja -d out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen/android/apex/ApexInfo.java.d -o out/soong/.intermediates/system/apex/apexd/apex_aidl_interface-java-source/gen -Nsystem/apex/apexd/aidl system/apex/apexd/aidl/android/apex/ApexInfo.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.apex;
 public class ApexInfo implements android.os.Parcelable
@@ -24,6 +28,8 @@ public class ApexInfo implements android.os.Parcelable
   // Note: this field can only be set to true during boot, after boot is completed
   //  (sys.boot_completed = 1) value of this field will always be false.
   public boolean activeApexChanged = false;
+  // For pre-installed APEX, this is the partition where it is pre-installed. For brand-new APEX, this is the partition where its credential is pre-installed.
+  public byte partition;
   public static final android.os.Parcelable.Creator<ApexInfo> CREATOR = new android.os.Parcelable.Creator<ApexInfo>() {
     @Override
     public ApexInfo createFromParcel(android.os.Parcel _aidl_source) {
@@ -49,6 +55,7 @@ public class ApexInfo implements android.os.Parcelable
     _aidl_parcel.writeInt(((isActive)?(1):(0)));
     _aidl_parcel.writeInt(((hasClassPathJars)?(1):(0)));
     _aidl_parcel.writeInt(((activeApexChanged)?(1):(0)));
+    _aidl_parcel.writeByte(partition);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -78,6 +85,8 @@ public class ApexInfo implements android.os.Parcelable
       hasClassPathJars = (0!=_aidl_parcel.readInt());
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       activeApexChanged = (0!=_aidl_parcel.readInt());
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      partition = _aidl_parcel.readByte();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -89,5 +98,13 @@ public class ApexInfo implements android.os.Parcelable
   public int describeContents() {
     int _mask = 0;
     return _mask;
+  }
+  /** The partition that an APEX is pre-installed in or maps to. */
+  public static @interface Partition {
+    public static final byte SYSTEM = 0;
+    public static final byte SYSTEM_EXT = 1;
+    public static final byte PRODUCT = 2;
+    public static final byte VENDOR = 3;
+    public static final byte ODM = 4;
   }
 }

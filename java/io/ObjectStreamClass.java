@@ -55,7 +55,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import sun.misc.Unsafe;
+import jdk.internal.misc.Unsafe;
 import sun.reflect.CallerSensitive;
 import sun.reflect.Reflection;
 import sun.reflect.misc.ReflectUtil;
@@ -2503,7 +2503,7 @@ public class ObjectStreamClass implements Serializable {
         if (targetSdkVersion > 0 && targetSdkVersion <= 24) {
             System.logE("WARNING: ObjectStreamClass.newInstance(Class<?>, long) is private API and" +
                         "will be removed in a future Android release.");
-            return sun.misc.Unsafe.getUnsafe().allocateInstance(clazz);
+            return jdk.internal.misc.Unsafe.getUnsafe().allocateInstance(clazz);
         }
 
         throw new UnsupportedOperationException("ObjectStreamClass.newInstance(Class<?>, long) " +

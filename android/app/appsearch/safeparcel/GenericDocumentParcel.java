@@ -17,16 +17,19 @@
 package android.app.appsearch.safeparcel;
 
 import android.annotation.CurrentTimeMillisLong;
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.SuppressLint;
+import android.app.appsearch.AppSearchBlobHandle;
 import android.app.appsearch.AppSearchSchema;
 import android.app.appsearch.AppSearchSession;
+import android.app.appsearch.EmbeddingVector;
 import android.app.appsearch.GenericDocument;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.ArrayMap;
+
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,8 +46,7 @@ import java.util.Set;
 // This won't be used to send data over binder, and we have to use Parcelable for code sync purpose.
 @SuppressLint("BanParcelableUsage")
 public final class GenericDocumentParcel extends AbstractSafeParcelable implements Parcelable {
-    @NonNull
-    public static final Parcelable.Creator<GenericDocumentParcel> CREATOR =
+    public static final Parcelable.@NonNull Creator<GenericDocumentParcel> CREATOR =
             new GenericDocumentParcelCreator();
 
     /** The default score of document. */
@@ -57,16 +59,13 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
     private static final long INVALID_CREATION_TIMESTAMP_MILLIS = -1L;
 
     @Field(id = 1, getter = "getNamespace")
-    @NonNull
-    private final String mNamespace;
+    private final @NonNull String mNamespace;
 
     @Field(id = 2, getter = "getId")
-    @NonNull
-    private final String mId;
+    private final @NonNull String mId;
 
     @Field(id = 3, getter = "getSchemaType")
-    @NonNull
-    private final String mSchemaType;
+    private final @NonNull String mSchemaType;
 
     @Field(id = 4, getter = "getCreationTimestampMillis")
     private final long mCreationTimestampMillis;
@@ -83,22 +82,20 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
      * <p>Unfortunately SafeParcelable doesn't support map type so we have to use a list here.
      */
     @Field(id = 7, getter = "getProperties")
-    @NonNull
-    private final List<PropertyParcel> mProperties;
+    private final @NonNull List<PropertyParcel> mProperties;
 
     /** Contains all parent properties for this {@link GenericDocument} in a list. */
     @Field(id = 8, getter = "getParentTypes")
-    @Nullable
-    private final List<String> mParentTypes;
+    private final @Nullable List<String> mParentTypes;
 
     /**
      * Contains all properties in {@link GenericDocument} to support getting properties via name
      *
      * <p>This map is created for quick looking up property by name.
      */
-    @NonNull private final Map<String, PropertyParcel> mPropertyMap;
+    private final @NonNull Map<String, PropertyParcel> mPropertyMap;
 
-    @Nullable private Integer mHashCode;
+    private @Nullable Integer mHashCode;
 
     /**
      * The constructor taking the property list, and create map internally from this list.
@@ -155,6 +152,13 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
         mParentTypes = parentTypes;
     }
 
+    /** Returns the {@link GenericDocumentParcel} object from the given {@link GenericDocument}. */
+    public static @NonNull GenericDocumentParcel fromGenericDocument(
+            @NonNull GenericDocument genericDocument) {
+        Objects.requireNonNull(genericDocument);
+        return genericDocument.getDocumentParcel();
+    }
+
     private static Map<String, PropertyParcel> createPropertyMapFromPropertyArray(
             @NonNull List<PropertyParcel> properties) {
         Objects.requireNonNull(properties);
@@ -167,20 +171,17 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
     }
 
     /** Returns the unique identifier of the {@link GenericDocument}. */
-    @NonNull
-    public String getId() {
+    public @NonNull String getId() {
         return mId;
     }
 
     /** Returns the namespace of the {@link GenericDocument}. */
-    @NonNull
-    public String getNamespace() {
+    public @NonNull String getNamespace() {
         return mNamespace;
     }
 
     /** Returns the {@link AppSearchSchema} type of the {@link GenericDocument}. */
-    @NonNull
-    public String getSchemaType() {
+    public @NonNull String getSchemaType() {
         return mSchemaType;
     }
 
@@ -201,26 +202,22 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
     }
 
     /** Returns the names of all properties defined in this document. */
-    @NonNull
-    public Set<String> getPropertyNames() {
+    public @NonNull Set<String> getPropertyNames() {
         return mPropertyMap.keySet();
     }
 
     /** Returns all the properties the document has. */
-    @NonNull
-    public List<PropertyParcel> getProperties() {
+    public @NonNull List<PropertyParcel> getProperties() {
         return mProperties;
     }
 
     /** Returns the property map the document has. */
-    @NonNull
-    public Map<String, PropertyParcel> getPropertyMap() {
+    public @NonNull Map<String, PropertyParcel> getPropertyMap() {
         return mPropertyMap;
     }
 
     /** Returns the list of parent types for the {@link GenericDocument}. */
-    @Nullable
-    public List<String> getParentTypes() {
+    public @Nullable List<String> getParentTypes() {
         return mParentTypes;
     }
 
@@ -276,10 +273,10 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
         private long mTtlMillis;
         private int mScore;
         private Map<String, PropertyParcel> mPropertyMap;
-        @Nullable private List<String> mParentTypes;
+        private @Nullable List<String> mParentTypes;
 
         /**
-         * Creates a new {@link GenericDocument.Builder}.
+         * Creates a new {@link GenericDocumentParcel.Builder}.
          *
          * <p>Document IDs are unique within a namespace.
          *
@@ -330,8 +327,7 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
          * <p>The number of namespaces per app should be kept small for efficiency reasons.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setNamespace(@NonNull String namespace) {
+        public @NonNull Builder setNamespace(@NonNull String namespace) {
             Objects.requireNonNull(namespace);
             mNamespace = namespace;
             return this;
@@ -344,8 +340,7 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
          * <p>Document IDs are unique within a namespace.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setId(@NonNull String id) {
+        public @NonNull Builder setId(@NonNull String id) {
             Objects.requireNonNull(id);
             mId = id;
             return this;
@@ -358,8 +353,7 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
          * AppSearchSchema} object previously provided to {@link AppSearchSession#setSchema}.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setSchemaType(@NonNull String schemaType) {
+        public @NonNull Builder setSchemaType(@NonNull String schemaType) {
             Objects.requireNonNull(schemaType);
             mSchemaType = schemaType;
             return this;
@@ -367,8 +361,7 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
 
         /** Sets the score of the parent {@link GenericDocument}. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setScore(int score) {
+        public @NonNull Builder setScore(int score) {
             mScore = score;
             return this;
         }
@@ -384,8 +377,7 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
          * @param creationTimestampMillis a creation timestamp in milliseconds.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setCreationTimestampMillis(
+        public @NonNull Builder setCreationTimestampMillis(
                 @CurrentTimeMillisLong long creationTimestampMillis) {
             mCreationTimestampMillis = creationTimestampMillis;
             return this;
@@ -405,8 +397,7 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
          * @throws IllegalArgumentException if ttlMillis is negative.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setTtlMillis(long ttlMillis) {
+        public @NonNull Builder setTtlMillis(long ttlMillis) {
             if (ttlMillis < 0) {
                 throw new IllegalArgumentException("Document ttlMillis cannot be negative.");
             }
@@ -420,10 +411,12 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
          * <p>Child types must appear before parent types in the list.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setParentTypes(@NonNull List<String> parentTypes) {
-            Objects.requireNonNull(parentTypes);
-            mParentTypes = new ArrayList<>(parentTypes);
+        public @NonNull Builder setParentTypes(@Nullable List<String> parentTypes) {
+            if (parentTypes == null) {
+                mParentTypes = null;
+            } else {
+                mParentTypes = new ArrayList<>(parentTypes);
+            }
             return this;
         }
 
@@ -435,79 +428,90 @@ public final class GenericDocumentParcel extends AbstractSafeParcelable implemen
          * @param name The name of the property to clear.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder clearProperty(@NonNull String name) {
+        public @NonNull Builder clearProperty(@NonNull String name) {
             Objects.requireNonNull(name);
             mPropertyMap.remove(name);
             return this;
         }
 
-        /** puts an array of {@link String} in property map. */
+        /** Puts an array of {@link String} in the property map. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder putInPropertyMap(@NonNull String name, @NonNull String[] values)
+        public @NonNull Builder putInPropertyMap(@NonNull String name, String @NonNull [] values)
                 throws IllegalArgumentException {
             putInPropertyMap(
                     name, new PropertyParcel.Builder(name).setStringValues(values).build());
             return this;
         }
 
-        /** puts an array of boolean in property map. */
+        /** Puts an array of boolean in the property map. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder putInPropertyMap(@NonNull String name, @NonNull boolean[] values) {
+        public @NonNull Builder putInPropertyMap(@NonNull String name, boolean @NonNull [] values) {
             putInPropertyMap(
                     name, new PropertyParcel.Builder(name).setBooleanValues(values).build());
             return this;
         }
 
-        /** puts an array of double in property map. */
+        /** Puts an array of double in the property map. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder putInPropertyMap(@NonNull String name, @NonNull double[] values) {
+        public @NonNull Builder putInPropertyMap(@NonNull String name, double @NonNull [] values) {
             putInPropertyMap(
                     name, new PropertyParcel.Builder(name).setDoubleValues(values).build());
             return this;
         }
 
-        /** puts an array of long in property map. */
+        /** Puts an array of long in the property map. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder putInPropertyMap(@NonNull String name, @NonNull long[] values) {
+        public @NonNull Builder putInPropertyMap(@NonNull String name, long @NonNull [] values) {
             putInPropertyMap(name, new PropertyParcel.Builder(name).setLongValues(values).build());
             return this;
         }
 
         /** Converts and saves a byte[][] into {@link #mProperties}. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder putInPropertyMap(@NonNull String name, @NonNull byte[][] values) {
+        public @NonNull Builder putInPropertyMap(@NonNull String name, byte @NonNull [][] values) {
             putInPropertyMap(name, new PropertyParcel.Builder(name).setBytesValues(values).build());
             return this;
         }
 
-        /** puts an array of {@link GenericDocumentParcel} in property map. */
+        /** Puts an array of {@link GenericDocumentParcel} in the property map. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder putInPropertyMap(
-                @NonNull String name, @NonNull GenericDocumentParcel[] values) {
+        public @NonNull Builder putInPropertyMap(
+                @NonNull String name, GenericDocumentParcel @NonNull [] values) {
             putInPropertyMap(
                     name, new PropertyParcel.Builder(name).setDocumentValues(values).build());
             return this;
         }
 
-        /** Directly puts a {@link PropertyParcel} in property map. */
+        /** Puts an array of {@link EmbeddingVector} in the property map. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder putInPropertyMap(@NonNull String name, @NonNull PropertyParcel value) {
+        public @NonNull Builder putInPropertyMap(
+                @NonNull String name, EmbeddingVector @NonNull [] values) {
+            putInPropertyMap(
+                    name, new PropertyParcel.Builder(name).setEmbeddingValues(values).build());
+            return this;
+        }
+
+        /** Puts an array of {@link AppSearchBlobHandle} in the property map. */
+        @CanIgnoreReturnValue
+        public @NonNull Builder putInPropertyMap(
+                @NonNull String name, AppSearchBlobHandle @NonNull [] values) {
+            Objects.requireNonNull(values);
+            putInPropertyMap(
+                    name, new PropertyParcel.Builder(name).setBlobHandleValues(values).build());
+            return this;
+        }
+
+        /** Directly puts a {@link PropertyParcel} in the property map. */
+        @CanIgnoreReturnValue
+        public @NonNull Builder putInPropertyMap(
+                @NonNull String name, @NonNull PropertyParcel value) {
             Objects.requireNonNull(value);
             mPropertyMap.put(name, value);
             return this;
         }
 
         /** Builds the {@link GenericDocument} object. */
-        @NonNull
-        public GenericDocumentParcel build() {
+        public @NonNull GenericDocumentParcel build() {
             // Set current timestamp for creation timestamp by default.
             if (mCreationTimestampMillis == INVALID_CREATION_TIMESTAMP_MILLIS) {
                 mCreationTimestampMillis = System.currentTimeMillis();

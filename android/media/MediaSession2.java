@@ -56,7 +56,7 @@ import java.util.concurrent.Executor;
 /**
  * This API is not generally intended for third party application developers.
  * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
- * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+ * <a href="{@docRoot}media/media3/session/control-playback">Media3 session
  * Library</a> for consistent behavior across all devices.
  * <p>
  * Allows a media app to expose its transport controls and playback information in a process to
@@ -502,7 +502,7 @@ public class MediaSession2 implements AutoCloseable {
     /**
      * This API is not generally intended for third party application developers.
      * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
-     * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+     * <a href="{@docRoot}media/media3/session/control-playback">Media3 session
      * Library</a> for consistent behavior across all devices.
      * <p>
      * Builder for {@link MediaSession2}.
@@ -648,7 +648,7 @@ public class MediaSession2 implements AutoCloseable {
     /**
      * This API is not generally intended for third party application developers.
      * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
-     * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+     * <a href="{@docRoot}media/media3/session/control-playback">Media3 session
      * Library</a> for consistent behavior across all devices.
      * <p>
      * Information of a controller.
@@ -842,7 +842,7 @@ public class MediaSession2 implements AutoCloseable {
     /**
      * This API is not generally intended for third party application developers.
      * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
-     * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+     * <a href="{@docRoot}reference/androidx/media3/session/package-summary.html">Media3 session
      * Library</a> for consistent behavior across all devices.
      * <p>
      * Callback to be called for all incoming commands from {@link MediaController2}s.

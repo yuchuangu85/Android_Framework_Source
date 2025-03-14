@@ -28,8 +28,8 @@ import android.os.Parcelable;
  */
 @SystemApi
 public final class BufferConstraint implements Parcelable {
-
     private static final String TAG = "BufferConstraint";
+
     private int mDefaultMillis;
     private int mMaxMillis;
     private int mMinMillis;

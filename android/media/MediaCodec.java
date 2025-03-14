@@ -16,8 +16,12 @@
 
 package android.media;
 
+import static android.media.codec.Flags.FLAG_CODEC_AVAILABILITY;
 import static android.media.codec.Flags.FLAG_NULL_OUTPUT_SURFACE;
 import static android.media.codec.Flags.FLAG_REGION_OF_INTEREST;
+import static android.media.codec.Flags.FLAG_SUBSESSION_METRICS;
+import static android.media.tv.flags.Flags.applyPictureProfiles;
+import static android.media.tv.flags.Flags.mediaQualityFw;
 
 import static com.android.media.codec.flags.Flags.FLAG_LARGE_AUDIO_FRAME;
 
@@ -28,12 +32,15 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.ImageFormat;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.hardware.HardwareBuffer;
 import android.media.MediaCodecInfo.CodecCapabilities;
+import android.media.quality.PictureProfile;
+import android.media.quality.PictureProfileHandle;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -41,6 +48,7 @@ import android.os.IHwBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.PersistableBundle;
+import android.os.Trace;
 import android.view.Surface;
 
 import java.io.IOException;
@@ -890,7 +898,7 @@ import java.util.function.Supplier;
  any start codes), and submit it as a <strong>regular</strong> input buffer.
  <p>
  You will receive an {@link #INFO_OUTPUT_FORMAT_CHANGED} return value from {@link
- #dequeueOutputBuffer dequeueOutputBuffer} or a {@link Callback#onOutputBufferAvailable
+ #dequeueOutputBuffer dequeueOutputBuffer} or a {@link Callback#onOutputFormatChanged
  onOutputFormatChanged} callback just after the picture-size change takes place and before any
  frames with the new size have been returned.
  <p class=note>
@@ -1835,6 +1843,19 @@ final public class MediaCodec {
     private static final int CB_CRYPTO_ERROR = 6;
     private static final int CB_LARGE_FRAME_OUTPUT_AVAILABLE = 7;
 
+    /**
+     * Callback ID for when the metrics for this codec have been flushed due to
+     * the start of a new subsession. The associated Java Message object will
+     * contain the flushed metrics as a PersistentBundle in the obj field.
+     */
+    private static final int CB_METRICS_FLUSHED = 8;
+
+    /**
+     * Callback ID to notify the change in resource requirement
+     * for the codec component.
+     */
+    private static final int CB_REQUIRED_RESOURCES_CHANGE = 9;
+
     private class EventHandler extends Handler {
         private MediaCodec mCodec;
 
@@ -2004,6 +2025,21 @@ final public class MediaCodec {
                 {
                     mCallback.onOutputFormatChanged(mCodec,
                             new MediaFormat((Map<String, Object>) msg.obj));
+                    break;
+                }
+
+                case CB_METRICS_FLUSHED:
+                {
+                    if (GetFlag(() -> android.media.codec.Flags.subsessionMetrics())) {
+                        mCallback.onMetricsFlushed(mCodec, (PersistableBundle)msg.obj);
+                    }
+                    break;
+                }
+
+                case CB_REQUIRED_RESOURCES_CHANGE: {
+                    if (android.media.codec.Flags.codecAvailability()) {
+                        mCallback.onRequiredResourcesChanged(mCodec);
+                    }
                     break;
                 }
 
@@ -2285,6 +2321,70 @@ final public class MediaCodec {
     }
 
     /**
+     * @hide
+     * Abstraction for the Global Codec resources.
+     * This encapsulates all the available codec resources on the device.
+     *
+     * To be able to enforce and test the implementation of codec availability hal APIs,
+     * globally available codec resources are exposed only as TestApi.
+     * This will be tracked and verified through cts.
+     */
+    @FlaggedApi(FLAG_CODEC_AVAILABILITY)
+    @TestApi
+    public static final class GlobalResourceInfo {
+        /**
+         * Identifier for the Resource type.
+         */
+        String mName;
+        /**
+         * Total count/capacity of resources of this type.
+         */
+        long mCapacity;
+        /**
+         * Available count of this resource type.
+         */
+        long mAvailable;
+
+        @NonNull
+        public String getName() {
+            return mName;
+        }
+
+        public long getCapacity() {
+            return mCapacity;
+        }
+
+        public long getAvailable() {
+            return mAvailable;
+        }
+    };
+
+    /**
+     * @hide
+     * Get a list of globally available codec resources.
+     *
+     * To be able to enforce and test the implementation of codec availability hal APIs,
+     * it is exposed only as TestApi.
+     * This will be tracked and verified through cts.
+     *
+     * This returns a {@link java.util.List} list of codec resources.
+     * For every {@link GlobalResourceInfo} in the list, it encapsulates the
+     * information about each resources available globaly on device.
+     *
+     * @return A list of available device codec resources; an empty list if no
+     *         device codec resources are available.
+     * @throws UnsupportedOperationException if not implemented.
+     */
+    @FlaggedApi(FLAG_CODEC_AVAILABILITY)
+    @TestApi
+    public static @NonNull List<GlobalResourceInfo> getGloballyAvailableResources() {
+        return native_getGloballyAvailableResources();
+    }
+
+    @NonNull
+    private static native List<GlobalResourceInfo> native_getGloballyAvailableResources();
+
+    /**
      * Configures a component.
      *
      * @param format The format of the input data (decoder) or the desired
@@ -2424,6 +2524,73 @@ final public class MediaCodec {
             }
         }
     }
+
+    /**
+     * @hide
+     * Abstraction for the resources associated with a codec instance.
+     * This encapsulates the required codec resources for a configured codec instance.
+     *
+     * To be able to enforce and test the implementation of codec availability hal APIs,
+     * required codec resources are exposed only as TestApi.
+     * This will be tracked and verified through cts.
+     */
+    @FlaggedApi(FLAG_CODEC_AVAILABILITY)
+    @TestApi
+    public static final class InstanceResourceInfo {
+        /**
+         * Identifier for the Resource type.
+         */
+        String mName;
+        /**
+         * Required resource count of this type.
+         */
+        long mStaticCount;
+        /**
+         * Per frame resource requirement of this resource type.
+         */
+        long mPerFrameCount;
+
+        @NonNull
+        public String getName() {
+            return mName;
+        }
+
+        public long getStaticCount() {
+            return mStaticCount;
+        }
+
+        public long getPerFrameCount() {
+            return mPerFrameCount;
+        }
+    };
+
+    /**
+     * @hide
+     * Get a list of required codec resources for this configuration.
+     *
+     * To be able to enforce and test the implementation of codec availability hal APIs,
+     * it is exposed only as TestApi.
+     * This will be tracked and verified through cts.
+     *
+     * This returns a {@link java.util.List} list of codec resources.
+     * For every {@link GlobalResourceInfo} in the list, it encapsulates the
+     * information about each resources required for the current configuration.
+     *
+     * NOTE: This may only be called after {@link #configure}.
+     *
+     * @return A list of required device codec resources; an empty list if no
+     *         device codec resources are required.
+     * @throws IllegalStateException if the codec wasn't configured yet.
+     * @throws UnsupportedOperationException if not implemented.
+     */
+    @FlaggedApi(FLAG_CODEC_AVAILABILITY)
+    @TestApi
+    public @NonNull List<InstanceResourceInfo> getRequiredResources() {
+        return native_getRequiredResources();
+    }
+
+    @NonNull
+    private native List<InstanceResourceInfo> native_getRequiredResources();
 
     /**
      *  Dynamically sets the output surface of a codec.
@@ -2941,6 +3108,7 @@ final public class MediaCodec {
             int index,
             int offset, int size, long presentationTimeUs, int flags)
         throws CryptoException {
+        Trace.traceBegin(Trace.TRACE_TAG_VIDEO, "MediaCodec::queueInputBuffer#java");
         if ((flags & BUFFER_FLAG_DECODE_ONLY) != 0
                 && (flags & BUFFER_FLAG_END_OF_STREAM) != 0) {
             throw new InvalidBufferFlagsException(EOS_AND_DECODE_ONLY_ERROR_MESSAGE);
@@ -2960,6 +3128,8 @@ final public class MediaCodec {
         } catch (CryptoException | IllegalStateException e) {
             revalidateByteBuffer(mCachedInputBuffers, index, true /* input */);
             throw e;
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_VIDEO);
         }
     }
 
@@ -3001,6 +3171,7 @@ final public class MediaCodec {
     public final void queueInputBuffers(
             int index,
             @NonNull ArrayDeque<BufferInfo> bufferInfos) {
+        Trace.traceBegin(Trace.TRACE_TAG_VIDEO, "MediaCodec::queueInputBuffers#java");
         synchronized(mBufferLock) {
             if (mBufferMode == BUFFER_MODE_BLOCK) {
                 throw new IncompatibleWithBlockModelException("queueInputBuffers() "
@@ -3016,6 +3187,8 @@ final public class MediaCodec {
         } catch (CryptoException | IllegalStateException | IllegalArgumentException e) {
             revalidateByteBuffer(mCachedInputBuffers, index, true /* input */);
             throw e;
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_VIDEO);
         }
     }
 
@@ -3276,6 +3449,7 @@ final public class MediaCodec {
             @NonNull CryptoInfo info,
             long presentationTimeUs,
             int flags) throws CryptoException {
+        Trace.traceBegin(Trace.TRACE_TAG_VIDEO, "MediaCodec::queueSecureInputBuffer#java");
         if ((flags & BUFFER_FLAG_DECODE_ONLY) != 0
                 && (flags & BUFFER_FLAG_END_OF_STREAM) != 0) {
             throw new InvalidBufferFlagsException(EOS_AND_DECODE_ONLY_ERROR_MESSAGE);
@@ -3295,6 +3469,8 @@ final public class MediaCodec {
         } catch (CryptoException | IllegalStateException e) {
             revalidateByteBuffer(mCachedInputBuffers, index, true /* input */);
             throw e;
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_VIDEO);
         }
     }
 
@@ -3325,6 +3501,7 @@ final public class MediaCodec {
             int index,
             @NonNull ArrayDeque<BufferInfo> bufferInfos,
             @NonNull ArrayDeque<CryptoInfo> cryptoInfos) {
+        Trace.traceBegin(Trace.TRACE_TAG_VIDEO, "MediaCodec::queueSecureInputBuffers#java");
         synchronized(mBufferLock) {
             if (mBufferMode == BUFFER_MODE_BLOCK) {
                 throw new IncompatibleWithBlockModelException("queueSecureInputBuffers() "
@@ -3340,6 +3517,8 @@ final public class MediaCodec {
         } catch (CryptoException | IllegalStateException | IllegalArgumentException e) {
             revalidateByteBuffer(mCachedInputBuffers, index, true /* input */);
             throw e;
+        } finally {
+            Trace.traceEnd(Trace.TRACE_TAG_VIDEO);
         }
     }
 
@@ -3367,6 +3546,7 @@ final public class MediaCodec {
      * @throws MediaCodec.CodecException upon codec error.
      */
     public final int dequeueInputBuffer(long timeoutUs) {
+        Trace.traceBegin(Trace.TRACE_TAG_VIDEO, "MediaCodec::dequeueInputBuffer#java");
         synchronized (mBufferLock) {
             if (mBufferMode == BUFFER_MODE_BLOCK) {
                 throw new IncompatibleWithBlockModelException("dequeueInputBuffer() "
@@ -3380,6 +3560,7 @@ final public class MediaCodec {
                 validateInputByteBufferLocked(mCachedInputBuffers, res);
             }
         }
+        Trace.traceEnd(Trace.TRACE_TAG_VIDEO);
         return res;
     }
 
@@ -3707,7 +3888,9 @@ final public class MediaCodec {
 
         /**
          * Set a hardware graphic buffer to this queue request. Exactly one buffer must
-         * be set for a queue request before calling {@link #queue}.
+         * be set for a queue request before calling {@link #queue}. Ownership of the
+         * hardware buffer is not transferred to this queue request, nor will it be transferred
+         * to the codec once {@link #queue} is called.
          * <p>
          * Note: buffers should have format {@link HardwareBuffer#YCBCR_420_888},
          * a single layer, and an appropriate usage ({@link HardwareBuffer#USAGE_CPU_READ_OFTEN}
@@ -3877,6 +4060,7 @@ final public class MediaCodec {
          * Finish building a queue request and queue the buffers with tunings.
          */
         public void queue() {
+            Trace.traceBegin(Trace.TRACE_TAG_VIDEO, "MediaCodec::queueRequest-queue#java");
             if (!isAccessible()) {
                 throw new IllegalStateException("The request is stale");
             }
@@ -3905,6 +4089,7 @@ final public class MediaCodec {
                         mTuningKeys, mTuningValues);
             }
             clear();
+            Trace.traceEnd(Trace.TRACE_TAG_VIDEO);
         }
 
         @NonNull QueueRequest clear() {
@@ -4958,14 +5143,24 @@ final public class MediaCodec {
     public native final String getCanonicalName();
 
     /**
-     *  Return Metrics data about the current codec instance.
+     * Return Metrics data about the current codec instance.
+     * <p>
+     * Call this method after configuration, during execution, or after
+     * the codec has been already stopped.
+     * <p>
+     * Beginning with {@link android.os.Build.VERSION_CODES#B}
+     * this method can be used to get the Metrics data prior to an error.
+     * (e.g. in {@link Callback#onError} or after a method throws
+     * {@link MediaCodec.CodecException}.) Before that, the Metrics data was
+     * cleared on error, resulting in a null return value.
      *
      * @return a {@link PersistableBundle} containing the set of attributes and values
      * available for the media being handled by this instance of MediaCodec
      * The attributes are descibed in {@link MetricsConstants}.
      *
      * Additional vendor-specific fields may also be present in
-     * the return value.
+     * the return value. Returns null if there is no Metrics data.
+     *
      */
     public PersistableBundle getMetrics() {
         PersistableBundle bundle = native_getMetrics();
@@ -5143,9 +5338,9 @@ final public class MediaCodec {
      * of negative QP and positive QP are chosen wisely, the overall viewing experience can be
      * improved.
      * <p>
-     * If byte array size is too small than the expected size, components may ignore the
-     * configuration silently. If the byte array exceeds the expected size, components shall use
-     * the initial portion and ignore the rest.
+     * If byte array size is smaller than the expected size, components will ignore the
+     * configuration and print an error message. If the byte array exceeds the expected size,
+     * components will use the initial portion and ignore the rest.
      * <p>
      * The scope of this key is throughout the encoding session until it is reconfigured during
      * running state.
@@ -5159,7 +5354,8 @@ final public class MediaCodec {
      * Set the region of interest as QpOffset-Rects on the next queued input frame.
      * <p>
      * The associated value is a String in the format "Top1,Left1-Bottom1,Right1=Offset1;Top2,
-     * Left2-Bottom2,Right2=Offset2;...". Co-ordinates (Top, Left), (Top, Right), (Bottom, Left)
+     * Left2-Bottom2,Right2=Offset2;...". If the configuration doesn't follow this pattern,
+     * it will be ignored. Co-ordinates (Top, Left), (Top, Right), (Bottom, Left)
      * and (Bottom, Right) form the vertices of bounding box of region of interest in pixels.
      * Pixel (0, 0) points to the top-left corner of the frame. Offset is the suggested
      * quantization parameter (QP) offset of the blocks in the bounding box. The bounding box
@@ -5171,9 +5367,10 @@ final public class MediaCodec {
      * negative QP and positive QP are chosen wisely, the overall viewing experience can be
      * improved.
      * <p>
-     * If Roi rect is not valid that is bounding box width is < 0 or bounding box height is < 0,
-     * components may ignore the configuration silently. If Roi rect extends outside frame
-     * boundaries, then rect shall be clamped to the frame boundaries.
+     * If roi (region of interest) rect is outside the frame boundaries, that is, left < 0 or
+     * top < 0 or right > width or bottom > height, then rect shall be clamped to the frame
+     * boundaries. If roi rect is not valid, that is left > right or top > bottom, then the
+     * parameter setting is ignored.
      * <p>
      * The scope of this key is throughout the encoding session until it is reconfigured during
      * running state.
@@ -5196,6 +5393,9 @@ final public class MediaCodec {
      * @param params The bundle of parameters to set.
      * @throws IllegalStateException if in the Released state.
      */
+
+    private static final String PARAMETER_KEY_PICTURE_PROFILE_HANDLE = "picture-profile-handle";
+
     public final void setParameters(@Nullable Bundle params) {
         if (params == null) {
             return;
@@ -5209,19 +5409,41 @@ final public class MediaCodec {
             if (key.equals(MediaFormat.KEY_AUDIO_SESSION_ID)) {
                 int sessionId = 0;
                 try {
-                    sessionId = (Integer)params.get(key);
+                    sessionId = (Integer) params.get(key);
                 } catch (Exception e) {
                     throw new IllegalArgumentException("Wrong Session ID Parameter!");
                 }
                 keys[i] = "audio-hw-sync";
                 values[i] = AudioSystem.getAudioHwSyncForSession(sessionId);
+            } else if (applyPictureProfiles() && mediaQualityFw()
+                    && key.equals(MediaFormat.KEY_PICTURE_PROFILE_INSTANCE)) {
+                PictureProfile pictureProfile = null;
+                try {
+                    pictureProfile = (PictureProfile) params.get(key);
+                } catch (ClassCastException e) {
+                    throw new IllegalArgumentException(
+                            "Cannot cast the instance parameter to PictureProfile!");
+                } catch (Exception e) {
+                    android.util.Log.getStackTraceString(e);
+                    throw new IllegalArgumentException("Unexpected exception when casting the "
+                                                       + "instance parameter to PictureProfile!");
+                }
+                if (pictureProfile == null) {
+                    throw new IllegalArgumentException(
+                            "Picture profile instance parameter is null!");
+                }
+                PictureProfileHandle handle = pictureProfile.getHandle();
+                if (handle != PictureProfileHandle.NONE) {
+                    keys[i] = PARAMETER_KEY_PICTURE_PROFILE_HANDLE;
+                    values[i] = Long.valueOf(handle.getId());
+                }
             } else {
                 keys[i] = key;
                 Object value = params.get(key);
 
                 // Bundle's byte array is a byte[], JNI layer only takes ByteBuffer
                 if (value instanceof byte[]) {
-                    values[i] = ByteBuffer.wrap((byte[])value);
+                    values[i] = ByteBuffer.wrap((byte[]) value);
                 } else {
                     values[i] = value;
                 }
@@ -5261,6 +5483,8 @@ final public class MediaCodec {
      *           main thread.)
      */
     public void setCallback(@Nullable /* MediaCodec. */ Callback cb, @Nullable Handler handler) {
+        boolean setCallbackStallFlag =
+            GetFlag(() -> android.media.codec.Flags.setCallbackStall());
         if (cb != null) {
             synchronized (mListenerLock) {
                 EventHandler newHandler = getEventHandlerOn(handler, mCallbackHandler);
@@ -5268,7 +5492,7 @@ final public class MediaCodec {
                 // even if we were to extend this to be callable dynamically, it must
                 // be called when codec is flushed, so no messages are pending.
                 if (newHandler != mCallbackHandler) {
-                    if (android.media.codec.Flags.setCallbackStall()) {
+                    if (setCallbackStallFlag) {
                         logAndRun(
                                 "[new handler] removeMessages(SET_CALLBACK)",
                                 () -> {
@@ -5287,7 +5511,7 @@ final public class MediaCodec {
                 }
             }
         } else if (mCallbackHandler != null) {
-            if (android.media.codec.Flags.setCallbackStall()) {
+            if (setCallbackStallFlag) {
                 logAndRun(
                         "[null handler] removeMessages(SET_CALLBACK)",
                         () -> {
@@ -5688,6 +5912,58 @@ final public class MediaCodec {
          */
         public abstract void onOutputFormatChanged(
                 @NonNull MediaCodec codec, @NonNull MediaFormat format);
+
+        /**
+         * Called when the metrics for this codec have been flushed "mid-stream"
+         * due to the start of a new subsession during execution.
+         * <p>
+         * A new codec subsession normally starts when the codec is reconfigured
+         * after stop(), but it can also happen mid-stream e.g. if the video size
+         * changes. When this happens, the metrics for the previous subsession
+         * are flushed, and {@link MediaCodec#getMetrics} will return the metrics
+         * for the new subsession.
+         * <p>
+         * For subsessions that begin due to a reconfiguration, the metrics for
+         * the prior subsession can be retrieved via {@link MediaCodec#getMetrics}
+         * prior to calling {@link #configure}.
+         * <p>
+         * When a new subsession begins "mid-stream", the metrics for the prior
+         * subsession are flushed just before the {@link Callback#onOutputFormatChanged}
+         * event, so this <b>optional</b> callback is provided to be able to
+         * capture the final metrics for the previous subsession.
+         *
+         * @param codec The MediaCodec object.
+         * @param metrics The flushed metrics for this codec. This is a
+         *                {@link PersistableBundle} containing the set of
+         *                attributes and values available for the media being
+         *                handled by this instance of MediaCodec. The attributes
+         *                are described in {@link MetricsConstants}. Additional
+         *                vendor-specific fields may also be present.
+         */
+        @FlaggedApi(FLAG_SUBSESSION_METRICS)
+        public void onMetricsFlushed(
+                @NonNull MediaCodec codec, @NonNull PersistableBundle metrics) {
+            // default implementation ignores this callback.
+        }
+
+        /**
+         * @hide
+         * Called when there is a change in the required resources for the codec.
+         * <p>
+         * Upon receiving this notification, the updated resource requirement
+         * can be queried through {@link #getRequiredResources}.
+         *
+         * @param codec The MediaCodec object.
+         */
+        @FlaggedApi(FLAG_CODEC_AVAILABILITY)
+        @TestApi
+        public void onRequiredResourcesChanged(@NonNull MediaCodec codec) {
+            /*
+             * A default implementation for backward compatibility.
+             * Since this is a TestApi, we are not enforcing the callback to be
+             * overridden.
+             */
+        }
     }
 
     private void postEventFromNative(
@@ -5942,11 +6218,14 @@ final public class MediaCodec {
                     buffer.limit(buffer.position() + Utils.divUp(bitDepth, 8)
                             + (mHeight / vert - 1) * rowInc + (mWidth / horiz - 1) * colInc);
                     mPlanes[ix] = new MediaPlane(buffer.slice(), rowInc, colInc);
-                    if ((mFormat == ImageFormat.YUV_420_888 || mFormat == ImageFormat.YCBCR_P010)
+                    if ((mFormat == ImageFormat.YUV_420_888 || mFormat == ImageFormat.YCBCR_P010
+                                || mFormat == ImageFormat.YCBCR_P210)
                             && ix == 1) {
                         cbPlaneOffset = planeOffset;
                     } else if ((mFormat == ImageFormat.YUV_420_888
-                            || mFormat == ImageFormat.YCBCR_P010) && ix == 2) {
+                                       || mFormat == ImageFormat.YCBCR_P010
+                                       || mFormat == ImageFormat.YCBCR_P210)
+                            && ix == 2) {
                         crPlaneOffset = planeOffset;
                     }
                 }
@@ -5956,7 +6235,7 @@ final public class MediaCodec {
             }
 
             // Validate chroma semiplanerness.
-            if (mFormat == ImageFormat.YCBCR_P010) {
+            if (mFormat == ImageFormat.YCBCR_P010 || mFormat == ImageFormat.YCBCR_P210) {
                 if (crPlaneOffset != cbPlaneOffset + planeOffsetInc) {
                     throw new UnsupportedOperationException("Invalid plane offsets"
                     + " cbPlaneOffset: " + cbPlaneOffset + " crPlaneOffset: " + crPlaneOffset);

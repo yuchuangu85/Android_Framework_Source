@@ -1,6 +1,7 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.asn1.x509;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.internal.org.bouncycastle.asn1.ASN1Enumerated;
 import com.android.internal.org.bouncycastle.asn1.ASN1Object;
@@ -56,7 +57,7 @@ public class ObjectDigestInfo
 
     AlgorithmIdentifier digestAlgorithm;
 
-    DERBitString objectDigest;
+    ASN1BitString objectDigest;
 
     public static ObjectDigestInfo getInstance(
         Object obj)
@@ -131,7 +132,7 @@ public class ObjectDigestInfo
 
         digestAlgorithm = AlgorithmIdentifier.getInstance(seq.getObjectAt(1 + offset));
 
-        objectDigest = DERBitString.getInstance(seq.getObjectAt(2 + offset));
+        objectDigest = ASN1BitString.getInstance(seq.getObjectAt(2 + offset));
     }
 
     public ASN1Enumerated getDigestedObjectType()
@@ -149,7 +150,7 @@ public class ObjectDigestInfo
         return digestAlgorithm;
     }
 
-    public DERBitString getObjectDigest()
+    public ASN1BitString getObjectDigest()
     {
         return objectDigest;
     }

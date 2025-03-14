@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 1 --hash ae4cfe565d66acc7d816aabd0dfab991e64031ab --min_sdk_version 30 --ninja -d out/soong/.intermediates/packages/modules/Connectivity/staticlibs/netd/mdns_aidl_interface-V1-java-source/gen/android/net/mdns/aidl/IMDns.java.d -o out/soong/.intermediates/packages/modules/Connectivity/staticlibs/netd/mdns_aidl_interface-V1-java-source/gen -Npackages/modules/Connectivity/staticlibs/netd/aidl_api/mdns_aidl_interface/1 packages/modules/Connectivity/staticlibs/netd/aidl_api/mdns_aidl_interface/1/android/net/mdns/aidl/IMDns.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.net.mdns.aidl;
 /** @hide */
@@ -60,7 +64,7 @@ public interface IMDns extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.net.mdns.aidl.IMDns
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {

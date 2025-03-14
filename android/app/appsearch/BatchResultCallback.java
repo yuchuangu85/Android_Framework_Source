@@ -41,8 +41,8 @@ public interface BatchResultCallback<KeyType, ValueType> {
      * <p>This method is only called the infrastructure is fundamentally broken or unavailable, such
      * that none of the requests could be started. For example, it will be called if the AppSearch
      * service unexpectedly fails to initialize and can't be recovered by any means, or if
-     * communicating to the server over Binder fails (e.g. system service crashed or device is
-     * rebooting).
+     * communicating to the server over Binder fails (for example system service crashed or device
+     * is rebooting).
      *
      * <p>The error is not expected to be recoverable and there is no specific recommended action
      * other than displaying a permanent message to the user.

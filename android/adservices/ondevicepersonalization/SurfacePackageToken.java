@@ -16,28 +16,26 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 import com.android.internal.annotations.VisibleForTesting;
 
 /**
  * An opaque reference to content that can be displayed in a {@link android.view.SurfaceView}. This
  * maps to a {@link RenderingConfig} returned by an {@link IsolatedService}.
- *
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public class SurfacePackageToken {
     @NonNull private final String mTokenString;
 
-    SurfacePackageToken(@NonNull String tokenString) {
+    /** @hide */
+    public SurfacePackageToken(@NonNull String tokenString) {
         mTokenString = tokenString;
     }
 
     /** @hide */
     @VisibleForTesting
-    @NonNull public String getTokenString() {
+    @NonNull
+    public String getTokenString() {
         return mTokenString;
     }
 }

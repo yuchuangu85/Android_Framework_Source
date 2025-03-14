@@ -235,12 +235,14 @@ abstract class AbstractSessionStateMachine extends StateMachine {
         return "Null State";
     }
 
-    protected void recordMetricsEvent_sessionTerminated(IkeException exception) {
+    private @IkeMetrics.IkeState int getMetricsIkeStateCode() {
         final IState currentState = getCurrentState();
-        final @IkeMetrics.IkeState int stateCode =
-                currentState instanceof ExceptionHandlerBase
-                        ? ((ExceptionHandlerBase) currentState).getMetricsStateCode()
-                        : IkeMetrics.IKE_STATE_UNKNOWN;
+        return currentState instanceof ExceptionHandlerBase
+                ? ((ExceptionHandlerBase) currentState).getMetricsStateCode()
+                : IkeMetrics.IKE_STATE_UNKNOWN;
+    }
+
+    protected void recordMetricsEvent_sessionTerminated(IkeException exception) {
         final @IkeMetrics.IkeError int exceptionCode =
                 exception == null ? IkeMetrics.IKE_ERROR_NONE : exception.getMetricsErrorCode();
 
@@ -248,7 +250,7 @@ abstract class AbstractSessionStateMachine extends StateMachine {
                 .logSessionTerminated(
                         mIkeContext.getIkeCaller(),
                         getMetricsSessionType(),
-                        stateCode,
+                        getMetricsIkeStateCode(),
                         exceptionCode);
     }
 
@@ -257,22 +259,36 @@ abstract class AbstractSessionStateMachine extends StateMachine {
             int elapsedTimeInMillis,
             int numberOfOnGoing,
             boolean resultSuccess) {
-        final IState currentState = getCurrentState();
-        final @IkeMetrics.IkeState int stateCode =
-                currentState instanceof ExceptionHandlerBase
-                        ? ((ExceptionHandlerBase) currentState).getMetricsStateCode()
-                        : IkeMetrics.IKE_STATE_UNKNOWN;
-        final @IkeMetrics.IkeUnderlyingNetworkType int underlyingNetworkType =
-                connectionController.getMetricsNetworkType();
-
         getIkeMetrics()
                 .logLivenessCheckCompleted(
                         mIkeContext.getIkeCaller(),
-                        stateCode,
-                        underlyingNetworkType,
+                        getMetricsIkeStateCode(),
+                        connectionController.getMetricsNetworkType(),
                         elapsedTimeInMillis,
                         numberOfOnGoing,
                         resultSuccess);
+    }
+
+    protected void recordMetricsEvent_SaNegotiation(
+            int dhGroup,
+            int encryptionAlgorithm,
+            int keyLength,
+            int integrityAlgorithm,
+            int prfAlgorithm,
+            IkeException exception) {
+        final @IkeMetrics.IkeError int exceptionCode =
+                exception == null ? IkeMetrics.IKE_ERROR_NONE : exception.getMetricsErrorCode();
+        getIkeMetrics()
+                .logSaNegotiation(
+                        mIkeContext.getIkeCaller(),
+                        getMetricsSessionType(),
+                        getMetricsIkeStateCode(),
+                        dhGroup,
+                        encryptionAlgorithm,
+                        keyLength,
+                        integrityAlgorithm,
+                        prfAlgorithm,
+                        exceptionCode);
     }
 
     protected abstract @IkeMetrics.IkeSessionType int getMetricsSessionType();

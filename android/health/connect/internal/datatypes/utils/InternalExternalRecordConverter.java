@@ -40,14 +40,11 @@ public final class InternalExternalRecordConverter {
 
     private final Map<Integer, Class<? extends RecordInternal<?>>>
             mRecordIdToInternalRecordClassMap;
-    private final Map<Integer, Class<? extends Record>> mRecordIdToExternalRecordClassMap;
 
     private InternalExternalRecordConverter() {
         // Add any new data type here to facilitate its conversion.
         mRecordIdToInternalRecordClassMap =
-                RecordMapper.getInstance().getRecordIdToInternalRecordClassMap();
-        mRecordIdToExternalRecordClassMap =
-                RecordMapper.getInstance().getRecordIdToExternalRecordClassMap();
+                HealthConnectMappings.getInstance().getRecordIdToInternalRecordClassMap();
     }
 
     @NonNull
@@ -86,7 +83,7 @@ public final class InternalExternalRecordConverter {
 
         for (RecordInternal<?> recordInternal : recordInternals) {
             try {
-            externalRecordList.add(recordInternal.toExternalRecord());
+                externalRecordList.add(recordInternal.toExternalRecord());
             } catch (IllegalArgumentException illegalArgumentException) {
                 if (!illegalArgumentException
                         .getMessage()

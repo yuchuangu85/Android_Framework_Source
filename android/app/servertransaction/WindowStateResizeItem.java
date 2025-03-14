@@ -16,8 +16,6 @@
 
 package android.app.servertransaction;
 
-import static android.view.Display.INVALID_DISPLAY;
-
 import static java.util.Objects.requireNonNull;
 
 import android.annotation.NonNull;
@@ -37,37 +35,62 @@ import java.util.Objects;
 
 /**
  * Message to deliver window resize info.
+ *
  * @hide
  */
-public class WindowStateResizeItem extends ClientTransactionItem {
+public class WindowStateResizeItem extends WindowStateTransactionItem {
 
     private static final String TAG = "WindowStateResizeItem";
 
-    private IWindow mWindow;
-    private ClientWindowFrames mFrames;
-    private boolean mReportDraw;
-    private MergedConfiguration mConfiguration;
-    private InsetsState mInsetsState;
-    private boolean mForceLayout;
-    private boolean mAlwaysConsumeSystemBars;
-    private int mDisplayId;
-    private int mSyncSeqId;
-    private boolean mDragResizing;
+    @NonNull
+    private final ClientWindowFrames mFrames;
+
+    @NonNull
+    private final MergedConfiguration mConfiguration;
+
+    @NonNull
+    private final InsetsState mInsetsState;
 
     /** {@code null} if this is not an Activity window. */
     @Nullable
-    private ActivityWindowInfo mActivityWindowInfo;
+    private final ActivityWindowInfo mActivityWindowInfo;
+
+    private final boolean mReportDraw;
+    private final boolean mForceLayout;
+    private final boolean mAlwaysConsumeSystemBars;
+    private final int mDisplayId;
+    private final int mSyncSeqId;
+    private final boolean mDragResizing;
+
+    public WindowStateResizeItem(@NonNull IWindow window,
+            @NonNull ClientWindowFrames frames, boolean reportDraw,
+            @NonNull MergedConfiguration configuration, @NonNull InsetsState insetsState,
+            boolean forceLayout, boolean alwaysConsumeSystemBars, int displayId, int syncSeqId,
+            boolean dragResizing, @Nullable ActivityWindowInfo activityWindowInfo) {
+        super(window);
+        mFrames = new ClientWindowFrames(frames);
+        mConfiguration = new MergedConfiguration(configuration);
+        mInsetsState = new InsetsState(insetsState, true /* copySources */);
+        if (activityWindowInfo != null) {
+            mActivityWindowInfo = new ActivityWindowInfo(activityWindowInfo);
+        } else {
+            mActivityWindowInfo = null;
+        }
+        mReportDraw = reportDraw;
+        mForceLayout = forceLayout;
+        mAlwaysConsumeSystemBars = alwaysConsumeSystemBars;
+        mDisplayId = displayId;
+        mSyncSeqId = syncSeqId;
+        mDragResizing = dragResizing;
+    }
 
     @Override
-    public void execute(@NonNull ClientTransactionHandler client,
+    public void execute(@NonNull ClientTransactionHandler client, @NonNull IWindow window,
             @NonNull PendingTransactionActions pendingActions) {
         Trace.traceBegin(Trace.TRACE_TAG_WINDOW_MANAGER,
                 mReportDraw ? "windowResizedReport" : "windowResized");
-        if (mWindow instanceof ResizeListener listener) {
-            listener.onExecutingWindowStateResizeItem();
-        }
         try {
-            mWindow.resized(mFrames, mReportDraw, mConfiguration, mInsetsState, mForceLayout,
+            window.resized(mFrames, mReportDraw, mConfiguration, mInsetsState, mForceLayout,
                     mAlwaysConsumeSystemBars, mDisplayId, mSyncSeqId, mDragResizing,
                     mActivityWindowInfo);
         } catch (RemoteException e) {
@@ -79,60 +102,12 @@ public class WindowStateResizeItem extends ClientTransactionItem {
         Trace.traceEnd(Trace.TRACE_TAG_WINDOW_MANAGER);
     }
 
-    // ObjectPoolItem implementation
-
-    private WindowStateResizeItem() {}
-
-    /** Obtains an instance initialized with provided params. */
-    public static WindowStateResizeItem obtain(@NonNull IWindow window,
-            @NonNull ClientWindowFrames frames, boolean reportDraw,
-            @NonNull MergedConfiguration configuration, @NonNull InsetsState insetsState,
-            boolean forceLayout, boolean alwaysConsumeSystemBars, int displayId, int syncSeqId,
-            boolean dragResizing, @Nullable ActivityWindowInfo activityWindowInfo) {
-        WindowStateResizeItem instance =
-                ObjectPool.obtain(WindowStateResizeItem.class);
-        if (instance == null) {
-            instance = new WindowStateResizeItem();
-        }
-        instance.mWindow = requireNonNull(window);
-        instance.mFrames = new ClientWindowFrames(frames);
-        instance.mReportDraw = reportDraw;
-        instance.mConfiguration = new MergedConfiguration(configuration);
-        instance.mInsetsState = new InsetsState(insetsState, true /* copySources */);
-        instance.mForceLayout = forceLayout;
-        instance.mAlwaysConsumeSystemBars = alwaysConsumeSystemBars;
-        instance.mDisplayId = displayId;
-        instance.mSyncSeqId = syncSeqId;
-        instance.mDragResizing = dragResizing;
-        instance.mActivityWindowInfo = activityWindowInfo != null
-                ? new ActivityWindowInfo(activityWindowInfo)
-                : null;
-
-        return instance;
-    }
-
-    @Override
-    public void recycle() {
-        mWindow = null;
-        mFrames = null;
-        mReportDraw = false;
-        mConfiguration = null;
-        mInsetsState = null;
-        mForceLayout = false;
-        mAlwaysConsumeSystemBars = false;
-        mDisplayId = INVALID_DISPLAY;
-        mSyncSeqId = -1;
-        mDragResizing = false;
-        mActivityWindowInfo = null;
-        ObjectPool.recycle(this);
-    }
-
     // Parcelable implementation
 
     /** Writes to Parcel. */
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
-        dest.writeStrongBinder(mWindow.asBinder());
+        super.writeToParcel(dest, flags);
         dest.writeTypedObject(mFrames, flags);
         dest.writeBoolean(mReportDraw);
         dest.writeTypedObject(mConfiguration, flags);
@@ -147,11 +122,11 @@ public class WindowStateResizeItem extends ClientTransactionItem {
 
     /** Reads from Parcel. */
     private WindowStateResizeItem(@NonNull Parcel in) {
-        mWindow = IWindow.Stub.asInterface(in.readStrongBinder());
-        mFrames = in.readTypedObject(ClientWindowFrames.CREATOR);
+        super(in);
+        mFrames = requireNonNull(in.readTypedObject(ClientWindowFrames.CREATOR));
         mReportDraw = in.readBoolean();
-        mConfiguration = in.readTypedObject(MergedConfiguration.CREATOR);
-        mInsetsState = in.readTypedObject(InsetsState.CREATOR);
+        mConfiguration = requireNonNull(in.readTypedObject(MergedConfiguration.CREATOR));
+        mInsetsState = requireNonNull(in.readTypedObject(InsetsState.CREATOR));
         mForceLayout = in.readBoolean();
         mAlwaysConsumeSystemBars = in.readBoolean();
         mDisplayId = in.readInt();
@@ -175,12 +150,11 @@ public class WindowStateResizeItem extends ClientTransactionItem {
         if (this == o) {
             return true;
         }
-        if (o == null || getClass() != o.getClass()) {
+        if (!super.equals(o)) {
             return false;
         }
         final WindowStateResizeItem other = (WindowStateResizeItem) o;
-        return Objects.equals(mWindow, other.mWindow)
-                && Objects.equals(mFrames, other.mFrames)
+        return Objects.equals(mFrames, other.mFrames)
                 && mReportDraw == other.mReportDraw
                 && Objects.equals(mConfiguration, other.mConfiguration)
                 && Objects.equals(mInsetsState, other.mInsetsState)
@@ -195,7 +169,7 @@ public class WindowStateResizeItem extends ClientTransactionItem {
     @Override
     public int hashCode() {
         int result = 17;
-        result = 31 * result + Objects.hashCode(mWindow);
+        result = 31 * result + super.hashCode();
         result = 31 * result + Objects.hashCode(mFrames);
         result = 31 * result + (mReportDraw ? 1 : 0);
         result = 31 * result + Objects.hashCode(mConfiguration);
@@ -211,16 +185,10 @@ public class WindowStateResizeItem extends ClientTransactionItem {
 
     @Override
     public String toString() {
-        return "WindowStateResizeItem{window=" + mWindow
+        return "WindowStateResizeItem{" + super.toString()
                 + ", reportDrawn=" + mReportDraw
                 + ", configuration=" + mConfiguration
                 + ", activityWindowInfo=" + mActivityWindowInfo
                 + "}";
-    }
-
-    /** The interface for IWindow to perform resize directly if possible. */
-    public interface ResizeListener {
-        /** Notifies that IWindow#resized is going to be called from WindowStateResizeItem. */
-        void onExecutingWindowStateResizeItem();
     }
 }

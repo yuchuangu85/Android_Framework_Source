@@ -16,8 +16,8 @@
 
 package android.app.appsearch.observer;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.Objects;
@@ -71,26 +71,22 @@ public final class DocumentChangeInfo {
     }
 
     /** Returns the package name of the app which owns the documents that changed. */
-    @NonNull
-    public String getPackageName() {
+    public @NonNull String getPackageName() {
         return mPackageName;
     }
 
     /** Returns the database in which the documents that was changed reside. */
-    @NonNull
-    public String getDatabaseName() {
+    public @NonNull String getDatabaseName() {
         return mDatabase;
     }
 
     /** Returns the namespace of the documents that changed. */
-    @NonNull
-    public String getNamespace() {
+    public @NonNull String getNamespace() {
         return mNamespace;
     }
 
     /** Returns the name of the schema type that contains the changed documents. */
-    @NonNull
-    public String getSchemaName() {
+    public @NonNull String getSchemaName() {
         return mSchemaName;
     }
 
@@ -99,8 +95,7 @@ public final class DocumentChangeInfo {
      *
      * <p>This will never be empty.
      */
-    @NonNull
-    public Set<String> getChangedDocumentIds() {
+    public @NonNull Set<String> getChangedDocumentIds() {
         return mChangedDocumentIds;
     }
 
@@ -127,9 +122,8 @@ public final class DocumentChangeInfo {
         return Objects.hash(mPackageName, mDatabase, mNamespace, mSchemaName, mChangedDocumentIds);
     }
 
-    @NonNull
     @Override
-    public String toString() {
+    public @NonNull String toString() {
         return "DocumentChangeInfo{"
                 + "packageName='"
                 + mPackageName

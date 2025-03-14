@@ -1,57 +1,22 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.jcajce.provider.asymmetric.x509;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.math.BigInteger;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.Principal;
-import java.security.Provider;
 import java.security.PublicKey;
-import java.security.Signature;
-import java.security.SignatureException;
 import java.security.cert.CertificateEncodingException;
-import java.security.cert.CertificateException;
 import java.security.cert.CertificateExpiredException;
 import java.security.cert.CertificateNotYetValidException;
 import java.security.cert.CertificateParsingException;
-import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Date;
 import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 
 import javax.security.auth.x500.X500Principal;
 
 import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encoding;
-import com.android.internal.org.bouncycastle.asn1.ASN1InputStream;
 import com.android.internal.org.bouncycastle.asn1.ASN1ObjectIdentifier;
-import com.android.internal.org.bouncycastle.asn1.ASN1OutputStream;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
-import com.android.internal.org.bouncycastle.asn1.ASN1Sequence;
-import com.android.internal.org.bouncycastle.asn1.ASN1String;
-import com.android.internal.org.bouncycastle.asn1.DERBitString;
-import com.android.internal.org.bouncycastle.asn1.DERIA5String;
-import com.android.internal.org.bouncycastle.asn1.DERNull;
-import com.android.internal.org.bouncycastle.asn1.DEROctetString;
-import com.android.internal.org.bouncycastle.asn1.misc.MiscObjectIdentifiers;
-import com.android.internal.org.bouncycastle.asn1.misc.NetscapeCertType;
-import com.android.internal.org.bouncycastle.asn1.misc.NetscapeRevocationURL;
-import com.android.internal.org.bouncycastle.asn1.misc.VerisignCzagExtension;
-import com.android.internal.org.bouncycastle.asn1.util.ASN1Dump;
-import com.android.internal.org.bouncycastle.asn1.x500.X500Name;
-import com.android.internal.org.bouncycastle.asn1.x500.style.RFC4519Style;
-import com.android.internal.org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import com.android.internal.org.bouncycastle.asn1.x509.BasicConstraints;
 import com.android.internal.org.bouncycastle.asn1.x509.Extension;
 import com.android.internal.org.bouncycastle.asn1.x509.Extensions;
@@ -62,12 +27,8 @@ import com.android.internal.org.bouncycastle.asn1.x509.X509Name;
 // END Android-added: Unknown reason
 import com.android.internal.org.bouncycastle.jcajce.provider.asymmetric.util.PKCS12BagAttributeCarrierImpl;
 import com.android.internal.org.bouncycastle.jcajce.util.JcaJceHelper;
-import com.android.internal.org.bouncycastle.jce.X509Principal;
 import com.android.internal.org.bouncycastle.jce.interfaces.PKCS12BagAttributeCarrier;
-import com.android.internal.org.bouncycastle.jce.provider.BouncyCastleProvider;
-import com.android.internal.org.bouncycastle.util.Integers;
-import com.android.internal.org.bouncycastle.util.Strings;
-import com.android.internal.org.bouncycastle.util.encoders.Hex;
+import com.android.internal.org.bouncycastle.util.Arrays;
 
 class X509CertificateObject
     extends X509CertificateImpl
@@ -254,6 +215,8 @@ class X509CertificateObject
                     return false;
                 }
             }
+
+            return getInternalCertificate().equals(otherBC.getInternalCertificate());
         }
 
         return getInternalCertificate().equals(other);
@@ -318,18 +281,19 @@ class X509CertificateObject
             }
         }
 
-        byte[] encoding;
+        byte[] encoding = null;
+        CertificateEncodingException exception = null;
         try
         {
-            encoding = getEncoded();
+            encoding = c.getEncoded(ASN1Encoding.DER);
         }
-        catch (CertificateEncodingException e)
+        catch (IOException e)
         {
-            encoding = null;
+            exception = new X509CertificateEncodingException(e);
         }
 
         X509CertificateInternal temp = new X509CertificateInternal(bcHelper, c, basicConstraints, keyUsage, sigAlgName,
-            sigAlgParams, encoding);
+            sigAlgParams, encoding, exception);
 
         synchronized (cacheLock)
         {
@@ -371,7 +335,7 @@ class X509CertificateObject
                 return null;
             }
 
-            ASN1BitString bits = DERBitString.getInstance(ASN1Primitive.fromByteArray(extOctets));
+            ASN1BitString bits = ASN1BitString.getInstance(ASN1Primitive.fromByteArray(extOctets));
 
             byte[] bytes = bits.getBytes();
             int length = (bytes.length * 8) - bits.getPadBits();
@@ -418,6 +382,22 @@ class X509CertificateObject
         catch (Exception e)
         {
             throw new CertificateParsingException("cannot construct SigAlgParams: " + e);
+        }
+    }
+
+    private static class X509CertificateEncodingException
+        extends CertificateEncodingException
+    {
+        private final Throwable cause;
+
+        X509CertificateEncodingException(Throwable cause)
+        {
+            this.cause = cause;
+        }
+
+        public Throwable getCause()
+        {
+            return cause;
         }
     }
 }

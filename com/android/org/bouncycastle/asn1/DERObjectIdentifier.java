@@ -1,5 +1,8 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
+// Android-added: keep DER classes for backwards compatibility
 package com.android.org.bouncycastle.asn1;
+
+import java.nio.charset.StandardCharsets;
 
 /**
  *
@@ -9,19 +12,9 @@ package com.android.org.bouncycastle.asn1;
 public class DERObjectIdentifier
     extends ASN1ObjectIdentifier
 {
-    @android.compat.annotation.UnsupportedAppUsage(maxTargetSdk = 30, trackingBug = 170729553)
-    public DERObjectIdentifier(String identifier)
-    {
-        super(identifier);
-    }
-
     DERObjectIdentifier(byte[] bytes)
     {
-        super(bytes);
-    }
-
-    DERObjectIdentifier(ASN1ObjectIdentifier oid, String branch)
-    {
-        super(oid, branch);
+        super(new String(bytes, StandardCharsets.UTF_8));
     }
 }
+// Android-added: keep DER classes for backwards compatibility

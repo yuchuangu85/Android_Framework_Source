@@ -19,9 +19,6 @@ package android.app.servertransaction;
 import static android.app.WindowConfiguration.areConfigurationsEqualForDisplay;
 import static android.view.Display.INVALID_DISPLAY;
 
-import static com.android.window.flags.Flags.activityWindowInfoFlag;
-import static com.android.window.flags.Flags.bundleClientTransactionFlag;
-
 import static java.util.Objects.requireNonNull;
 
 import android.annotation.NonNull;
@@ -33,11 +30,13 @@ import android.hardware.display.DisplayManagerGlobal;
 import android.os.IBinder;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.Log;
 import android.window.ActivityWindowInfo;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 
+import java.util.concurrent.RejectedExecutionException;
 import java.util.function.BiConsumer;
 
 /**
@@ -46,6 +45,8 @@ import java.util.function.BiConsumer;
  * @hide
  */
 public class ClientTransactionListenerController {
+
+    private static final String TAG = "ClientTransactionListenerController";
 
     private static ClientTransactionListenerController sController;
 
@@ -99,9 +100,6 @@ public class ClientTransactionListenerController {
      */
     public void registerActivityWindowInfoChangedListener(
             @NonNull BiConsumer<IBinder, ActivityWindowInfo> listener) {
-        if (!activityWindowInfoFlag()) {
-            return;
-        }
         synchronized (mLock) {
             mActivityWindowInfoChangedListeners.add(listener);
         }
@@ -113,9 +111,6 @@ public class ClientTransactionListenerController {
      */
     public void unregisterActivityWindowInfoChangedListener(
             @NonNull BiConsumer<IBinder, ActivityWindowInfo> listener) {
-        if (!activityWindowInfoFlag()) {
-            return;
-        }
         synchronized (mLock) {
             mActivityWindowInfoChangedListeners.remove(listener);
         }
@@ -127,9 +122,6 @@ public class ClientTransactionListenerController {
      */
     public void onActivityWindowInfoChanged(@NonNull IBinder activityToken,
             @NonNull ActivityWindowInfo activityWindowInfo) {
-        if (!activityWindowInfoFlag()) {
-            return;
-        }
         final Object[] activityWindowInfoChangedListeners;
         synchronized (mLock) {
             if (mActivityWindowInfoChangedListeners.isEmpty()) {
@@ -179,16 +171,20 @@ public class ClientTransactionListenerController {
         }
 
         // Dispatch the display changed callbacks.
-        final int displayCount = configUpdatedDisplayIds.size();
-        for (int i = 0; i < displayCount; i++) {
-            final int displayId = configUpdatedDisplayIds.valueAt(i);
-            onDisplayChanged(displayId);
+        try {
+            final int displayCount = configUpdatedDisplayIds.size();
+            for (int i = 0; i < displayCount; i++) {
+                final int displayId = configUpdatedDisplayIds.valueAt(i);
+                onDisplayChanged(displayId);
+            }
+        } catch (RejectedExecutionException e) {
+            Log.w(TAG, "Failed to notify DisplayListener because the Handler is shutting down");
         }
     }
 
     /** Called before updating the Configuration of the given {@code context}. */
     public void onContextConfigurationPreChanged(@NonNull Context context) {
-        if (!bundleClientTransactionFlag() || ActivityThread.isSystem()) {
+        if (ActivityThread.isSystem()) {
             // Not enable for system server.
             return;
         }
@@ -204,7 +200,7 @@ public class ClientTransactionListenerController {
 
     /** Called after updating the Configuration of the given {@code context}. */
     public void onContextConfigurationPostChanged(@NonNull Context context) {
-        if (!bundleClientTransactionFlag() || ActivityThread.isSystem()) {
+        if (ActivityThread.isSystem()) {
             // Not enable for system server.
             return;
         }
@@ -222,7 +218,11 @@ public class ClientTransactionListenerController {
         }
 
         if (changedDisplayId != INVALID_DISPLAY) {
-            onDisplayChanged(changedDisplayId);
+            try {
+                onDisplayChanged(changedDisplayId);
+            } catch (RejectedExecutionException e) {
+                Log.w(TAG, "Failed to notify DisplayListener because the Handler is shutting down");
+            }
         }
     }
 
@@ -235,9 +235,11 @@ public class ClientTransactionListenerController {
     /**
      * Called when receives a {@link Configuration} changed event that is updating display-related
      * window configuration.
+     *
+     * @throws RejectedExecutionException if the display listener handler is closing.
      */
     @VisibleForTesting
-    public void onDisplayChanged(int displayId) {
+    public void onDisplayChanged(int displayId) throws RejectedExecutionException {
         mDisplayManager.handleDisplayChangeFromWindowManager(displayId);
     }
 }

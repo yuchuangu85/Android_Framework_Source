@@ -392,6 +392,7 @@ public abstract class NumberFormat extends Format  {
                                         StringBuffer toAppendTo,
                                         FieldPosition pos);
 
+    // Android-changed: Added a warning of deserialization.
     /**
      * Returns a Long if possible (e.g., within the range [Long.MIN_VALUE,
      * Long.MAX_VALUE] and with no decimals), otherwise a Double.
@@ -401,6 +402,12 @@ public abstract class NumberFormat extends Format  {
      * Does not throw an exception; if no object can be parsed, index is
      * unchanged!
      *
+     * <p> <b>WARNING:</b> Don't use this method to deserialize a number. The underlying localized
+     * number format and parsing behaviors can change across Android versions as common usage
+     * in the locale changes. Consider using the parse methods in the boxed types,
+     * e.g. {@link Long#parseLong(String)}, or {@link java.math.BigDecimal} for deserializing
+     * a locale-independent decimal number.</p>
+     *
      * @param source the String to parse
      * @param parsePosition the parse position
      * @return the parsed value
@@ -409,12 +416,19 @@ public abstract class NumberFormat extends Format  {
      */
     public abstract Number parse(String source, ParsePosition parsePosition);
 
+    // Android-changed: Added a warning of deserialization.
     /**
      * Parses text from the beginning of the given string to produce a number.
      * The method may not use the entire text of the given string.
      * <p>
      * See the {@link #parse(String, ParsePosition)} method for more information
      * on number parsing.
+     *
+     * <p> <b>WARNING:</b> Don't use this method to deserialize a number. The underlying localized
+     * number format and parsing behaviors can change across Android versions as common usage
+     * in the locale changes. Consider using the parse methods in the boxed types,
+     * e.g. {@link Long#parseLong(String)}, or {@link java.math.BigDecimal} for deserializing
+     * a locale-independent decimal number.</p>
      *
      * @param source A {@code String} whose beginning should be parsed.
      * @return A {@code Number} parsed from the string.

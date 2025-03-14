@@ -174,7 +174,9 @@ public class RuntimeInit {
                     // System process is dead; ignore
                 } else {
                     try {
-                        Clog_e(TAG, "Error reporting crash", t2);
+                        // Log original crash and then log the error reporting exception.
+                        Clog_e(TAG, "Couldn't report crash. Here's the crash:", e);
+                        Clog_e(TAG, "Error reporting crash. Here's the error:", t2);
                     } catch (Throwable t3) {
                         // Even Clog_e() fails!  Oh well.
                     }
@@ -404,6 +406,17 @@ public class RuntimeInit {
     }
 
     public static void redirectLogStreams$ravenwood() {
+        if (sOut$ravenwood != null && sErr$ravenwood != null) {
+            return; // Already initialized.
+        }
+
+        // Make sure the Log class is loaded and the JNI methods are hooked up,
+        // before redirecting System.out/err.
+        // Otherwise, because ClassLoadHook tries to write to System.out, this would cause
+        // a circular initialization problem and would cause a UnsatisfiedLinkError
+        // on the JNI methods.
+        Log.isLoggable("X", Log.VERBOSE);
+
         if (sOut$ravenwood == null) {
             sOut$ravenwood = System.out;
             System.setOut(new AndroidPrintStream(Log.INFO, "System.out"));

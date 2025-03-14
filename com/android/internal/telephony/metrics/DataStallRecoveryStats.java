@@ -47,6 +47,7 @@ import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataCallResponse.LinkStatus;
 import android.text.TextUtils;
 
+import com.android.internal.os.BackgroundThread;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.TelephonyStatsLog;
@@ -87,9 +88,6 @@ public class DataStallRecoveryStats {
     private final @NonNull Phone mPhone;
     private final @NonNull TelephonyManager mTelephonyManager;
     private final @NonNull FeatureFlags mFeatureFlags;
-
-    // Flag to control the DSRS diagnostics
-    private final boolean mIsDsrsDiagnosticsEnabled;
 
     // The interface name of the internet network.
     private @Nullable String mIfaceName = null;
@@ -143,9 +141,14 @@ public class DataStallRecoveryStats {
         mPhone = phone;
         mFeatureFlags = featureFlags;
 
-        HandlerThread handlerThread = new HandlerThread(mTag + "-thread");
-        handlerThread.start();
-        mHandler = new Handler(handlerThread.getLooper());
+        if (mFeatureFlags.threadShred()) {
+            mHandler = new Handler(BackgroundThread.get().getLooper());
+        } else {
+            HandlerThread handlerThread = new HandlerThread(mTag + "-thread");
+            handlerThread.start();
+            mHandler = new Handler(handlerThread.getLooper());
+        }
+
         mTelephonyManager = mPhone.getContext().getSystemService(TelephonyManager.class);
 
         dataNetworkController.registerDataNetworkControllerCallback(
@@ -166,43 +169,40 @@ public class DataStallRecoveryStats {
                 }
             });
 
-        mIsDsrsDiagnosticsEnabled = mFeatureFlags.dsrsDiagnosticsEnabled();
-        if (mIsDsrsDiagnosticsEnabled) {
-            try {
-                // Register ConnectivityDiagnosticsCallback to get diagnostics states
-                mConnectivityDiagnosticsManager =
-                    mPhone.getContext().getSystemService(ConnectivityDiagnosticsManager.class);
-                mConnectivityDiagnosticsCallback = new ConnectivityDiagnosticsCallback() {
-                    @Override
-                    public void onConnectivityReportAvailable(@NonNull ConnectivityReport report) {
-                        PersistableBundle bundle = report.getAdditionalInfo();
-                        mNetworkProbesResult = bundle.getInt(KEY_NETWORK_PROBES_SUCCEEDED_BITMASK);
-                        mNetworkProbesType = bundle.getInt(KEY_NETWORK_PROBES_ATTEMPTED_BITMASK);
-                        mNetworkValidationResult = bundle.getInt(KEY_NETWORK_VALIDATION_RESULT);
-                    }
+        try {
+            // Register ConnectivityDiagnosticsCallback to get diagnostics states
+            mConnectivityDiagnosticsManager =
+                mPhone.getContext().getSystemService(ConnectivityDiagnosticsManager.class);
+            mConnectivityDiagnosticsCallback = new ConnectivityDiagnosticsCallback() {
+                @Override
+                public void onConnectivityReportAvailable(@NonNull ConnectivityReport report) {
+                    PersistableBundle bundle = report.getAdditionalInfo();
+                    mNetworkProbesResult = bundle.getInt(KEY_NETWORK_PROBES_SUCCEEDED_BITMASK);
+                    mNetworkProbesType = bundle.getInt(KEY_NETWORK_PROBES_ATTEMPTED_BITMASK);
+                    mNetworkValidationResult = bundle.getInt(KEY_NETWORK_VALIDATION_RESULT);
+                }
 
-                    @Override
-                    public void onDataStallSuspected(@NonNull DataStallReport report) {
-                        PersistableBundle bundle = report.getStallDetails();
-                        mTcpMetricsCollectionPeriodMillis =
-                            bundle.getInt(KEY_TCP_METRICS_COLLECTION_PERIOD_MILLIS);
-                        mTcpPacketFailRate = bundle.getInt(KEY_TCP_PACKET_FAIL_RATE);
-                        mDnsConsecutiveTimeouts = bundle.getInt(KEY_DNS_CONSECUTIVE_TIMEOUTS);
-                    }
-                };
-                mConnectivityDiagnosticsManager.registerConnectivityDiagnosticsCallback(
-                    new NetworkRequest.Builder()
-                        .clearCapabilities()
-                        .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                        .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
-                        .build(),
-                        INLINE_EXECUTOR,
-                        mConnectivityDiagnosticsCallback
-                );
-            } catch (Exception e) {
-                mConnectivityDiagnosticsManager = null;
-                mConnectivityDiagnosticsCallback = null;
-            }
+                @Override
+                public void onDataStallSuspected(@NonNull DataStallReport report) {
+                    PersistableBundle bundle = report.getStallDetails();
+                    mTcpMetricsCollectionPeriodMillis =
+                        bundle.getInt(KEY_TCP_METRICS_COLLECTION_PERIOD_MILLIS);
+                    mTcpPacketFailRate = bundle.getInt(KEY_TCP_PACKET_FAIL_RATE);
+                    mDnsConsecutiveTimeouts = bundle.getInt(KEY_DNS_CONSECUTIVE_TIMEOUTS);
+                }
+            };
+            mConnectivityDiagnosticsManager.registerConnectivityDiagnosticsCallback(
+                new NetworkRequest.Builder()
+                    .clearCapabilities()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    .build(),
+                    INLINE_EXECUTOR,
+                    mConnectivityDiagnosticsCallback
+            );
+        } catch (Exception e) {
+            mConnectivityDiagnosticsManager = null;
+            mConnectivityDiagnosticsCallback = null;
         }
     }
 
@@ -287,19 +287,17 @@ public class DataStallRecoveryStats {
         mPhoneId = mPhone.getPhoneId() + 1;
         mCarrierId = mPhone.getCarrierId();
         mSignalStrength = mPhone.getSignalStrength().getLevel();
-        if (mIsDsrsDiagnosticsEnabled) {
-            // Get the MCCMNC and convert it to an int
-            String networkOperator = mTelephonyManager.getNetworkOperator();
-            if (!TextUtils.isEmpty(networkOperator)) {
-                try {
-                    mConvertedMccMnc = Integer.parseInt(networkOperator);
-                } catch (NumberFormatException e) {
-                    loge("Invalid MCCMNC format: " + networkOperator);
-                    mConvertedMccMnc = -1;
-                }
-            } else {
+        // Get the MCCMNC and convert it to an int
+        String networkOperator = mTelephonyManager.getNetworkOperator();
+        if (!TextUtils.isEmpty(networkOperator)) {
+            try {
+                mConvertedMccMnc = Integer.parseInt(networkOperator);
+            } catch (NumberFormatException e) {
+                loge("Invalid MCCMNC format: " + networkOperator);
                 mConvertedMccMnc = -1;
             }
+        } else {
+            mConvertedMccMnc = -1;
         }
 
         // Update the bandwidth.
@@ -424,71 +422,46 @@ public class DataStallRecoveryStats {
             int actionValidationCount,
             int durationOfAction) {
 
-        if (mIsDsrsDiagnosticsEnabled) {
-            // Refresh data if the data has not been updated within 3 minutes
-            final long refreshDuration = SystemClock.elapsedRealtime() - mMetricsReflashTime;
-            if (refreshDuration > REFRESH_DURATION_IN_MILLIS) {
-                // Refreshes the metrics data.
-                try {
-                    refreshMetricsData();
-                } catch (Exception e) {
-                    loge("The metrics data cannot be refreshed.", e);
-                }
+        // Refresh data if the data has not been updated within 3 minutes
+        final long refreshDuration = SystemClock.elapsedRealtime() - mMetricsReflashTime;
+        if (refreshDuration > REFRESH_DURATION_IN_MILLIS) {
+            // Refreshes the metrics data.
+            try {
+                refreshMetricsData();
+            } catch (Exception e) {
+                loge("The metrics data cannot be refreshed.", e);
             }
         }
 
         Bundle bundle = new Bundle();
 
-        if (mIsDsrsDiagnosticsEnabled) {
-            bundle.putInt("Action", action);
-            bundle.putInt("IsRecovered", isRecovered ? 1 : 0);
-            bundle.putInt("Duration", duration);
-            bundle.putInt("Reason", reason);
-            bundle.putInt("DurationOfAction", durationOfAction);
-            bundle.putInt("ValidationCount", validationCount);
-            bundle.putInt("ActionValidationCount", actionValidationCount);
-            bundle.putInt("PhoneId", mPhoneId);
-            bundle.putInt("CarrierId", mCarrierId);
-            bundle.putInt("MccMnc", mConvertedMccMnc);
-            bundle.putInt("SignalStrength", mSignalStrength);
-            bundle.putInt("Band", mBand);
-            bundle.putInt("Rat", mRat);
-            bundle.putInt("IsOpportunistic", mIsOpportunistic ? 1 : 0);
-            bundle.putInt("IsMultiSim", mIsMultiSim ? 1 : 0);
-            bundle.putInt("NetworkRegState", mNetworkRegState);
-            bundle.putInt("OtherSignalStrength", mOtherSignalStrength);
-            bundle.putInt("OtherNetworkRegState", mOtherNetworkRegState);
-            bundle.putInt("InternetLinkStatus", mInternetLinkStatus);
-            bundle.putInt("LinkDownBandwidthKbps", mLinkDownBandwidthKbps);
-            bundle.putInt("LinkUpBandwidthKbps", mLinkUpBandwidthKbps);
-            bundle.putInt("NetworkProbesResult", mNetworkProbesResult);
-            bundle.putInt("NetworkProbesType", mNetworkProbesType);
-            bundle.putInt("NetworkValidationResult", mNetworkValidationResult);
-            bundle.putInt("TcpMetricsCollectionPeriodMillis", mTcpMetricsCollectionPeriodMillis);
-            bundle.putInt("TcpPacketFailRate", mTcpPacketFailRate);
-            bundle.putInt("DnsConsecutiveTimeouts", mDnsConsecutiveTimeouts);
-        } else {
-            bundle.putInt("Action", action);
-            bundle.putBoolean("IsRecovered", isRecovered);
-            bundle.putInt("Duration", duration);
-            bundle.putInt("Reason", reason);
-            bundle.putBoolean("IsFirstValidation", validationCount == 1);
-            bundle.putInt("DurationOfAction", durationOfAction);
-            bundle.putInt("PhoneId", mPhoneId);
-            bundle.putInt("CarrierId", mCarrierId);
-            bundle.putInt("SignalStrength", mSignalStrength);
-            bundle.putInt("Band", mBand);
-            bundle.putInt("Rat", mRat);
-            bundle.putBoolean("IsOpportunistic", mIsOpportunistic);
-            bundle.putBoolean("IsMultiSim", mIsMultiSim);
-            bundle.putInt("NetworkRegState", mNetworkRegState);
-            bundle.putInt("OtherSignalStrength", mOtherSignalStrength);
-            bundle.putInt("OtherNetworkRegState", mOtherNetworkRegState);
-            bundle.putInt("InternetLinkStatus", mInternetLinkStatus);
-            bundle.putInt("LinkDownBandwidthKbps", mLinkDownBandwidthKbps);
-            bundle.putInt("LinkUpBandwidthKbps", mLinkUpBandwidthKbps);
-        }
-
+        bundle.putInt("Action", action);
+        bundle.putInt("IsRecovered", isRecovered ? 1 : 0);
+        bundle.putInt("Duration", duration);
+        bundle.putInt("Reason", reason);
+        bundle.putInt("DurationOfAction", durationOfAction);
+        bundle.putInt("ValidationCount", validationCount);
+        bundle.putInt("ActionValidationCount", actionValidationCount);
+        bundle.putInt("PhoneId", mPhoneId);
+        bundle.putInt("CarrierId", mCarrierId);
+        bundle.putInt("MccMnc", mConvertedMccMnc);
+        bundle.putInt("SignalStrength", mSignalStrength);
+        bundle.putInt("Band", mBand);
+        bundle.putInt("Rat", mRat);
+        bundle.putInt("IsOpportunistic", mIsOpportunistic ? 1 : 0);
+        bundle.putInt("IsMultiSim", mIsMultiSim ? 1 : 0);
+        bundle.putInt("NetworkRegState", mNetworkRegState);
+        bundle.putInt("OtherSignalStrength", mOtherSignalStrength);
+        bundle.putInt("OtherNetworkRegState", mOtherNetworkRegState);
+        bundle.putInt("InternetLinkStatus", mInternetLinkStatus);
+        bundle.putInt("LinkDownBandwidthKbps", mLinkDownBandwidthKbps);
+        bundle.putInt("LinkUpBandwidthKbps", mLinkUpBandwidthKbps);
+        bundle.putInt("NetworkProbesResult", mNetworkProbesResult);
+        bundle.putInt("NetworkProbesType", mNetworkProbesType);
+        bundle.putInt("NetworkValidationResult", mNetworkValidationResult);
+        bundle.putInt("TcpMetricsCollectionPeriodMillis", mTcpMetricsCollectionPeriodMillis);
+        bundle.putInt("TcpPacketFailRate", mTcpPacketFailRate);
+        bundle.putInt("DnsConsecutiveTimeouts", mDnsConsecutiveTimeouts);
         return bundle;
     }
 

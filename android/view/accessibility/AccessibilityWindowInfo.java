@@ -97,7 +97,7 @@ public final class AccessibilityWindowInfo implements Parcelable {
     /**
      * Window type: A system window that has the function to control an associated window.
      */
-    @FlaggedApi(Flags.FLAG_ADD_TYPE_WINDOW_CONTROL)
+    @FlaggedApi(Flags.FLAG_ENABLE_TYPE_WINDOW_CONTROL)
     public static final int TYPE_WINDOW_CONTROL = 7;
 
     /* Special values for window IDs */
@@ -880,10 +880,6 @@ public final class AccessibilityWindowInfo implements Parcelable {
      * @hide
      */
     public static String typeToString(int type) {
-        if (Flags.addTypeWindowControl() && type == TYPE_WINDOW_CONTROL) {
-            return "TYPE_WINDOW_CONTROL";
-        }
-
         switch (type) {
             case TYPE_APPLICATION: {
                 return "TYPE_APPLICATION";
@@ -903,8 +899,12 @@ public final class AccessibilityWindowInfo implements Parcelable {
             case TYPE_MAGNIFICATION_OVERLAY: {
                 return "TYPE_MAGNIFICATION_OVERLAY";
             }
-            default:
+            default: {
+                if (Flags.enableTypeWindowControl() && type == TYPE_WINDOW_CONTROL) {
+                    return "TYPE_WINDOW_CONTROL";
+                }
                 return "<UNKNOWN:" + type + ">";
+            }
         }
     }
 

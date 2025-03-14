@@ -3,9 +3,14 @@ package com.android.org.bouncycastle.math.ec;
 
 import java.math.BigInteger;
 import java.security.SecureRandom;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Random;
+import java.util.Set;
 
+import com.android.org.bouncycastle.crypto.CryptoServicesRegistrar;
+import com.android.org.bouncycastle.math.Primes;
 import com.android.org.bouncycastle.math.ec.endo.ECEndomorphism;
 import com.android.org.bouncycastle.math.ec.endo.GLVEndomorphism;
 import com.android.org.bouncycastle.math.field.FiniteField;
@@ -13,6 +18,7 @@ import com.android.org.bouncycastle.math.field.FiniteFields;
 import com.android.org.bouncycastle.math.raw.Nat;
 import com.android.org.bouncycastle.util.BigIntegers;
 import com.android.org.bouncycastle.util.Integers;
+import com.android.org.bouncycastle.util.Properties;
 
 /**
  * base class for an elliptic curve
@@ -677,6 +683,8 @@ public abstract class ECCurve
     public static class Fp extends AbstractFp
     {
         private static final int FP_DEFAULT_COORDS = ECCurve.COORD_JACOBIAN_MODIFIED;
+        private static final Set<BigInteger> knownQs = Collections.synchronizedSet(new HashSet<BigInteger>());
+        private static final BigIntegers.Cache validatedQs = new BigIntegers.Cache();
 
         BigInteger q, r;
         ECPoint.Fp infinity;
@@ -691,9 +699,44 @@ public abstract class ECCurve
 
         public Fp(BigInteger q, BigInteger a, BigInteger b, BigInteger order, BigInteger cofactor)
         {
+            this(q, a, b, order, cofactor, false);
+        }
+
+        public Fp(BigInteger q, BigInteger a, BigInteger b, BigInteger order, BigInteger cofactor, boolean isInternal)
+        {
             super(q);
 
-            this.q = q;
+            if (isInternal)
+            {
+                this.q = q;
+                knownQs.add(q);
+            }
+            else if (knownQs.contains(q) || validatedQs.contains(q))
+            {
+                this.q = q;
+            }
+            else
+            {
+                int maxBitLength = Properties.asInteger("com.android.org.bouncycastle.ec.fp_max_size", 1042); // 2 * 521
+                int certainty = Properties.asInteger("com.android.org.bouncycastle.ec.fp_certainty", 100);
+
+                int qBitLength = q.bitLength();
+                if (maxBitLength < qBitLength)
+                {
+                    throw new IllegalArgumentException("Fp q value out of range");
+                }
+
+                if (Primes.hasAnySmallFactors(q) || !Primes.isMRProbablePrime(
+                    q, CryptoServicesRegistrar.getSecureRandom(), getNumberOfIterations(qBitLength, certainty)))
+                {
+                    throw new IllegalArgumentException("Fp q value not prime");
+                }
+
+                validatedQs.add(q);
+
+                this.q = q;
+            }
+
             this.r = ECFieldElement.Fp.calculateResidue(q);
             this.infinity = new ECPoint.Fp(this, null, null);
 
@@ -750,6 +793,11 @@ public abstract class ECCurve
 
         public ECFieldElement fromBigInteger(BigInteger x)
         {
+            if (x == null || x.signum() < 0 || x.compareTo(q) >= 0)
+            {
+                throw new IllegalArgumentException("x value invalid for Fp field element");
+            }
+
             return new ECFieldElement.Fp(this.q, this.r, x);
         }
 
@@ -809,32 +857,11 @@ public abstract class ECCurve
 
         private static FiniteField buildField(int m, int k1, int k2, int k3)
         {
-            if (k1 == 0)
-            {
-                throw new IllegalArgumentException("k1 must be > 0");
-            }
+            int[] exponents = (k2 | k3) == 0
+                ? new int[]{ 0, k1, m }
+                : new int[]{ 0, k1, k2, k3, m };
 
-            if (k2 == 0)
-            {
-                if (k3 != 0)
-                {
-                    throw new IllegalArgumentException("k3 must be 0 if k2 == 0");
-                }
-
-                return FiniteFields.getBinaryExtensionField(new int[]{ 0, k1, m });
-            }
-
-            if (k2 <= k1)
-            {
-                throw new IllegalArgumentException("k2 must be > k1");
-            }
-
-            if (k3 <= k2)
-            {
-                throw new IllegalArgumentException("k3 must be > k2");
-            }
-
-            return FiniteFields.getBinaryExtensionField(new int[]{ 0, k1, k2, k3, m });
+            return FiniteFields.getBinaryExtensionField(exponents);
         }
 
         protected AbstractF2m(int m, int k1, int k2, int k3)
@@ -927,7 +954,7 @@ public abstract class ECCurve
                 y = this.getB().sqrt();
             }
             else
-            {
+            { 
                 ECFieldElement beta = x.square().invert().multiply(this.getB()).add(this.getA()).add(x);
                 ECFieldElement z = solveQuadraticEquation(beta);
                 if (z != null)
@@ -1288,7 +1315,16 @@ public abstract class ECCurve
 
         public ECFieldElement fromBigInteger(BigInteger x)
         {
-            return new ECFieldElement.F2m(this.m, this.k1, this.k2, this.k3, x);
+            if (x == null || x.signum() < 0 || x.bitLength() > m)
+            {
+                throw new IllegalArgumentException("x value invalid in F2m field element");
+            }
+
+            int[] ks = (k2 | k3) == 0
+                ? new int[]{ k1 }
+                : new int[]{ k1, k2, k3 };
+
+            return new ECFieldElement.F2m(m, ks, new LongArray(x));
         }
 
         protected ECPoint createRawPoint(ECFieldElement x, ECFieldElement y)
@@ -1401,6 +1437,38 @@ public abstract class ECCurve
                     return createRawPoint(X, Y);
                 }
             };
+        }
+    }
+
+    private static int getNumberOfIterations(int bits, int certainty)
+    {
+        /*
+         * NOTE: We enforce a minimum 'certainty' of 100 for bits >= 1024 (else 80). Where the
+         * certainty is higher than the FIPS 186-4 tables (C.2/C.3) cater to, extra iterations
+         * are added at the "worst case rate" for the excess.
+         */
+        if (bits >= 1536)
+        {
+            return  certainty <= 100 ? 3
+                :   certainty <= 128 ? 4
+                :   4 + (certainty - 128 + 1) / 2;
+        }
+        else if (bits >= 1024)
+        {
+            return  certainty <= 100 ? 4
+                :   certainty <= 112 ? 5
+                :   5 + (certainty - 112 + 1) / 2;
+        }
+        else if (bits >= 512)
+        {
+            return  certainty <= 80  ? 5
+                :   certainty <= 100 ? 7
+                :   7 + (certainty - 100 + 1) / 2;
+        }
+        else
+        {
+            return  certainty <= 80  ? 40
+                :   40 + (certainty - 80 + 1) / 2;
         }
     }
 }

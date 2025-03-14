@@ -389,6 +389,15 @@ public class Modifier {
      */
     public static final int DEFAULT = 0x00400000;
 
+    // Android-added: INTRINSIC to support DEX-defined modifier flag.
+    /**
+     * Intrinsic methods are marked with a synthetic access flag
+     * to mark that they are an intrinsic.
+     *
+     * @hide
+     */
+    public static final int INTRINSIC = 0x80000000;
+
     /**
      * The Java source modifiers that can be applied to a class.
      * @jls 8.1.1 Class Modifiers

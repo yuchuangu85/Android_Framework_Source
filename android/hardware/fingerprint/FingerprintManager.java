@@ -172,7 +172,7 @@ public class FingerprintManager implements BiometricAuthenticator, BiometricFing
     @RequiresPermission(TEST_BIOMETRIC)
     public BiometricTestSession createTestSession(int sensorId) {
         try {
-            return new BiometricTestSession(mContext, sensorId,
+            return new BiometricTestSession(mContext, getSensorProperties(), sensorId,
                     (context, sensorId1, callback) -> mService
                             .createTestSession(sensorId1, callback, context.getOpPackageName()));
         } catch (RemoteException e) {
@@ -695,6 +695,25 @@ public class FingerprintManager implements BiometricAuthenticator, BiometricFing
             cancel.setOnCancelListener(new OnFingerprintDetectionCancelListener(authId));
         } catch (RemoteException e) {
             Slog.w(TAG, "Remote exception when requesting finger detect", e);
+        }
+    }
+
+    /**
+     * Set whether the HAL should ignore display touches.
+     * Only applies to sensors where the HAL is reponsible for handling touches.
+     * @hide
+     */
+    @RequiresPermission(USE_BIOMETRIC_INTERNAL)
+    public void setIgnoreDisplayTouches(long requestId, int sensorId, boolean ignoreTouch) {
+        if (mService == null) {
+            Slog.w(TAG, "setIgnoreDisplayTouches: no fingerprint service");
+            return;
+        }
+
+        try {
+            mService.setIgnoreDisplayTouches(requestId, sensorId, ignoreTouch);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 
@@ -1498,7 +1517,7 @@ public class FingerprintManager implements BiometricAuthenticator, BiometricFing
      */
     public static String getAcquiredString(Context context, int acquireInfo, int vendorCode) {
         switch (acquireInfo) {
-            case FINGERPRINT_ACQUIRED_GOOD:
+            case FINGERPRINT_ACQUIRED_GOOD, FINGERPRINT_ACQUIRED_START:
                 return null;
             case FINGERPRINT_ACQUIRED_PARTIAL:
                 return context.getString(
@@ -1527,13 +1546,10 @@ public class FingerprintManager implements BiometricAuthenticator, BiometricFing
             case FINGERPRINT_ACQUIRED_VENDOR: {
                 String[] msgArray = context.getResources().getStringArray(
                         com.android.internal.R.array.fingerprint_acquired_vendor);
-                if (vendorCode < msgArray.length) {
+                if (vendorCode < msgArray.length && !msgArray[vendorCode].isEmpty()) {
                     return msgArray[vendorCode];
                 }
             }
-                break;
-            case FINGERPRINT_ACQUIRED_START:
-                return null;
         }
         Slog.w(TAG, "Invalid acquired message: " + acquireInfo + ", " + vendorCode);
         return null;

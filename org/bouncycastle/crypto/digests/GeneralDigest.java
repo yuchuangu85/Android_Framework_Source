@@ -1,3 +1,4 @@
+// BEGIN Android-changed: maintain old behaviour
 package org.bouncycastle.crypto.digests;
 
 import org.bouncycastle.crypto.ExtendedDigest;
@@ -158,3 +159,4 @@ public abstract class GeneralDigest
 
     protected abstract void processBlock();
 }
+// END Android-changed: maintain old behaviour

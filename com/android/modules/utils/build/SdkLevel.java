@@ -71,6 +71,12 @@ public final class SdkLevel {
                 (SDK_INT == 34 && isAtLeastPreReleaseCodename("VanillaIceCream"));
     }
 
+    /** Checks if the device is running on a release version of Android Baklava or newer */
+    @ChecksSdkIntAtLeast(api = 36 /* BUILD_VERSION_CODES.Baklava */)
+    public static boolean isAtLeastB() {
+        return SDK_INT >= 36;
+    }
+
     private static boolean isAtLeastPreReleaseCodename(@NonNull String codename) {
         // Special case "REL", which means the build is not a pre-release build.
         if ("REL".equals(CODENAME)) {

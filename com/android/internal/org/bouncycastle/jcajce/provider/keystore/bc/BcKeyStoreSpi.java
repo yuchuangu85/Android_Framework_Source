@@ -58,6 +58,7 @@ import com.android.internal.org.bouncycastle.jcajce.util.JcaJceHelper;
 import com.android.internal.org.bouncycastle.jce.interfaces.BCKeyStore;
 import com.android.internal.org.bouncycastle.jce.provider.BouncyCastleProvider;
 import com.android.internal.org.bouncycastle.util.Arrays;
+import com.android.internal.org.bouncycastle.util.Properties;
 import com.android.internal.org.bouncycastle.util.io.Streams;
 import com.android.internal.org.bouncycastle.util.io.TeeOutputStream;
 
@@ -398,6 +399,11 @@ public class BcKeyStoreSpi
     {
         byte[]      enc = key.getEncoded();
 
+        if (enc == null)
+        {
+            throw new IOException("unable to store encoding of protected key");
+        }
+
         if (key instanceof PrivateKey)
         {
             dOut.write(KEY_PRIVATE);
@@ -676,9 +682,18 @@ public class BcKeyStoreSpi
         Certificate[]   chain) 
         throws KeyStoreException
     {
-        if ((key instanceof PrivateKey) && (chain == null))
+        if ((key instanceof PrivateKey))
         {
-            throw new KeyStoreException("no certificate chain for private key");
+            if (chain == null)
+            {
+                throw new KeyStoreException("no certificate chain for private key");
+            }
+            if (key.getEncoded() == null)
+            {
+                // we ingore the password as the key is already protected.
+                table.put(alias, new StoreEntry(alias, new Date(), KEY, key, chain));
+                return;
+            }
         }
 
         try
@@ -1129,6 +1144,10 @@ public class BcKeyStoreSpi
         public Version1()
         {
             super(1);
+            if (!Properties.isOverrideSet("com.android.internal.org.bouncycastle.bks.enable_v1"))
+            {
+                 throw new IllegalStateException("BKS-V1 not enabled");
+            }
         }
     }
 

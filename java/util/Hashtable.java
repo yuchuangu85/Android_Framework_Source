@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 1994, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1994, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -832,9 +832,7 @@ public class Hashtable<K,V>
                         return false;
                 }
             }
-        } catch (ClassCastException unused)   {
-            return false;
-        } catch (NullPointerException unused) {
+        } catch (ClassCastException | NullPointerException unused) {
             return false;
         }
 
@@ -1273,7 +1271,7 @@ public class Hashtable<K,V>
         float lf = fields.get("loadFactor", 0.75f);
         if (lf <= 0 || Float.isNaN(lf))
             throw new StreamCorruptedException("Illegal load factor: " + lf);
-        lf = Math.min(Math.max(0.25f, lf), 4.0f);
+        lf = Math.clamp(lf, 0.25f, 4.0f);
 
         // Read the original length of the array and number of elements
         int origlength = s.readInt();
@@ -1291,7 +1289,7 @@ public class Hashtable<K,V>
         // no larger than the clamped original length.  Make the length
         // odd if it's large enough, this helps distribute the entries.
         // Guard against the length ending up zero, that's not valid.
-        int length = (int)((elements + elements / 20) / lf) + 3;
+        int length = (int)(elements * 1.05f / lf) + 3;
         if (length > elements && (length & 1) == 0)
             length--;
         length = Math.min(length, origlength);

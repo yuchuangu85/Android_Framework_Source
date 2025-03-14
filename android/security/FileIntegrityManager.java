@@ -65,13 +65,7 @@ public final class FileIntegrityManager {
      * other fs-verity APIs.
      */
     public boolean isApkVeritySupported() {
-        try {
-            // Go through the service just to avoid exposing the vendor controlled system property
-            // to all apps.
-            return mService.isApkVeritySupported();
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return VerityUtils.isFsVeritySupported();
     }
 
     /**
@@ -170,11 +164,6 @@ public final class FileIntegrityManager {
     @Deprecated
     public boolean isAppSourceCertificateTrusted(@NonNull X509Certificate certificate)
             throws CertificateEncodingException {
-        try {
-            return mService.isAppSourceCertificateTrusted(
-                    certificate.getEncoded(), mContext.getOpPackageName());
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
+        return false;
     }
 }

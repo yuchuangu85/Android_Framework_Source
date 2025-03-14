@@ -16,6 +16,9 @@
 
 package android.bluetooth;
 
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+
+import android.annotation.RequiresNoPermission;
 import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.bluetooth.annotations.RequiresBluetoothConnectPermission;
@@ -105,14 +108,17 @@ public final class BluetoothHealth implements BluetoothProfile {
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public void onServiceConnected(IBinder service) {}
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public void onServiceDisconnected() {}
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public BluetoothAdapter getAdapter() {
         return null;
     }
@@ -137,7 +143,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Deprecated
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public boolean registerSinkAppConfiguration(
             String name, int dataType, BluetoothHealthCallback callback) {
@@ -159,7 +165,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Deprecated
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public boolean unregisterAppConfiguration(BluetoothHealthAppConfiguration config) {
         Log.e(TAG, "unregisterAppConfiguration(): BluetoothHealth is deprecated");
@@ -183,7 +189,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Deprecated
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public boolean connectChannelToSource(
             BluetoothDevice device, BluetoothHealthAppConfiguration config) {
@@ -208,7 +214,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Deprecated
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public boolean disconnectChannel(
             BluetoothDevice device, BluetoothHealthAppConfiguration config, int channelId) {
@@ -233,7 +239,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Deprecated
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public ParcelFileDescriptor getMainChannelFd(
             BluetoothDevice device, BluetoothHealthAppConfiguration config) {
@@ -255,7 +261,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Override
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public int getConnectionState(BluetoothDevice device) {
         Log.e(TAG, "getConnectionState(): BluetoothHealth is deprecated");
@@ -276,7 +282,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Override
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public List<BluetoothDevice> getConnectedDevices() {
         Log.e(TAG, "getConnectedDevices(): BluetoothHealth is deprecated");
@@ -299,7 +305,7 @@ public final class BluetoothHealth implements BluetoothProfile {
     @Override
     @RequiresLegacyBluetoothPermission
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SuppressLint("AndroidFrameworkRequiresPermission")
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(int[] states) {
         Log.e(TAG, "getDevicesMatchingConnectionStates(): BluetoothHealth is deprecated");

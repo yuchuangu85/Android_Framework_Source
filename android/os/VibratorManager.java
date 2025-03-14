@@ -22,7 +22,11 @@ import android.annotation.RequiresPermission;
 import android.annotation.SystemService;
 import android.app.ActivityThread;
 import android.content.Context;
+import android.os.vibrator.VendorVibrationSession;
 import android.util.Log;
+import android.view.HapticFeedbackConstants;
+
+import java.util.concurrent.Executor;
 
 /**
  * Provides access to all vibrators from the device, as well as the ability to run them
@@ -59,6 +63,14 @@ public abstract class VibratorManager {
      */
     @NonNull
     public abstract int[] getVibratorIds();
+
+    /**
+     * Return true if the vibrator manager has all capabilities, false otherwise.
+     * @hide
+     */
+    public boolean hasCapabilities(int capabilities) {
+        return false;
+    }
 
     /**
      * Retrieve a single vibrator by id.
@@ -142,16 +154,36 @@ public abstract class VibratorManager {
      *
      * @param constant the ID of the requested haptic feedback. Should be one of the constants
      *          defined in {@link HapticFeedbackConstants}.
-     * @param always {@code true} if the haptic feedback should be played regardless of the user
-     *          vibration intensity settings applicable to the corresponding vibration.
-     *          {@code false} otherwise.
      * @param reason the reason for this haptic feedback.
-     * @param fromIme the haptic feedback is performed from an IME.
+     * @param flags Additional flags as per {@link HapticFeedbackConstants}.
+     * @param privFlags Additional private flags as per {@link HapticFeedbackConstants}.
      * @hide
      */
-    public void performHapticFeedback(int constant, boolean always, String reason,
-            boolean fromIme) {
+    public void performHapticFeedback(int constant, String reason,
+            @HapticFeedbackConstants.Flags int flags,
+            @HapticFeedbackConstants.PrivateFlags int privFlags) {
         Log.w(TAG, "performHapticFeedback is not supported");
+    }
+
+    /**
+     * Performs a haptic feedback. Similar to {@link #performHapticFeedback} but also take input
+     * into consideration.
+     *
+     * @param constant      the ID of the requested haptic feedback. Should be one of the constants
+     *                      defined in {@link HapticFeedbackConstants}.
+     * @param inputDeviceId the integer id of the input device that customizes the haptic feedback
+     *                      corresponding to the {@code constant}.
+     * @param inputSource   the {@link InputDevice.Source} that customizes the haptic feedback
+     *                      corresponding to the {@code constant}.
+     * @param reason        the reason for this haptic feedback.
+     * @param flags         Additional flags as per {@link HapticFeedbackConstants}.
+     * @param privFlags     Additional private flags as per {@link HapticFeedbackConstants}.
+     * @hide
+     */
+    public void performHapticFeedbackForInputDevice(int constant, int inputDeviceId,
+            int inputSource, String reason, @HapticFeedbackConstants.Flags int flags,
+            @HapticFeedbackConstants.PrivateFlags int privFlags) {
+        Log.w(TAG, "performHapticFeedbackForInputDevice is not supported");
     }
 
     /**
@@ -169,4 +201,30 @@ public abstract class VibratorManager {
      */
     @RequiresPermission(android.Manifest.permission.VIBRATE)
     public abstract void cancel(int usageFilter);
+
+
+    /**
+     * Starts a vibration session on given vibrators.
+     *
+     * @param vibratorIds The vibrators that will be controlled by this session.
+     * @param attrs       The {@link VibrationAttributes} corresponding to the vibrations that will
+     *                    be performed in the session. This will be used to decide the priority of
+     *                    this session against other system vibrations.
+     * @param reason      The description for this session, used for debugging purposes.
+     * @param cancellationSignal A signal to cancel the session before it starts.
+     * @param executor    The executor for the session callbacks.
+     * @param callback    The {@link VendorVibrationSession.Callback} for the started session.
+     * @see Vibrator#startVendorSession
+     * @hide
+     */
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.VIBRATE,
+            android.Manifest.permission.VIBRATE_VENDOR_EFFECTS,
+            android.Manifest.permission.START_VIBRATION_SESSIONS,
+    })
+    public void startVendorSession(@NonNull int[] vibratorIds, @NonNull VibrationAttributes attrs,
+            @Nullable String reason, @Nullable CancellationSignal cancellationSignal,
+            @NonNull Executor executor, @NonNull VendorVibrationSession.Callback callback) {
+        Log.w(TAG, "startVendorSession is not supported");
+    }
 }

@@ -21,10 +21,10 @@ import android.os.RemoteException;
 import android.telephony.PhoneCapability;
 
 import com.android.internal.telephony.uicc.IccSlotStatus;
+import com.android.internal.telephony.uicc.SimTypeInfo;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Set;
 
 /**
@@ -47,8 +47,7 @@ public class RadioConfigResponseAidl extends
      */
     @Override
     public void getHalDeviceCapabilitiesResponse(
-            android.hardware.radio.RadioResponseInfo info,
-            boolean modemReducedFeatureSet1) throws RemoteException {
+            RadioResponseInfo info, boolean modemReducedFeatureSet1) throws RemoteException {
         // convert hal device capabilities to RadioInterfaceCapabilities
         RILRequest rr = mRadioConfig.processResponse(info);
         if (rr != null) {
@@ -71,8 +70,7 @@ public class RadioConfigResponseAidl extends
      */
     @Override
     public void getNumOfLiveModemsResponse(
-            android.hardware.radio.RadioResponseInfo info, byte numOfLiveModems)
-            throws RemoteException {
+            RadioResponseInfo info, byte numOfLiveModems) throws RemoteException {
         RILRequest rr = mRadioConfig.processResponse(info);
         if (rr != null) {
             if (info.error == android.hardware.radio.RadioError.NONE) {
@@ -93,9 +91,8 @@ public class RadioConfigResponseAidl extends
      */
     @Override
     public void getPhoneCapabilityResponse(
-            android.hardware.radio.RadioResponseInfo info,
-            android.hardware.radio.config.PhoneCapability phoneCapability)
-            throws RemoteException {
+            RadioResponseInfo info,
+            android.hardware.radio.config.PhoneCapability phoneCapability) throws RemoteException {
         RILRequest rr = mRadioConfig.processResponse(info);
         if (rr != null) {
             PhoneCapability ret = RILUtils.convertHalPhoneCapability(
@@ -118,9 +115,7 @@ public class RadioConfigResponseAidl extends
      */
     @Override
     public void getSimultaneousCallingSupportResponse(
-            android.hardware.radio.RadioResponseInfo info,
-            int[] enabledLogicalSlots)
-            throws RemoteException {
+            RadioResponseInfo info, int[] enabledLogicalSlots) throws RemoteException {
         RILRequest rr = mRadioConfig.processResponse(info);
         if (rr != null) {
             ArrayList<Integer> ret = RILUtils.primitiveArrayToArrayList(enabledLogicalSlots);
@@ -142,7 +137,7 @@ public class RadioConfigResponseAidl extends
      */
     @Override
     public void getSimSlotsStatusResponse(
-            android.hardware.radio.RadioResponseInfo info,
+            RadioResponseInfo info,
             android.hardware.radio.config.SimSlotStatus[] slotStatus)
             throws RemoteException {
         RILRequest rr = mRadioConfig.processResponse(info);
@@ -166,8 +161,7 @@ public class RadioConfigResponseAidl extends
      * Currently this is being used as the callback for RadioConfig.setNumOfLiveModems() method
      */
     @Override
-    public void setNumOfLiveModemsResponse(
-            android.hardware.radio.RadioResponseInfo info) throws RemoteException {
+    public void setNumOfLiveModemsResponse(RadioResponseInfo info) throws RemoteException {
         RILRequest rr = mRadioConfig.processResponse(info);
         if (rr != null) {
             if (info.error == android.hardware.radio.RadioError.NONE) {
@@ -187,8 +181,7 @@ public class RadioConfigResponseAidl extends
      * Response function for IRadioConfig.setPreferredDataModem().
      */
     @Override
-    public void setPreferredDataModemResponse(
-            android.hardware.radio.RadioResponseInfo info) throws RemoteException {
+    public void setPreferredDataModemResponse(RadioResponseInfo info) throws RemoteException {
         RILRequest rr = mRadioConfig.processResponse(info);
         if (rr != null) {
             if (info.error == android.hardware.radio.RadioError.NONE) {
@@ -208,8 +201,7 @@ public class RadioConfigResponseAidl extends
      * Response function for IRadioConfig.setSimSlotsMapping().
      */
     @Override
-    public void setSimSlotsMappingResponse(
-            android.hardware.radio.RadioResponseInfo info) throws RemoteException {
+    public void setSimSlotsMappingResponse(RadioResponseInfo info) throws RemoteException {
         RILRequest rr = mRadioConfig.processResponse(info);
         if (rr != null) {
             if (info.error == android.hardware.radio.RadioError.NONE) {
@@ -225,6 +217,48 @@ public class RadioConfigResponseAidl extends
         }
     }
 
+    /**
+     * Response function for IRadioConfig.getSimTypeInfo().
+     */
+    @Override
+    public void getSimTypeInfoResponse(
+            RadioResponseInfo info,
+            android.hardware.radio.config.SimTypeInfo[] simTypeInfo) throws RemoteException {
+        RILRequest rr = mRadioConfig.processResponse(info);
+        if (rr != null) {
+            ArrayList<SimTypeInfo> ret = RILUtils.convertAidlSimTypeInfo(simTypeInfo);
+            if (info.error == android.hardware.radio.RadioError.NONE) {
+                // send response
+                RadioResponse.sendMessageResponse(rr.mResult, ret);
+                logd(rr, RILUtils.requestToString(rr.mRequest) + " " + ret.toString());
+            } else {
+                rr.onError(info.error, null);
+                loge(rr, RILUtils.requestToString(rr.mRequest) + " error " + info.error);
+            }
+        } else {
+            loge("getSimTypeInfoResponse: Error " + info.toString());
+        }
+    }
+
+    /**
+     * Response function for IRadioConfig.setSimTypeResponse().
+     */
+    @Override
+    public void setSimTypeResponse(RadioResponseInfo info) throws RemoteException {
+        RILRequest rr = mRadioConfig.processResponse(info);
+        if (rr != null) {
+            if (info.error == android.hardware.radio.RadioError.NONE) {
+                // send response
+                RadioResponse.sendMessageResponse(rr.mResult, null);
+                logd(rr, RILUtils.requestToString(rr.mRequest));
+            } else {
+                rr.onError(info.error, null);
+                loge(rr, RILUtils.requestToString(rr.mRequest) + " error " + info.error);
+            }
+        } else {
+            loge("setSimTypeResponse: Error " + info.toString());
+        }
+    }
     private static void logd(String log) {
         Rlog.d(TAG, log);
     }

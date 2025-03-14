@@ -129,7 +129,7 @@ namespace com {
                 _out << printIndent() << "</" << _name << ">" << std::endl;
             }
 
-            ApexInfo::ApexInfo(std::string moduleName, std::string modulePath, std::optional<std::string> preinstalledModulePath, int64_t versionCode, std::string versionName, bool isFactory, bool isActive, std::optional<int64_t> lastUpdateMillis, bool provideSharedApexLibs) : moduleName_(std::move(moduleName)), modulePath_(std::move(modulePath)), preinstalledModulePath_(std::move(preinstalledModulePath)), versionCode_(versionCode), versionName_(std::move(versionName)), isFactory_(isFactory), isActive_(isActive), lastUpdateMillis_(lastUpdateMillis), provideSharedApexLibs_(provideSharedApexLibs) {
+            ApexInfo::ApexInfo(std::string moduleName, std::string modulePath, std::optional<std::string> preinstalledModulePath, int64_t versionCode, std::string versionName, bool isFactory, bool isActive, std::optional<int64_t> lastUpdateMillis, bool provideSharedApexLibs, std::string partition) : moduleName_(std::move(moduleName)), modulePath_(std::move(modulePath)), preinstalledModulePath_(std::move(preinstalledModulePath)), versionCode_(versionCode), versionName_(std::move(versionName)), isFactory_(isFactory), isActive_(isActive), lastUpdateMillis_(lastUpdateMillis), provideSharedApexLibs_(provideSharedApexLibs), partition_(std::move(partition)) {
             }
 
             const std::string& ApexInfo::getModuleName() const {
@@ -206,6 +206,14 @@ namespace com {
                 return true;
             }
 
+            const std::string& ApexInfo::getPartition() const {
+                return partition_;
+            }
+
+            bool ApexInfo::hasPartition() const {
+                return true;
+            }
+
             ApexInfo ApexInfo::read(xmlNode *root) {
                 std::string _raw;
                 _raw = getXmlAttribute(root, "moduleName");
@@ -262,7 +270,13 @@ namespace com {
                     bool _value = _raw == "true";
                     provideSharedApexLibs = _value;
                 }
-                ApexInfo instance(moduleName, modulePath, preinstalledModulePath, versionCode, versionName, isFactory, isActive, lastUpdateMillis, provideSharedApexLibs);
+                _raw = getXmlAttribute(root, "partition");
+                std::string partition{};
+                if (_raw != "") {
+                    std::string &_value = _raw;
+                    partition = _value;
+                }
+                ApexInfo instance(moduleName, modulePath, preinstalledModulePath, versionCode, versionName, isFactory, isActive, lastUpdateMillis, provideSharedApexLibs, partition);
                 return instance;
             }
 
@@ -311,6 +325,11 @@ namespace com {
                 if (hasProvideSharedApexLibs()) {
                     _out << " provideSharedApexLibs=\"";
                     _out << (getProvideSharedApexLibs() ? "true" : "false");
+                    _out << "\"";
+                }
+                if (hasPartition()) {
+                    _out << " partition=\"";
+                    _out << getPartition();
                     _out << "\"";
                 }
                 _out << ">" << std::endl;

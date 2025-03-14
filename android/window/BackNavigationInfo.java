@@ -16,6 +16,8 @@
 
 package android.window;
 
+import static android.app.ActivityTaskManager.INVALID_TASK_ID;
+
 import android.annotation.AnimRes;
 import android.annotation.ColorInt;
 import android.annotation.IntDef;
@@ -23,6 +25,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.TestApi;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -84,6 +87,13 @@ public final class BackNavigationInfo implements Parcelable {
      */
     public static final String KEY_GESTURE_FINISHED = "GestureFinished";
 
+    /**
+     * Touch gestured has transferred to embedded window, Shell should pilfer pointers so the
+     * embedded won't receive motion events.
+     * @hide
+     */
+    public static final String KEY_TOUCH_GESTURE_TRANSFERRED = "TouchGestureTransferred";
+
 
     /**
      * Defines the type of back destinations a back even can lead to. This is used to define the
@@ -113,6 +123,11 @@ public final class BackNavigationInfo implements Parcelable {
     private final CustomAnimationInfo mCustomAnimationInfo;
 
     private final int mLetterboxColor;
+    @NonNull
+    private final Rect mTouchableRegion;
+
+    private boolean mAppProgressGenerationAllowed;
+    private final int mFocusedTaskId;
 
     /**
      * Create a new {@link BackNavigationInfo} instance.
@@ -128,7 +143,10 @@ public final class BackNavigationInfo implements Parcelable {
             boolean isPrepareRemoteAnimation,
             boolean isAnimationCallback,
             @Nullable CustomAnimationInfo customAnimationInfo,
-            int letterboxColor) {
+            int letterboxColor,
+            @Nullable Rect touchableRegion,
+            boolean appProgressGenerationAllowed,
+            int focusedTaskId) {
         mType = type;
         mOnBackNavigationDone = onBackNavigationDone;
         mOnBackInvokedCallback = onBackInvokedCallback;
@@ -136,6 +154,9 @@ public final class BackNavigationInfo implements Parcelable {
         mAnimationCallback = isAnimationCallback;
         mCustomAnimationInfo = customAnimationInfo;
         mLetterboxColor = letterboxColor;
+        mTouchableRegion = new Rect(touchableRegion);
+        mAppProgressGenerationAllowed = appProgressGenerationAllowed;
+        mFocusedTaskId = focusedTaskId;
     }
 
     private BackNavigationInfo(@NonNull Parcel in) {
@@ -146,6 +167,9 @@ public final class BackNavigationInfo implements Parcelable {
         mAnimationCallback = in.readBoolean();
         mCustomAnimationInfo = in.readTypedObject(CustomAnimationInfo.CREATOR);
         mLetterboxColor = in.readInt();
+        mTouchableRegion = in.readTypedObject(Rect.CREATOR);
+        mAppProgressGenerationAllowed = in.readBoolean();
+        mFocusedTaskId = in.readInt();
     }
 
     /** @hide */
@@ -158,6 +182,9 @@ public final class BackNavigationInfo implements Parcelable {
         dest.writeBoolean(mAnimationCallback);
         dest.writeTypedObject(mCustomAnimationInfo, flags);
         dest.writeInt(mLetterboxColor);
+        dest.writeTypedObject(mTouchableRegion, flags);
+        dest.writeBoolean(mAppProgressGenerationAllowed);
+        dest.writeInt(mFocusedTaskId);
     }
 
     /**
@@ -206,6 +233,40 @@ public final class BackNavigationInfo implements Parcelable {
     public int getLetterboxColor() {
         return mLetterboxColor;
     }
+
+    /**
+     * @return The app window region where the client can handle touch event.
+     * @hide
+     */
+    @NonNull
+    public Rect getTouchableRegion() {
+        return mTouchableRegion;
+    }
+
+    /**
+     * @return The client side view is able to intercept back progress event.
+     * @hide
+     */
+    public boolean isAppProgressGenerationAllowed() {
+        return mAppProgressGenerationAllowed;
+    }
+
+    /**
+     * @return The focused task id when back gesture start.
+     * @hide
+     */
+    public int getFocusedTaskId() {
+        return mFocusedTaskId;
+    }
+
+    /**
+     * Force disable app to intercept back progress event.
+     * @hide
+     */
+    public void disableAppProgressGenerationAllowed() {
+        mAppProgressGenerationAllowed = false;
+    }
+
     /**
      * Callback to be called when the back preview is finished in order to notify the server that
      * it can clean up the resources created for the animation.
@@ -216,20 +277,6 @@ public final class BackNavigationInfo implements Parcelable {
         if (mOnBackNavigationDone != null) {
             Bundle result = new Bundle();
             result.putBoolean(KEY_NAVIGATION_FINISHED, triggerBack);
-            mOnBackNavigationDone.sendResult(result);
-        }
-    }
-
-    /**
-     * Callback to be called when the back gesture is finished in order to notify the server that
-     * it can ask app to start rendering.
-     * @hide
-     * @param triggerBack Boolean indicating if back gesture has been triggered.
-     */
-    public void onBackGestureFinished(boolean triggerBack) {
-        if (mOnBackNavigationDone != null) {
-            Bundle result = new Bundle();
-            result.putBoolean(KEY_GESTURE_FINISHED, triggerBack);
             mOnBackNavigationDone.sendResult(result);
         }
     }
@@ -402,6 +449,9 @@ public final class BackNavigationInfo implements Parcelable {
         private boolean mAnimationCallback = false;
 
         private int mLetterboxColor = Color.TRANSPARENT;
+        private Rect mTouchableRegion;
+        private boolean mAppProgressGenerationAllowed;
+        private int mFocusedTaskId = INVALID_TASK_ID;
 
         /**
          * @see BackNavigationInfo#getType()
@@ -478,6 +528,30 @@ public final class BackNavigationInfo implements Parcelable {
         }
 
         /**
+         * @param rect Non-empty for frame of current focus window.
+         */
+        public Builder setTouchableRegion(Rect rect) {
+            mTouchableRegion = new Rect(rect);
+            return this;
+        }
+
+        /**
+         * @param allowed Whether client side view able to intercept back progress event.
+         */
+        public Builder setAppProgressAllowed(boolean allowed) {
+            mAppProgressGenerationAllowed = allowed;
+            return this;
+        }
+
+        /**
+         * @param focusedTaskId The current focused taskId when back gesture start.
+         */
+        public Builder setFocusedTaskId(int focusedTaskId) {
+            mFocusedTaskId = focusedTaskId;
+            return this;
+        }
+
+        /**
          * Builds and returns an instance of {@link BackNavigationInfo}
          */
         public BackNavigationInfo build() {
@@ -486,7 +560,10 @@ public final class BackNavigationInfo implements Parcelable {
                     mPrepareRemoteAnimation,
                     mAnimationCallback,
                     mCustomAnimationInfo,
-                    mLetterboxColor);
+                    mLetterboxColor,
+                    mTouchableRegion,
+                    mAppProgressGenerationAllowed,
+                    mFocusedTaskId);
         }
     }
 }

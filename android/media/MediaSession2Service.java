@@ -46,7 +46,7 @@ import java.util.Map;
 /**
  * This API is not generally intended for third party application developers.
  * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
- * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+ * <a href="{@docRoot}media/media3/session/control-playback">Media3 session
  * Library</a> for consistent behavior across all devices.
  * <p>
  * Service containing {@link MediaSession2}.
@@ -289,7 +289,7 @@ public abstract class MediaSession2Service extends Service {
     /**
      * This API is not generally intended for third party application developers.
      * Use the <a href="{@docRoot}jetpack/androidx.html">AndroidX</a>
-     * <a href="{@docRoot}reference/androidx/media2/session/package-summary.html">Media2 session
+     * <a href="{@docRoot}media/media3/session/control-playback">Media3 session
      * Library</a> for consistent behavior across all devices.
      * <p>
      * Returned by {@link #onUpdateNotification(MediaSession2)} for making session service

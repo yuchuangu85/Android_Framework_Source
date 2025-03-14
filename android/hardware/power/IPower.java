@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 5 --hash d111735ed2b89b6c32443aac9b162b1afbbea3f2 -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/common/fmq/aidl/android.hardware.common.fmq_interface/1/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common_interface/2/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V5-java-source/gen/android/hardware/power/IPower.java.d -o out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V5-java-source/gen -Nhardware/interfaces/power/aidl/aidl_api/android.hardware.power/5 hardware/interfaces/power/aidl/aidl_api/android.hardware.power/5/android/hardware/power/IPower.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 6 --hash 13171cf98a48de298baf85167633376ea3db4ea0 -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/common/fmq/aidl/android.hardware.common.fmq_interface/1/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common_interface/2/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V6-java-source/gen/android/hardware/power/IPower.java.d -o out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V6-java-source/gen -Nhardware/interfaces/power/aidl/aidl_api/android.hardware.power/6 hardware/interfaces/power/aidl/aidl_api/android.hardware.power/6/android/hardware/power/IPower.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.power;
 public interface IPower extends android.os.IInterface
@@ -11,8 +15,8 @@ public interface IPower extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 5;
-  public static final String HASH = "d111735ed2b89b6c32443aac9b162b1afbbea3f2";
+  public static final int VERSION = 6;
+  public static final String HASH = "13171cf98a48de298baf85167633376ea3db4ea0";
   /** Default implementation for IPower. */
   public static class Default implements android.hardware.power.IPower
   {
@@ -49,6 +53,24 @@ public interface IPower extends android.os.IInterface
     @Override public void closeSessionChannel(int tgid, int uid) throws android.os.RemoteException
     {
     }
+    @Override public android.hardware.power.SupportInfo getSupportInfo() throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public android.hardware.power.CpuHeadroomResult getCpuHeadroom(android.hardware.power.CpuHeadroomParams params) throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public android.hardware.power.GpuHeadroomResult getGpuHeadroom(android.hardware.power.GpuHeadroomParams params) throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public void sendCompositionData(android.hardware.power.CompositionData[] data) throws android.os.RemoteException
+    {
+    }
+    @Override public void sendCompositionUpdate(android.hardware.power.CompositionUpdate update) throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -65,7 +87,7 @@ public interface IPower extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.power.IPower
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -131,6 +153,26 @@ public interface IPower extends android.os.IInterface
         case TRANSACTION_closeSessionChannel:
         {
           return "closeSessionChannel";
+        }
+        case TRANSACTION_getSupportInfo:
+        {
+          return "getSupportInfo";
+        }
+        case TRANSACTION_getCpuHeadroom:
+        {
+          return "getCpuHeadroom";
+        }
+        case TRANSACTION_getGpuHeadroom:
+        {
+          return "getGpuHeadroom";
+        }
+        case TRANSACTION_sendCompositionData:
+        {
+          return "sendCompositionData";
+        }
+        case TRANSACTION_sendCompositionUpdate:
+        {
+          return "sendCompositionUpdate";
         }
         case TRANSACTION_getInterfaceVersion:
         {
@@ -277,6 +319,49 @@ public interface IPower extends android.os.IInterface
           _arg1 = data.readInt();
           data.enforceNoDataAvail();
           this.closeSessionChannel(_arg0, _arg1);
+          break;
+        }
+        case TRANSACTION_getSupportInfo:
+        {
+          android.hardware.power.SupportInfo _result = this.getSupportInfo();
+          reply.writeNoException();
+          reply.writeTypedObject(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_getCpuHeadroom:
+        {
+          android.hardware.power.CpuHeadroomParams _arg0;
+          _arg0 = data.readTypedObject(android.hardware.power.CpuHeadroomParams.CREATOR);
+          data.enforceNoDataAvail();
+          android.hardware.power.CpuHeadroomResult _result = this.getCpuHeadroom(_arg0);
+          reply.writeNoException();
+          reply.writeTypedObject(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_getGpuHeadroom:
+        {
+          android.hardware.power.GpuHeadroomParams _arg0;
+          _arg0 = data.readTypedObject(android.hardware.power.GpuHeadroomParams.CREATOR);
+          data.enforceNoDataAvail();
+          android.hardware.power.GpuHeadroomResult _result = this.getGpuHeadroom(_arg0);
+          reply.writeNoException();
+          reply.writeTypedObject(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_sendCompositionData:
+        {
+          android.hardware.power.CompositionData[] _arg0;
+          _arg0 = data.createTypedArray(android.hardware.power.CompositionData.CREATOR);
+          data.enforceNoDataAvail();
+          this.sendCompositionData(_arg0);
+          break;
+        }
+        case TRANSACTION_sendCompositionUpdate:
+        {
+          android.hardware.power.CompositionUpdate _arg0;
+          _arg0 = data.readTypedObject(android.hardware.power.CompositionUpdate.CREATOR);
+          data.enforceNoDataAvail();
+          this.sendCompositionUpdate(_arg0);
           break;
         }
         default:
@@ -487,6 +572,98 @@ public interface IPower extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public android.hardware.power.SupportInfo getSupportInfo() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        android.hardware.power.SupportInfo _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getSupportInfo, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getSupportInfo is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readTypedObject(android.hardware.power.SupportInfo.CREATOR);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public android.hardware.power.CpuHeadroomResult getCpuHeadroom(android.hardware.power.CpuHeadroomParams params) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        android.hardware.power.CpuHeadroomResult _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(params, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getCpuHeadroom, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getCpuHeadroom is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readTypedObject(android.hardware.power.CpuHeadroomResult.CREATOR);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public android.hardware.power.GpuHeadroomResult getGpuHeadroom(android.hardware.power.GpuHeadroomParams params) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        android.hardware.power.GpuHeadroomResult _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(params, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getGpuHeadroom, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getGpuHeadroom is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readTypedObject(android.hardware.power.GpuHeadroomResult.CREATOR);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public void sendCompositionData(android.hardware.power.CompositionData[] data) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedArray(data, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_sendCompositionData, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method sendCompositionData is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void sendCompositionUpdate(android.hardware.power.CompositionUpdate update) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(update, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_sendCompositionUpdate, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method sendCompositionUpdate is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -531,6 +708,11 @@ public interface IPower extends android.os.IInterface
     static final int TRANSACTION_createHintSessionWithConfig = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
     static final int TRANSACTION_getSessionChannel = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
     static final int TRANSACTION_closeSessionChannel = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
+    static final int TRANSACTION_getSupportInfo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
+    static final int TRANSACTION_getCpuHeadroom = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
+    static final int TRANSACTION_getGpuHeadroom = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
+    static final int TRANSACTION_sendCompositionData = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
+    static final int TRANSACTION_sendCompositionUpdate = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
     /** @hide */
@@ -550,6 +732,11 @@ public interface IPower extends android.os.IInterface
   public android.hardware.power.IPowerHintSession createHintSessionWithConfig(int tgid, int uid, int[] threadIds, long durationNanos, int tag, android.hardware.power.SessionConfig config) throws android.os.RemoteException;
   public android.hardware.power.ChannelConfig getSessionChannel(int tgid, int uid) throws android.os.RemoteException;
   public void closeSessionChannel(int tgid, int uid) throws android.os.RemoteException;
+  public android.hardware.power.SupportInfo getSupportInfo() throws android.os.RemoteException;
+  public android.hardware.power.CpuHeadroomResult getCpuHeadroom(android.hardware.power.CpuHeadroomParams params) throws android.os.RemoteException;
+  public android.hardware.power.GpuHeadroomResult getGpuHeadroom(android.hardware.power.GpuHeadroomParams params) throws android.os.RemoteException;
+  public void sendCompositionData(android.hardware.power.CompositionData[] data) throws android.os.RemoteException;
+  public void sendCompositionUpdate(android.hardware.power.CompositionUpdate update) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

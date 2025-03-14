@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 4f1c704008e5687ed0d6f1590464aed39fc7f64e -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/system/hardware/interfaces/keystore2/aidl/android.system.keystore2-V3-java-source/gen/android/system/keystore2/IKeystoreService.java.d -o out/soong/.intermediates/system/hardware/interfaces/keystore2/aidl/android.system.keystore2-V3-java-source/gen -Nsystem/hardware/interfaces/keystore2/aidl/aidl_api/android.system.keystore2/3 system/hardware/interfaces/keystore2/aidl/aidl_api/android.system.keystore2/3/android/system/keystore2/IKeystoreService.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 5 --hash 98d815116c190250e9e5a1d9182cea8126fd0e97 -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/security/keymint/aidl/android.hardware.security.keymint_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/system/hardware/interfaces/keystore2/aidl/android.system.keystore2-V5-java-source/gen/android/system/keystore2/IKeystoreService.java.d -o out/soong/.intermediates/system/hardware/interfaces/keystore2/aidl/android.system.keystore2-V5-java-source/gen -Nsystem/hardware/interfaces/keystore2/aidl/aidl_api/android.system.keystore2/5 system/hardware/interfaces/keystore2/aidl/aidl_api/android.system.keystore2/5/android/system/keystore2/IKeystoreService.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.system.keystore2;
 /** @hide */
@@ -12,8 +16,8 @@ public interface IKeystoreService extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "4f1c704008e5687ed0d6f1590464aed39fc7f64e";
+  public static final int VERSION = 5;
+  public static final String HASH = "98d815116c190250e9e5a1d9182cea8126fd0e97";
   /** Default implementation for IKeystoreService. */
   public static class Default implements android.system.keystore2.IKeystoreService
   {
@@ -51,6 +55,10 @@ public interface IKeystoreService extends android.os.IInterface
     {
       return null;
     }
+    @Override public byte[] getSupplementaryAttestationInfo(int tag) throws android.os.RemoteException
+    {
+      return null;
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -67,7 +75,7 @@ public interface IKeystoreService extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.system.keystore2.IKeystoreService
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -133,6 +141,10 @@ public interface IKeystoreService extends android.os.IInterface
         case TRANSACTION_listEntriesBatched:
         {
           return "listEntriesBatched";
+        }
+        case TRANSACTION_getSupplementaryAttestationInfo:
+        {
+          return "getSupplementaryAttestationInfo";
         }
         case TRANSACTION_getInterfaceVersion:
         {
@@ -278,6 +290,16 @@ public interface IKeystoreService extends android.os.IInterface
           android.system.keystore2.KeyDescriptor[] _result = this.listEntriesBatched(_arg0, _arg1, _arg2);
           reply.writeNoException();
           reply.writeTypedArray(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_getSupplementaryAttestationInfo:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          data.enforceNoDataAvail();
+          byte[] _result = this.getSupplementaryAttestationInfo(_arg0);
+          reply.writeNoException();
+          reply.writeByteArray(_result);
           break;
         }
         default:
@@ -494,6 +516,27 @@ public interface IKeystoreService extends android.os.IInterface
         }
         return _result;
       }
+      @Override public byte[] getSupplementaryAttestationInfo(int tag) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        byte[] _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(tag);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getSupplementaryAttestationInfo, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getSupplementaryAttestationInfo is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.createByteArray();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -538,6 +581,7 @@ public interface IKeystoreService extends android.os.IInterface
     static final int TRANSACTION_ungrant = (android.os.IBinder.FIRST_CALL_TRANSACTION + 6);
     static final int TRANSACTION_getNumberOfEntries = (android.os.IBinder.FIRST_CALL_TRANSACTION + 7);
     static final int TRANSACTION_listEntriesBatched = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
+    static final int TRANSACTION_getSupplementaryAttestationInfo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
     /** @hide */
@@ -559,6 +603,7 @@ public interface IKeystoreService extends android.os.IInterface
   public void ungrant(android.system.keystore2.KeyDescriptor key, int granteeUid) throws android.os.RemoteException;
   public int getNumberOfEntries(int domain, long nspace) throws android.os.RemoteException;
   public android.system.keystore2.KeyDescriptor[] listEntriesBatched(int domain, long nspace, java.lang.String startingPastAlias) throws android.os.RemoteException;
+  public byte[] getSupplementaryAttestationInfo(int tag) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

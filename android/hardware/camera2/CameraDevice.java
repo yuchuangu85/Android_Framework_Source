@@ -417,6 +417,7 @@ public abstract class CameraDevice implements AutoCloseable {
      *                                  or if any of the output configurations sets a stream use
      *                                  case different from {@link
      *                                  android.hardware.camera2.CameraCharacteristics#SCALER_AVAILABLE_STREAM_USE_CASES_DEFAULT}.
+     * @throws UnsupportedOperationException if the camera has been opened in shared mode
      * @see CameraExtensionCharacteristics#getSupportedExtensions
      * @see CameraExtensionCharacteristics#getExtensionSupportedSizes
      */
@@ -446,6 +447,17 @@ public abstract class CameraDevice implements AutoCloseable {
     public static final int SESSION_OPERATION_MODE_CONSTRAINED_HIGH_SPEED =
             1; // ICameraDeviceUser.CONSTRAINED_HIGH_SPEED_MODE;
 
+     /**
+     * Shared camera operation mode.
+     *
+     * @see #CameraSharedCaptureSession
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_CAMERA_MULTI_CLIENT)
+    public static final int SESSION_OPERATION_MODE_SHARED =
+            2; // ICameraDeviceUser.SHARED_MODE;
+
     /**
      * First vendor-specific operating mode
      *
@@ -461,6 +473,7 @@ public abstract class CameraDevice implements AutoCloseable {
     @IntDef(prefix = {"SESSION_OPERATION_MODE"}, value =
             {SESSION_OPERATION_MODE_NORMAL,
              SESSION_OPERATION_MODE_CONSTRAINED_HIGH_SPEED,
+             SESSION_OPERATION_MODE_SHARED,
              SESSION_OPERATION_MODE_VENDOR_START})
     public @interface SessionOperatingMode {};
 
@@ -1240,14 +1253,14 @@ public abstract class CameraDevice implements AutoCloseable {
      *
      * </ul>
      *
-     *
      * @param config A session configuration (see {@link SessionConfiguration}).
      *
      * @throws IllegalArgumentException In case the session configuration is invalid; or the output
      *                                  configurations are empty; or the session configuration
      *                                  executor is invalid;
      *                                  or the output dynamic range combination is
-     *                                  invalid/unsupported.
+     *                                  invalid/unsupported; or the session type is not shared when
+     *                                  camera has been opened in shared mode.
      * @throws CameraAccessException In case the camera device is no longer connected or has
      *                               encountered a fatal error.
      * @see #createCaptureSession(List, CameraCaptureSession.StateCallback, Handler)
@@ -1281,6 +1294,8 @@ public abstract class CameraDevice implements AutoCloseable {
      * @throws CameraAccessException if the camera device is no longer connected or has
      *                               encountered a fatal error
      * @throws IllegalStateException if the camera device has been closed
+     * @throws UnsupportedOperationException if this is not a primary client of a camera opened in
+     *                                       shared mode
      */
     @NonNull
     public abstract CaptureRequest.Builder createCaptureRequest(@RequestTemplate int templateType)
@@ -1317,6 +1332,8 @@ public abstract class CameraDevice implements AutoCloseable {
      * @throws CameraAccessException if the camera device is no longer connected or has
      *                               encountered a fatal error
      * @throws IllegalStateException if the camera device has been closed
+     * @throws UnsupportedOperationException if this is not a primary client of a camera opened in
+     *                                       shared mode
      *
      * @see #TEMPLATE_PREVIEW
      * @see #TEMPLATE_RECORD
@@ -1358,6 +1375,7 @@ public abstract class CameraDevice implements AutoCloseable {
      * @throws CameraAccessException if the camera device is no longer connected or has
      *                               encountered a fatal error
      * @throws IllegalStateException if the camera device has been closed
+     * @throws UnsupportedOperationException if the camera has been opened in shared mode
      *
      * @see CaptureRequest.Builder
      * @see TotalCaptureResult
@@ -1406,24 +1424,39 @@ public abstract class CameraDevice implements AutoCloseable {
      * {@link android.hardware.camera2.params.MandatoryStreamCombination} are better suited for this
      * purpose.</p>
      *
-     * <p><b>NOTE:</b>
-     * For apps targeting {@link android.os.Build.VERSION_CODES#VANILLA_ICE_CREAM} and above,
+     * <p>If this function returns {@code true} for a particular stream combination, the camera
+     * device supports concurrent captures on all of the streams in the same CaptureRequest, with
+     * two exceptions below where concurrent captures are not supported: </p>
+     * <ul>
+     * <li>Supported stream combinations with exclusive dynamic range profiles as specified by
+     * {@link android.hardware.camera2.params.DynamicRangeProfiles#getProfileCaptureRequestConstraints}.</li>
+     * <li>Supported combinations of 'default' mode and 'max resolution' mode streams for devices
+     * with ULTRA_HIGH_RESOLUTION_SENSOR capability.</li>
+     * </ul>
+     * <p>For other cases where concurrent captures of a stream combination are not supported,
+     * this function returns {@code false}.</p>
+     *
+     * <p><b>NOTE:</b></p>
+     * <ul>
+     * <li>For apps targeting {@link android.os.Build.VERSION_CODES#VANILLA_ICE_CREAM} and above,
      * this method will automatically delegate to
      * {@link CameraDeviceSetup#isSessionConfigurationSupported} whenever possible. This
      * means that the output of this method will consider parameters set through
-     * {@link SessionConfiguration#setSessionParameters} as well.
-     * </p>
+     * {@link SessionConfiguration#setSessionParameters} as well.</li>
      *
-     * <p>Session Parameters will be ignored for apps targeting <=
+     * <li>Session Parameters will be ignored for apps targeting <=
      * {@link android.os.Build.VERSION_CODES#UPSIDE_DOWN_CAKE}, or if
      * {@link CameraManager#isCameraDeviceSetupSupported} returns false for the camera id
-     * associated with this {@code CameraDevice}.</p>
+     * associated with this {@code CameraDevice}.</li>
+     * </ul>
      *
      * @return {@code true} if the given session configuration is supported by the camera device
      *         {@code false} otherwise.
      * @throws UnsupportedOperationException if the query operation is not supported by the camera
      *                                       device
-     * @throws IllegalArgumentException if the session configuration is invalid
+     * @throws IllegalArgumentException if the session configuration is invalid, including, if it
+     *                                  contains certain non-supported features queryable via
+     *                                  CameraCharacteristics.
      * @throws CameraAccessException if the camera device is no longer connected or has
      *                               encountered a fatal error
      * @throws IllegalStateException if the camera device has been closed
@@ -1542,6 +1575,48 @@ public abstract class CameraDevice implements AutoCloseable {
          * @param camera the camera device that has become opened
          */
         public abstract void onOpened(@NonNull CameraDevice camera); // Must implement
+
+        /**
+         * The method called when a camera device has finished opening in shared mode,
+         * where there can be more than one client accessing the same camera.
+         *
+         * <p>At this point, the camera device is ready to use, and
+         * {@link CameraDevice#createCaptureSession} can be called to set up the shared capture
+         * session.</p>
+         *
+         * @param camera the camera device that has become opened
+         * @param isPrimaryClient true if the client opening the camera is currently the primary
+         *                             client.
+         * @hide
+         */
+        @SystemApi
+        @FlaggedApi(Flags.FLAG_CAMERA_MULTI_CLIENT)
+        public void onOpenedInSharedMode(@NonNull CameraDevice camera, boolean isPrimaryClient) {
+          // Default empty implementation
+        }
+
+        /**
+         * The method called when client access priorities have changed for a camera device opened
+         * in shared mode where there can be more than one client accessing the same camera.
+         *
+         * If the client priority changed from secondary to primary, then it can now
+         * create capture request and change the capture request parameters. If client priority
+         * changed from primary to secondary, that implies that a higher priority client has also
+         * opened the camera in shared mode and the new client is now a primary client
+         *
+         * @param camera the camera device whose access priorities have changed.
+         * @param isPrimaryClient true if the client is now the primary client.
+         *                        false if another higher priority client also opened the
+         *                        camera and is now the new primary client and this client is
+         *                        now a secondary client.
+         * @hide
+         */
+        @SystemApi
+        @FlaggedApi(Flags.FLAG_CAMERA_MULTI_CLIENT)
+        public void onClientSharedAccessPriorityChanged(@NonNull CameraDevice camera,
+                boolean isPrimaryClient) {
+          // Default empty implementation
+        }
 
         /**
          * The method called when a camera device has been closed with
@@ -1689,14 +1764,25 @@ public abstract class CameraDevice implements AutoCloseable {
          * CameraCharacteristics#INFO_SESSION_CONFIGURATION_QUERY_VERSION} provides the list of
          * feature combinations the camera device will reliably report.</p>
          *
+         * <p>If this function returns {@code true} for a particular stream combination, the camera
+         * device supports concurrent captures on all of the streams in the same CaptureRequest,
+         * with two exceptions below where concurrent captures are not supported: </p>
+         * <ul>
+         * <li>Supported stream combinations with exclusive dynamic range profiles as specified by
+         * {@link android.hardware.camera2.params.DynamicRangeProfiles#getProfileCaptureRequestConstraints}.</li>
+         * <li>Supported combinations of 'default' mode and 'max resolution' mode streams for
+         * devices with ULTRA_HIGH_RESOLUTION_SENSOR capability.</li>
+         * </ul>
+         * <p>For other cases where concurrent captures of a stream combination are not supported,
+         * this function returns {@code false}.</p>
+         *
          * <p><b>IMPORTANT:</b></p>
          * <ul>
-         * <li>If feature support can be queried via
-         * {@link CameraCharacteristics#SCALER_MANDATORY_STREAM_COMBINATIONS} or
-         * {@link CameraCharacteristics#SCALER_STREAM_CONFIGURATION_MAP}, applications should
-         * directly use that route rather than calling this function as: (1) using
-         * {@code CameraCharacteristics} is more efficient, and (2) calling this function with
-         * certain non-supported features will throw a {@link IllegalArgumentException}.</li>
+         * <li>If feature support can be queried via {@link CameraCharacteristics}, applications
+         * should directly use that route rather than calling this function as: (1) using
+         * {@code CameraCharacteristics} is more efficient, and (2) querying a feature explicitly
+         * deemed unsupported by CameraCharacteristics may throw a
+         * {@link IllegalArgumentException}.</li>
          *
          * <li>To minimize {@link SessionConfiguration} creation latency due to its dependency on
          * output surfaces, the application can call this method before acquiring valid
@@ -1724,7 +1810,8 @@ public abstract class CameraDevice implements AutoCloseable {
          *
          * @throws CameraAccessException if the camera device is no longer connected or has
          * encountered a fatal error
-         * @throws IllegalArgumentException if the session configuration is invalid
+         * @throws IllegalArgumentException if the session configuration is invalid, including,
+         * if it contains certain non-supported features queryable via CameraCharacteristics.
          *
          * @see CameraCharacteristics#INFO_SESSION_CONFIGURATION_QUERY_VERSION
          * @see SessionConfiguration

@@ -15,6 +15,9 @@
  */
 package android.view.autofill;
 
+import static android.service.autofill.Flags.FLAG_AUTOFILL_W_METRICS;
+
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.TestApi;
@@ -58,6 +61,11 @@ public final class AutofillId implements Parcelable {
     @TestApi
     public AutofillId(int hostId, int virtualChildId) {
         this(FLAG_IS_VIRTUAL_INT, hostId, virtualChildId, NO_SESSION);
+    }
+
+    /** @hide */
+    public AutofillId(@NonNull AutofillId hostId, int virtualChildId, int sessionId) {
+        this(FLAG_IS_VIRTUAL_INT | FLAG_HAS_SESSION, hostId.mViewId, virtualChildId, sessionId);
     }
 
     /** @hide */
@@ -106,9 +114,40 @@ public final class AutofillId implements Parcelable {
         return new AutofillId(flags, id.mViewId, virtualChildId, NO_SESSION);
     }
 
-    /** @hide */
+    /**
+     * Returns the assigned unique identifier of this AutofillID.
+     *
+     * See @link{android.view.View#getAutofillId()} for more information on
+     * how this is generated for native Views.
+     */
+    @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
     public int getViewId() {
         return mViewId;
+    }
+
+    /**
+     * Gets the virtual id. This is set if the view is a virtual view, most commonly set if the View
+     * is of {@link android.webkit.WebView}.
+     */
+    @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
+    public int getAutofillVirtualId() {
+        return mVirtualIntId;
+    }
+
+    /** Checks whether this AutofillId represents a virtual view. */
+    @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
+    public boolean isVirtual() {
+        return !isNonVirtual();
+    }
+
+    /**
+     * Checks if this node is generate as part of a {@link android.app.assist.AssistStructure}. This
+     * will usually return true if it should be used by an autofill service provider, and false
+     * otherwise.
+     */
+    @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
+    public boolean isInAutofillSession() {
+        return hasSession();
     }
 
     /**
@@ -176,7 +215,12 @@ public final class AutofillId implements Parcelable {
         return (mFlags & FLAG_HAS_SESSION) != 0;
     }
 
-    /** @hide */
+    /**
+     * Used to get the Session identifier associated with this AutofillId.
+     *
+     * @return a non-zero integer if {@link #isInAutofillSession()} returns true
+     */
+    @FlaggedApi(FLAG_AUTOFILL_W_METRICS)
     public int getSessionId() {
         return mSessionId;
     }
@@ -236,9 +280,9 @@ public final class AutofillId implements Parcelable {
     public String toString() {
         final StringBuilder builder = new StringBuilder().append(mViewId);
         if (isVirtualInt()) {
-            builder.append(':').append(mVirtualIntId);
+            builder.append(":i").append(mVirtualIntId);
         } else if (isVirtualLong()) {
-            builder.append(':').append(mVirtualLongId);
+            builder.append(":l").append(mVirtualLongId);
         }
 
         if (hasSession()) {

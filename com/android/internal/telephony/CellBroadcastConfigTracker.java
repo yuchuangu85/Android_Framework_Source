@@ -31,6 +31,7 @@ import android.util.LocalLog;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
@@ -192,7 +193,8 @@ public final class CellBroadcastConfigTracker extends StateMachine {
                         // set gsm config if the config is changed
                         setGsmConfig(request.get3gppRanges(), request);
                         transitionTo(mGsmConfiguringState);
-                    } else if (!mCbRanges3gpp2.equals(request.get3gpp2Ranges())) {
+                    } else if (!Flags.cleanupCdma()
+                            && !mCbRanges3gpp2.equals(request.get3gpp2Ranges())) {
                         // set cdma config directly if no gsm config change but cdma config is
                         // changed
                         setCdmaConfig(request.get3gpp2Ranges(), request);
@@ -283,7 +285,8 @@ public final class CellBroadcastConfigTracker extends StateMachine {
                     }
                     if (ar.exception == null) {
                         mCbRanges3gpp = request.get3gppRanges();
-                        if (!mCbRanges3gpp2.equals(request.get3gpp2Ranges())) {
+                        if (!Flags.cleanupCdma()
+                                && !mCbRanges3gpp2.equals(request.get3gpp2Ranges())) {
                             // set cdma config and transit to cdma configuring state if the config
                             // is changed.
                             setCdmaConfig(request.get3gpp2Ranges(), request);

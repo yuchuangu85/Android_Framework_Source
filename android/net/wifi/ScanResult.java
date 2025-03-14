@@ -32,6 +32,8 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
 
+import androidx.annotation.Keep;
+
 import com.android.modules.utils.build.SdkLevel;
 import com.android.wifi.flags.Flags;
 
@@ -360,9 +362,26 @@ public final class ScanResult implements Parcelable {
     public static final int KEY_MGMT_FT_SAE_EXT_KEY = 19;
     /**
      * @hide
+     * Security key management scheme: PASN.
+     */
+    public static final int KEY_MGMT_PASN = 20;
+
+    /**
+     * Security key management scheme: FT authentication negotiated over IEEE Std 802.1X using
+     * SHA-384.
+     * @hide
+     */
+    public static final int KEY_MGMT_EAP_FT_SHA384 = 21;
+    /**
+     * Security key management scheme: FT authentication using PSK (SHA-384).
+     * @hide
+     */
+    public static final int KEY_MGMT_FT_PSK_SHA384 = 22;
+    /**
+     * @hide
      * Security key management scheme: any unknown AKM.
      */
-    public static final int KEY_MGMT_UNKNOWN = 20;
+    public static final int KEY_MGMT_UNKNOWN = 23;
     /**
      * @hide
      * No cipher suite.
@@ -736,6 +755,13 @@ public final class ScanResult implements Parcelable {
 
     /** @hide */
     public static final long FLAG_TWT_RESPONDER                    = 0x0000000000000008;
+
+    /** @hide */
+    public static final long FLAG_SECURE_HE_LTF_SUPPORTED           = 0x0000000000000010;
+
+    /** @hide */
+    public static final long FLAG_RANGING_FRAME_PROTECTION_REQUIRED = 0x0000000000000020;
+
     /*
      * These flags are specific to the ScanResult class, and are not related to the |flags|
      * field of the per-BSS scan results from WPA supplicant.
@@ -788,6 +814,33 @@ public final class ScanResult implements Parcelable {
     public boolean isTwtResponder() {
         return (flags & FLAG_TWT_RESPONDER) != 0;
     }
+
+    /**
+     * Returns whether the AP supports secure HE-LTF for ranging measurement.
+     *
+     * Secure HE-LTF (High Efficiency Long Training Field), is a security enhancement for the HE
+     * PHY (High Efficiency Physical Layer) that aims to protect ranging measurements by using
+     * randomized HE-LTF sequences. This prevents attackers from exploiting predictable HE-LTF
+     * patterns. IEEE 802.11az adds secure HE-LTF support in Extended RSN capabilities.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public boolean isSecureHeLtfSupported() {
+        return (flags & FLAG_SECURE_HE_LTF_SUPPORTED) != 0;
+    }
+
+    /**
+     * Returns whether the AP requires frame protection for ranging measurement.
+     *
+     * Ranging frame protection in IEEE 802.11az, also known as URNM-MFPR (Unassociated Range
+     * Negotiation and Measurement Management Frame Protection Required), is a security policy
+     * that dictates whether ranging frames are required to be protected even without a formal
+     * association between the Initiating STA (ISTA) and Responding STA (RSTA)
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public boolean isRangingFrameProtectionRequired() {
+        return (flags & FLAG_RANGING_FRAME_PROTECTION_REQUIRED) != 0;
+    }
+
 
     /**
      * Indicates venue name (such as 'San Francisco Airport') published by access point; only
@@ -928,6 +981,7 @@ public final class ScanResult implements Parcelable {
      *
      * @hide
      */
+    @Keep
     public static boolean is24GHz(int freqMhz) {
         return freqMhz >= BAND_24_GHZ_START_FREQ_MHZ && freqMhz <= BAND_24_GHZ_END_FREQ_MHZ;
     }
@@ -939,6 +993,7 @@ public final class ScanResult implements Parcelable {
      *
      * @hide
      */
+    @Keep
     public static boolean is5GHz(int freqMhz) {
         return freqMhz >=  BAND_5_GHZ_START_FREQ_MHZ && freqMhz <= BAND_5_GHZ_END_FREQ_MHZ;
     }
@@ -950,6 +1005,7 @@ public final class ScanResult implements Parcelable {
      *
      * @hide
      */
+    @Keep
     public static boolean is6GHz(int freqMhz) {
         if (freqMhz == BAND_6_GHZ_OP_CLASS_136_CH_2_FREQ_MHZ) {
             return true;
@@ -1219,6 +1275,8 @@ public final class ScanResult implements Parcelable {
         @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static final int EID_RSN = 48;
         /** @hide */
+        public static final int EID_RSN_EXTENSION = 244;
+        /** @hide */
         @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
         public static final int EID_EXTENDED_SUPPORTED_RATES = 50;
         /** @hide */
@@ -1456,6 +1514,9 @@ public final class ScanResult implements Parcelable {
         private boolean mIs80211McRTTResponder = false;
         private boolean mIs80211azNtbRTTResponder = false;
         private boolean mIsTwtResponder = false;
+        private boolean mIsSecureHeLtfSupported = false;
+        private boolean mIsRangingFrameProtectionRequired = false;
+
         /** @hide */
         @NonNull
         public Builder setHessid(long hessid) {
@@ -1618,6 +1679,18 @@ public final class ScanResult implements Parcelable {
         public ScanResult build() {
             return new ScanResult(this);
         }
+
+        /** @hide */
+        public Builder setSecureHeLtfSupported(boolean supported) {
+            mIsSecureHeLtfSupported = supported;
+            return this;
+        }
+
+        /** @hide */
+        public Builder setRangingFrameProtectionRequired(boolean required) {
+            mIsRangingFrameProtectionRequired = required;
+            return this;
+        }
     }
 
     /**
@@ -1656,6 +1729,9 @@ public final class ScanResult implements Parcelable {
         this.flags |= (builder.mIsTwtResponder) ? FLAG_TWT_RESPONDER : 0;
         this.radioChainInfos = null;
         this.mApMldMacAddress = null;
+        this.flags |= (builder.mIsSecureHeLtfSupported) ? FLAG_SECURE_HE_LTF_SUPPORTED : 0;
+        this.flags |= (builder.mIsRangingFrameProtectionRequired)
+                ? FLAG_RANGING_FRAME_PROTECTION_REQUIRED : 0;
     }
 
     /**

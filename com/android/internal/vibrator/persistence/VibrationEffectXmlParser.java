@@ -16,15 +16,20 @@
 
 package com.android.internal.vibrator.persistence;
 
+import static com.android.internal.vibrator.persistence.XmlConstants.TAG_BASIC_ENVELOPE_EFFECT;
 import static com.android.internal.vibrator.persistence.XmlConstants.TAG_PREDEFINED_EFFECT;
 import static com.android.internal.vibrator.persistence.XmlConstants.TAG_PRIMITIVE_EFFECT;
+import static com.android.internal.vibrator.persistence.XmlConstants.TAG_REPEATING_EFFECT;
+import static com.android.internal.vibrator.persistence.XmlConstants.TAG_VENDOR_EFFECT;
 import static com.android.internal.vibrator.persistence.XmlConstants.TAG_VIBRATION_EFFECT;
 import static com.android.internal.vibrator.persistence.XmlConstants.TAG_WAVEFORM_EFFECT;
+import static com.android.internal.vibrator.persistence.XmlConstants.TAG_WAVEFORM_ENVELOPE_EFFECT;
 
 import android.annotation.NonNull;
 import android.os.VibrationEffect;
+import android.os.vibrator.Flags;
 
-import com.android.internal.vibrator.persistence.SerializedVibrationEffect.SerializedSegment;
+import com.android.internal.vibrator.persistence.SerializedComposedEffect.SerializedSegment;
 import com.android.modules.utils.TypedXmlPullParser;
 
 import java.io.IOException;
@@ -80,6 +85,62 @@ import java.util.List;
  *   }
  * </pre>
  *
+ * * Vendor vibration effects
+ *
+ * <pre>
+ *   {@code
+ *     <vibration-effect>
+ *       <vendor-effect>base64-representation-of-persistable-bundle</vendor-effect>
+ *     </vibration-effect>
+ *   }
+ * </pre>
+ *
+ * * Waveform Envelope effects
+ *
+ * <pre>
+ *     {@code
+ *       <vibration-effect>
+ *         <waveform-envelope-effect initialFrequencyHz="20.0">
+ *           <control-point amplitude="0.2" frequencyHz="80.0" durationMs="50" />
+ *           <control-point amplitude="0.5" frequencyHz="150.0" durationMs="50" />
+ *         </envelope-effect>
+ *       </vibration-effect>
+ *     }
+ * </pre>
+ *
+ * * Basic Envelope effects
+ *
+ * <pre>
+ *     {@code
+ *       <vibration-effect>
+ *         <basic-envelope-effect initialSharpness="0.3">
+ *            <control-point intensity="0.2" sharpness="0.5" durationMs="50" />
+ *            <control-point intensity="0.0" sharpness="1.0" durationMs="50" />
+ *          </envelope-effect>
+ *       </vibration-effect>
+ *     }
+ * </pre>
+ *
+ * * Repeating effects
+ *
+ * <pre>
+ *     {@code
+ *       <vibration-effect>
+ *          <repeating-effect>
+ *            <preamble>
+ *                <primitive-effect name="click" />
+ *            </preamble>
+ *            <repeating>
+ *              <basic-envelope-effect>
+ *                <control-point intensity="0.3" sharpness="0.4" durationMs="25" />
+ *                <control-point intensity="0.0" sharpness="0.5" durationMs="30" />
+ *              </basic-envelope-effect>
+ *            </repeating>
+ *          </repeating-effect>
+ *       </vibration-effect>
+ *     }
+ * </pre>
+ *
  * @hide
  */
 public class VibrationEffectXmlParser {
@@ -87,11 +148,9 @@ public class VibrationEffectXmlParser {
     /**
      * Parses the current XML tag with all nested tags into a single {@link XmlSerializedVibration}
      * wrapping a {@link VibrationEffect}.
-     *
-     * @see XmlParser#parseTag(TypedXmlPullParser)
      */
     @NonNull
-    public static XmlSerializedVibration<VibrationEffect> parseTag(
+    public static XmlSerializedVibration<? extends VibrationEffect> parseTag(
             @NonNull TypedXmlPullParser parser, @XmlConstants.Flags int flags)
             throws XmlParserException, IOException {
         XmlValidator.checkStartTag(parser, TAG_VIBRATION_EFFECT);
@@ -107,8 +166,9 @@ public class VibrationEffectXmlParser {
      * <p>This can be reused for reading a vibration from an XML root tag or from within a combined
      * vibration, but it should always be called from places that validates the top level tag.
      */
-    static SerializedVibrationEffect parseVibrationContent(TypedXmlPullParser parser,
-            @XmlConstants.Flags int flags) throws XmlParserException, IOException {
+    private static XmlSerializedVibration<? extends VibrationEffect> parseVibrationContent(
+            TypedXmlPullParser parser, @XmlConstants.Flags int flags)
+            throws XmlParserException, IOException {
         String vibrationTagName = parser.getName();
         int vibrationTagDepth = parser.getDepth();
 
@@ -116,11 +176,16 @@ public class VibrationEffectXmlParser {
                 XmlReader.readNextTagWithin(parser, vibrationTagDepth),
                 "Unsupported empty vibration tag");
 
-        SerializedVibrationEffect serializedVibration;
+        XmlSerializedVibration<? extends VibrationEffect> serializedVibration;
 
         switch (parser.getName()) {
+            case TAG_VENDOR_EFFECT:
+                if (Flags.vendorVibrationEffects()) {
+                    serializedVibration = SerializedVendorEffect.Parser.parseNext(parser, flags);
+                    break;
+                } // else fall through
             case TAG_PREDEFINED_EFFECT:
-                serializedVibration = new SerializedVibrationEffect(
+                serializedVibration = new SerializedComposedEffect(
                         SerializedPredefinedEffect.Parser.parseNext(parser, flags));
                 break;
             case TAG_PRIMITIVE_EFFECT:
@@ -128,13 +193,31 @@ public class VibrationEffectXmlParser {
                 do { // First primitive tag already open
                     primitives.add(SerializedCompositionPrimitive.Parser.parseNext(parser));
                 } while (XmlReader.readNextTagWithin(parser, vibrationTagDepth));
-                serializedVibration = new SerializedVibrationEffect(
+                serializedVibration = new SerializedComposedEffect(
                         primitives.toArray(new SerializedSegment[primitives.size()]));
                 break;
             case TAG_WAVEFORM_EFFECT:
-                serializedVibration = new SerializedVibrationEffect(
+                serializedVibration = new SerializedComposedEffect(
                         SerializedAmplitudeStepWaveform.Parser.parseNext(parser));
                 break;
+            case TAG_WAVEFORM_ENVELOPE_EFFECT:
+                if (Flags.normalizedPwleEffects()) {
+                    serializedVibration = new SerializedComposedEffect(
+                            SerializedWaveformEnvelopeEffect.Parser.parseNext(parser, flags));
+                    break;
+                } // else fall through
+            case TAG_BASIC_ENVELOPE_EFFECT:
+                if (Flags.normalizedPwleEffects()) {
+                    serializedVibration = new SerializedComposedEffect(
+                            SerializedBasicEnvelopeEffect.Parser.parseNext(parser, flags));
+                    break;
+                } // else fall through
+            case TAG_REPEATING_EFFECT:
+                if (Flags.normalizedPwleEffects()) {
+                    serializedVibration = new SerializedComposedEffect(
+                            SerializedRepeatingEffect.Parser.parseNext(parser, flags));
+                    break;
+                } // else fall through
             default:
                 throw new XmlParserException("Unexpected tag " + parser.getName()
                         + " in vibration tag " + vibrationTagName);

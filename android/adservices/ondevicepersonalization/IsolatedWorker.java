@@ -16,11 +16,8 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.os.OutcomeReceiver;
-
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 
 /**
  * Interface with methods that need to be implemented to handle requests from the
@@ -33,7 +30,6 @@ import com.android.adservices.ondevicepersonalization.flags.Flags;
  * platform treats it as an unrecoverable error in the {@link IsolatedService} and ends processing
  * the request.
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public interface IsolatedWorker {
 
     /**

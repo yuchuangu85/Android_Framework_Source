@@ -20,11 +20,12 @@ import android.annotation.CurrentTimeMillisLong;
 import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
-import android.app.appsearch.flags.Flags;
 import android.app.appsearch.safeparcel.AbstractSafeParcelable;
 import android.app.appsearch.safeparcel.SafeParcelable;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.appsearch.flags.Flags;
 
 import java.util.Objects;
 
@@ -35,22 +36,20 @@ import java.util.Objects;
  *
  * @see AppSearchSession#reportUsage
  */
-@SuppressWarnings("HiddenSuperclass")
+// TODO(b/384721898): Switch to JSpecify annotations
+@SuppressWarnings({"HiddenSuperclass", "JSpecifyNullness"})
 @SafeParcelable.Class(creator = "ReportUsageRequestCreator")
 public final class ReportUsageRequest extends AbstractSafeParcelable {
 
     @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
-    @NonNull
-    public static final Parcelable.Creator<ReportUsageRequest> CREATOR =
+    public static final @NonNull Parcelable.Creator<ReportUsageRequest> CREATOR =
             new ReportUsageRequestCreator();
 
-    @NonNull
     @Field(id = 1, getter = "getNamespace")
-    private final String mNamespace;
+    private final @NonNull String mNamespace;
 
-    @NonNull
     @Field(id = 2, getter = "getDocumentId")
-    private final String mDocumentId;
+    private final @NonNull String mDocumentId;
 
     @Field(id = 3, getter = "getUsageTimestampMillis")
     private final long mUsageTimestampMillis;
@@ -66,14 +65,12 @@ public final class ReportUsageRequest extends AbstractSafeParcelable {
     }
 
     /** Returns the namespace of the document that was used. */
-    @NonNull
-    public String getNamespace() {
+    public @NonNull String getNamespace() {
         return mNamespace;
     }
 
     /** Returns the ID of document that was used. */
-    @NonNull
-    public String getDocumentId() {
+    public @NonNull String getDocumentId() {
         return mDocumentId;
     }
 
@@ -123,16 +120,14 @@ public final class ReportUsageRequest extends AbstractSafeParcelable {
          * ReportUsageRequest} is constructed.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public ReportUsageRequest.Builder setUsageTimestampMillis(
+        public @NonNull ReportUsageRequest.Builder setUsageTimestampMillis(
                 @CurrentTimeMillisLong long usageTimestampMillis) {
             mUsageTimestampMillis = usageTimestampMillis;
             return this;
         }
 
         /** Builds a new {@link ReportUsageRequest}. */
-        @NonNull
-        public ReportUsageRequest build() {
+        public @NonNull ReportUsageRequest build() {
             if (mUsageTimestampMillis == null) {
                 mUsageTimestampMillis = System.currentTimeMillis();
             }

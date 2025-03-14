@@ -74,9 +74,7 @@ public abstract class PeriodicAdvertisingCallback {
      */
     public void onSyncLost(int syncHandle) {}
 
-    /**
-     * Callback when periodic sync transferred.
-     */
+    /** Callback when periodic sync transferred. */
     public void onSyncTransferred(BluetoothDevice device, int status) {}
 
     /**

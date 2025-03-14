@@ -22,6 +22,7 @@ import android.util.ArrayMap;
 import android.util.Pair;
 import android.util.SparseArray;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -412,5 +413,69 @@ public final class CollectionUtils {
             }
         }
         return -1;
+    }
+
+    /**
+     * Concatenates multiple arrays of the same type into a single new array.
+     */
+    public static byte[] concatArrays(@NonNull byte[]... arr) {
+        int size = 0;
+        for (byte[] a : arr) {
+            size += a.length;
+        }
+        final byte[] result = new byte[size];
+        int offset = 0;
+        for (byte[] a : arr) {
+            System.arraycopy(a, 0, result, offset, a.length);
+            offset += a.length;
+        }
+        return result;
+    }
+
+    /**
+     * Concatenates multiple arrays of the same type into a single new array.
+     */
+    public static <T> T[] concatArrays(@NonNull Class<T> clazz, @NonNull T[]... arr) {
+        int size = 0;
+        for (T[] a : arr) {
+            size += a.length;
+        }
+        final T[] result = (T[]) Array.newInstance(clazz, size);
+        int offset = 0;
+        for (T[] a : arr) {
+            System.arraycopy(a, 0, result, offset, a.length);
+            offset += a.length;
+        }
+        return result;
+    }
+
+    /**
+     * Prepends the elements of a variable number of prefixes to an existing array (suffix).
+     */
+    public static byte[] prependArray(@NonNull byte[] suffix, @NonNull byte... prefixes) {
+        return concatArrays(prefixes, suffix);
+    }
+
+    /**
+     * Prepends the elements of a variable number of prefixes to an existing array (suffix).
+     */
+    public static <T> T[] prependArray(@NonNull Class<T> clazz, @NonNull T[] suffix,
+            @NonNull T... prefixes) {
+        return concatArrays(clazz, prefixes, suffix);
+    }
+
+    /**
+     * Appends the elements of a variable number of suffixes to an existing array (prefix).
+     */
+    public static byte[] appendArray(@NonNull byte[] prefix, @NonNull byte... suffixes) {
+        return concatArrays(prefix, suffixes);
+    }
+
+    /**
+     * Appends the elements of a variable number of suffixes to an existing array (prefix).
+     */
+    public static <T> T[] appendArray(@NonNull Class<T> clazz, @NonNull T[] prefix,
+            @NonNull T... suffixes) {
+        return concatArrays(clazz, prefix, suffixes);
     }
 }

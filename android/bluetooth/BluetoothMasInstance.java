@@ -80,7 +80,7 @@ public final class BluetoothMasInstance implements Parcelable {
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(mId);
-        out.writeString(mName);
+        BluetoothUtils.writeStringToParcel(out, mName);
         out.writeInt(mChannel);
         out.writeInt(mMsgTypes);
     }

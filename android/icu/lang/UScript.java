@@ -880,8 +880,31 @@ public final class UScript {
     /***/
     public static final int NAG_MUNDARI = 199; /* Nagm */
 
-    /** @hide unsupported on Android*/
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
     public static final int ARABIC_NASTALIQ = 200; /* Aran */
+
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final int GARAY = 201; /* Gara */
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final int GURUNG_KHEMA = 202; /* Gukh */
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final int KIRAT_RAI = 203; /* Krai */
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final int OL_ONAL = 204; /* Onao */
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final int SUNUWAR = 205; /* Sunu */
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final int TODHRI = 206; /* Todr */
+    /***/
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
+    public static final int TULU_TIGALARI = 207; /* Tutg */
 
     /**
      * One more than the highest normal UScript code.
@@ -891,7 +914,7 @@ public final class UScript {
      * @hide unsupported on Android
      */
     @Deprecated
-    public static final int CODE_LIMIT   = 201;
+    public static final int CODE_LIMIT   = 208;
 
     private static int[] getCodesFromLocale(ULocale locale) {
         // Multi-script languages, equivalent to the LocaleScript data
@@ -1023,7 +1046,7 @@ public final class UScript {
     public static final int getScript(int codepoint){
         if (codepoint >= UCharacter.MIN_VALUE & codepoint <= UCharacter.MAX_VALUE) {
             int scriptX=UCharacterProperty.INSTANCE.getAdditional(codepoint, 0)&UCharacterProperty.SCRIPT_X_MASK;
-            int codeOrIndex=UCharacterProperty.mergeScriptCodeOrIndex(scriptX);
+            int codeOrIndex=scriptX&UCharacterProperty.MAX_SCRIPT;
             if(scriptX<UCharacterProperty.SCRIPT_X_WITH_COMMON) {
                 return codeOrIndex;
             } else if(scriptX<UCharacterProperty.SCRIPT_X_WITH_INHERITED) {
@@ -1052,7 +1075,7 @@ public final class UScript {
      */
     public static final boolean hasScript(int c, int sc) {
         int scriptX=UCharacterProperty.INSTANCE.getAdditional(c, 0)&UCharacterProperty.SCRIPT_X_MASK;
-        int codeOrIndex=UCharacterProperty.mergeScriptCodeOrIndex(scriptX);
+        int codeOrIndex=scriptX&UCharacterProperty.MAX_SCRIPT;
         if(scriptX<UCharacterProperty.SCRIPT_X_WITH_COMMON) {
             return sc==codeOrIndex;
         }
@@ -1101,7 +1124,7 @@ public final class UScript {
     public static final int getScriptExtensions(int c, BitSet set) {
         set.clear();
         int scriptX=UCharacterProperty.INSTANCE.getAdditional(c, 0)&UCharacterProperty.SCRIPT_X_MASK;
-        int codeOrIndex=UCharacterProperty.mergeScriptCodeOrIndex(scriptX);
+        int codeOrIndex=scriptX&UCharacterProperty.MAX_SCRIPT;
         if(scriptX<UCharacterProperty.SCRIPT_X_WITH_COMMON) {
             set.set(codeOrIndex);
             return codeOrIndex;
@@ -1377,6 +1400,14 @@ public final class UScript {
             0x10582 | EXCLUSION | CASED,  // Vith
             0x11F1B | EXCLUSION | LB_LETTERS,  // Kawi
             0x1E4E6 | EXCLUSION,  // Nagm
+            0,
+            0x10D5D | EXCLUSION | RTL | CASED,  // Gara
+            0x1611C | EXCLUSION,  // Gukh
+            0x16D45 | EXCLUSION,  // Krai
+            0x1E5D0 | EXCLUSION,  // Onao
+            0x11BC4 | EXCLUSION,  // Sunu
+            0x105C2 | EXCLUSION,  // Todr
+            0x11392 | EXCLUSION,  // Tutg
             // End copy-paste from parsescriptmetadata.py
         };
 

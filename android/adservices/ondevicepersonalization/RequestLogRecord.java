@@ -16,12 +16,10 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.content.ContentValues;
 import android.os.Parcelable;
 
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 import com.android.ondevicepersonalization.internal.util.AnnotationValidations;
 import com.android.ondevicepersonalization.internal.util.DataClass;
 
@@ -38,7 +36,6 @@ import java.util.List;
  * The contents of the REQUESTS table can be consumed by Federated Learning facilitated model
  * training, or Federated Analytics facilitated cross-device statistical analysis.
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 @DataClass(genBuilder = true, genEqualsHashCode = true)
 public final class RequestLogRecord implements Parcelable {
     /**

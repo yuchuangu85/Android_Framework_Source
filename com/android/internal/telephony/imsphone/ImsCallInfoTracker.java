@@ -70,10 +70,12 @@ public class ImsCallInfoTracker {
             ImsCallInfo imsCallInfo = it.next();
             mQueue.remove(imsCallInfo);
 
-            imsCallInfo.update(c);
+            imsCallInfo.init(c);
             mImsCallInfo.put(c, imsCallInfo);
 
-            notifyImsCallStatus();
+            if (!imsCallInfo.shouldIgnoreUpdate()) {
+                notifyImsCallStatus();
+            }
 
             if (DBG) dump();
         }
@@ -170,7 +172,8 @@ public class ImsCallInfoTracker {
     }
 
     private void notifyImsCallStatus() {
-        Collection<ImsCallInfo> infos = mImsCallInfo.values();
+        Collection<ImsCallInfo> infos = mImsCallInfo.values()
+                .stream().filter(info -> !info.shouldIgnoreUpdate()).toList();
         ArrayList<ImsCallInfo> imsCallInfo = new ArrayList<ImsCallInfo>(infos);
         sort(imsCallInfo);
         mPhone.updateImsCallStatus(imsCallInfo, null);

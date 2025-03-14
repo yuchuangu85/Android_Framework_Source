@@ -952,7 +952,7 @@ public class UceRequestManager {
             SomeArgs args = (SomeArgs) msg.obj;
             final Long coordinatorId = (Long) args.arg1;
             final Long taskId = (Long) Optional.ofNullable(args.arg2).orElse(-1L);
-            final Integer requestEvent = Optional.ofNullable(args.argi1).orElse(-1);
+            final int requestEvent = args.argi1;
             args.recycle();
 
             requestManager.logd("handleMessage: " + EVENT_DESCRIPTION.get(msg.what)

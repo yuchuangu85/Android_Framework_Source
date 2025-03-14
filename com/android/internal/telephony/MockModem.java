@@ -24,11 +24,13 @@ import static android.telephony.TelephonyManager.HAL_SERVICE_NETWORK;
 import static android.telephony.TelephonyManager.HAL_SERVICE_SIM;
 import static android.telephony.TelephonyManager.HAL_SERVICE_VOICE;
 
+import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.os.IBinder;
+import android.os.UserHandle;
 
 import com.android.telephony.Rlog;
 
@@ -158,7 +160,8 @@ public class MockModem {
         intent.setAction(actionName + phoneId);
         intent.putExtra(PHONE_ID, phoneId);
 
-        status = mContext.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        status = mContext.bindServiceAsUser(intent, serviceConnection, Context.BIND_AUTO_CREATE,
+                UserHandle.of(ActivityManager.getCurrentUser()));
         return status;
     }
 

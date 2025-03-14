@@ -16,14 +16,14 @@
 
 package android.adservices.adselection;
 
-import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_CUSTOM_AUDIENCE;
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_AD_SELECTION;
+import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_CUSTOM_AUDIENCE;
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_PROTECTED_SIGNALS;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import android.adservices.adid.AdId;
-import android.adservices.adid.AdIdCompatibleManager;
+import android.adservices.adid.AdIdManager;
 import android.adservices.common.AdServicesStatusUtils;
 import android.adservices.common.AssetFileDescriptorUtil;
 import android.adservices.common.CallerMetadata;
@@ -84,7 +84,7 @@ public class AdSelectionManager {
     private final Executor mAdIdExecutor = Executors.newCachedThreadPool();
     @NonNull private Context mContext;
     @NonNull private ServiceBinder<AdSelectionService> mServiceBinder;
-    @NonNull private AdIdCompatibleManager mAdIdManager;
+    @NonNull private AdIdManager mAdIdManager;
     @NonNull private ServiceProvider mServiceProvider;
 
     /**
@@ -107,7 +107,7 @@ public class AdSelectionManager {
      * <p>Note: This is for testing only.
      *
      * @param context The {@link Context} to use
-     * @param adIdManager The {@link AdIdCompatibleManager} instance to use
+     * @param adIdManager The {@link AdIdManager} instance to use
      * @param adSelectionService The {@link AdSelectionService} instance to use
      * @return A {@link AdSelectionManager} instance
      * @hide
@@ -116,7 +116,7 @@ public class AdSelectionManager {
     @NonNull
     public static AdSelectionManager get(
             @NonNull Context context,
-            @NonNull AdIdCompatibleManager adIdManager,
+            @NonNull AdIdManager adIdManager,
             @NonNull AdSelectionService adSelectionService) {
         AdSelectionManager adSelectionManager = AdSelectionManager.get(context);
         adSelectionManager.mAdIdManager = adIdManager;
@@ -159,7 +159,7 @@ public class AdSelectionManager {
                         context,
                         AdServicesCommon.ACTION_AD_SELECTION_SERVICE,
                         AdSelectionService.Stub::asInterface);
-        mAdIdManager = new AdIdCompatibleManager(context);
+        mAdIdManager = AdIdManager.get(context);
         return this;
     }
 
@@ -238,6 +238,7 @@ public class AdSelectionManager {
                             .setSeller(request.getSeller())
                             .setCallerPackageName(getCallerPackageName())
                             .setCoordinatorOriginUri(request.getCoordinatorOriginUri())
+                            .setSellerConfiguration(request.getSellerConfiguration())
                             .build(),
                     new CallerMetadata.Builder()
                             .setBinderElapsedTimestamp(SystemClock.elapsedRealtime())
@@ -352,6 +353,11 @@ public class AdSelectionManager {
                                                                     resultParcel.getAdSelectionId())
                                                             .setRenderUri(
                                                                     resultParcel.getAdRenderUri())
+                                                            .setWinningSeller(
+                                                                    resultParcel.getWinningSeller())
+                                                            .setComponentAdUris(
+                                                                    resultParcel
+                                                                            .getComponentAdUris())
                                                             .build()));
                         }
 
@@ -456,6 +462,8 @@ public class AdSelectionManager {
                                                                     resultParcel.getAdSelectionId())
                                                             .setRenderUri(
                                                                     resultParcel.getRenderUri())
+                                                            .setWinningSeller(
+                                                                    resultParcel.getWinningSeller())
                                                             .build()));
                         }
 
@@ -569,6 +577,8 @@ public class AdSelectionManager {
                                                                     resultParcel.getAdSelectionId())
                                                             .setRenderUri(
                                                                     resultParcel.getRenderUri())
+                                                            .setWinningSeller(
+                                                                    resultParcel.getWinningSeller())
                                                             .build());
                                         }
                                     });

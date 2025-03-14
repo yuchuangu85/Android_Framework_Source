@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 1 --hash 894069bcfe4f35ceb2088278ddf87c83adee8014 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/base/omapi/aidl/android.se.omapi-V1-java-source/gen/android/se/omapi/ISecureElementChannel.java.d -o out/soong/.intermediates/frameworks/base/omapi/aidl/android.se.omapi-V1-java-source/gen -Nframeworks/base/omapi/aidl/aidl_api/android.se.omapi/1 frameworks/base/omapi/aidl/aidl_api/android.se.omapi/1/android/se/omapi/ISecureElementChannel.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 1 --hash 894069bcfe4f35ceb2088278ddf87c83adee8014 --stability vintf --min_sdk_version 35 --ninja -d out/soong/.intermediates/frameworks/base/omapi/aidl/android.se.omapi-V1-java-source/gen/android/se/omapi/ISecureElementChannel.java.d -o out/soong/.intermediates/frameworks/base/omapi/aidl/android.se.omapi-V1-java-source/gen -Nframeworks/base/omapi/aidl/aidl_api/android.se.omapi/1 frameworks/base/omapi/aidl/aidl_api/android.se.omapi/1/android/se/omapi/ISecureElementChannel.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.se.omapi;
 /** @hide */
@@ -56,7 +60,7 @@ public interface ISecureElementChannel extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.se.omapi.ISecureElementChannel
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {

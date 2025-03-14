@@ -20,11 +20,14 @@ import static android.app.appsearch.AppSearchResult.RESULT_INTERNAL_ERROR;
 import static android.app.appsearch.SearchSessionUtil.safeExecute;
 
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.appsearch.aidl.AppSearchAttributionSource;
 import android.app.appsearch.aidl.AppSearchBatchResultParcel;
+import android.app.appsearch.aidl.AppSearchResultCallback;
 import android.app.appsearch.aidl.AppSearchResultParcel;
+import android.app.appsearch.aidl.CommitBlobAidlRequest;
 import android.app.appsearch.aidl.DocumentsParcel;
 import android.app.appsearch.aidl.GetDocumentsAidlRequest;
 import android.app.appsearch.aidl.GetNamespacesAidlRequest;
@@ -32,14 +35,17 @@ import android.app.appsearch.aidl.GetSchemaAidlRequest;
 import android.app.appsearch.aidl.GetStorageInfoAidlRequest;
 import android.app.appsearch.aidl.IAppSearchBatchResultCallback;
 import android.app.appsearch.aidl.IAppSearchManager;
-import android.app.appsearch.aidl.IAppSearchResultCallback;
 import android.app.appsearch.aidl.InitializeAidlRequest;
+import android.app.appsearch.aidl.OpenBlobForReadAidlRequest;
+import android.app.appsearch.aidl.OpenBlobForWriteAidlRequest;
 import android.app.appsearch.aidl.PersistToDiskAidlRequest;
 import android.app.appsearch.aidl.PutDocumentsAidlRequest;
+import android.app.appsearch.aidl.RemoveBlobAidlRequest;
 import android.app.appsearch.aidl.RemoveByDocumentIdAidlRequest;
 import android.app.appsearch.aidl.RemoveByQueryAidlRequest;
 import android.app.appsearch.aidl.ReportUsageAidlRequest;
 import android.app.appsearch.aidl.SearchSuggestionAidlRequest;
+import android.app.appsearch.aidl.SetBlobVisibilityAidlRequest;
 import android.app.appsearch.aidl.SetSchemaAidlRequest;
 import android.app.appsearch.exceptions.AppSearchException;
 import android.app.appsearch.safeparcel.GenericDocumentParcel;
@@ -53,6 +59,7 @@ import android.os.UserHandle;
 import android.util.ArraySet;
 import android.util.Log;
 
+import com.android.appsearch.flags.Flags;
 import com.android.internal.util.Preconditions;
 
 import java.io.Closeable;
@@ -137,15 +144,13 @@ public final class AppSearchSession implements Closeable {
                             mCallerAttributionSource,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<AppSearchSession>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
+                        public void onResult(@NonNull AppSearchResult<AppSearchSession> result) {
                             safeExecute(
                                     executor,
                                     callback,
                                     () -> {
-                                        AppSearchResult<Void> result = resultParcel.getResult();
                                         if (result.isSuccess()) {
                                             callback.accept(
                                                     AppSearchResult.newSuccessfulResult(
@@ -188,8 +193,7 @@ public final class AppSearchSession implements Closeable {
      * @param workExecutor Executor on which to schedule heavy client-side background work such as
      *     transforming documents.
      * @param callbackExecutor Executor on which to invoke the callback.
-     * @param callback Callback to receive errors resulting from setting the schema. If the
-     *     operation succeeds, the callback will be invoked with {@code null}.
+     * @param callback Callback to receive the result of setting the schema.
      */
     public void setSchema(
             @NonNull SetSchemaRequest request,
@@ -252,16 +256,13 @@ public final class AppSearchSession implements Closeable {
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime(),
                             /* isForEnterprise= */ false),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<GetSchemaResponse>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
+                        public void onResult(@NonNull AppSearchResult<GetSchemaResponse> result) {
                             safeExecute(
                                     executor,
                                     callback,
                                     () -> {
-                                        AppSearchResult<GetSchemaResponse> result =
-                                                resultParcel.getResult();
                                         if (result.isSuccess()) {
                                             GetSchemaResponse response =
                                                     Objects.requireNonNull(result.getResultValue());
@@ -298,22 +299,19 @@ public final class AppSearchSession implements Closeable {
                             mDatabaseName,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<List<String>>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
+                        public void onResult(@NonNull AppSearchResult<List<String>> result) {
                             safeExecute(
                                     executor,
                                     callback,
                                     () -> {
-                                        AppSearchResult<List<String>> result =
-                                                resultParcel.getResult();
                                         if (result.isSuccess()) {
-                                            Set<String> namespaces =
-                                                    new ArraySet<>(result.getResultValue());
+                                            List<String> namespaces =
+                                                    Objects.requireNonNull(result.getResultValue());
                                             callback.accept(
                                                     AppSearchResult.newSuccessfulResult(
-                                                            namespaces));
+                                                            new ArraySet<>(namespaces)));
                                         } else {
                                             callback.accept(
                                                     AppSearchResult.newFailedResult(result));
@@ -337,9 +335,10 @@ public final class AppSearchSession implements Closeable {
      * @param executor Executor on which to invoke the callback.
      * @param callback Callback to receive pending result of performing this operation. The keys of
      *     the returned {@link AppSearchBatchResult} are the IDs of the input documents. The values
-     *     are {@code null} if they were successfully indexed, or a failed {@link AppSearchResult}
-     *     otherwise. If an unexpected internal error occurs in the AppSearch service, {@link
-     *     BatchResultCallback#onSystemError} will be invoked with a {@link Throwable}.
+     *     are either {@code null} if the corresponding document was successfully indexed, or a
+     *     failed {@link AppSearchResult} otherwise. If an unexpected internal error occurs in the
+     *     AppSearch service, {@link BatchResultCallback#onSystemError} will be invoked with a
+     *     {@link Throwable}.
      */
     public void put(
             @NonNull PutDocumentsRequest request,
@@ -394,12 +393,14 @@ public final class AppSearchSession implements Closeable {
      * @param request a request containing a namespace and IDs to get documents for.
      * @param executor Executor on which to invoke the callback.
      * @param callback Callback to receive the pending result of performing this operation. The keys
-     *     of the returned {@link AppSearchBatchResult} are the input IDs. The values are the
-     *     returned {@link GenericDocument}s on success, or a failed {@link AppSearchResult}
-     *     otherwise. IDs that are not found will return a failed {@link AppSearchResult} with a
-     *     result code of {@link AppSearchResult#RESULT_NOT_FOUND}. If an unexpected internal error
-     *     occurs in the AppSearch service, {@link BatchResultCallback#onSystemError} will be
-     *     invoked with a {@link Throwable}.
+     *     of the {@link AppSearchBatchResult} represent the input document IDs from the {@link
+     *     GetByDocumentIdRequest} object. The values are either the corresponding {@link
+     *     GenericDocument} object for the ID on success, or an {@link AppSearchResult} object on
+     *     failure. For example, if an ID is not found, the value for that ID will be set to an
+     *     {@link AppSearchResult} object with result code: {@link
+     *     AppSearchResult#RESULT_NOT_FOUND}. If an unexpected internal error occurs in the
+     *     AppSearch service, {@link BatchResultCallback#onSystemError} will be invoked with a
+     *     {@link Throwable}.
      */
     public void getByDocumentId(
             @NonNull GetByDocumentIdRequest request,
@@ -421,6 +422,254 @@ public final class AppSearchSession implements Closeable {
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime(),
                             /* isForEnterprise= */ false),
                     SearchSessionUtil.createGetDocumentCallback(executor, callback));
+        } catch (RemoteException e) {
+            ExceptionUtil.handleRemoteException(e);
+        }
+    }
+
+    /**
+     * Opens a batch of AppSearch Blobs for writing.
+     *
+     * <p>A "blob" is a large binary object. It is used to store a significant amount of data that
+     * is not searchable, such as images, videos, audio files, or other binary data. Unlike other
+     * fields in AppSearch, blobs are stored as blob files on disk rather than in memory, and use
+     * {@link android.os.ParcelFileDescriptor} to read and write. This allows for efficient handling
+     * of large, non-searchable content.
+     *
+     * <p>Once done writing, call {@link #commitBlob} to commit blob files.
+     *
+     * <p>This call will create a empty blob file for each given {@link AppSearchBlobHandle}, and a
+     * {@link android.os.ParcelFileDescriptor} of that blob file will be returned in the {@link
+     * OpenBlobForWriteResponse}.
+     *
+     * <p>If the blob file is already stored in AppSearch and committed. A failed {@link
+     * AppSearchResult} with error code {@link AppSearchResult#RESULT_ALREADY_EXISTS} will be
+     * associated with the {@link AppSearchBlobHandle}.
+     *
+     * <p>If the blob file is already stored in AppSearch but not committed. A {@link
+     * android.os.ParcelFileDescriptor} of that blob file will be returned for continue writing.
+     *
+     * <p>For given duplicate {@link AppSearchBlobHandle}, the same {@link
+     * android.os.ParcelFileDescriptor} pointing to the same blob file will be returned.
+     *
+     * <p>Pending blob files won't be lost or auto-commit if {@link AppSearchSession} closed.
+     * Pending blob files will be stored in disk rather than memory. You can re-open {@link
+     * AppSearchSession} and re-write the pending blob files.
+     *
+     * <p>A committed blob file will be considered as an orphan if no {@link GenericDocument}
+     * references it. Uncommitted pending blob files and orphan blobs files will be cleaned up if
+     * they has been created for an extended period (default is 1 week).
+     *
+     * <p class="caution">The returned {@link OpenBlobForWriteResponse} must be closed after use to
+     * avoid resource leaks. Failing to close it will result in system file descriptor exhaustion.
+     *
+     * @param handles The {@link AppSearchBlobHandle}s that identifies the blobs.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the {@link OpenBlobForWriteResponse}.
+     * @see GenericDocument.Builder#setPropertyBlobHandle
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_BLOB_STORE)
+    public void openBlobForWrite(
+            @NonNull Set<AppSearchBlobHandle> handles,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<AppSearchResult<OpenBlobForWriteResponse>> callback) {
+        Preconditions.checkState(!mIsClosed, "AppSearchSession has already been closed");
+        try {
+            mService.openBlobForWrite(
+                    new OpenBlobForWriteAidlRequest(
+                            mCallerAttributionSource,
+                            mDatabaseName,
+                            new ArrayList<>(handles),
+                            mUserHandle,
+                            /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
+                    new AppSearchResultCallback<OpenBlobForWriteResponse>() {
+                        @Override
+                        public void onResult(
+                                @NonNull AppSearchResult<OpenBlobForWriteResponse> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
+                        }
+                    });
+        } catch (RemoteException e) {
+            ExceptionUtil.handleRemoteException(e);
+        }
+    }
+
+    /**
+     * Removes the blob data from AppSearch.
+     *
+     * <p>After this call, the blob data is removed immediately and cannot be recovered. It will not
+     * accessible via {@link #openBlobForRead}. {@link #openBlobForWrite} could reopen and rewrite
+     * it.
+     *
+     * <p>This API can be used to remove pending blob data and committed blob data.
+     *
+     * <p class="caution">Removing a committed blob data that is still referenced by documents will
+     * leave those documents with no readable blob content. It is highly recommended to let
+     * AppSearch control the blob data's life cycle. AppSearch automatically recycles orphaned and
+     * pending blob data. The default time to recycle pending and orphan blob file is 1 week. A blob
+     * file will be considered as an orphan if no {@link GenericDocument} references it. If you want
+     * to remove a committed blob data, you should remove the reference documents first.
+     *
+     * @param handles The {@link AppSearchBlobHandle}s that identifies the blobs.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the {@link CommitBlobResponse}.
+     * @see GenericDocument.Builder#setPropertyBlobHandle
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_BLOB_STORE)
+    public void removeBlob(
+            @NonNull Set<AppSearchBlobHandle> handles,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<AppSearchResult<RemoveBlobResponse>> callback) {
+        Preconditions.checkState(!mIsClosed, "AppSearchSession has already been closed");
+        try {
+            mService.removeBlob(
+                    new RemoveBlobAidlRequest(
+                            mCallerAttributionSource,
+                            mDatabaseName,
+                            new ArrayList<>(handles),
+                            mUserHandle,
+                            /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
+                    new AppSearchResultCallback<RemoveBlobResponse>() {
+                        @Override
+                        public void onResult(@NonNull AppSearchResult<RemoveBlobResponse> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
+                        }
+                    });
+        } catch (RemoteException e) {
+            ExceptionUtil.handleRemoteException(e);
+        }
+    }
+
+    /**
+     * Commits the blobs to make it retrievable and immutable.
+     *
+     * <p>After this call, the blob is readable via {@link #openBlobForRead}. Any change to the
+     * content or rewrite via {@link #openBlobForWrite} of this blob won't be allowed.
+     *
+     * <p>If the blob is already stored in AppSearch and committed. A failed {@link AppSearchResult}
+     * with error code {@link AppSearchResult#RESULT_ALREADY_EXISTS} will be associated with the
+     * {@link AppSearchBlobHandle}.
+     *
+     * <p>If the blob content doesn't match the digest in {@link AppSearchBlobHandle}, a failed
+     * {@link AppSearchResult} with error code {@link AppSearchResult#RESULT_INVALID_ARGUMENT} will
+     * be associated with the {@link AppSearchBlobHandle}. The pending Blob file will be removed
+     * from AppSearch.
+     *
+     * <p>Pending blobs won't be lost or auto-commit if {@link AppSearchSession} closed. Pending
+     * blobs will store in disk rather than memory. You can re-open {@link AppSearchSession} and
+     * re-write the pending blobs.
+     *
+     * <p>The default time to recycle pending and orphan blobs is 1 week. A blob will be considered
+     * as an orphan if no {@link GenericDocument} references it.
+     *
+     * @param handles The {@link AppSearchBlobHandle}s that identifies the blobs.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the {@link CommitBlobResponse}.
+     * @see GenericDocument.Builder#setPropertyBlobHandle
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_BLOB_STORE)
+    public void commitBlob(
+            @NonNull Set<AppSearchBlobHandle> handles,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<AppSearchResult<CommitBlobResponse>> callback) {
+        Preconditions.checkState(!mIsClosed, "AppSearchSession has already been closed");
+        try {
+            mService.commitBlob(
+                    new CommitBlobAidlRequest(
+                            mCallerAttributionSource,
+                            mDatabaseName,
+                            new ArrayList<>(handles),
+                            mUserHandle,
+                            /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
+                    new AppSearchResultCallback<CommitBlobResponse>() {
+                        @Override
+                        public void onResult(@NonNull AppSearchResult<CommitBlobResponse> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
+                        }
+                    });
+        } catch (RemoteException e) {
+            ExceptionUtil.handleRemoteException(e);
+        }
+    }
+
+    /**
+     * Opens a batch of AppSearch Blobs for reading.
+     *
+     * <p>Only blobs committed via {@link #commitBlob} are available for reading.
+     *
+     * <p class="caution">The returned {@link OpenBlobForReadResponse} must be closed after use to
+     * avoid resource leaks. Failing to close it will result in system file descriptor exhaustion.
+     *
+     * @param handles The {@link AppSearchBlobHandle}s that identifies the blobs.
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the {@link OpenBlobForReadResponse}.
+     * @see GenericDocument.Builder#setPropertyBlobHandle
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_BLOB_STORE)
+    public void openBlobForRead(
+            @NonNull Set<AppSearchBlobHandle> handles,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<AppSearchResult<OpenBlobForReadResponse>> callback) {
+        Preconditions.checkState(!mIsClosed, "AppSearchSession has already been closed");
+        try {
+            mService.openBlobForRead(
+                    new OpenBlobForReadAidlRequest(
+                            mCallerAttributionSource,
+                            mDatabaseName,
+                            new ArrayList<>(handles),
+                            mUserHandle,
+                            /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
+                    new AppSearchResultCallback<OpenBlobForReadResponse>() {
+                        @Override
+                        public void onResult(
+                                @NonNull AppSearchResult<OpenBlobForReadResponse> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
+                        }
+                    });
+        } catch (RemoteException e) {
+            ExceptionUtil.handleRemoteException(e);
+        }
+    }
+
+    /**
+     * Sets the visibility configuration for all blob namespaces within an appsearch database.
+     *
+     * <p>Blobs under the same namespace will share same visibility settings.
+     *
+     * <p>The default setting is blobs will be only visible to the owner package and System. To
+     * configure other kinds of sharing, set {@link SchemaVisibilityConfig} via {@link
+     * SetBlobVisibilityRequest}.
+     *
+     * @param request The request holds visibility settings for all blob namespaces
+     * @param executor Executor on which to invoke the callback.
+     * @param callback Callback to receive the pending result of performing this operation which
+     *     resolves to {@code null} on success.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_BLOB_STORE)
+    public void setBlobVisibility(
+            @NonNull SetBlobVisibilityRequest request,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull Consumer<AppSearchResult<Void>> callback) {
+        Preconditions.checkState(!mIsClosed, "AppSearchSession has already been closed");
+        try {
+
+            // Extract a List<VisibilityConfig> from the request
+            List<InternalVisibilityConfig> visibilityConfigs =
+                    InternalVisibilityConfig.toInternalVisibilityConfigs(request);
+
+            mService.setBlobVisibility(
+                    new SetBlobVisibilityAidlRequest(
+                            mCallerAttributionSource,
+                            mDatabaseName,
+                            new ArrayList<>(visibilityConfigs),
+                            mUserHandle,
+                            /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
+                    new AppSearchResultCallback<Void>() {
+                        @Override
+                        public void onResult(@NonNull AppSearchResult<Void> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
+                        }
+                    });
         } catch (RemoteException e) {
             ExceptionUtil.handleRemoteException(e);
         }
@@ -474,8 +723,8 @@ public final class AppSearchSession implements Closeable {
      *       the "subject" property.
      * </ul>
      *
-     * <p>The above description covers the basic query operators. Additional advanced query operator
-     * features should be explicitly enabled in the SearchSpec and are described below.
+     * <p>The above description covers the query operators that are supported on all versions of
+     * AppSearch. Additional operators and their required features are described below.
      *
      * <p>LIST_FILTER_QUERY_LANGUAGE: This feature covers the expansion of the query language to
      * conform to the definition of the list filters language (https://aip.dev/160). This includes:
@@ -490,7 +739,7 @@ public final class AppSearchSession implements Closeable {
      *
      * <ul>
      *   <li>createList(String...)
-     *   <li>search(String, List&lt;String&gt;)
+     *   <li>search(String, {@code List<String>})
      *   <li>propertyDefined(String)
      * </ul>
      *
@@ -501,13 +750,13 @@ public final class AppSearchSession implements Closeable {
      * and an optional list of strings that specify the properties to be restricted to. This exists
      * as a convenience for multiple property restricts. So, for example, the query `(subject:foo OR
      * body:foo) (subject:bar OR body:bar)` could be rewritten as `search("foo bar",
-     * createList("subject", "bar"))`.
+     * createList("subject", "body"))`.
      *
      * <p>propertyDefined takes a string specifying the property of interest and matches all
      * documents of any type that defines the specified property (ex.
      * `propertyDefined("sender.name")`). Note that propertyDefined will match so long as the
-     * document's type defines the specified property. It does NOT require that the document
-     * actually hold any values for this property.
+     * document's type defines the specified property. Unlike the "hasProperty" function below, this
+     * function does NOT require that the document actually hold any values for this property.
      *
      * <p>NUMERIC_SEARCH: This feature covers numeric search expressions. In the query language, the
      * values of properties that have {@link AppSearchSchema.LongPropertyConfig#INDEXING_TYPE_RANGE}
@@ -521,6 +770,83 @@ public final class AppSearchSession implements Closeable {
      *
      * <p>Ex. `"foo/bar" OR baz` will ensure that 'foo/bar' is treated as a single 'verbatim' token.
      *
+     * <p>LIST_FILTER_HAS_PROPERTY_FUNCTION: This feature covers the "hasProperty" function in query
+     * expressions, which takes a string specifying the property of interest and matches all
+     * documents that hold values for this property. Not to be confused with the "propertyDefined"
+     * function, which checks whether a document's schema has defined the property, instead of
+     * whether a document itself has this property.
+     *
+     * <p>Ex. `foo hasProperty("sender.name")` will return all documents that have the term "foo"
+     * AND have values in the property "sender.name". Consider two documents, documentA and
+     * documentB, of the same schema with an optional property "sender.name". If documentA sets
+     * "foo" in this property but documentB does not, then `hasProperty("sender.name")` will only
+     * match documentA. However, `propertyDefined("sender.name")` will match both documentA and
+     * documentB, regardless of whether a value is actually set.
+     *
+     * <p>LIST_FILTER_MATCH_SCORE_EXPRESSION_FUNCTION: This feature covers the
+     * "matchScoreExpression" function in query expressions.
+     *
+     * <p>Usage: matchScoreExpression({score_expression}, {low}, {high})
+     *
+     * <ul>
+     *   <li>matchScoreExpression matches all documents with scores falling within the specified
+     *       range. These scores are calculated using the provided score expression, which adheres
+     *       to the syntax defined in {@link SearchSpec.Builder#setRankingStrategy(String)}.
+     *   <li>"score_expression" is a string value that specifies the score expression.
+     *   <li>"low" and "high" are floating point numbers that specify the score range. The "high"
+     *       parameter is optional; if not provided, it defaults to positive infinity.
+     * </ul>
+     *
+     * <p>Ex. `matchScoreExpression("this.documentScore()", 3, 4)` will return all documents that
+     * have document scores from 3 to 4.
+     *
+     * <p>SCHEMA_EMBEDDING_PROPERTY_CONFIG: This feature covers the "semanticSearch" and
+     * "getEmbeddingParameter" functions in query expressions, which are used for semantic search.
+     *
+     * <p>Usage: semanticSearch(getEmbeddingParameter({embedding_index}), {low}, {high}, {metric})
+     *
+     * <ul>
+     *   <li>semanticSearch matches all documents that have at least one embedding vector with a
+     *       matching model signature (see {@link EmbeddingVector#getModelSignature()}) and a
+     *       similarity score within the range specified based on the provided metric.
+     *   <li>getEmbeddingParameter({embedding_index}) retrieves the embedding search passed in
+     *       {@link SearchSpec.Builder#addEmbeddingParameters} based on the index specified, which
+     *       starts from 0.
+     *   <li>"low" and "high" are floating point numbers that specify the similarity score range. If
+     *       omitted, they default to negative and positive infinity, respectively.
+     *   <li>"metric" is a string value that specifies how embedding similarities should be
+     *       calculated. If omitted, it defaults to the metric specified in {@link
+     *       SearchSpec.Builder#setDefaultEmbeddingSearchMetricType(int)}. Possible values:
+     *       <ul>
+     *         <li>"COSINE"
+     *         <li>"DOT_PRODUCT"
+     *         <li>"EUCLIDEAN"
+     *       </ul>
+     * </ul>
+     *
+     * <p>Examples:
+     *
+     * <ul>
+     *   <li>Basic: semanticSearch(getEmbeddingParameter(0), 0.5, 1, "COSINE")
+     *   <li>With a property restriction: property1:semanticSearch(getEmbeddingParameter(0), 0.5, 1)
+     *   <li>Hybrid: foo OR semanticSearch(getEmbeddingParameter(0), 0.5, 1)
+     *   <li>Complex: (foo OR semanticSearch(getEmbeddingParameter(0), 0.5, 1)) AND bar
+     * </ul>
+     *
+     * <p>SEARCH_SPEC_SEARCH_STRING_PARAMETERS: This feature covers the "getSearchStringParameter"
+     * function in query expressions, which substitutes the string provided at the same index in
+     * {@link SearchSpec.Builder#addSearchStringParameters} into the query as plain text. This
+     * string is then segmented, normalized and stripped of punctuation-only segments. The remaining
+     * tokens are then AND'd together. This function is useful for callers who wish to provide user
+     * input, but want to ensure that that user input does not invoke any query operators.
+     *
+     * <p>Usage: getSearchStringParameter({search_parameter_strings_index})
+     *
+     * <p>Ex. `foo OR getSearchStringParameter(0)` with {@link SearchSpec#getSearchStringParameters}
+     * returning {"bar OR baz."}. The string "bar OR baz." will be segmented into "bar", "OR",
+     * "baz", ".". Punctuation is removed and the segments are normalized to "bar", "or", "baz".
+     * This query will be equivalent to `foo OR (bar AND or AND baz)`.
+     *
      * <p>Additional search specifications, such as filtering by {@link AppSearchSchema} type or
      * adding projection, can be set by calling the corresponding {@link SearchSpec.Builder} setter.
      *
@@ -532,6 +858,8 @@ public final class AppSearchSession implements Closeable {
      *     type, etc.
      * @return a {@link SearchResults} object for retrieved matched documents.
      */
+    // TODO(b/326656531): Refine the javadoc to provide guidance on the best practice of
+    //  embedding searches and how to select an appropriate metric.
     @NonNull
     public SearchResults search(@NonNull String queryExpression, @NonNull SearchSpec searchSpec) {
         Objects.requireNonNull(queryExpression);
@@ -630,29 +958,25 @@ public final class AppSearchSession implements Closeable {
                             searchSuggestionSpec,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<List<SearchSuggestionResult>>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
+                        public void onResult(
+                                @NonNull AppSearchResult<List<SearchSuggestionResult>> result) {
                             safeExecute(
                                     executor,
                                     callback,
                                     () -> {
-                                        try {
-                                            AppSearchResult<List<SearchSuggestionResult>> result =
-                                                    resultParcel.getResult();
-                                            if (result.isSuccess()) {
-                                                callback.accept(result);
-                                            } else {
-                                                // TODO(b/261897334) save SDK errors/crashes and
-                                                // send to
-                                                //  server for logging.
-                                                callback.accept(
-                                                        AppSearchResult.newFailedResult(result));
-                                            }
-                                        } catch (Exception e) {
+                                        if (result.isSuccess()) {
+                                            List<SearchSuggestionResult> suggestions =
+                                                    Objects.requireNonNull(result.getResultValue());
                                             callback.accept(
-                                                    AppSearchResult.throwableToFailedResult(e));
+                                                    AppSearchResult.newSuccessfulResult(
+                                                            suggestions));
+                                        } else {
+                                            // TODO(b/261897334) save SDK errors/crashes and
+                                            // send to server for logging.
+                                            callback.accept(
+                                                    AppSearchResult.newFailedResult(result));
                                         }
                                     });
                         }
@@ -698,14 +1022,10 @@ public final class AppSearchSession implements Closeable {
                             /* systemUsage= */ false,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<Void>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
-                            safeExecute(
-                                    executor,
-                                    callback,
-                                    () -> callback.accept(resultParcel.getResult()));
+                        public void onResult(@NonNull AppSearchResult<Void> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
                         }
                     });
             mIsMutated = true;
@@ -728,12 +1048,12 @@ public final class AppSearchSession implements Closeable {
      *     index.
      * @param executor Executor on which to invoke the callback.
      * @param callback Callback to receive the pending result of performing this operation. The keys
-     *     of the returned {@link AppSearchBatchResult} are the input document IDs. The values are
-     *     {@code null} on success, or a failed {@link AppSearchResult} otherwise. IDs that are not
-     *     found will return a failed {@link AppSearchResult} with a result code of {@link
-     *     AppSearchResult#RESULT_NOT_FOUND}. If an unexpected internal error occurs in the
-     *     AppSearch service, {@link BatchResultCallback#onSystemError} will be invoked with a
-     *     {@link Throwable}.
+     *     of the returned {@link AppSearchBatchResult} represent the input IDs from the {@link
+     *     RemoveByDocumentIdRequest} object. The values are either {@code null} on success, or a
+     *     failed {@link AppSearchResult} otherwise. IDs that are not found will return a failed
+     *     {@link AppSearchResult} with a result code of {@link AppSearchResult#RESULT_NOT_FOUND}.
+     *     If an unexpected internal error occurs in the AppSearch service, {@link
+     *     BatchResultCallback#onSystemError} will be invoked with a {@link Throwable}..
      */
     public void remove(
             @NonNull RemoveByDocumentIdRequest request,
@@ -795,6 +1115,9 @@ public final class AppSearchSession implements Closeable {
      * @param executor Executor on which to invoke the callback.
      * @param callback Callback to receive errors resulting from removing the documents. If the
      *     operation succeeds, the callback will be invoked with {@code null}.
+     * @throws IllegalArgumentException if the {@link SearchSpec} contains a {@link JoinSpec}.
+     *     {@link JoinSpec} lets you join docs that are not owned by the caller, so the semantics of
+     *     failures from this method would be complex.
      */
     public void remove(
             @NonNull String queryExpression,
@@ -819,14 +1142,10 @@ public final class AppSearchSession implements Closeable {
                             searchSpec,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<Void>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
-                            safeExecute(
-                                    executor,
-                                    callback,
-                                    () -> callback.accept(resultParcel.getResult()));
+                        public void onResult(@NonNull AppSearchResult<Void> result) {
+                            safeExecute(executor, callback, () -> callback.accept(result));
                         }
                     });
             mIsMutated = true;
@@ -857,20 +1176,19 @@ public final class AppSearchSession implements Closeable {
                             mDatabaseName,
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<StorageInfo>() {
                         @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
+                        public void onResult(@NonNull AppSearchResult<StorageInfo> result) {
                             safeExecute(
                                     executor,
                                     callback,
                                     () -> {
-                                        AppSearchResult<StorageInfo> result =
-                                                resultParcel.getResult();
+                                        StorageInfo storageInfo =
+                                                Objects.requireNonNull(result.getResultValue());
                                         if (result.isSuccess()) {
                                             callback.accept(
                                                     AppSearchResult.newSuccessfulResult(
-                                                            result.getResultValue()));
+                                                            storageInfo));
                                         } else {
                                             callback.accept(
                                                     AppSearchResult.newFailedResult(result));
@@ -927,73 +1245,69 @@ public final class AppSearchSession implements Closeable {
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime(),
                             SchemaMigrationStats.NO_MIGRATION);
-            mService.setSchema(
-                    setSchemaAidlRequest,
-                    new IAppSearchResultCallback.Stub() {
-                        @Override
-                        @SuppressWarnings({"rawtypes", "unchecked"})
-                        public void onResult(AppSearchResultParcel resultParcel) {
-                            safeExecute(
-                                    executor,
-                                    callback,
-                                    () -> {
-                                        AppSearchResult<InternalSetSchemaResponse> result =
-                                                resultParcel.getResult();
-                                        if (result.isSuccess()) {
-                                            try {
-                                                InternalSetSchemaResponse
-                                                        internalSetSchemaResponse =
-                                                                result.getResultValue();
-                                                if (internalSetSchemaResponse == null) {
-                                                    // Ideally internalSetSchemaResponse should
-                                                    // always be non-null as result is success. In
-                                                    // other cases we directly put result in
-                                                    // AppSearchResult.newSuccessfulResult which
-                                                    // accepts a Nullable value, here we need to
-                                                    // get response by
-                                                    // internalSetSchemaResponse
-                                                    // .getSetSchemaResponse().
-                                                    callback.accept(
-                                                            AppSearchResult.newFailedResult(
-                                                                    RESULT_INTERNAL_ERROR,
-                                                                    "Received null"
-                                                                            + " InternalSetSchema"
-                                                                            + "Response"
-                                                                            + " during setSchema"
-                                                                            + " call"));
-                                                    return;
-                                                }
-                                                if (!internalSetSchemaResponse.isSuccess()) {
-                                                    // check is the set schema call failed
-                                                    // because incompatible changes. That's the only
-                                                    // case we swallowed in the
-                                                    // AppSearchImpl#setSchema().
-                                                    callback.accept(
-                                                            AppSearchResult.newFailedResult(
-                                                                    AppSearchResult
-                                                                            .RESULT_INVALID_SCHEMA,
-                                                                    internalSetSchemaResponse
-                                                                            .getErrorMessage()));
-                                                    return;
-                                                }
-                                                callback.accept(
-                                                        AppSearchResult.newSuccessfulResult(
-                                                                internalSetSchemaResponse
-                                                                        .getSetSchemaResponse()));
-                                            } catch (RuntimeException e) {
-                                                // TODO(b/261897334) save SDK errors/crashes and
-                                                // send to
-                                                //  server for logging.
-                                                callback.accept(
-                                                        AppSearchResult.throwableToFailedResult(e));
-                                            }
-                                        } else {
+            AppSearchResultCallback<InternalSetSchemaResponse> callbackBase =
+                    new AppSearchResultCallback<>() {
+                @Override
+                public void onResult(@NonNull AppSearchResult<InternalSetSchemaResponse> result) {
+                    safeExecute(
+                            executor,
+                            callback,
+                            () -> {
+                                if (result.isSuccess()) {
+                                    try {
+                                        InternalSetSchemaResponse internalSetSchemaResponse =
+                                                result.getResultValue();
+                                        if (internalSetSchemaResponse == null) {
+                                            // Ideally internalSetSchemaResponse should
+                                            // always be non-null as result is success. In
+                                            // other cases we directly put result in
+                                            // AppSearchResult.newSuccessfulResult which
+                                            // accepts a Nullable value, here we need to
+                                            // get response by
+                                            // internalSetSchemaResponse
+                                            // .getSetSchemaResponse().
                                             callback.accept(
-                                                    AppSearchResult.newFailedResult(result));
+                                                    AppSearchResult.newFailedResult(
+                                                            RESULT_INTERNAL_ERROR,
+                                                            "Received null"
+                                                                    + " InternalSetSchema"
+                                                                    + "Response"
+                                                                    + " during setSchema"
+                                                                    + " call"));
+                                            return;
                                         }
-                                    });
-                        }
-                    });
+                                        if (!internalSetSchemaResponse.isSuccess()) {
+                                            // check is the set schema call failed
+                                            // because incompatible changes. That's the only
+                                            // case we swallowed in the
+                                            // AppSearchImpl#setSchema().
+                                            callback.accept(
+                                                    AppSearchResult.newFailedResult(
+                                                            AppSearchResult
+                                                                    .RESULT_INVALID_SCHEMA,
+                                                            internalSetSchemaResponse
+                                                                    .getErrorMessage()));
+                                            return;
+                                        }
+                                        callback.accept(
+                                                AppSearchResult.newSuccessfulResult(
+                                                        internalSetSchemaResponse
+                                                                .getSetSchemaResponse()));
+                                    } catch (RuntimeException e) {
+                                        // TODO(b/261897334) save SDK errors/crashes and
+                                        // send to
+                                        //  server for logging.
+                                        callback.accept(
+                                                AppSearchResult.throwableToFailedResult(e));
+                                    }
+                                } else {
+                                    callback.accept(
+                                            AppSearchResult.newFailedResult(result));
+                                }
+                            });
+                }
+            };
+            mService.setSchema(setSchemaAidlRequest, callbackBase);
         } catch (RemoteException e) {
             ExceptionUtil.handleRemoteException(e);
         }
@@ -1096,11 +1410,12 @@ public final class AppSearchSession implements Closeable {
                                         SchemaMigrationStats.FIRST_CALL_GET_INCOMPATIBLE);
                         mService.setSchema(
                                 setSchemaAidlRequest,
-                                new IAppSearchResultCallback.Stub() {
+                                new AppSearchResultCallback<InternalSetSchemaResponse>() {
                                     @Override
-                                    @SuppressWarnings({"rawtypes", "unchecked"})
-                                    public void onResult(AppSearchResultParcel resultParcel) {
-                                        setSchemaResultRef.set(resultParcel.getResult());
+                                    public void onResult(
+                                            @NonNull AppSearchResult<InternalSetSchemaResponse>
+                                                    result) {
+                                        setSchemaResultRef.set(result);
                                         setSchemaLatch.countDown();
                                     }
                                 });
@@ -1193,12 +1508,11 @@ public final class AppSearchSession implements Closeable {
                                                 SchemaMigrationStats.SECOND_CALL_APPLY_NEW_SCHEMA);
                                 mService.setSchema(
                                         setSchemaAidlRequest1,
-                                        new IAppSearchResultCallback.Stub() {
+                                        new AppSearchResultCallback<InternalSetSchemaResponse>() {
                                             @Override
-                                            @SuppressWarnings({"rawtypes", "unchecked"})
-                                            public void onResult(
-                                                    AppSearchResultParcel resultParcel) {
-                                                setSchema2ResultRef.set(resultParcel.getResult());
+                                            public void onResult(@NonNull AppSearchResult<
+                                                    InternalSetSchemaResponse> result) {
+                                                setSchema2ResultRef.set(result);
                                                 setSchema2Latch.countDown();
                                             }
                                         });

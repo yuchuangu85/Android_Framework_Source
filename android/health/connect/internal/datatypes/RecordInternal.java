@@ -37,6 +37,7 @@ import java.util.UUID;
 /**
  * Base class for all health connect datatype records.
  *
+ * @param <T> The record type.
  * @hide
  */
 public abstract class RecordInternal<T extends Record> {
@@ -139,9 +140,8 @@ public abstract class RecordInternal<T extends Record> {
         return mPackageName;
     }
 
-    @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
     @NonNull
-    public RecordInternal<T> setPackageName(@Nullable String packageName) {
+    public RecordInternal<T> setPackageName(String packageName) {
         this.mPackageName = packageName;
         return this;
     }
@@ -301,6 +301,12 @@ public abstract class RecordInternal<T extends Record> {
      * @return the {@link LocalDate} object of this activity start time.
      */
     public abstract LocalDate getLocalDate();
+
+    /**
+     * @return the time at which the record ended. This matches the end time for an InstantRecord
+     *     and time for IntervalRecord.
+     */
+    public abstract long getRecordTime();
 
     /**
      * Populate {@code bundle} with the data required to un-bundle self. This is used suring IPC

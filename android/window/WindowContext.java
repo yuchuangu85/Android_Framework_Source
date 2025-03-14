@@ -17,8 +17,6 @@ package android.window;
 
 import static android.view.WindowManagerImpl.createWindowContextWindowManager;
 
-import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
-
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.UiContext;
@@ -32,6 +30,7 @@ import android.view.Display;
 import android.view.WindowManager;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.window.flags.Flags;
 
 import java.lang.ref.Reference;
 
@@ -45,7 +44,8 @@ import java.lang.ref.Reference;
  * @hide
  */
 @UiContext
-public class WindowContext extends ContextWrapper implements WindowProvider {
+public class WindowContext extends ContextWrapper implements WindowProvider,
+        ConfigurationDispatcher {
     private final WindowManager mWindowManager;
     @WindowManager.LayoutParams.WindowType
     private final int mType;
@@ -94,6 +94,23 @@ public class WindowContext extends ContextWrapper implements WindowProvider {
         mController.attachToDisplayArea(mType, getDisplayId(), mOptions);
     }
 
+    /**
+     * Moves this context to another display.
+     * <p>
+     * Note that this re-parents all the previously attached windows. Resources associated with this
+     * context will have the correct value and configuration for the new display after this is
+     * called.
+     */
+    public void reparentToDisplay(int displayId) {
+        if (Flags.reparentWindowTokenApi()) {
+            if (displayId == getDisplayId()) {
+                return;
+            }
+            super.updateDisplay(displayId);
+            mController.reparentToDisplayArea(mType, displayId, mOptions);
+        }
+    }
+
     @Override
     public Object getSystemService(String name) {
         if (WINDOW_SERVICE.equals(name)) {
@@ -137,7 +154,7 @@ public class WindowContext extends ContextWrapper implements WindowProvider {
     }
 
     /** Dispatch {@link Configuration} to each {@link ComponentCallbacks}. */
-    @VisibleForTesting(visibility = PACKAGE)
+    @Override
     public void dispatchConfigurationChanged(@NonNull Configuration newConfig) {
         mCallbacksController.dispatchConfigurationChanged(newConfig);
     }
@@ -151,5 +168,11 @@ public class WindowContext extends ContextWrapper implements WindowProvider {
     @Override
     public Bundle getWindowContextOptions() {
         return mOptions;
+    }
+
+    @Override
+    public boolean shouldReportPrivateChanges() {
+        // Always dispatch config changes to WindowContext.
+        return true;
     }
 }

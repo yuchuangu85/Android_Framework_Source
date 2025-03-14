@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /**
  * External Diffie–Hellman key spec holding a key which could be either a public or private key.
- *
+ * <p>
  * Subclasses {@code EncodedKeySpec} using the non-Standard "raw" format.  The XdhKeyFactory
  * class utilises this in order to create XDH keys from raw bytes and to return them
  * as an XdhKeySpec allowing the raw key material to be extracted from an XDH key.

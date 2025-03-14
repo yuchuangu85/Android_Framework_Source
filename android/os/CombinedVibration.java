@@ -17,7 +17,9 @@
 package android.os;
 
 import android.annotation.NonNull;
+import android.annotation.Nullable;
 import android.annotation.TestApi;
+import android.os.vibrator.Flags;
 import android.util.SparseArray;
 
 import com.android.internal.util.Preconditions;
@@ -27,6 +29,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.StringJoiner;
+import java.util.function.Function;
 
 /**
  * A CombinedVibration describes a combination of haptic effects to be performed by one or more
@@ -113,6 +116,17 @@ public abstract class CombinedVibration implements Parcelable {
     public abstract long getDuration();
 
     /**
+     * Gets the estimated duration of the combined vibration in milliseconds.
+     *
+     * <p>For effects with hardware-dependent constants (e.g. primitive compositions), this returns
+     * the estimated duration based on the {@link VibratorInfo}. For all other effects this will
+     * return the same as {@link #getDuration()}.
+     *
+     * @hide
+     */
+    public abstract long getDuration(@Nullable SparseArray<VibratorInfo> vibratorInfos);
+
+    /**
      * Returns true if this effect could represent a touch haptic feedback.
      *
      * <p>It is strongly recommended that an instance of {@link VibrationAttributes} is specified
@@ -152,6 +166,9 @@ public abstract class CombinedVibration implements Parcelable {
     /** @hide */
     public abstract boolean hasVibrator(int vibratorId);
 
+    /** @hide */
+    public abstract boolean hasVendorEffects();
+
     /**
      * Returns a compact version of the {@link #toString()} result for debugging purposes.
      *
@@ -177,7 +194,6 @@ public abstract class CombinedVibration implements Parcelable {
         int[] getAvailableVibratorIds();
 
         /** Adapts a {@link VibrationEffect} to a given vibrator. */
-        @NonNull
         VibrationEffect adaptToVibrator(int vibratorId, @NonNull VibrationEffect effect);
     }
 
@@ -379,6 +395,23 @@ public abstract class CombinedVibration implements Parcelable {
 
         /** @hide */
         @Override
+        public long getDuration(@Nullable SparseArray<VibratorInfo> vibratorInfos) {
+            if (vibratorInfos == null) {
+                return getDuration();
+            }
+            long maxDuration = 0;
+            for (int i = 0; i < vibratorInfos.size(); i++) {
+                long duration = mEffect.getDuration(vibratorInfos.valueAt(i));
+                if ((duration == Long.MAX_VALUE) || (duration < 0)) {
+                    return duration;
+                }
+                maxDuration = Math.max(maxDuration, duration);
+            }
+            return maxDuration;
+        }
+
+        /** @hide */
+        @Override
         public boolean isHapticFeedbackCandidate() {
             return mEffect.isHapticFeedbackCandidate();
         }
@@ -408,6 +441,10 @@ public abstract class CombinedVibration implements Parcelable {
             boolean hasSameEffects = true;
             for (int vibratorId : adapter.getAvailableVibratorIds()) {
                 VibrationEffect newEffect = adapter.adaptToVibrator(vibratorId, mEffect);
+                if (newEffect == null) {
+                    // The vibration effect contains unsupported segments and cannot be played.
+                    return null;
+                }
                 combination.addVibrator(vibratorId, newEffect);
                 hasSameEffects &= mEffect.equals(newEffect);
             }
@@ -422,6 +459,15 @@ public abstract class CombinedVibration implements Parcelable {
         @Override
         public boolean hasVibrator(int vibratorId) {
             return true;
+        }
+
+        /** @hide */
+        @Override
+        public boolean hasVendorEffects() {
+            if (!Flags.vendorVibrationEffects()) {
+                return false;
+            }
+            return mEffect instanceof VibrationEffect.VendorEffect;
         }
 
         @Override
@@ -518,10 +564,27 @@ public abstract class CombinedVibration implements Parcelable {
 
         @Override
         public long getDuration() {
+            return getDuration(idx -> mEffects.valueAt(idx).getDuration());
+        }
+
+        /** @hide */
+        @Override
+        public long getDuration(@Nullable SparseArray<VibratorInfo> vibratorInfos) {
+            if (vibratorInfos == null) {
+                return getDuration();
+            }
+            return getDuration(idx -> {
+                VibrationEffect effect = mEffects.valueAt(idx);
+                VibratorInfo info = vibratorInfos.get(mEffects.keyAt(idx));
+                return effect.getDuration(info);
+            });
+        }
+
+        private long getDuration(Function<Integer, Long> durationFn) {
             long maxDuration = Long.MIN_VALUE;
             boolean hasUnknownStep = false;
             for (int i = 0; i < mEffects.size(); i++) {
-                long duration = mEffects.valueAt(i).getDuration();
+                long duration = durationFn.apply(i);
                 if (duration == Long.MAX_VALUE) {
                     // If any duration is repeating, this combination duration is also repeating.
                     return duration;
@@ -589,6 +652,10 @@ public abstract class CombinedVibration implements Parcelable {
                 int vibratorId = mEffects.keyAt(i);
                 VibrationEffect effect = mEffects.valueAt(i);
                 VibrationEffect newEffect = adapter.adaptToVibrator(vibratorId, effect);
+                if (newEffect == null) {
+                    // The vibration effect contains unsupported segments and cannot be played.
+                    return null;
+                }
                 combination.addVibrator(vibratorId, newEffect);
                 hasSameEffects &= effect.equals(newEffect);
             }
@@ -603,6 +670,20 @@ public abstract class CombinedVibration implements Parcelable {
         @Override
         public boolean hasVibrator(int vibratorId) {
             return mEffects.indexOfKey(vibratorId) >= 0;
+        }
+
+        /** @hide */
+        @Override
+        public boolean hasVendorEffects() {
+            if (!Flags.vendorVibrationEffects()) {
+                return false;
+            }
+            for (int i = 0; i < mEffects.size(); i++) {
+                if (mEffects.get(i) instanceof VibrationEffect.VendorEffect) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         @Override
@@ -723,12 +804,21 @@ public abstract class CombinedVibration implements Parcelable {
 
         @Override
         public long getDuration() {
+            return getDuration(CombinedVibration::getDuration);
+        }
+
+        /** @hide */
+        @Override
+        public long getDuration(@Nullable SparseArray<VibratorInfo> vibratorInfos) {
+            return getDuration(effect -> effect.getDuration(vibratorInfos));
+        }
+
+        private long getDuration(Function<CombinedVibration, Long> durationFn) {
             boolean hasUnknownStep = false;
             long durations = 0;
             final int effectCount = mEffects.size();
             for (int i = 0; i < effectCount; i++) {
-                CombinedVibration effect = mEffects.get(i);
-                long duration = effect.getDuration();
+                long duration = durationFn.apply(mEffects.get(i));
                 if (duration == Long.MAX_VALUE) {
                     // If any duration is repeating, this combination duration is also repeating.
                     return duration;
@@ -832,6 +922,17 @@ public abstract class CombinedVibration implements Parcelable {
             final int effectCount = mEffects.size();
             for (int i = 0; i < effectCount; i++) {
                 if (mEffects.get(i).hasVibrator(vibratorId)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** @hide */
+        @Override
+        public boolean hasVendorEffects() {
+            for (int i = 0; i < mEffects.size(); i++) {
+                if (mEffects.get(i).hasVendorEffects()) {
                     return true;
                 }
             }

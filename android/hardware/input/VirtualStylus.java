@@ -16,12 +16,9 @@
 
 package android.hardware.input;
 
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
-import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.companion.virtual.IVirtualDevice;
-import android.companion.virtual.flags.Flags;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.util.Log;
@@ -30,12 +27,11 @@ import android.util.Log;
  * A virtual stylus which can be used to inject input into the framework that represents a stylus
  * on a remote device.
  *
- * This registers an {@link android.view.InputDevice} that is interpreted like a
- * physically-connected device and dispatches received events to it.
+ * <p>This registers an {@link android.view.InputDevice} that is interpreted like a
+ * physically-connected device and dispatches received events to it.</p>
  *
  * @hide
  */
-@FlaggedApi(Flags.FLAG_VIRTUAL_STYLUS)
 @SystemApi
 public class VirtualStylus extends VirtualInputDevice {
     /** @hide */
@@ -49,7 +45,6 @@ public class VirtualStylus extends VirtualInputDevice {
      *
      * @param event the event to send
      */
-    @RequiresPermission(android.Manifest.permission.CREATE_VIRTUAL_DEVICE)
     public void sendMotionEvent(@NonNull VirtualStylusMotionEvent event) {
         try {
             if (!mVirtualDevice.sendStylusMotionEvent(mToken, event)) {
@@ -66,7 +61,6 @@ public class VirtualStylus extends VirtualInputDevice {
      *
      * @param event the event to send
      */
-    @RequiresPermission(android.Manifest.permission.CREATE_VIRTUAL_DEVICE)
     public void sendButtonEvent(@NonNull VirtualStylusButtonEvent event) {
         try {
             if (!mVirtualDevice.sendStylusButtonEvent(mToken, event)) {

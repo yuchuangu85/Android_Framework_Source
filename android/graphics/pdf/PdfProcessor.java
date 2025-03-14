@@ -20,17 +20,22 @@ import static android.graphics.pdf.PdfLinearizationTypes.PDF_DOCUMENT_TYPE_LINEA
 import static android.graphics.pdf.PdfLinearizationTypes.PDF_DOCUMENT_TYPE_NON_LINEARIZED;
 
 import android.annotation.FlaggedApi;
+import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.pdf.component.PdfAnnotation;
+import android.graphics.pdf.component.PdfAnnotationType;
+import android.graphics.pdf.component.PdfPageObject;
 import android.graphics.pdf.content.PdfPageGotoLinkContent;
 import android.graphics.pdf.content.PdfPageImageContent;
 import android.graphics.pdf.content.PdfPageLinkContent;
 import android.graphics.pdf.content.PdfPageTextContent;
 import android.graphics.pdf.flags.Flags;
+import android.graphics.pdf.logging.PdfEventLogger;
 import android.graphics.pdf.models.FormEditRecord;
 import android.graphics.pdf.models.FormWidgetInfo;
 import android.graphics.pdf.models.PageMatchBounds;
@@ -38,14 +43,19 @@ import android.graphics.pdf.models.jni.LoadPdfResult;
 import android.graphics.pdf.models.selection.PageSelection;
 import android.graphics.pdf.models.selection.SelectionBoundary;
 import android.graphics.pdf.utils.Preconditions;
+import android.os.Binder;
 import android.os.ParcelFileDescriptor;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.util.Log;
+import android.util.Pair;
 
 import java.io.IOException;
+import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -69,10 +79,19 @@ public class PdfProcessor {
 
     private static final String TAG = "PdfProcessor";
     private static final Object sPdfiumLock = new Object();
+    private final PdfEventLogger mPdfEventLogger;
     private PdfDocumentProxy mPdfDocument;
+    private final HashMap<Integer, PdfPageComponentsIdManager> mPageObjectIdManagerMap;
+    private final HashMap<Integer, PdfPageComponentsIdManager> mPageAnnotationsIdManagerMap;
 
     public PdfProcessor() {
         PdfDocumentProxy.loadLibPdf();
+
+        mPdfEventLogger = new PdfEventLogger(
+                /* processId = */ Binder.getCallingUid(),
+                /* docId = */ new SecureRandom().nextLong());
+        mPageObjectIdManagerMap = new HashMap<>();
+        mPageAnnotationsIdManagerMap = new HashMap<>();
     }
 
     /**
@@ -89,6 +108,8 @@ public class PdfProcessor {
     @FlaggedApi(Flags.FLAG_ENABLE_PDF_VIEWER)
     public void create(ParcelFileDescriptor fileDescriptor, @Nullable LoadParams params)
             throws IOException {
+        long loadingStartTime = System.currentTimeMillis();
+
         Preconditions.checkNotNull(fileDescriptor, "Input FD cannot be null");
         ensurePdfDestroyed();
         try {
@@ -99,15 +120,56 @@ public class PdfProcessor {
 
         String password = (params != null) ? params.getPassword() : null;
         synchronized (sPdfiumLock) {
-            LoadPdfResult result =
-                    PdfDocumentProxy.createFromFd(fileDescriptor.detachFd(), password);
+            LoadPdfResult result = PdfDocumentProxy.createFromFd(fileDescriptor.detachFd(),
+                    password);
             switch (result.status) {
-                case NEED_MORE_DATA, PDF_ERROR, FILE_ERROR ->
-                        throw new IOException("Unable to load the document!");
-                case REQUIRES_PASSWORD ->
-                        throw new SecurityException("Password required to access document");
-                case LOADED -> this.mPdfDocument = result.pdfDocument;
-                default -> throw new RuntimeException("Unexpected error has occurred!");
+                case NEED_MORE_DATA, PDF_ERROR, FILE_ERROR -> {
+
+                    mPdfEventLogger.logPdfLoadReportedEvent(
+                            /* loadDurationMillis= */ System.currentTimeMillis() - loadingStartTime,
+                            /* pdfSizeInKb = */ result.pdfSizeInKb,
+                            /* pdfLoadResult = */ PdfEventLogger.PdfLoadResults.ERROR,
+                            /* linearizationType = */ PdfEventLogger.LinearizationTypes.UNKNOWN,
+                            /* numPages = */ -1);
+                    throw new IOException("Unable to load the document!");
+                }
+                case REQUIRES_PASSWORD -> {
+
+                    mPdfEventLogger.logPdfLoadReportedEvent(
+                            /* loadDurationMillis= */ System.currentTimeMillis() - loadingStartTime,
+                            /* pdfSizeInKb = */ result.pdfSizeInKb,
+                            /* pdfLoadResult = */ PdfEventLogger.PdfLoadResults.WRONG_PASSWORD,
+                            /* linearizationType = */ PdfEventLogger.LinearizationTypes.UNKNOWN,
+                            /* numPages = */ -1);
+                    throw new SecurityException("Password required to access document");
+                }
+                case LOADED -> {
+
+                    this.mPdfDocument = result.pdfDocument;
+
+                    @PdfEventLogger.LinearizationTypes.LinearizationType int linearizationType =
+                            mPdfDocument.isPdfLinearized()
+                                    ? PdfEventLogger.LinearizationTypes.LINEARIZED
+                                    : PdfEventLogger.LinearizationTypes.NON_LINEARIZED;
+
+                    // Log pdf loaded successfully.
+                    mPdfEventLogger.logPdfLoadReportedEvent(
+                            /* loadDurationMillis= */ System.currentTimeMillis() - loadingStartTime,
+                            /* pdfSizeInKb = */ result.pdfSizeInKb,
+                            /* pdfLoadResult = */ PdfEventLogger.PdfLoadResults.LOADED,
+                            /* linearizationType = */ linearizationType,
+                            /* numPages = */ mPdfDocument.getNumPages());
+                }
+                default -> {
+
+                    mPdfEventLogger.logPdfLoadReportedEvent(
+                            /* loadDurationMillis= */ System.currentTimeMillis() - loadingStartTime,
+                            /* pdfSizeInKb = */ result.pdfSizeInKb,
+                            /* pdfLoadResult = */ PdfEventLogger.PdfLoadResults.UNKNOWN,
+                            /* linearizationType = */ PdfEventLogger.LinearizationTypes.UNKNOWN,
+                            /* numPages = */ -1);
+                    throw new RuntimeException("Unexpected error has occurred!");
+                }
             }
         }
     }
@@ -149,9 +211,8 @@ public class PdfProcessor {
     public List<PdfPageImageContent> getPageImageContents(int pageNum) {
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
-            return mPdfDocument.getPageAltText(pageNum).stream()
-                    .map(PdfPageImageContent::new)
-                    .collect(Collectors.toList());
+            return mPdfDocument.getPageAltText(pageNum).stream().map(
+                    PdfPageImageContent::new).collect(Collectors.toList());
         }
     }
 
@@ -184,8 +245,8 @@ public class PdfProcessor {
      * task.
      */
     @FlaggedApi(Flags.FLAG_ENABLE_PDF_VIEWER)
-    public void renderPage(
-            int pageNum, Bitmap bitmap, Rect destClip, Matrix transform, RenderParams params) {
+    public void renderPage(int pageNum, Bitmap bitmap, Rect destClip, Matrix transform,
+            RenderParams params, boolean renderFormFields) {
         Preconditions.checkNotNull(bitmap, "Destination bitmap cannot be null");
         Preconditions.checkNotNull(params, "RenderParams cannot be null");
         Preconditions.checkArgument(bitmap.getConfig() == Bitmap.Config.ARGB_8888,
@@ -225,7 +286,8 @@ public class PdfProcessor {
                     contentBottom,
                     transformArr,
                     renderMode,
-                    params.areAnnotationsDisabled());
+                    params.getRenderAnnotations(),
+                    renderFormFields);
         }
     }
 
@@ -244,7 +306,23 @@ public class PdfProcessor {
         Preconditions.checkNotNull(query, "Search query cannot be null");
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
-            return mPdfDocument.searchPageText(pageNum, query).unflattenToList();
+            long searchStartTime = System.currentTimeMillis();
+            List<PageMatchBounds> searchPageTextResult =
+                    mPdfDocument.searchPageText(pageNum, query).unflattenToList();
+
+            // In the current version we are only interested in the results where query length is
+            // 1 as there is no much change in latency after words.
+            if (pageNum == 0 && query.length() == 1) {
+                mPdfEventLogger.logSearchReportedEvent(
+                        /* loadDurationMillis = */ System.currentTimeMillis() - searchStartTime,
+                        /* queryLength = */ query.length(),
+                        /* queryPageNumber = */ pageNum,
+                        /* apiResponse = */ PdfEventLogger.ApiResponseTypes.SUCCESS,
+                        /* numPages = */ mPdfDocument.getNumPages(),
+                        /* matchCount = */ searchPageTextResult.size());
+            }
+
+            return searchPageTextResult;
         }
     }
 
@@ -263,11 +341,15 @@ public class PdfProcessor {
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
             android.graphics.pdf.models.jni.PageSelection legacyPageSelection =
-                    mPdfDocument.selectPageText(
-                            pageNum,
+                    mPdfDocument.selectPageText(pageNum,
                             android.graphics.pdf.models.jni.SelectionBoundary.convert(start),
                             android.graphics.pdf.models.jni.SelectionBoundary.convert(stop));
             if (legacyPageSelection != null) {
+
+                mPdfEventLogger.logPdfApiUsageReportedEvent(
+                        /* apiType = */ PdfEventLogger.ApiTypes.SELECT_CONTENT,
+                        /* apiResponse = */ PdfEventLogger.ApiResponseTypes.SUCCESS);
+
                 return legacyPageSelection.convert();
             }
             return null;
@@ -295,6 +377,12 @@ public class PdfProcessor {
     public void retainPage(int pageNum) {
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
+            if (!mPageObjectIdManagerMap.containsKey(pageNum)) {
+                mPageObjectIdManagerMap.put(pageNum, new PdfPageComponentsIdManager());
+            }
+            if (!mPageAnnotationsIdManagerMap.containsKey(pageNum)) {
+                mPageAnnotationsIdManagerMap.put(pageNum, new PdfPageComponentsIdManager());
+            }
             mPdfDocument.retainPage(pageNum);
         }
     }
@@ -303,6 +391,8 @@ public class PdfProcessor {
     public void releasePage(int pageNum) {
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
+            mPageObjectIdManagerMap.remove(pageNum);
+            mPageAnnotationsIdManagerMap.remove(pageNum);
             mPdfDocument.releasePage(pageNum);
         }
     }
@@ -314,8 +404,7 @@ public class PdfProcessor {
     public int getDocumentLinearizationType() {
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
-            return mPdfDocument.isPdfLinearized()
-                    ? PDF_DOCUMENT_TYPE_LINEARIZED
+            return mPdfDocument.isPdfLinearized() ? PDF_DOCUMENT_TYPE_LINEARIZED
                     : PDF_DOCUMENT_TYPE_NON_LINEARIZED;
         }
     }
@@ -330,10 +419,8 @@ public class PdfProcessor {
             assertPdfDocumentNotNull();
             int pdfFormType = mPdfDocument.getFormType();
             return switch (pdfFormType) {
-                case PDF_FORM_TYPE_ACRO_FORM,
-                                PDF_FORM_TYPE_XFA_FULL,
-                                PDF_FORM_TYPE_XFA_FOREGROUND ->
-                        pdfFormType;
+                case PDF_FORM_TYPE_ACRO_FORM, PDF_FORM_TYPE_XFA_FULL,
+                     PDF_FORM_TYPE_XFA_FOREGROUND -> pdfFormType;
                 default -> PDF_FORM_TYPE_NONE;
             };
         }
@@ -355,8 +442,8 @@ public class PdfProcessor {
      * page will be returned.
      */
     @NonNull
-    public List<FormWidgetInfo> getFormWidgetInfos(
-            int pageNum, @NonNull @FormWidgetInfo.WidgetType int[] types) {
+    public List<FormWidgetInfo> getFormWidgetInfos(int pageNum,
+            @NonNull @FormWidgetInfo.WidgetType int[] types) {
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
             return mPdfDocument.getFormWidgetInfos(pageNum, types);
@@ -441,9 +528,8 @@ public class PdfProcessor {
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
             int[] selectedIndices = editRecord.getSelectedIndices();
-            List<Rect> results =
-                    mPdfDocument.setFormFieldSelectedIndices(
-                            pageNum, editRecord.getWidgetIndex(), selectedIndices);
+            List<Rect> results = mPdfDocument.setFormFieldSelectedIndices(pageNum,
+                    editRecord.getWidgetIndex(), selectedIndices);
             if (results == null) {
                 throw new IllegalArgumentException("Cannot set selected indices on this widget.");
             }
@@ -458,8 +544,8 @@ public class PdfProcessor {
         String text = editRecord.getText();
         synchronized (sPdfiumLock) {
             assertPdfDocumentNotNull();
-            List<Rect> results =
-                    mPdfDocument.setFormFieldText(pageNum, editRecord.getWidgetIndex(), text);
+            List<Rect> results = mPdfDocument.setFormFieldText(pageNum, editRecord.getWidgetIndex(),
+                    text);
             if (results == null) {
                 throw new IllegalArgumentException("Cannot set form field text on this widget.");
             }
@@ -492,6 +578,217 @@ public class PdfProcessor {
             cloneWithoutSecurity(destination);
         } else {
             saveAs(destination);
+        }
+    }
+
+    /**
+     * Returns a list of pairs, where each pair consists of a supported
+     * {@link PdfAnnotation} and its corresponding ID on the specified page.
+     * Refer to {@link PdfAnnotationType} for the supported annotation types.
+     *
+     * <p>
+     * The returned list will be empty if no supported annotations are present
+     * on the page, even if the page contains other annotation types.
+     *
+     * @param pageNum page number whose annotations' list to be retrieved
+     * @return A list of pairs representing the supported annotations and their ids on the page.
+     */
+    @NonNull
+    public List<Pair<Integer, PdfAnnotation>> getPageAnnotations(@IntRange(from = 0) int pageNum) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            PdfPageComponentsIdManager pageAnnotationIdManager =
+                    mPageAnnotationsIdManagerMap.get(pageNum);
+            List<PdfAnnotation> pdfAnnotations = mPdfDocument.getPageAnnotations(pageNum);
+            List<Pair<Integer, PdfAnnotation>> pdfAnnotationIdPairs = new ArrayList<>();
+            for (int i = 0; i < pdfAnnotations.size(); i++) {
+                if (pdfAnnotations.get(i) != null) {
+                    pdfAnnotationIdPairs.add(
+                            new Pair<>(pageAnnotationIdManager.getIdForIndex(i),
+                                    pdfAnnotations.get(i)));
+                }
+            }
+            return pdfAnnotationIdPairs;
+        }
+    }
+
+    /**
+     * Adds the given annotation to the page. The annotation should be of
+     * supported type. See {@link PdfAnnotationType} for the supported types
+     *
+     * @param annotation the {@link PdfAnnotation} object to
+     *                   add
+     * @param pageNum    the page number where the annotation to be added
+     * @return the index of the added annotation,
+     * or -1 if the annotation cannot be added. The
+     * index is guaranteed to be non-negative if
+     * the annotation is added successfully.
+     */
+    public int addPageAnnotation(@IntRange(from = 0) int pageNum,
+            PdfAnnotation annotation) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            int addedAnnotationIndex = mPdfDocument.addPageAnnotation(pageNum, annotation);
+            if (addedAnnotationIndex == -1) {
+                throw new IllegalArgumentException("Failed to add annotation");
+            }
+            return mPageAnnotationsIdManagerMap.get(pageNum).getIdForIndex(addedAnnotationIndex);
+        }
+    }
+
+    /**
+     * Removes the annotation with the specified index.
+     *
+     * @param annotationId the Id of the annotation to remove
+     *                        from the page
+     * @param pageNum         page number from which annotation is to be removed
+     */
+    public void removePageAnnotation(@IntRange(from = 0) int pageNum,
+            int annotationId) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            PdfPageComponentsIdManager pdfAnnotationsIdManager =
+                    mPageAnnotationsIdManagerMap.get(pageNum);
+            int annotationIndex = pdfAnnotationsIdManager.getIndexForId(annotationId);
+            if (annotationIndex == -1) {
+                throw new IllegalArgumentException("Unknown annotationId. getPageAnnotations() "
+                        + "call never made?");
+            }
+            if (!mPdfDocument.removePageAnnotation(pageNum, annotationIndex)) {
+                throw new IllegalArgumentException("Annotation cannot be removed.");
+            }
+            pdfAnnotationsIdManager.deleteId(annotationId);
+        }
+    }
+
+    /**
+     * Update the given {@link PdfAnnotation} to the page.
+     *
+     * @param annotationId id corresponding to which the annotation is to be updated
+     * @param annotation the annotation to update
+     * @return true if annotation is updated, false otherwise
+     * @throws IllegalArgumentException f the provided annotation is null or of
+     *                                  unsupported type i.e. {@link PdfAnnotationType#UNKNOWN}
+     *                                  or if the provided annotation id is negative
+     **/
+    @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+    public boolean updatePageAnnotation(int pageNum, int annotationId,
+            @NonNull PdfAnnotation annotation) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            int annotationIndex = mPageAnnotationsIdManagerMap.get(pageNum)
+                    .getIndexForId(annotationId);
+            if (annotationIndex == -1) {
+                throw new IllegalArgumentException("Unknown annotation Id. getPageAnnotations()"
+                        + " call never made?");
+            }
+            if (!mPdfDocument.updatePageAnnotation(pageNum, annotationIndex, annotation)) {
+                throw new IllegalArgumentException("Update Failed");
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Return list of supported {@link PdfPageObject} present on
+     * the page.
+     * The list will be empty  if there are no supported page
+     * objects present on the page, even if the page contains
+     * other page object types.
+     *
+     * @return A {@link List} of {@link Pair} objects, where each pair contains:
+     * - An {@link Integer} representing the object ID.
+     * - A {@link PdfPageObject} representing the page object.
+     * @throws IllegalStateException if the {@link PdfRenderer.Page} is
+     *                               closed before invocation
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+    public List<Pair<Integer, PdfPageObject>> getPageObjects(int pageNum) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            PdfPageComponentsIdManager pageObjectIdManager = mPageObjectIdManagerMap.get(pageNum);
+            List<PdfPageObject> pageObjects = mPdfDocument.getPageObjects(pageNum);
+            List<Pair<Integer, PdfPageObject>> pageObjectIdPairs = new ArrayList<>();
+            for (int i = 0; i < pageObjects.size(); i++) {
+                if (pageObjects.get(i) != null) {
+                    pageObjectIdPairs.add(
+                            new Pair<>(pageObjectIdManager.getIdForIndex(i), pageObjects.get(i)));
+                }
+            }
+            return pageObjectIdPairs;
+        }
+    }
+
+    /**
+     * Adds the given {@link PdfPageObject} to the page.
+     *
+     * @param pageObject the {@link PdfPageObject} object to
+     *                   add
+     * @return object id of added page object, -1 otherwise
+     * @throws IllegalArgumentException if the provided {@link PdfPageObject} is unknown or null.
+     * @throws IllegalStateException    if the {@link PdfRenderer.Page} is closed before invocation.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+    public int addPageObject(int pageNum, @NonNull PdfPageObject pageObject) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            int addedObjectIndex = mPdfDocument.addPageObject(pageNum, pageObject);
+            if (addedObjectIndex == -1) {
+                throw new IllegalArgumentException("Failed to add PageObject");
+            }
+            return mPageObjectIdManagerMap.get(pageNum).getIdForIndex(addedObjectIndex);
+        }
+    }
+
+    /**
+     * Update the given {@link PdfPageObject} to the page.
+     *
+     * @param objectId   The unique identifier of the page object to update.
+     * @param pageObject the {@link PdfPageObject} object to add.
+     * @return true if page object is updated, false otherwise.
+     * @throws IllegalArgumentException if the provided {@link PdfPageObject} is unknown or null.
+     * @throws IllegalStateException    if the {@link PdfRenderer.Page} is closed before invocation.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+    public boolean updatePageObject(int pageNum, int objectId,
+            @NonNull PdfPageObject pageObject) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            int objectIndex = mPageObjectIdManagerMap.get(pageNum).getIndexForId(objectId);
+            if (objectIndex == -1) {
+                throw new IllegalArgumentException("Unknown objectId. "
+                        + "getPageObjects() call never made?");
+            }
+            if (!mPdfDocument.updatePageObject(pageNum, objectIndex, pageObject)) {
+                throw new IllegalArgumentException("Update Failed");
+            }
+            return true;
+        }
+    }
+
+    /**
+     * Removes the {@link PdfPageObject} with the specified ID.
+     *
+     * @param objectId the id of the page object to remove
+     *                 from the page
+     * @throws IllegalStateException if the provided
+     *                               objectId doesn't exist.
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+    public void removePageObject(int pageNum, int objectId) {
+        synchronized (sPdfiumLock) {
+            assertPdfDocumentNotNull();
+            PdfPageComponentsIdManager pageObjectIdManager =
+                    mPageObjectIdManagerMap.get(pageNum);
+            int objectIndex = pageObjectIdManager.getIndexForId(objectId);
+            if (objectIndex == -1) {
+                throw new IllegalArgumentException("Unknown objectId. getPageObjects() "
+                        + "call never made ?");
+            }
+            if (!mPdfDocument.removePageObject(pageNum, objectIndex)) {
+                throw new IllegalArgumentException("Page object cannot be removed.");
+            }
+            pageObjectIdManager.deleteId(objectId);
         }
     }
 
@@ -531,4 +828,5 @@ public class PdfProcessor {
     private void assertPdfDocumentNotNull() {
         Preconditions.checkNotNull(mPdfDocument, "PdfDocumentProxy cannot be null");
     }
+
 }

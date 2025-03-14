@@ -271,26 +271,26 @@ public class WifiEnterpriseConfig implements Parcelable {
      * Fields that are supported in {@link #mFields}.
      * Each entry includes the supported field's key and its maximum allowed length.
      */
-    private static final Map<String, Integer> SUPPORTED_FIELDS = new HashMap<>() {{
-            put(ALTSUBJECT_MATCH_KEY, 1024);
-            put(ANON_IDENTITY_KEY, 1024);
-            put(CA_CERT_KEY, CERTIFICATE_MAX_LENGTH);
-            put(CA_PATH_KEY, 4096);
-            put(CLIENT_CERT_KEY, CERTIFICATE_MAX_LENGTH);
-            put(DECORATED_IDENTITY_PREFIX_KEY, 256);
-            put(DOM_SUFFIX_MATCH_KEY, 256);
-            put(EAP_ERP, 1);
-            put(ENGINE_KEY, 1);
-            put(ENGINE_ID_KEY, 64);
-            put(IDENTITY_KEY, 256);
-            put(OPP_KEY_CACHING, 1);
-            put(PASSWORD_KEY, 256);
-            put(PLMN_KEY, 16);
-            put(PRIVATE_KEY_ID_KEY, 256);
-            put(REALM_KEY, 256);
-            put(SUBJECT_MATCH_KEY, 256);
-            put(WAPI_CERT_SUITE_KEY, CERTIFICATE_MAX_LENGTH);
-        }};
+    private static final Map<String, Integer> SUPPORTED_FIELDS = Map.ofEntries(
+            Map.entry(ALTSUBJECT_MATCH_KEY, 1024),
+            Map.entry(ANON_IDENTITY_KEY, 1024),
+            Map.entry(CA_CERT_KEY, CERTIFICATE_MAX_LENGTH),
+            Map.entry(CA_PATH_KEY, 4096),
+            Map.entry(CLIENT_CERT_KEY, CERTIFICATE_MAX_LENGTH),
+            Map.entry(DECORATED_IDENTITY_PREFIX_KEY, 256),
+            Map.entry(DOM_SUFFIX_MATCH_KEY, 256),
+            Map.entry(EAP_ERP, 1),
+            Map.entry(ENGINE_KEY, 1),
+            Map.entry(ENGINE_ID_KEY, 64),
+            Map.entry(IDENTITY_KEY, 256),
+            Map.entry(OPP_KEY_CACHING, 1),
+            Map.entry(PASSWORD_KEY, 256),
+            Map.entry(PLMN_KEY, 16),
+            Map.entry(PRIVATE_KEY_ID_KEY, 256),
+            Map.entry(REALM_KEY, 256),
+            Map.entry(SUBJECT_MATCH_KEY, 256),
+            Map.entry(WAPI_CERT_SUITE_KEY, CERTIFICATE_MAX_LENGTH)
+    );
 
     /**
      * Fields that have unquoted values in {@link #mFields}.

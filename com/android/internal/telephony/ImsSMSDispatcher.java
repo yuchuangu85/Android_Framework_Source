@@ -202,9 +202,8 @@ public class ImsSmsDispatcher extends SMSDispatcher {
                         tracker.onSent(mContext);
                         mTrackers.remove(token);
                         mPhone.notifySmsSent(tracker.mDestAddress);
-                        mSmsDispatchersController.notifySmsSentToEmergencyStateTracker(
-                                tracker.mDestAddress, tracker.mMessageId, true,
-                                tracker.isSinglePartOrLastPart());
+                        mSmsDispatchersController.notifySmsSent(tracker, true,
+                                tracker.isSinglePartOrLastPart(), true /*success*/);
                         break;
                     case ImsSmsImplBase.SEND_STATUS_ERROR:
                         tracker.onFailed(mContext, reason, networkReasonCode);
@@ -249,7 +248,8 @@ public class ImsSmsDispatcher extends SMSDispatcher {
                         tracker.mMessageId,
                         tracker.isFromDefaultSmsApplication(mContext),
                         tracker.getInterval(),
-                        mTelephonyManager.isEmergencyNumber(tracker.mDestAddress));
+                        mTelephonyManager.isEmergencyNumber(tracker.mDestAddress),
+                        tracker.isMtSmsPollingMessage(mContext));
                 if (mPhone != null) {
                     TelephonyAnalytics telephonyAnalytics = mPhone.getTelephonyAnalytics();
                     if (telephonyAnalytics != null) {
@@ -667,7 +667,8 @@ public class ImsSmsDispatcher extends SMSDispatcher {
                     tracker.mMessageId,
                     tracker.isFromDefaultSmsApplication(mContext),
                     tracker.getInterval(),
-                    mTelephonyManager.isEmergencyNumber(tracker.mDestAddress));
+                    mTelephonyManager.isEmergencyNumber(tracker.mDestAddress),
+                    tracker.isMtSmsPollingMessage(mContext));
             if (mPhone != null) {
                 TelephonyAnalytics telephonyAnalytics = mPhone.getTelephonyAnalytics();
                 if (telephonyAnalytics != null) {

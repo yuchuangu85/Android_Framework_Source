@@ -30,6 +30,8 @@ import android.telephony.ServiceState;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.imsphone.ImsPhoneConnection;
+import com.android.server.telecom.flags.FeatureFlags;
+import com.android.server.telecom.flags.FeatureFlagsImpl;
 import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
@@ -120,6 +122,7 @@ public class CallManager {
 
     private Object mRegistrantidentifier = new Object();
 
+    private FeatureFlags mTelecomFeatureFlags;
     // state registrants
     protected final RegistrantList mPreciseCallStateRegistrants
     = new RegistrantList();
@@ -196,6 +199,7 @@ public class CallManager {
         mBackgroundCalls = new ArrayList<Call>();
         mForegroundCalls = new ArrayList<Call>();
         mDefaultPhone = null;
+        mTelecomFeatureFlags = new FeatureFlagsImpl();
     }
 
     /**
@@ -2070,7 +2074,8 @@ public class CallManager {
                         incomingRejected = true;
                     }
                     if ((getActiveFgCallState(subId).isDialing() || hasMoreThanOneRingingCall())
-                            && (!incomingRejected)) {
+                            && (!incomingRejected)
+                            && !mTelecomFeatureFlags.enableCallSequencing()) {
                         try {
                             Rlog.d(LOG_TAG, "silently drop incoming call: " + c.getCall());
                             c.getCall().hangup();

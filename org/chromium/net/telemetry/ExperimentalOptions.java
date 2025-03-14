@@ -33,12 +33,14 @@ public final class ExperimentalOptions {
             try {
                 mJson = (JSONObject) new JSONTokener(experimentalOptions).nextValue();
             } catch (JSONException | ClassCastException e) {
-                Log.d(
-                        TAG,
-                        String.format(
-                                "Experimental options could not be parsed, using default values."
-                                        + " Error: %s",
-                                e.getMessage()));
+                if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                    Log.v(
+                            TAG,
+                            String.format(
+                                    "Experimental options could not be parsed, using default"
+                                            + " values. Error: %s",
+                                    e.getMessage()));
+                }
             }
         }
     }
@@ -109,6 +111,24 @@ public final class ExperimentalOptions {
                 getOrDefault(QUIC, "enable_socket_recv_optimization", null, Boolean.class));
     }
 
+    public OptionalBoolean getAllowPortMigration() {
+        return OptionalBoolean.fromBoolean(
+                getOrDefault(QUIC, "allow_port_migration", null, Boolean.class));
+    }
+
+    public OptionalBoolean getRaceStaleDnsOnConnection() {
+        return OptionalBoolean.fromBoolean(
+                getOrDefault(QUIC, "race_stale_dns_on_connection", null, Boolean.class));
+    }
+
+    public String getHostWhitelist() {
+        return getOrDefault(QUIC, "host_whitelist", null, String.class);
+    }
+
+    public String getUserAgentId() {
+        return getOrDefault(QUIC, "user_agent_id", null, String.class);
+    }
+
     public OptionalBoolean getAsyncDnsEnableOption() {
         return OptionalBoolean.fromBoolean(getOrDefault(ASYNC_DNS, "enable", null, Boolean.class));
     }
@@ -173,19 +193,25 @@ public final class ExperimentalOptions {
             String option,
             T defaultValue,
             Class<T> clazz) {
+        if (mJson.length() == 0) {
+            return defaultValue;
+        }
+
         // check if the field trial name exists
         JSONObject options = null;
         try {
             options = mJson.getJSONObject(experimentalOptionFieldTrialName);
         } catch (JSONException e) {
-            Log.d(
-                    TAG,
-                    String.format(
-                            "Failed to get %s options: %s",
-                            experimentalOptionFieldTrialName, e.getMessage()));
+            if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(
+                        TAG,
+                        String.format(
+                                "Failed to get %s options: %s",
+                                experimentalOptionFieldTrialName, e.getMessage()));
+            }
         }
 
-        if (options == null) {
+        if (options == null || options.length() == 0) {
             return defaultValue;
         }
 
@@ -193,17 +219,25 @@ public final class ExperimentalOptions {
         try {
             value = clazz.cast(options.get(option));
         } catch (JSONException | ClassCastException e) {
-            Log.d(TAG, String.format("Failed to get %s options: %s", option, e.getMessage()));
+            if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(TAG, String.format("Failed to get %s options: %s", option, e.getMessage()));
+            }
         }
         return value;
     }
 
     private <T> T getOrDefault(String option, T defaultValue, Class<T> clazz) {
+        if (mJson.length() == 0) {
+            return defaultValue;
+        }
+
         T value = defaultValue;
         try {
             value = clazz.cast(mJson.get(option));
         } catch (JSONException | ClassCastException e) {
-            Log.d(TAG, String.format("Failed to get %s options: %s", option, e.getMessage()));
+            if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.v(TAG, String.format("Failed to get %s options: %s", option, e.getMessage()));
+            }
         }
         return value;
     }
@@ -225,42 +259,6 @@ public final class ExperimentalOptions {
         }
 
         return String.join(",", nStr);
-    }
-
-    /**
-     * The generated CronetStatsLog class has an optionalBoolean(UNSET,TRUE,FALSE) variable for each
-     * of the experimental options. Since these values will always be the same for the options, we
-     * picked one of them and used it to create a private variable that we can use to make the code
-     * more readable.
-     */
-    public static enum OptionalBoolean {
-        UNSET(
-                CronetStatsLog
-                        .CRONET_ENGINE_CREATED__EXPERIMENTAL_OPTIONS_QUIC_STORE_SERVER_CONFIGS_IN_PROPERTIES__OPTIONAL_BOOLEAN_UNSET),
-        TRUE(
-                CronetStatsLog
-                        .CRONET_ENGINE_CREATED__EXPERIMENTAL_OPTIONS_QUIC_STORE_SERVER_CONFIGS_IN_PROPERTIES__OPTIONAL_BOOLEAN_TRUE),
-        FALSE(
-                CronetStatsLog
-                        .CRONET_ENGINE_CREATED__EXPERIMENTAL_OPTIONS_QUIC_STORE_SERVER_CONFIGS_IN_PROPERTIES__OPTIONAL_BOOLEAN_FALSE);
-
-        private final int mValue;
-
-        private OptionalBoolean(int value) {
-            this.mValue = value;
-        }
-
-        public int getValue() {
-            return mValue;
-        }
-
-        public static OptionalBoolean fromBoolean(Boolean value) {
-            if (value == null) {
-                return UNSET;
-            }
-
-            return value ? TRUE : FALSE;
-        }
     }
 
     private boolean isNullOrEmpty(String str) {

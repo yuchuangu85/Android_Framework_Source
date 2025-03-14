@@ -21,9 +21,8 @@ import android.annotation.NonNull;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.net.InetAddresses;
+import android.net.vcn.util.PersistableBundleUtils;
 import android.os.PersistableBundle;
-
-import com.android.server.vcn.util.PersistableBundleUtils;
 
 import java.net.InetAddress;
 import java.util.Arrays;

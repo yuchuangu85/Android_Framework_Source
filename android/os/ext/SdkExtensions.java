@@ -48,6 +48,7 @@ public class SdkExtensions {
     private static final int T_EXTENSION_INT;
     private static final int U_EXTENSION_INT;
     private static final int V_EXTENSION_INT;
+    private static final int B_EXTENSION_INT;
     private static final int AD_SERVICES_EXTENSION_INT;
     private static final Map<Integer, Integer> ALL_EXTENSION_INTS;
 
@@ -57,6 +58,7 @@ public class SdkExtensions {
         T_EXTENSION_INT = SystemProperties.getInt("build.version.extensions.t", 0);
         U_EXTENSION_INT = SystemProperties.getInt("build.version.extensions.u", 0);
         V_EXTENSION_INT = SystemProperties.getInt("build.version.extensions.v", 0);
+        B_EXTENSION_INT = SystemProperties.getInt("build.version.extensions.b", 0);
         AD_SERVICES_EXTENSION_INT =
                 SystemProperties.getInt("build.version.extensions.ad_services", 0);
         Map<Integer, Integer> extensions = new HashMap<Integer, Integer>();
@@ -74,6 +76,9 @@ public class SdkExtensions {
         if (SdkLevel.isAtLeastV()) {
             extensions.put(VERSION_CODES.VANILLA_ICE_CREAM, V_EXTENSION_INT);
         }
+        if (SdkLevel.isAtLeastB()) {
+            extensions.put(VERSION_CODES.BAKLAVA, B_EXTENSION_INT);
+        }
         ALL_EXTENSION_INTS = Collections.unmodifiableMap(extensions);
     }
 
@@ -89,6 +94,7 @@ public class SdkExtensions {
                 VERSION_CODES.TIRAMISU,
                 VERSION_CODES.UPSIDE_DOWN_CAKE,
                 VERSION_CODES.VANILLA_ICE_CREAM,
+                VERSION_CODES.BAKLAVA,
                 AD_SERVICES,
             })
     @Retention(RetentionPolicy.SOURCE)
@@ -130,6 +136,9 @@ public class SdkExtensions {
         }
         if (extension == VERSION_CODES.VANILLA_ICE_CREAM) {
             return V_EXTENSION_INT;
+        }
+        if (extension == VERSION_CODES.BAKLAVA) {
+            return B_EXTENSION_INT;
         }
         if (extension == AD_SERVICES) {
             return AD_SERVICES_EXTENSION_INT;

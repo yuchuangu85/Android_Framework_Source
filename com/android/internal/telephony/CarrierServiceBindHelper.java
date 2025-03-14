@@ -17,6 +17,7 @@
 package com.android.internal.telephony;
 
 import android.annotation.NonNull;
+import android.app.ActivityManager;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -45,6 +46,7 @@ import android.util.Log;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.util.TelephonyUtils;
 
 import java.io.FileDescriptor;
@@ -160,7 +162,11 @@ public class CarrierServiceBindHelper {
     };
 
     public CarrierServiceBindHelper(Context context) {
-        mContext = context.createContextAsUser(Process.myUserHandle(), 0);
+        mContext =
+                context.createContextAsUser(
+                        Flags.supportCarrierServicesForHsum()
+                        ? UserHandle.of(ActivityManager.getCurrentUser())
+                        : Process.myUserHandle(), 0);
 
         updateBindingsAndSimStates();
 
@@ -171,7 +177,7 @@ public class CarrierServiceBindHelper {
                 context, mHandler.getLooper(), UserHandle.ALL);
         try {
             Context contextAsUser = mContext.createPackageContextAsUser(mContext.getPackageName(),
-                0, UserHandle.SYSTEM);
+                0, Flags.supportCarrierServicesForHsum() ? UserHandle.CURRENT : UserHandle.SYSTEM);
             contextAsUser.registerReceiver(mUserUnlockedReceiver,
                 new IntentFilter(Intent.ACTION_USER_UNLOCKED), null /* broadcastPermission */,
                 mHandler);

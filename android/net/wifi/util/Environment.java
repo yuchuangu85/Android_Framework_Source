@@ -90,4 +90,13 @@ public class Environment {
         }
         return vndkApiLevel > apiLevel;
     }
+
+    /**
+     * Check if the device has a SDK >= 36
+     * @return True if the SDK >= 36
+     */
+    public static boolean isSdkAtLeastB() {
+        return Build.VERSION.CODENAME.equals("Baklava")
+                || Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA;
+    }
 }

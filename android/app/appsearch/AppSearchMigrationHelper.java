@@ -25,9 +25,8 @@ import android.annotation.Nullable;
 import android.annotation.WorkerThread;
 import android.app.appsearch.SetSchemaResponse.MigrationFailure;
 import android.app.appsearch.aidl.AppSearchAttributionSource;
-import android.app.appsearch.aidl.AppSearchResultParcel;
+import android.app.appsearch.aidl.AppSearchResultCallback;
 import android.app.appsearch.aidl.IAppSearchManager;
-import android.app.appsearch.aidl.IAppSearchResultCallback;
 import android.app.appsearch.aidl.PutDocumentsFromFileAidlRequest;
 import android.app.appsearch.aidl.WriteSearchResultsToFileAidlRequest;
 import android.app.appsearch.exceptions.AppSearchException;
@@ -156,10 +155,10 @@ public class AppSearchMigrationHelper implements Closeable {
                                     .build(),
                             mUserHandle,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<Void>() {
                         @Override
-                        public void onResult(AppSearchResultParcel resultParcel) {
-                            resultReference.set(resultParcel.getResult());
+                        public void onResult(@NonNull AppSearchResult<Void> result) {
+                            resultReference.set(result);
                             latch.countDown();
                         }
                     });
@@ -214,10 +213,11 @@ public class AppSearchMigrationHelper implements Closeable {
                             schemaMigrationStatsBuilder.build(),
                             totalLatencyStartTimeMillis,
                             /* binderCallStartTimeMillis= */ SystemClock.elapsedRealtime()),
-                    new IAppSearchResultCallback.Stub() {
+                    new AppSearchResultCallback<List<MigrationFailure>>() {
                         @Override
-                        public void onResult(AppSearchResultParcel resultParcel) {
-                            resultReference.set(resultParcel.getResult());
+                        public void onResult(
+                                @NonNull AppSearchResult<List<MigrationFailure>> result) {
+                            resultReference.set(result);
                             latch.countDown();
                         }
                     });

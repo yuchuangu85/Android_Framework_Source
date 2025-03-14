@@ -81,4 +81,9 @@ public class ShimUtilsRAndS extends ShimUtils {
     public boolean supportsSameSocketKernelMigration(Context context) {
         return false;
     }
+
+    @Override
+    public boolean suspendOnNetworkLossEnabled() {
+        return false;
+    }
 }

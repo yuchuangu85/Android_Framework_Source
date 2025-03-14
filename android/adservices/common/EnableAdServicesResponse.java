@@ -28,7 +28,6 @@ import com.android.internal.util.Preconditions;
 
 import java.util.Objects;
 
-
 /**
  * Response parcel of the enableAdServices API.
  *
@@ -37,13 +36,13 @@ import java.util.Objects;
 @SystemApi
 public final class EnableAdServicesResponse implements Parcelable {
 
-    private int mStatusCode;
+    @StatusCode private final int mStatusCode;
 
-    private String mErrorMessage;
+    private final String mErrorMessage;
 
-    private boolean mIsSuccess;
+    private final boolean mIsSuccess;
 
-    private boolean mIsApiEnabled;
+    private final boolean mIsApiEnabled;
 
     private EnableAdServicesResponse(
             @StatusCode int statusCode,
@@ -64,6 +63,7 @@ public final class EnableAdServicesResponse implements Parcelable {
     }
 
     /** Returns the response status code. */
+    @StatusCode
     int getStatusCode() {
         return mStatusCode;
     }
@@ -80,7 +80,7 @@ public final class EnableAdServicesResponse implements Parcelable {
 
     @NonNull
     public static final Creator<EnableAdServicesResponse> CREATOR =
-            new Parcelable.Creator<EnableAdServicesResponse>() {
+            new Parcelable.Creator<>() {
                 @Override
                 public EnableAdServicesResponse createFromParcel(@NonNull Parcel in) {
                     Objects.requireNonNull(in);

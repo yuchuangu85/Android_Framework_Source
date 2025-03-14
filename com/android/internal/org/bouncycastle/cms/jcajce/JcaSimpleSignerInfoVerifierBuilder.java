@@ -55,7 +55,7 @@ public class JcaSimpleSignerInfoVerifierBuilder
         return new SignerInformationVerifier(new DefaultCMSSignatureAlgorithmNameGenerator(), new DefaultSignatureAlgorithmIdentifierFinder(), helper.createContentVerifierProvider(pubKey), helper.createDigestCalculatorProvider());
     }
 
-    private class Helper
+    private static class Helper
     {
         ContentVerifierProvider createContentVerifierProvider(PublicKey publicKey)
             throws OperatorCreationException
@@ -82,7 +82,7 @@ public class JcaSimpleSignerInfoVerifierBuilder
         }
     }
 
-    private class NamedHelper
+    private static class NamedHelper
         extends Helper
     {
         private final String providerName;
@@ -117,7 +117,7 @@ public class JcaSimpleSignerInfoVerifierBuilder
         }
     }
 
-    private class ProviderHelper
+    private static class ProviderHelper
         extends Helper
     {
         private final Provider provider;

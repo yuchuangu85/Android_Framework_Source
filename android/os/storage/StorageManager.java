@@ -22,6 +22,7 @@ import static android.app.AppOpsManager.OP_LEGACY_STORAGE;
 import static android.app.AppOpsManager.OP_MANAGE_EXTERNAL_STORAGE;
 import static android.app.AppOpsManager.OP_READ_EXTERNAL_STORAGE;
 import static android.app.AppOpsManager.OP_READ_MEDIA_IMAGES;
+import static android.app.PropertyInvalidatedCache.MODULE_SYSTEM;
 import static android.content.ContentResolver.DEPRECATE_DATA_PREFIX;
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 import static android.os.UserHandle.PER_USER_RANGE;
@@ -44,6 +45,7 @@ import android.app.ActivityThread;
 import android.app.AppGlobals;
 import android.app.AppOpsManager;
 import android.app.PendingIntent;
+import android.app.PropertyInvalidatedCache;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -269,14 +271,15 @@ public class StorageManager {
     public static final int FLAG_STORAGE_SDK = IInstalld.FLAG_STORAGE_SDK;
 
     /** {@hide} */
-    @IntDef(prefix = "FLAG_STORAGE_",  value = {
+    @IntDef(prefix = "FLAG_STORAGE_", value = {
             FLAG_STORAGE_DE,
             FLAG_STORAGE_CE,
             FLAG_STORAGE_EXTERNAL,
             FLAG_STORAGE_SDK,
     })
     @Retention(RetentionPolicy.SOURCE)
-    public @interface StorageFlags {}
+    public @interface StorageFlags {
+    }
 
     /** {@hide} */
     public static final int FLAG_FOR_WRITE = 1 << 8;
@@ -308,6 +311,44 @@ public class StorageManager {
 
     @GuardedBy("mDelegates")
     private final ArrayList<StorageEventListenerDelegate> mDelegates = new ArrayList<>();
+
+    static record VolumeListQuery(int mUserId, String mPackageName, int mFlags) {
+    }
+
+    private static final PropertyInvalidatedCache.QueryHandler<VolumeListQuery, StorageVolume[]>
+            sVolumeListQuery = new PropertyInvalidatedCache.QueryHandler<>() {
+                @androidx.annotation.Nullable
+                @Override
+                public StorageVolume[] apply(@androidx.annotation.NonNull VolumeListQuery query) {
+                    final IStorageManager storageManager = IStorageManager.Stub.asInterface(
+                            ServiceManager.getService("mount"));
+                    if (storageManager == null) {
+                        // negative results won't be cached, so we will just try again next time
+                        return null;
+                    }
+                    try {
+                        return storageManager.getVolumeList(
+                                query.mUserId, query.mPackageName, query.mFlags);
+                    } catch (RemoteException e) {
+                        throw e.rethrowFromSystemServer();
+                    }
+                }
+            };
+
+    // Generally, the userId and packageName parameters stay pretty constant, but flags may change
+    // regularly; we have observed some processes hitting 10+ variations.
+    private static final int VOLUME_LIST_CACHE_MAX = 16;
+
+    private static final PropertyInvalidatedCache<VolumeListQuery, StorageVolume[]>
+            sVolumeListCache = new PropertyInvalidatedCache<>(
+                    new PropertyInvalidatedCache.Args(MODULE_SYSTEM).cacheNulls(false)
+                    .api("getVolumeList").maxEntries(VOLUME_LIST_CACHE_MAX), "getVolumeList",
+                    sVolumeListQuery);
+
+    /** {@hide} */
+    public static void invalidateVolumeListCache() {
+        sVolumeListCache.invalidateCache();
+    }
 
     private class StorageEventListenerDelegate extends IStorageEventListener.Stub {
         final Executor mExecutor;
@@ -395,7 +436,8 @@ public class StorageManager {
 
     private class ObbActionListener extends IObbActionListener.Stub {
         @SuppressWarnings("hiding")
-        private SparseArray<ObbListenerDelegate> mListeners = new SparseArray<ObbListenerDelegate>();
+        private SparseArray<ObbListenerDelegate> mListeners =
+                new SparseArray<ObbListenerDelegate>();
 
         @Override
         public void onObbResult(String filename, int nonce, int status) {
@@ -477,10 +519,10 @@ public class StorageManager {
      *
      * @param looper The {@link android.os.Looper} which events will be received on.
      *
-     * <p>Applications can get instance of this class by calling
-     * {@link android.content.Context#getSystemService(java.lang.String)} with an argument
-     * of {@link android.content.Context#STORAGE_SERVICE}.
-     *
+     *               <p>Applications can get instance of this class by calling
+     *               {@link android.content.Context#getSystemService(java.lang.String)} with an
+     *               argument
+     *               of {@link android.content.Context#STORAGE_SERVICE}.
      * @hide
      */
     @UnsupportedAppUsage
@@ -488,15 +530,16 @@ public class StorageManager {
         mContext = context;
         mResolver = context.getContentResolver();
         mLooper = looper;
-        mStorageManager = IStorageManager.Stub.asInterface(ServiceManager.getServiceOrThrow("mount"));
+        mStorageManager = IStorageManager.Stub.asInterface(
+                ServiceManager.getServiceOrThrow("mount"));
         mAppOps = mContext.getSystemService(AppOpsManager.class);
     }
 
     /**
      * Registers a {@link android.os.storage.StorageEventListener StorageEventListener}.
      *
-     * @param listener A {@link android.os.storage.StorageEventListener StorageEventListener} object.
-     *
+     * @param listener A {@link android.os.storage.StorageEventListener StorageEventListener}
+     *                 object.
      * @hide
      */
     @UnsupportedAppUsage
@@ -516,14 +559,14 @@ public class StorageManager {
     /**
      * Unregisters a {@link android.os.storage.StorageEventListener StorageEventListener}.
      *
-     * @param listener A {@link android.os.storage.StorageEventListener StorageEventListener} object.
-     *
+     * @param listener A {@link android.os.storage.StorageEventListener StorageEventListener}
+     *                 object.
      * @hide
      */
     @UnsupportedAppUsage
     public void unregisterListener(StorageEventListener listener) {
         synchronized (mDelegates) {
-            for (Iterator<StorageEventListenerDelegate> i = mDelegates.iterator(); i.hasNext();) {
+            for (Iterator<StorageEventListenerDelegate> i = mDelegates.iterator(); i.hasNext(); ) {
                 final StorageEventListenerDelegate delegate = i.next();
                 if (delegate.mListener == listener) {
                     try {
@@ -558,7 +601,8 @@ public class StorageManager {
          * {@link StorageManager#getStorageVolumes()} to observe the latest
          * value.
          */
-        public void onStateChanged(@NonNull StorageVolume volume) { }
+        public void onStateChanged(@NonNull StorageVolume volume) {
+        }
     }
 
     /**
@@ -592,7 +636,7 @@ public class StorageManager {
      */
     public void unregisterStorageVolumeCallback(@NonNull StorageVolumeCallback callback) {
         synchronized (mDelegates) {
-            for (Iterator<StorageEventListenerDelegate> i = mDelegates.iterator(); i.hasNext();) {
+            for (Iterator<StorageEventListenerDelegate> i = mDelegates.iterator(); i.hasNext(); ) {
                 final StorageEventListenerDelegate delegate = i.next();
                 if (delegate.mCallback == callback) {
                     try {
@@ -628,8 +672,8 @@ public class StorageManager {
 
     /**
      * Query if a USB Mass Storage (UMS) host is connected.
-     * @return true if UMS host is connected.
      *
+     * @return true if UMS host is connected.
      * @hide
      */
     @Deprecated
@@ -640,8 +684,8 @@ public class StorageManager {
 
     /**
      * Query if a USB Mass Storage (UMS) is enabled on the device.
-     * @return true if UMS host is enabled.
      *
+     * @return true if UMS host is enabled.
      * @hide
      */
     @Deprecated
@@ -663,11 +707,11 @@ public class StorageManager {
      * That is, shared UID applications can attempt to mount any other
      * application's OBB that shares its UID.
      *
-     * @param rawPath the path to the OBB file
-     * @param key must be <code>null</code>. Previously, some Android device
-     *            implementations accepted a non-<code>null</code> key to mount
-     *            an encrypted OBB file. However, this never worked reliably and
-     *            is no longer supported.
+     * @param rawPath  the path to the OBB file
+     * @param key      must be <code>null</code>. Previously, some Android device
+     *                 implementations accepted a non-<code>null</code> key to mount
+     *                 an encrypted OBB file. However, this never worked reliably and
+     *                 is no longer supported.
      * @param listener will receive the success or failure of the operation
      * @return whether the mount call was successfully queued or not
      */
@@ -739,9 +783,9 @@ public class StorageManager {
      * application's OBB that shares its UID.
      * <p>
      *
-     * @param rawPath path to the OBB file
-     * @param force whether to kill any programs using this in order to unmount
-     *            it
+     * @param rawPath  path to the OBB file
+     * @param force    whether to kill any programs using this in order to unmount
+     *                 it
      * @param listener will receive the success or failure of the operation
      * @return whether the unmount call was successfully queued or not
      */
@@ -781,7 +825,7 @@ public class StorageManager {
      *
      * @param rawPath path to OBB image
      * @return absolute path to mounted OBB image data or <code>null</code> if
-     *         not mounted or exception encountered trying to read status
+     * not mounted or exception encountered trying to read status
      */
     public String getMountedObbPath(String rawPath) {
         Preconditions.checkNotNull(rawPath, "rawPath cannot be null");
@@ -899,7 +943,7 @@ public class StorageManager {
      * {@link #UUID_DEFAULT}.
      *
      * @throws IOException when the storage device hosting the given path isn't
-     *             present, or when it doesn't have a valid UUID.
+     *                     present, or when it doesn't have a valid UUID.
      */
     public @NonNull UUID getUuidForPath(@NonNull File path) throws IOException {
         Preconditions.checkNotNull(path);
@@ -1172,8 +1216,8 @@ public class StorageManager {
     /**
      * This is not the API you're looking for.
      *
-     * @see PackageManager#getPrimaryStorageCurrentVolume()
      * @hide
+     * @see PackageManager#getPrimaryStorageCurrentVolume()
      */
     public String getPrimaryStorageUuid() {
         try {
@@ -1186,8 +1230,8 @@ public class StorageManager {
     /**
      * This is not the API you're looking for.
      *
-     * @see PackageManager#movePrimaryStorage(VolumeInfo)
      * @hide
+     * @see PackageManager#movePrimaryStorage(VolumeInfo)
      */
     public void setPrimaryStorageUuid(String volumeUuid, IPackageMoveObserver callback) {
         try {
@@ -1216,7 +1260,7 @@ public class StorageManager {
         // resolve the actual volume name
         if (Objects.equals(volumeName, MediaStore.VOLUME_EXTERNAL)) {
             try (Cursor c = mContext.getContentResolver().query(uri,
-                    new String[] { MediaStore.MediaColumns.VOLUME_NAME }, null, null)) {
+                    new String[]{MediaStore.MediaColumns.VOLUME_NAME}, null, null)) {
                 if (c.moveToFirst()) {
                     volumeName = c.getString(0);
                 }
@@ -1275,6 +1319,7 @@ public class StorageManager {
 
     /**
      * Gets the state of a volume via its mountpoint.
+     *
      * @hide
      */
     @Deprecated
@@ -1308,7 +1353,7 @@ public class StorageManager {
      * Return the list of shared/external storage volumes currently available to
      * the calling user and the user it shares media with. Please refer to
      * <a href="https://source.android.com/compatibility/12/android-12-cdd#95_multi-user_support">
-     *     multi-user support</a> for more details.
+     * multi-user support</a> for more details.
      *
      * <p>
      * This is similar to {@link StorageManager#getStorageVolumes()} except that the result also
@@ -1353,7 +1398,7 @@ public class StorageManager {
     public static Pair<String, Long> getPrimaryStoragePathAndSize() {
         return Pair.create(null,
                 FileUtils.roundStorageSize(Environment.getDataDirectory().getTotalSpace()
-                    + Environment.getRootDirectory().getTotalSpace()));
+                        + Environment.getRootDirectory().getTotalSpace()));
     }
 
     /** {@hide} */
@@ -1389,8 +1434,6 @@ public class StorageManager {
     /** {@hide} */
     @UnsupportedAppUsage
     public static @NonNull StorageVolume[] getVolumeList(int userId, int flags) {
-        final IStorageManager storageManager = IStorageManager.Stub.asInterface(
-                ServiceManager.getService("mount"));
         try {
             String packageName = ActivityThread.currentOpPackageName();
             if (packageName == null) {
@@ -1406,7 +1449,7 @@ public class StorageManager {
                 }
                 packageName = packageNames[0];
             }
-            return storageManager.getVolumeList(userId, packageName, flags);
+            return sVolumeListCache.query(new VolumeListQuery(userId, packageName, flags));
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1414,6 +1457,7 @@ public class StorageManager {
 
     /**
      * Returns list of paths for all mountable volumes.
+     *
      * @hide
      */
     @Deprecated
@@ -1605,7 +1649,7 @@ public class StorageManager {
      * <p>
      * This is only intended to be called by UserManagerService, as part of creating a user.
      *
-     * @param userId ID of the user
+     * @param userId    ID of the user
      * @param ephemeral whether the user is ephemeral
      * @throws RuntimeException on error.  The user's keys already existing is considered an error.
      * @hide
@@ -1711,7 +1755,8 @@ public class StorageManager {
         return false;
     }
 
-    /** {@hide}
+    /**
+     * {@hide}
      * Is this device encrypted?
      * <p>
      * Note: all devices launching with Android 10 (API level 29) or later are
@@ -1724,8 +1769,10 @@ public class StorageManager {
         return RoSystemProperties.CRYPTO_ENCRYPTED;
     }
 
-    /** {@hide}
+    /**
+     * {@hide}
      * Does this device have file-based encryption (FBE) enabled?
+     *
      * @return true if the device has file-based encryption enabled.
      */
     public static boolean isFileEncrypted() {
@@ -1759,8 +1806,8 @@ public class StorageManager {
     }
 
     /**
-     * @deprecated disabled now that FUSE has been replaced by sdcardfs
      * @hide
+     * @deprecated disabled now that FUSE has been replaced by sdcardfs
      */
     @Deprecated
     public static File maybeTranslateEmulatedPathToInternal(File path) {
@@ -1790,6 +1837,7 @@ public class StorageManager {
 
     /**
      * Check that given app holds both permission and appop.
+     *
      * @hide
      */
     public static boolean checkPermissionAndAppOp(Context context, boolean enforce, int pid,
@@ -1800,6 +1848,7 @@ public class StorageManager {
 
     /**
      * Check that given app holds both permission and appop but do not noteOp.
+     *
      * @hide
      */
     public static boolean checkPermissionAndCheckOp(Context context, boolean enforce,
@@ -1810,6 +1859,7 @@ public class StorageManager {
 
     /**
      * Check that given app holds both permission and appop.
+     *
      * @hide
      */
     private static boolean checkPermissionAndAppOp(Context context, boolean enforce, int pid,
@@ -1877,7 +1927,9 @@ public class StorageManager {
                 // Legacy apps technically have the access granted by this op,
                 // even when the op is denied
                 if ((mAppOps.checkOpNoThrow(OP_LEGACY_STORAGE, uid,
-                        packageName) == AppOpsManager.MODE_ALLOWED)) return true;
+                        packageName) == AppOpsManager.MODE_ALLOWED)) {
+                    return true;
+                }
 
                 if (enforce) {
                     throw new SecurityException("Op " + AppOpsManager.opToName(op) + " "
@@ -1924,7 +1976,7 @@ public class StorageManager {
             return true;
         }
         if (mode == AppOpsManager.MODE_DEFAULT && mContext.checkPermission(
-                  MANAGE_EXTERNAL_STORAGE, pid, uid) == PERMISSION_GRANTED) {
+                MANAGE_EXTERNAL_STORAGE, pid, uid) == PERMISSION_GRANTED) {
             return true;
         }
         // If app doesn't have MANAGE_EXTERNAL_STORAGE, then check if it has requested granular
@@ -1936,7 +1988,7 @@ public class StorageManager {
     @VisibleForTesting
     public @NonNull ParcelFileDescriptor openProxyFileDescriptor(
             int mode, ProxyFileDescriptorCallback callback, Handler handler, ThreadFactory factory)
-                    throws IOException {
+            throws IOException {
         Preconditions.checkNotNull(callback);
         MetricsLogger.count(mContext, "storage_open_proxy_file_descriptor", 1);
         // Retry is needed because the mount point mFuseAppLoop is using may be unmounted before
@@ -1987,7 +2039,7 @@ public class StorageManager {
     /** {@hide} */
     public @NonNull ParcelFileDescriptor openProxyFileDescriptor(
             int mode, ProxyFileDescriptorCallback callback)
-                    throws IOException {
+            throws IOException {
         return openProxyFileDescriptor(mode, callback, null, null);
     }
 
@@ -2006,19 +2058,18 @@ public class StorageManager {
      * you're willing to decrypt on-demand, but where you want to avoid
      * persisting the cleartext version.
      *
-     * @param mode The desired access mode, must be one of
-     *            {@link ParcelFileDescriptor#MODE_READ_ONLY},
-     *            {@link ParcelFileDescriptor#MODE_WRITE_ONLY}, or
-     *            {@link ParcelFileDescriptor#MODE_READ_WRITE}
+     * @param mode     The desired access mode, must be one of
+     *                 {@link ParcelFileDescriptor#MODE_READ_ONLY},
+     *                 {@link ParcelFileDescriptor#MODE_WRITE_ONLY}, or
+     *                 {@link ParcelFileDescriptor#MODE_READ_WRITE}
      * @param callback Callback to process file operation requests issued on
-     *            returned file descriptor.
-     * @param handler Handler that invokes callback methods.
+     *                 returned file descriptor.
+     * @param handler  Handler that invokes callback methods.
      * @return Seekable ParcelFileDescriptor.
-     * @throws IOException
      */
     public @NonNull ParcelFileDescriptor openProxyFileDescriptor(
             int mode, ProxyFileDescriptorCallback callback, Handler handler)
-                    throws IOException {
+            throws IOException {
         Preconditions.checkNotNull(handler);
         return openProxyFileDescriptor(mode, callback, handler, null);
     }
@@ -2050,10 +2101,10 @@ public class StorageManager {
      * </p>
      *
      * @param storageUuid the UUID of the storage volume that you're interested
-     *            in. The UUID for a specific path can be obtained using
-     *            {@link #getUuidForPath(File)}.
+     *                    in. The UUID for a specific path can be obtained using
+     *                    {@link #getUuidForPath(File)}.
      * @throws IOException when the storage device isn't present, or when it
-     *             doesn't support cache quotas.
+     *                     doesn't support cache quotas.
      * @see #getCacheSizeBytes(UUID)
      */
     @WorkerThread
@@ -2085,10 +2136,10 @@ public class StorageManager {
      * </p>
      *
      * @param storageUuid the UUID of the storage volume that you're interested
-     *            in. The UUID for a specific path can be obtained using
-     *            {@link #getUuidForPath(File)}.
+     *                    in. The UUID for a specific path can be obtained using
+     *                    {@link #getUuidForPath(File)}.
      * @throws IOException when the storage device isn't present, or when it
-     *             doesn't support cache quotas.
+     *                     doesn't support cache quotas.
      * @see #getCacheQuotaBytes(UUID)
      */
     @WorkerThread
@@ -2106,7 +2157,7 @@ public class StorageManager {
 
 
     /** @hide */
-    @IntDef(prefix = { "MOUNT_MODE_" }, value = {
+    @IntDef(prefix = {"MOUNT_MODE_"}, value = {
             MOUNT_MODE_EXTERNAL_NONE,
             MOUNT_MODE_EXTERNAL_DEFAULT,
             MOUNT_MODE_EXTERNAL_INSTALLER,
@@ -2115,16 +2166,19 @@ public class StorageManager {
     })
     @Retention(RetentionPolicy.SOURCE)
     /** @hide */
-    public @interface MountMode {}
+    public @interface MountMode {
+    }
 
     /**
      * No external storage should be mounted.
+     *
      * @hide
      */
     @SystemApi
     public static final int MOUNT_MODE_EXTERNAL_NONE = IVold.REMOUNT_MODE_NONE;
     /**
      * Default external storage should be mounted.
+     *
      * @hide
      */
     @SystemApi
@@ -2132,12 +2186,14 @@ public class StorageManager {
     /**
      * Mount mode for package installers which should give them access to
      * all obb dirs in addition to their package sandboxes
+     *
      * @hide
      */
     @SystemApi
     public static final int MOUNT_MODE_EXTERNAL_INSTALLER = IVold.REMOUNT_MODE_INSTALLER;
     /**
      * The lower file system should be bind mounted directly on external storage
+     *
      * @hide
      */
     @SystemApi
@@ -2146,6 +2202,7 @@ public class StorageManager {
     /**
      * Use the regular scoped storage filesystem, but Android/ should be writable.
      * Used to support the applications hosting DownloadManager and the MTP server.
+     *
      * @hide
      */
     @SystemApi
@@ -2164,10 +2221,10 @@ public class StorageManager {
      * this flag to take effect.
      * </p>
      *
+     * @hide
      * @see #getAllocatableBytes(UUID, int)
      * @see #allocateBytes(UUID, long, int)
      * @see #allocateBytes(FileDescriptor, long, int)
-     * @hide
      */
     @RequiresPermission(android.Manifest.permission.ALLOCATE_AGGRESSIVE)
     @SystemApi
@@ -2194,6 +2251,7 @@ public class StorageManager {
      * freeable cached space when determining allocatable space.
      *
      * Intended for use with {@link #getAllocatableBytes()}.
+     *
      * @hide
      */
     public static final int FLAG_ALLOCATE_NON_CACHE_ONLY = 1 << 3;
@@ -2203,12 +2261,13 @@ public class StorageManager {
      * cached space when determining allocatable space.
      *
      * Intended for use with {@link #getAllocatableBytes()}.
+     *
      * @hide
      */
     public static final int FLAG_ALLOCATE_CACHE_ONLY = 1 << 4;
 
     /** @hide */
-    @IntDef(flag = true, prefix = { "FLAG_ALLOCATE_" }, value = {
+    @IntDef(flag = true, prefix = {"FLAG_ALLOCATE_"}, value = {
             FLAG_ALLOCATE_AGGRESSIVE,
             FLAG_ALLOCATE_DEFY_ALL_RESERVED,
             FLAG_ALLOCATE_DEFY_HALF_RESERVED,
@@ -2216,7 +2275,8 @@ public class StorageManager {
             FLAG_ALLOCATE_CACHE_ONLY,
     })
     @Retention(RetentionPolicy.SOURCE)
-    public @interface AllocateFlags {}
+    public @interface AllocateFlags {
+    }
 
     /**
      * Return the maximum number of new bytes that your app can allocate for
@@ -2246,15 +2306,15 @@ public class StorageManager {
      * </p>
      *
      * @param storageUuid the UUID of the storage volume where you're
-     *            considering allocating disk space, since allocatable space can
-     *            vary widely depending on the underlying storage device. The
-     *            UUID for a specific path can be obtained using
-     *            {@link #getUuidForPath(File)}.
+     *                    considering allocating disk space, since allocatable space can
+     *                    vary widely depending on the underlying storage device. The
+     *                    UUID for a specific path can be obtained using
+     *                    {@link #getUuidForPath(File)}.
      * @return the maximum number of new bytes that the calling app can allocate
-     *         using {@link #allocateBytes(UUID, long)} or
-     *         {@link #allocateBytes(FileDescriptor, long)}.
+     * using {@link #allocateBytes(UUID, long)} or
+     * {@link #allocateBytes(FileDescriptor, long)}.
      * @throws IOException when the storage device isn't present, or when it
-     *             doesn't support allocating space.
+     *                     doesn't support allocating space.
      */
     @WorkerThread
     public @BytesLong long getAllocatableBytes(@NonNull UUID storageUuid)
@@ -2297,12 +2357,12 @@ public class StorageManager {
      * more than once every 60 seconds.
      *
      * @param storageUuid the UUID of the storage volume where you'd like to
-     *            allocate disk space. The UUID for a specific path can be
-     *            obtained using {@link #getUuidForPath(File)}.
-     * @param bytes the number of bytes to allocate.
+     *                    allocate disk space. The UUID for a specific path can be
+     *                    obtained using {@link #getUuidForPath(File)}.
+     * @param bytes       the number of bytes to allocate.
      * @throws IOException when the storage device isn't present, or when it
-     *             doesn't support allocating space, or if the device had
-     *             trouble allocating the requested space.
+     *                     doesn't support allocating space, or if the device had
+     *                     trouble allocating the requested space.
      * @see #getAllocatableBytes(UUID)
      */
     @WorkerThread
@@ -2332,10 +2392,9 @@ public class StorageManager {
      * These mount modes specify different views and access levels for
      * different apps on external storage.
      *
+     * @return {@code MountMode} for the given uid and packageName.
      * @params uid UID of the application
      * @params packageName name of the package
-     * @return {@code MountMode} for the given uid and packageName.
-     *
      * @hide
      */
     @RequiresPermission(android.Manifest.permission.WRITE_MEDIA_STORAGE)
@@ -2366,15 +2425,15 @@ public class StorageManager {
      * (such as when recording a video) you should avoid calling this method
      * more than once every 60 seconds.
      *
-     * @param fd the open file that you'd like to allocate disk space for.
+     * @param fd    the open file that you'd like to allocate disk space for.
      * @param bytes the number of bytes to allocate. This is the desired final
-     *            size of the open file. If the open file is smaller than this
-     *            requested size, it will be extended without modifying any
-     *            existing contents. If the open file is larger than this
-     *            requested size, it will be truncated.
+     *              size of the open file. If the open file is smaller than this
+     *              requested size, it will be extended without modifying any
+     *              existing contents. If the open file is larger than this
+     *              requested size, it will be truncated.
      * @throws IOException when the storage device isn't present, or when it
-     *             doesn't support allocating space, or if the device had
-     *             trouble allocating the requested space.
+     *                     doesn't support allocating space, or if the device had
+     *                     trouble allocating the requested space.
      * @see #isAllocationSupported(FileDescriptor)
      * @see Environment#isExternalStorageEmulated(File)
      */
@@ -2499,13 +2558,14 @@ public class StorageManager {
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "QUOTA_TYPE_" }, value = {
+    @IntDef(prefix = {"QUOTA_TYPE_"}, value = {
             QUOTA_TYPE_MEDIA_NONE,
             QUOTA_TYPE_MEDIA_AUDIO,
             QUOTA_TYPE_MEDIA_VIDEO,
             QUOTA_TYPE_MEDIA_IMAGE,
     })
-    public @interface QuotaType {}
+    public @interface QuotaType {
+    }
 
     private static native boolean setQuotaProjectId(String path, long projectId);
 
@@ -2532,15 +2592,13 @@ public class StorageManager {
      * The default platform user of this API is the MediaProvider process, which is
      * responsible for managing all of external storage.
      *
-     * @param path the path to the file for which we should update the quota type
+     * @param path      the path to the file for which we should update the quota type
      * @param quotaType the quota type of the file; this is based on the
      *                  {@code QuotaType} constants, eg
      *                  {@code StorageManager.QUOTA_TYPE_MEDIA_AUDIO}
-     *
      * @throws IllegalArgumentException if {@code quotaType} does not correspond to a valid
      *                                  quota type.
      * @throws IOException              if the quota type could not be updated.
-     *
      * @hide
      */
     @SystemApi
@@ -2616,7 +2674,6 @@ public class StorageManager {
      * permissions of a directory to what they should anyway be.
      *
      * @param path the path for which we should fix up the permissions
-     *
      * @hide
      */
     public void fixupAppDir(@NonNull File path) {
@@ -2822,11 +2879,12 @@ public class StorageManager {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = { "APP_IO_BLOCKED_REASON_" }, value = {
-                APP_IO_BLOCKED_REASON_TRANSCODING,
-                APP_IO_BLOCKED_REASON_UNKNOWN,
+    @IntDef(prefix = {"APP_IO_BLOCKED_REASON_"}, value = {
+            APP_IO_BLOCKED_REASON_TRANSCODING,
+            APP_IO_BLOCKED_REASON_UNKNOWN,
     })
-    public @interface AppIoBlockedReason {}
+    public @interface AppIoBlockedReason {
+    }
 
     /**
      * Notify the system that an app with {@code uid} and {@code tid} is blocked on an IO request on
@@ -2839,10 +2897,9 @@ public class StorageManager {
      * {@link android.Manifest.permission#WRITE_MEDIA_STORAGE} permission.
      *
      * @param volumeUuid the UUID of the storage volume that the app IO is blocked on
-     * @param uid the UID of the app blocked on IO
-     * @param tid the tid of the app blocked on IO
-     * @param reason the reason the app is blocked on IO
-     *
+     * @param uid        the UID of the app blocked on IO
+     * @param tid        the tid of the app blocked on IO
+     * @param reason     the reason the app is blocked on IO
      * @hide
      */
     @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
@@ -2866,10 +2923,9 @@ public class StorageManager {
      * {@link android.Manifest.permission#WRITE_MEDIA_STORAGE} permission.
      *
      * @param volumeUuid the UUID of the storage volume that the app IO is resumed on
-     * @param uid the UID of the app resuming IO
-     * @param tid the tid of the app resuming IO
-     * @param reason the reason the app is resuming IO
-     *
+     * @param uid        the UID of the app resuming IO
+     * @param tid        the tid of the app resuming IO
+     * @param reason     the reason the app is resuming IO
      * @hide
      */
     @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
@@ -2890,10 +2946,9 @@ public class StorageManager {
      * {@link android.Manifest.permission#WRITE_MEDIA_STORAGE} permission.
      *
      * @param volumeUuid the UUID of the storage volume to check IO blocked status
-     * @param uid the UID of the app to check IO blocked status
-     * @param tid the tid of the app to check IO blocked status
-     * @param reason the reason to check IO blocked status for
-     *
+     * @param uid        the UID of the app to check IO blocked status
+     * @param tid        the tid of the app to check IO blocked status
+     * @param reason     the reason to check IO blocked status for
      * @hide
      */
     @TestApi
@@ -2962,7 +3017,6 @@ public class StorageManager {
      * information is available, -1 is returned.
      *
      * @return Percentage of the remaining useful lifetime of the internal storage device.
-     *
      * @hide
      */
     @FlaggedApi(Flags.FLAG_STORAGE_LIFETIME_API)

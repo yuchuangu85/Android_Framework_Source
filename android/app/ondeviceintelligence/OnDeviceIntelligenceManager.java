@@ -17,10 +17,13 @@
 package android.app.ondeviceintelligence;
 
 import static android.app.ondeviceintelligence.flags.Flags.FLAG_ENABLE_ON_DEVICE_INTELLIGENCE;
+import static android.app.ondeviceintelligence.flags.Flags.FLAG_ENABLE_ON_DEVICE_INTELLIGENCE_MODULE;
 
 import android.Manifest;
 import android.annotation.CallbackExecutor;
+import android.annotation.CurrentTimeMillisLong;
 import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
@@ -39,8 +42,6 @@ import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.system.OsConstants;
 import android.util.Log;
-
-import androidx.annotation.IntDef;
 
 import com.android.internal.infra.AndroidFuture;
 
@@ -496,6 +497,23 @@ public final class OnDeviceIntelligenceManager {
         }
     }
 
+    /**
+     * This is primarily intended to be used to attribute/blame on-device intelligence power usage,
+     * via the configured remote implementation, to its actual caller.
+     *
+     * @param startTimeEpochMillis epoch millis used to filter the InferenceInfo events.
+     * @return InferenceInfo events since the passed in startTimeEpochMillis.
+     */
+    @RequiresPermission(Manifest.permission.DUMP)
+    @FlaggedApi(FLAG_ENABLE_ON_DEVICE_INTELLIGENCE_MODULE)
+    public @NonNull List<InferenceInfo> getLatestInferenceInfo(@CurrentTimeMillisLong long startTimeEpochMillis) {
+        try {
+            return mService.getLatestInferenceInfo(startTimeEpochMillis);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
 
     /** Request inference with provided Bundle and Params. */
     public static final int REQUEST_TYPE_INFERENCE = 0;
@@ -518,7 +536,7 @@ public final class OnDeviceIntelligenceManager {
             REQUEST_TYPE_INFERENCE,
             REQUEST_TYPE_PREPARE,
             REQUEST_TYPE_EMBEDDINGS
-    }, open = true)
+    })
     @Target({ElementType.TYPE_USE, ElementType.METHOD, ElementType.PARAMETER,
             ElementType.FIELD})
     @Retention(RetentionPolicy.SOURCE)

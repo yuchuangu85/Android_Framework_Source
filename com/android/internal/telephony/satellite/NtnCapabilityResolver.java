@@ -47,11 +47,13 @@ public class NtnCapabilityResolver {
         SatelliteController satelliteController = SatelliteController.getInstance();
         List<String> satellitePlmnList = satelliteController.getSatellitePlmnsForCarrier(subId);
         for (String satellitePlmn : satellitePlmnList) {
-            if (TextUtils.equals(satellitePlmn, registeredPlmn)) {
+            if (TextUtils.equals(satellitePlmn, registeredPlmn)
+                    && networkRegistrationInfo.isInService()) {
                 logd("Registered to satellite PLMN " + satellitePlmn);
                 networkRegistrationInfo.setIsNonTerrestrialNetwork(true);
                 networkRegistrationInfo.setAvailableServices(
-                        satelliteController.getSupportedSatelliteServices(subId, satellitePlmn));
+                        satelliteController.getSupportedSatelliteServicesForPlmn(
+                                subId, satellitePlmn));
                 break;
             }
         }

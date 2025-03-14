@@ -15,6 +15,9 @@
  */
 package com.android.internal.widget.remotecompose.core.operations.utilities;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -36,13 +39,22 @@ public class IntMap<T> {
         }
     }
 
+    /** Clear the map */
     public void clear() {
         Arrays.fill(mKeys, NOT_PRESENT);
         mValues.clear();
         mSize = 0;
     }
 
-    public T put(int key,  T value)  {
+    /**
+     * Insert the value into the map with the given key
+     *
+     * @param key
+     * @param value
+     * @return
+     */
+    @Nullable
+    public T put(int key, @NonNull T value) {
         if (key == NOT_PRESENT) throw new IllegalArgumentException("Key cannot be NOT_PRESENT");
         if (mSize > mKeys.length * LOAD_FACTOR) {
             resize();
@@ -50,25 +62,36 @@ public class IntMap<T> {
         return insert(key, value);
     }
 
-
-    public  T get(int key) {
+    /**
+     * Return the value associated with the given key
+     *
+     * @param key
+     * @return
+     */
+    @Nullable
+    public T get(int key) {
         int index = findKey(key);
         if (index == -1) {
-            return  null;
-        } else
-            return mValues.get(index);
+            return null;
+        } else return mValues.get(index);
     }
 
+    /**
+     * Return the size of the map
+     *
+     * @return
+     */
     public int size() {
         return mSize;
     }
 
-    private  T insert(int key, T value) {
+    @Nullable
+    private T insert(int key, @NonNull T value) {
         int index = hash(key) % mKeys.length;
         while (mKeys[index] != NOT_PRESENT && mKeys[index] != key) {
             index = (index + 1) % mKeys.length;
         }
-        T oldValue =  null;
+        T oldValue = null;
         if (mKeys[index] == NOT_PRESENT) {
             mSize++;
         } else {
@@ -79,7 +102,7 @@ public class IntMap<T> {
         return oldValue;
     }
 
-    private  int findKey(int key) {
+    private int findKey(int key) {
         int index = hash(key) % mKeys.length;
         while (mKeys[index] != NOT_PRESENT) {
             if (mKeys[index] == key) {
@@ -90,11 +113,11 @@ public class IntMap<T> {
         return -1;
     }
 
-    private  int hash(int key) {
+    private int hash(int key) {
         return key;
     }
 
-    private   void resize() {
+    private void resize() {
         int[] oldKeys = mKeys;
         ArrayList<T> oldValues = mValues;
         mKeys = new int[(oldKeys.length * 2)];
@@ -110,6 +133,55 @@ public class IntMap<T> {
             if (oldKeys[i] != NOT_PRESENT) {
                 put(oldKeys[i], oldValues.get(i));
             }
+        }
+    }
+
+    /**
+     * Remote the key from the map
+     *
+     * @param key
+     * @return
+     */
+    @Nullable
+    public T remove(int key) {
+        int index = hash(key) % mKeys.length;
+        int initialIndex = index;
+
+        while (mKeys[index] != NOT_PRESENT) {
+            if (mKeys[index] == key) {
+                T oldValue = mValues.get(index);
+                mKeys[index] = NOT_PRESENT;
+                mValues.set(index, null);
+                mSize--;
+
+                // Rehash the cluster of keys following the removed key
+                rehashFrom((index + 1) % mKeys.length);
+                return oldValue;
+            }
+            index = (index + 1) % mKeys.length;
+            if (index == initialIndex) {
+                break; // Avoid infinite loop
+            }
+        }
+        return null; // Key not found
+    }
+
+    private void rehashFrom(int startIndex) {
+        int index = startIndex;
+
+        while (mKeys[index] != NOT_PRESENT) {
+            int keyToRehash = mKeys[index];
+            T valueToRehash = mValues.get(index);
+
+            // Remove the key-value pair from the current position
+            mKeys[index] = NOT_PRESENT;
+            mValues.set(index, null);
+            mSize--;
+
+            // Re-insert the key-value pair
+            insert(keyToRehash, valueToRehash);
+
+            index = (index + 1) % mKeys.length;
         }
     }
 }

@@ -20,13 +20,14 @@ import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
-import android.app.appsearch.flags.Flags;
 import android.app.appsearch.safeparcel.AbstractSafeParcelable;
 import android.app.appsearch.safeparcel.PackageIdentifierParcel;
 import android.app.appsearch.safeparcel.SafeParcelable;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.ArraySet;
+
+import com.android.appsearch.flags.Flags;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -42,27 +43,25 @@ import java.util.Set;
  */
 @FlaggedApi(Flags.FLAG_ENABLE_SET_SCHEMA_VISIBLE_TO_CONFIGS)
 @SafeParcelable.Class(creator = "VisibilityConfigCreator")
-@SuppressWarnings("HiddenSuperclass")
+// TODO(b/384721898): Switch to JSpecify annotations
+@SuppressWarnings({"HiddenSuperclass", "JSpecifyNullness"})
 public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
-    @NonNull
-    public static final Parcelable.Creator<SchemaVisibilityConfig> CREATOR =
+
+    public static final @NonNull Parcelable.Creator<SchemaVisibilityConfig> CREATOR =
             new VisibilityConfigCreator();
 
-    @NonNull
     @Field(id = 1)
-    final List<PackageIdentifierParcel> mAllowedPackages;
+    final @NonNull List<PackageIdentifierParcel> mAllowedPackages;
 
-    @NonNull
     @Field(id = 2)
-    final List<VisibilityPermissionConfig> mRequiredPermissions;
+    final @NonNull List<VisibilityPermissionConfig> mRequiredPermissions;
 
-    @Nullable
     @Field(id = 3)
-    final PackageIdentifierParcel mPubliclyVisibleTargetPackage;
+    final @Nullable PackageIdentifierParcel mPubliclyVisibleTargetPackage;
 
-    @Nullable private Integer mHashCode;
-    @Nullable private List<PackageIdentifier> mAllowedPackagesCached;
-    @Nullable private Set<Set<Integer>> mRequiredPermissionsCached;
+    private @Nullable Integer mHashCode;
+    private @Nullable List<PackageIdentifier> mAllowedPackagesCached;
+    private @Nullable Set<Set<Integer>> mRequiredPermissionsCached;
 
     @Constructor
     SchemaVisibilityConfig(
@@ -75,8 +74,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
     }
 
     /** Returns a list of {@link PackageIdentifier}s of packages that can access this schema. */
-    @NonNull
-    public List<PackageIdentifier> getAllowedPackages() {
+    public @NonNull List<PackageIdentifier> getAllowedPackages() {
         if (mAllowedPackagesCached == null) {
             mAllowedPackagesCached = new ArrayList<>(mAllowedPackages.size());
             for (int i = 0; i < mAllowedPackages.size(); i++) {
@@ -87,12 +85,12 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
     }
 
     /**
-     * Returns an array of Integers representing Android Permissions as defined in {@link
-     * SetSchemaRequest.AppSearchSupportedPermission} that the caller must hold to access the schema
-     * this {@link SchemaVisibilityConfig} represents.
+     * Returns an array of Integers representing Android Permissions that the caller must hold to
+     * access the schema this {@link SchemaVisibilityConfig} represents.
+     *
+     * @see SetSchemaRequest.Builder#addRequiredPermissionsForSchemaTypeVisibility(String, Set)
      */
-    @NonNull
-    public Set<Set<Integer>> getRequiredPermissions() {
+    public @NonNull Set<Set<Integer>> getRequiredPermissions() {
         if (mRequiredPermissionsCached == null) {
             mRequiredPermissionsCached = new ArraySet<>(mRequiredPermissions.size());
             for (int i = 0; i < mRequiredPermissions.size(); i++) {
@@ -103,8 +101,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
                 }
             }
         }
-
-        // Added for nullness checker, we initialize it above if it is null.
+        // Added for nullness checker as it is @Nullable, we initialize it above if it is null.
         return Objects.requireNonNull(mRequiredPermissionsCached);
     }
 
@@ -114,8 +111,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
      * packages can access this publicly visible schema. Returns null if the schema is not publicly
      * visible.
      */
-    @Nullable
-    public PackageIdentifier getPubliclyVisibleTargetPackage() {
+    public @Nullable PackageIdentifier getPubliclyVisibleTargetPackage() {
         if (mPubliclyVisibleTargetPackage == null) {
             return null;
         }
@@ -160,7 +156,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
     public static final class Builder {
         private List<PackageIdentifierParcel> mAllowedPackages = new ArrayList<>();
         private List<VisibilityPermissionConfig> mRequiredPermissions = new ArrayList<>();
-        @Nullable private PackageIdentifierParcel mPubliclyVisibleTargetPackage;
+        private @Nullable PackageIdentifierParcel mPubliclyVisibleTargetPackage;
         private boolean mBuilt;
 
         /** Creates a {@link Builder} for a {@link SchemaVisibilityConfig}. */
@@ -181,8 +177,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
 
         /** Add {@link PackageIdentifier} of packages which has access to this schema. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addAllowedPackage(@NonNull PackageIdentifier packageIdentifier) {
+        public @NonNull Builder addAllowedPackage(@NonNull PackageIdentifier packageIdentifier) {
             Objects.requireNonNull(packageIdentifier);
             resetIfBuilt();
             mAllowedPackages.add(packageIdentifier.getPackageIdentifierParcel());
@@ -191,8 +186,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
 
         /** Clears the list of packages which have access to this schema. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder clearAllowedPackages() {
+        public @NonNull Builder clearAllowedPackages() {
             resetIfBuilt();
             mAllowedPackages.clear();
             return this;
@@ -215,8 +209,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
          */
         @SuppressWarnings("RequiresPermission") // No permission required to call this method
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addRequiredPermissions(@NonNull Set<Integer> visibleToPermissions) {
+        public @NonNull Builder addRequiredPermissions(@NonNull Set<Integer> visibleToPermissions) {
             Objects.requireNonNull(visibleToPermissions);
             resetIfBuilt();
             mRequiredPermissions.add(new VisibilityPermissionConfig(visibleToPermissions));
@@ -227,8 +220,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
          * Clears all required permissions combinations set to this {@link SchemaVisibilityConfig}.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder clearRequiredPermissions() {
+        public @NonNull Builder clearRequiredPermissions() {
             resetIfBuilt();
             mRequiredPermissions.clear();
             return this;
@@ -254,8 +246,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
          *     access this publicly visible schema.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setPubliclyVisibleTargetPackage(
+        public @NonNull Builder setPubliclyVisibleTargetPackage(
                 @Nullable PackageIdentifier packageIdentifier) {
             resetIfBuilt();
             if (packageIdentifier == null) {
@@ -275,8 +266,7 @@ public final class SchemaVisibilityConfig extends AbstractSafeParcelable {
         }
 
         /** Build a {@link SchemaVisibilityConfig} */
-        @NonNull
-        public SchemaVisibilityConfig build() {
+        public @NonNull SchemaVisibilityConfig build() {
             mBuilt = true;
             return new SchemaVisibilityConfig(
                     mAllowedPackages, mRequiredPermissions, mPubliclyVisibleTargetPackage);

@@ -41,6 +41,7 @@ import java.util.ConcurrentModificationException;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.concurrent.locks.Condition;
@@ -487,6 +488,12 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     private final Condition termination = mainLock.newCondition();
 
     /**
+     * The thread container for the worker threads.
+     */
+    // Android-removed: SharedThreadContainer not available.
+    // private final SharedThreadContainer container;
+
+    /**
      * Tracks largest attained pool size. Accessed only under
      * mainLock.
      */
@@ -735,6 +742,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     } finally {
                         ctl.set(ctlOf(TERMINATED, 0));
                         termination.signalAll();
+                        // Android-removed: SharedThreadContainer not available.
+                        // container.close();
                     }
                     return;
                 }
@@ -951,6 +960,8 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
                     mainLock.unlock();
                 }
                 if (workerAdded) {
+                    // Android-changed: SharedThreadContainer not available.
+                    // container.start(t);
                     t.start();
                     workerStarted = true;
                 }
@@ -1318,6 +1329,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
         this.keepAliveTime = unit.toNanos(keepAliveTime);
         this.threadFactory = threadFactory;
         this.handler = handler;
+
+        // Android-removed: SharedThreadContainer not available.
+        // String name = Objects.toIdentityString(this);
+        // this.container = SharedThreadContainer.create(name);
     }
 
     /**
@@ -1489,7 +1504,10 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
      * @deprecated Subclass is not recommended to override finalize(). If it
      * must, please always invoke super.finalize().
      */
+    // Android-changed: Not marked forRemoval.
+    // @Deprecated(since="9", forRemoval=true)
     @Deprecated(since="9")
+    @SuppressWarnings("removal")
     protected void finalize() {}
 
     /**

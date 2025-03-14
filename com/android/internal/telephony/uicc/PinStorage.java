@@ -36,6 +36,7 @@ import static com.android.internal.telephony.TelephonyStatsLog.PIN_STORAGE_EVENT
 import static com.android.internal.telephony.TelephonyStatsLog.PIN_STORAGE_EVENT__EVENT__PIN_VERIFICATION_SUCCESS;
 import static com.android.internal.telephony.uicc.IccCardStatus.PinState.PINSTATE_ENABLED_NOT_VERIFIED;
 import static com.android.internal.telephony.uicc.IccCardStatus.PinState.PINSTATE_ENABLED_VERIFIED;
+import static com.android.internal.telephony.util.TelephonyUtils.FORCE_VERBOSE_STATE_LOGGING;
 
 import android.annotation.Nullable;
 import android.app.KeyguardManager;
@@ -56,6 +57,7 @@ import android.telephony.TelephonyManager;
 import android.telephony.TelephonyManager.SimState;
 import android.util.Base64;
 import android.util.IndentingPrintWriter;
+import android.util.Log;
 import android.util.SparseArray;
 
 import com.android.internal.R;
@@ -88,7 +90,8 @@ import javax.crypto.spec.GCMParameterSpec;
  */
 public class PinStorage extends Handler {
     private static final String TAG = "PinStorage";
-    private static final boolean VDBG = false;  // STOPSHIP if true
+    private static final boolean VDBG = FORCE_VERBOSE_STATE_LOGGING ||
+            Rlog.isLoggable(TAG, Log.VERBOSE);
 
     /**
      * Time duration in milliseconds to allow automatic PIN verification after reboot. All unused
@@ -193,9 +196,11 @@ public class PinStorage extends Handler {
 
         CarrierConfigManager ccm = mContext.getSystemService(CarrierConfigManager.class);
         // Callback directly handle config change and should be executed in handler thread
-        ccm.registerCarrierConfigChangeListener(this::post,
-                (slotIndex, subId, carrierId, specificCarrierId) ->
-                        onCarrierConfigurationChanged(slotIndex));
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(this::post,
+                    (slotIndex, subId, carrierId, specificCarrierId) ->
+                            onCarrierConfigurationChanged(slotIndex));
+        }
 
         // Initialize the long term secret key. This needs to be present in all cases:
         //  - if the device is not secure or is locked: key does not require user authentication

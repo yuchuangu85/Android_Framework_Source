@@ -45,6 +45,7 @@ import android.net.wifi.IIntegerListener;
 import android.net.wifi.IListListener;
 import android.net.wifi.OuiKeyedData;
 import android.net.wifi.WifiManager;
+import android.net.wifi.rtt.RangingResult;
 import android.net.wifi.util.HexEncoding;
 import android.os.Binder;
 import android.os.Build;
@@ -1225,6 +1226,11 @@ public class WifiAwareManager {
                 mHandler.post(() -> mOriginalCallback.onBootstrappingFailed(
                         new PeerHandle(peerId)));
             }
+        }
+
+        @Override
+        public void onRangingResultsReceived(List<RangingResult> rangingResults) {
+            mHandler.post(() -> mOriginalCallback.onRangingResultsReceived(rangingResults));
         }
 
         /*

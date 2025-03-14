@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/IRadioNetwork.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/IRadioNetwork.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 5867b4f5be491ec815fafea8a3f268b0295427df --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V4-java-source/gen/android/hardware/radio/network/IRadioNetwork.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/4/android/hardware/radio/network/IRadioNetwork.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.network;
 /** @hide */
@@ -12,14 +16,15 @@ public interface IRadioNetwork extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "c45c122528c07c449ea08f6eacaace17bb7abc38";
+  public static final int VERSION = 4;
+  public static final String HASH = "5867b4f5be491ec815fafea8a3f268b0295427df";
   /** Default implementation for IRadioNetwork. */
   public static class Default implements android.hardware.radio.network.IRadioNetwork
   {
     @Override public void getAllowedNetworkTypesBitmap(int serial) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void getAvailableBandModes(int serial) throws android.os.RemoteException
     {
     }
@@ -29,6 +34,7 @@ public interface IRadioNetwork extends android.os.IInterface
     @Override public void getBarringInfo(int serial) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void getCdmaRoamingPreference(int serial) throws android.os.RemoteException
     {
     }
@@ -69,12 +75,14 @@ public interface IRadioNetwork extends android.os.IInterface
     @Override public void setAllowedNetworkTypesBitmap(int serial, int networkTypeBitmap) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setBandMode(int serial, int mode) throws android.os.RemoteException
     {
     }
     @Override public void setBarringPassword(int serial, java.lang.String facility, java.lang.String oldPassword, java.lang.String newPassword) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void setCdmaRoamingPreference(int serial, int type) throws android.os.RemoteException
     {
     }
@@ -87,6 +95,7 @@ public interface IRadioNetwork extends android.os.IInterface
     @Override public void setLinkCapacityReportingCriteria(int serial, int hysteresisMs, int hysteresisDlKbps, int hysteresisUlKbps, int[] thresholdsDownlinkKbps, int[] thresholdsUplinkKbps, int accessNetwork) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setLocationUpdates(int serial, boolean enable) throws android.os.RemoteException
     {
     }
@@ -105,6 +114,7 @@ public interface IRadioNetwork extends android.os.IInterface
     @Override public void setSignalStrengthReportingCriteria(int serial, android.hardware.radio.network.SignalThresholdInfo[] signalThresholdInfos) throws android.os.RemoteException
     {
     }
+    /** @deprecated Android Telephony framework doesn't use this. */
     @Override public void setSuppServiceNotifications(int serial, boolean enable) throws android.os.RemoteException
     {
     }
@@ -162,6 +172,15 @@ public interface IRadioNetwork extends android.os.IInterface
     @Override public void isSecurityAlgorithmsUpdatedEnabled(int serial) throws android.os.RemoteException
     {
     }
+    @Override public void setSatellitePlmn(int serial, java.lang.String[] carrierPlmnArray, java.lang.String[] allSatellitePlmnArray) throws android.os.RemoteException
+    {
+    }
+    @Override public void setSatelliteEnabledForCarrier(int serial, boolean satelliteEnabled) throws android.os.RemoteException
+    {
+    }
+    @Override public void isSatelliteEnabledForCarrier(int serial) throws android.os.RemoteException
+    {
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -178,7 +197,7 @@ public interface IRadioNetwork extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.network.IRadioNetwork
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -673,6 +692,36 @@ public interface IRadioNetwork extends android.os.IInterface
           this.isSecurityAlgorithmsUpdatedEnabled(_arg0);
           break;
         }
+        case TRANSACTION_setSatellitePlmn:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          java.lang.String[] _arg1;
+          _arg1 = data.createStringArray();
+          java.lang.String[] _arg2;
+          _arg2 = data.createStringArray();
+          data.enforceNoDataAvail();
+          this.setSatellitePlmn(_arg0, _arg1, _arg2);
+          break;
+        }
+        case TRANSACTION_setSatelliteEnabledForCarrier:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          boolean _arg1;
+          _arg1 = data.readBoolean();
+          data.enforceNoDataAvail();
+          this.setSatelliteEnabledForCarrier(_arg0, _arg1);
+          break;
+        }
+        case TRANSACTION_isSatelliteEnabledForCarrier:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          data.enforceNoDataAvail();
+          this.isSatelliteEnabledForCarrier(_arg0);
+          break;
+        }
         default:
         {
           return super.onTransact(code, data, reply, flags);
@@ -712,6 +761,7 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void getAvailableBandModes(int serial) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -757,6 +807,7 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void getCdmaRoamingPreference(int serial) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -953,6 +1004,7 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setBandMode(int serial, int mode) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -987,6 +1039,7 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void setCdmaRoamingPreference(int serial, int type) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1056,6 +1109,7 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setLocationUpdates(int serial, boolean enable) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1152,6 +1206,7 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Android Telephony framework doesn't use this. */
       @Override public void setSuppServiceNotifications(int serial, boolean enable) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -1450,6 +1505,54 @@ public interface IRadioNetwork extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public void setSatellitePlmn(int serial, java.lang.String[] carrierPlmnArray, java.lang.String[] allSatellitePlmnArray) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(serial);
+          _data.writeStringArray(carrierPlmnArray);
+          _data.writeStringArray(allSatellitePlmnArray);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setSatellitePlmn, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method setSatellitePlmn is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void setSatelliteEnabledForCarrier(int serial, boolean satelliteEnabled) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(serial);
+          _data.writeBoolean(satelliteEnabled);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_setSatelliteEnabledForCarrier, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method setSatelliteEnabledForCarrier is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
+      @Override public void isSatelliteEnabledForCarrier(int serial) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(serial);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_isSatelliteEnabledForCarrier, _data, null, android.os.IBinder.FLAG_ONEWAY);
+          if (!_status) {
+            throw new android.os.RemoteException("Method isSatelliteEnabledForCarrier is unimplemented.");
+          }
+        }
+        finally {
+          _data.recycle();
+        }
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -1533,15 +1636,22 @@ public interface IRadioNetwork extends android.os.IInterface
     static final int TRANSACTION_setCellularIdentifierTransparencyEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 45);
     static final int TRANSACTION_setSecurityAlgorithmsUpdatedEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 46);
     static final int TRANSACTION_isSecurityAlgorithmsUpdatedEnabled = (android.os.IBinder.FIRST_CALL_TRANSACTION + 47);
+    static final int TRANSACTION_setSatellitePlmn = (android.os.IBinder.FIRST_CALL_TRANSACTION + 48);
+    static final int TRANSACTION_setSatelliteEnabledForCarrier = (android.os.IBinder.FIRST_CALL_TRANSACTION + 49);
+    static final int TRANSACTION_isSatelliteEnabledForCarrier = (android.os.IBinder.FIRST_CALL_TRANSACTION + 50);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$network$IRadioNetwork".replace('$', '.');
   public void getAllowedNetworkTypesBitmap(int serial) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void getAvailableBandModes(int serial) throws android.os.RemoteException;
   public void getAvailableNetworks(int serial) throws android.os.RemoteException;
   public void getBarringInfo(int serial) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void getCdmaRoamingPreference(int serial) throws android.os.RemoteException;
   public void getCellInfoList(int serial) throws android.os.RemoteException;
   public void getDataRegistrationState(int serial) throws android.os.RemoteException;
@@ -1557,18 +1667,26 @@ public interface IRadioNetwork extends android.os.IInterface
   public void isNrDualConnectivityEnabled(int serial) throws android.os.RemoteException;
   public void responseAcknowledgement() throws android.os.RemoteException;
   public void setAllowedNetworkTypesBitmap(int serial, int networkTypeBitmap) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setBandMode(int serial, int mode) throws android.os.RemoteException;
   public void setBarringPassword(int serial, java.lang.String facility, java.lang.String oldPassword, java.lang.String newPassword) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void setCdmaRoamingPreference(int serial, int type) throws android.os.RemoteException;
   public void setCellInfoListRate(int serial, int rate) throws android.os.RemoteException;
   public void setIndicationFilter(int serial, int indicationFilter) throws android.os.RemoteException;
   public void setLinkCapacityReportingCriteria(int serial, int hysteresisMs, int hysteresisDlKbps, int hysteresisUlKbps, int[] thresholdsDownlinkKbps, int[] thresholdsUplinkKbps, int accessNetwork) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setLocationUpdates(int serial, boolean enable) throws android.os.RemoteException;
   public void setNetworkSelectionModeAutomatic(int serial) throws android.os.RemoteException;
   public void setNetworkSelectionModeManual(int serial, java.lang.String operatorNumeric, int ran) throws android.os.RemoteException;
   public void setNrDualConnectivityState(int serial, byte nrDualConnectivityState) throws android.os.RemoteException;
   public void setResponseFunctions(android.hardware.radio.network.IRadioNetworkResponse radioNetworkResponse, android.hardware.radio.network.IRadioNetworkIndication radioNetworkIndication) throws android.os.RemoteException;
   public void setSignalStrengthReportingCriteria(int serial, android.hardware.radio.network.SignalThresholdInfo[] signalThresholdInfos) throws android.os.RemoteException;
+  /** @deprecated Android Telephony framework doesn't use this. */
+  @Deprecated
   public void setSuppServiceNotifications(int serial, boolean enable) throws android.os.RemoteException;
   public void setSystemSelectionChannels(int serial, boolean specifyChannels, android.hardware.radio.network.RadioAccessSpecifier[] specifiers) throws android.os.RemoteException;
   public void startNetworkScan(int serial, android.hardware.radio.network.NetworkScanRequest request) throws android.os.RemoteException;
@@ -1588,6 +1706,9 @@ public interface IRadioNetwork extends android.os.IInterface
   public void setCellularIdentifierTransparencyEnabled(int serial, boolean enabled) throws android.os.RemoteException;
   public void setSecurityAlgorithmsUpdatedEnabled(int serial, boolean enable) throws android.os.RemoteException;
   public void isSecurityAlgorithmsUpdatedEnabled(int serial) throws android.os.RemoteException;
+  public void setSatellitePlmn(int serial, java.lang.String[] carrierPlmnArray, java.lang.String[] allSatellitePlmnArray) throws android.os.RemoteException;
+  public void setSatelliteEnabledForCarrier(int serial, boolean satelliteEnabled) throws android.os.RemoteException;
+  public void isSatelliteEnabledForCarrier(int serial) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

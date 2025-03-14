@@ -29,6 +29,7 @@ import android.os.Message;
 import android.os.PowerManager;
 import android.os.RegistrantList;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.provider.DeviceConfig;
 import android.sysprop.TelephonyProperties;
 import android.telephony.PhoneCapability;
@@ -228,6 +229,17 @@ public class PhoneConfigurationManager {
     }
 
     /**
+     * Listener for listening to events in the {@link android.telephony.TelephonyRegistryManager}
+     */
+    private final SubscriptionManager.OnSubscriptionsChangedListener mSubscriptionsChangedListener =
+            new SubscriptionManager.OnSubscriptionsChangedListener() {
+                @Override
+                public void onSubscriptionsChanged() {
+                    updateSimultaneousSubIdsFromPhoneIdMappingAndNotify();
+                }
+            };
+
+    /**
      * If virtual DSDA is enabled for this UE, then increase maxActiveVoiceSubscriptions to 2.
      */
     private PhoneCapability maybeOverrideMaxActiveVoiceSubscriptions(
@@ -277,14 +289,11 @@ public class PhoneConfigurationManager {
         // Register for subId updates to notify listeners when simultaneous calling is configured
         if (mFeatureFlags.simultaneousCallingIndications()
                 && (bkwdsCompatDsda || halSupportSimulCalling)) {
+            Log.d(LOG_TAG, "maybeEnableCellularDSDASupport: registering "
+                            + "mSubscriptionsChangedListener");
             mContext.getSystemService(TelephonyRegistryManager.class)
                     .addOnSubscriptionsChangedListener(
-                            new SubscriptionManager.OnSubscriptionsChangedListener() {
-                                @Override
-                                public void onSubscriptionsChanged() {
-                                    updateSimultaneousSubIdsFromPhoneIdMappingAndNotify();
-                                }
-                            }, mHandler::post);
+                            mSubscriptionsChangedListener, mHandler::post);
         }
     }
 
@@ -391,9 +400,12 @@ public class PhoneConfigurationManager {
                             }
                             mSlotsSupportingSimultaneousCellularCalls.add(i);
                         }
-                        // Ensure the slots supporting cellular DSDA does not exceed the phone count
-                        if (mSlotsSupportingSimultaneousCellularCalls.size() > getPhoneCount()) {
-                            loge("Invalid size of DSDA slots. Disabling cellular DSDA.");
+                        // Ensure the number of slots supporting cellular DSDA is valid:
+                        if (mSlotsSupportingSimultaneousCellularCalls.size() > getPhoneCount() ||
+                                mSlotsSupportingSimultaneousCellularCalls.size() < 2) {
+                            loge("Invalid size of DSDA slots. Disabling cellular DSDA. Size of "
+                                    + "mSlotsSupportingSimultaneousCellularCalls=" +
+                                    mSlotsSupportingSimultaneousCellularCalls.size());
                             mSlotsSupportingSimultaneousCellularCalls.clear();
                         }
                     } else {
@@ -770,7 +782,11 @@ public class PhoneConfigurationManager {
 
         Intent intent = new Intent(ACTION_MULTI_SIM_CONFIG_CHANGED);
         intent.putExtra(EXTRA_ACTIVE_SIM_SUPPORTED_COUNT, numOfActiveModems);
-        mContext.sendBroadcast(intent);
+        if (mFeatureFlags.hsumBroadcast()) {
+            mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+        } else {
+            mContext.sendBroadcast(intent);
+        }
     }
     /**
      * This is invoked from shell commands during CTS testing only.

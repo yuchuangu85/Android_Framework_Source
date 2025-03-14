@@ -20,6 +20,9 @@ import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
@@ -145,6 +148,32 @@ public final class AdSelectionSignals implements Parcelable {
      */
     public int getSizeInBytes() {
         return this.mSignals.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    /**
+     * @return whether the signal contains an "adCost" JSON field.
+     * @hide
+     */
+    public boolean containsAdCost() {
+        try {
+            JSONObject json = new JSONObject(mSignals);
+            return json.get("adCost") != null;
+        } catch (JSONException e) {
+            return false;
+        }
+    }
+
+    /**
+     * @return whether the signal contains an "dataVersion" JSON field.
+     * @hide
+     */
+    public boolean containsDataVersion() {
+        try {
+            JSONObject json = new JSONObject(mSignals);
+            return json.get("dataVersion") != null;
+        } catch (JSONException e) {
+            return false;
+        }
     }
 
     private void validate(String inputString) {

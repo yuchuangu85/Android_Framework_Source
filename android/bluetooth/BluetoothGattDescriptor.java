@@ -143,7 +143,7 @@ public class BluetoothGattDescriptor implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeParcelable(new ParcelUuid(mUuid), 0);
+        (new ParcelUuid(mUuid)).writeToParcel(out, flags);
         out.writeInt(mInstance);
         out.writeInt(mPermissions);
     }
@@ -160,7 +160,7 @@ public class BluetoothGattDescriptor implements Parcelable {
             };
 
     private BluetoothGattDescriptor(Parcel in) {
-        mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
+        mUuid = ParcelUuid.CREATOR.createFromParcel(in).getUuid();
         mInstance = in.readInt();
         mPermissions = in.readInt();
     }

@@ -34,7 +34,10 @@ import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.SystemProperties;
+import android.os.UserHandle;
+import android.telephony.PersistentLogger;
 import android.telephony.Rlog;
+import android.telephony.SubscriptionManager;
 import android.telephony.satellite.ISatelliteTransmissionUpdateCallback;
 import android.telephony.satellite.PointingInfo;
 import android.telephony.satellite.SatelliteManager;
@@ -42,6 +45,7 @@ import android.text.TextUtils;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -60,6 +64,7 @@ public class PointingAppController {
     @NonNull
     private static PointingAppController sInstance;
     @NonNull private final Context mContext;
+    @NonNull private final FeatureFlags mFeatureFlags;
     private boolean mStartedSatelliteTransmissionUpdates;
     private boolean mLastNeedFullScreenPointingUI;
     private boolean mLastIsDemoMode;
@@ -74,6 +79,7 @@ public class PointingAppController {
      */
     private final ConcurrentHashMap<Integer, SatelliteTransmissionUpdateHandler>
             mSatelliteTransmissionUpdateHandlers = new ConcurrentHashMap<>();
+    @Nullable private PersistentLogger mPersistentLogger = null;
 
     /**
      * @return The singleton instance of PointingAppController.
@@ -88,11 +94,13 @@ public class PointingAppController {
     /**
      * Create the PointingAppController singleton instance.
      * @param context The Context to use to create the PointingAppController.
+     * @param featureFlags The telephony feature flags.
      * @return The singleton instance of PointingAppController.
      */
-    public static PointingAppController make(@NonNull Context context) {
+    public static PointingAppController make(@NonNull Context context,
+            @NonNull FeatureFlags featureFlags) {
         if (sInstance == null) {
-            sInstance = new PointingAppController(context);
+            sInstance = new PointingAppController(context, featureFlags);
         }
         return sInstance;
     }
@@ -103,14 +111,17 @@ public class PointingAppController {
      * @param context The Context for the PointingUIController.
      */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
-    public PointingAppController(@NonNull Context context) {
+    public PointingAppController(@NonNull Context context,
+            @NonNull FeatureFlags featureFlags) {
         mContext = context;
+        mFeatureFlags = featureFlags;
         mStartedSatelliteTransmissionUpdates = false;
         mLastNeedFullScreenPointingUI = false;
         mLastIsDemoMode = false;
         mLastIsEmergency = false;
         mListenerForPointingUIRegistered = false;
         mActivityManager = mContext.getSystemService(ActivityManager.class);
+        mPersistentLogger = SatelliteServiceUtils.getPersistentLogger(context);
     }
 
     /**
@@ -147,7 +158,7 @@ public class PointingAppController {
 
             if (callerPackages != null) {
                 if (Arrays.stream(callerPackages).anyMatch(pointingUiPackage::contains)) {
-                    logd("Restarting pointingUI");
+                    plogd("Restarting pointingUI");
                     startPointingUI(mLastNeedFullScreenPointingUI, mLastIsDemoMode,
                             mLastIsEmergency);
                 }
@@ -176,6 +187,7 @@ public class PointingAppController {
         public static final int EVENT_SEND_DATAGRAM_STATE_CHANGED = 2;
         public static final int EVENT_RECEIVE_DATAGRAM_STATE_CHANGED = 3;
         public static final int EVENT_DATAGRAM_TRANSFER_STATE_CHANGED = 4;
+        public static final int EVENT_SEND_DATAGRAM_REQUESTED = 5;
 
         private final ConcurrentHashMap<IBinder, ISatelliteTransmissionUpdateCallback> mListeners;
 
@@ -264,6 +276,24 @@ public class PointingAppController {
                     break;
                 }
 
+                case EVENT_SEND_DATAGRAM_REQUESTED: {
+                    logd("Received EVENT_SEND_DATAGRAM_REQUESTED");
+                    int datagramType = (int) msg.obj;
+                    List<IBinder> toBeRemoved = new ArrayList<>();
+                    mListeners.values().forEach(listener -> {
+                        try {
+                            listener.onSendDatagramRequested(datagramType);
+                        } catch (RemoteException e) {
+                            logd("EVENT_SEND_DATAGRAM_REQUESTED RemoteException: " + e);
+                            toBeRemoved.add(listener.asBinder());
+                        }
+                    });
+                    toBeRemoved.forEach(listener -> {
+                        mListeners.remove(listener);
+                    });
+                    break;
+                }
+
                 default:
                     loge("SatelliteTransmissionUpdateHandler unknown event: " + msg.what);
             }
@@ -277,6 +307,7 @@ public class PointingAppController {
      */
     public void registerForSatelliteTransmissionUpdates(int subId,
             ISatelliteTransmissionUpdateCallback callback) {
+        subId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
         SatelliteTransmissionUpdateHandler handler =
                 mSatelliteTransmissionUpdateHandlers.get(subId);
         if (handler != null) {
@@ -305,6 +336,7 @@ public class PointingAppController {
      */
     public void unregisterForSatelliteTransmissionUpdates(int subId, Consumer<Integer> result,
             ISatelliteTransmissionUpdateCallback callback) {
+        subId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
         SatelliteTransmissionUpdateHandler handler =
                 mSatelliteTransmissionUpdateHandlers.get(subId);
         if (handler != null) {
@@ -331,7 +363,7 @@ public class PointingAppController {
      */
     public void startSatelliteTransmissionUpdates(@NonNull Message message) {
         if (mStartedSatelliteTransmissionUpdates) {
-            logd("startSatelliteTransmissionUpdates: already started");
+            plogd("startSatelliteTransmissionUpdates: already started");
             AsyncResult.forMessage(message, null, new SatelliteManager.SatelliteException(
                     SatelliteManager.SATELLITE_RESULT_SUCCESS));
             message.sendToTarget();
@@ -359,7 +391,7 @@ public class PointingAppController {
             boolean isEmergency) {
         String packageName = getPointingUiPackageName();
         if (TextUtils.isEmpty(packageName)) {
-            logd("startPointingUI: config_pointing_ui_package is not set. Ignore the request");
+            plogd("startPointingUI: config_pointing_ui_package is not set. Ignore the request");
             return;
         }
 
@@ -373,10 +405,10 @@ public class PointingAppController {
             launchIntent = mContext.getPackageManager().getLaunchIntentForPackage(packageName);
         }
         if (launchIntent == null) {
-            loge("startPointingUI: launchIntent is null");
+            ploge("startPointingUI: launchIntent is null");
             return;
         }
-        logd("startPointingUI: needFullScreenPointingUI: " + needFullScreenPointingUI
+        plogd("startPointingUI: needFullScreenPointingUI: " + needFullScreenPointingUI
                 + ", isDemoMode: " + isDemoMode + ", isEmergency: " + isEmergency);
         launchIntent.putExtra("needFullScreen", needFullScreenPointingUI);
         launchIntent.putExtra("isDemoMode", isDemoMode);
@@ -391,9 +423,9 @@ public class PointingAppController {
             mLastNeedFullScreenPointingUI = needFullScreenPointingUI;
             mLastIsDemoMode = isDemoMode;
             mLastIsEmergency = isEmergency;
-            mContext.startActivity(launchIntent);
+            mContext.startActivityAsUser(launchIntent, UserHandle.CURRENT);
         } catch (ActivityNotFoundException ex) {
-            loge("startPointingUI: Pointing UI app activity is not found, ex=" + ex);
+            ploge("startPointingUI: Pointing UI app activity is not found, ex=" + ex);
         }
     }
 
@@ -413,6 +445,7 @@ public class PointingAppController {
             int sendPendingCount, int errorCode) {
         DatagramTransferStateHandlerRequest request = new DatagramTransferStateHandlerRequest(
                 datagramType, datagramTransferState, sendPendingCount, errorCode);
+        subId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
         SatelliteTransmissionUpdateHandler handler =
                 mSatelliteTransmissionUpdateHandlers.get(subId);
 
@@ -422,7 +455,26 @@ public class PointingAppController {
                     request);
             msg.sendToTarget();
         } else {
-            loge("SatelliteTransmissionUpdateHandler not found for subId: " + subId);
+            ploge("SatelliteTransmissionUpdateHandler not found for subId: " + subId);
+        }
+    }
+
+    /**
+     * This API is used to notify PointingAppController that a send datagram has just been
+     * requested.
+     */
+    public void onSendDatagramRequested(
+            int subId, @SatelliteManager.DatagramType int datagramType) {
+        subId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
+        SatelliteTransmissionUpdateHandler handler =
+                mSatelliteTransmissionUpdateHandlers.get(subId);
+        if (handler != null) {
+            Message msg = handler.obtainMessage(
+                    SatelliteTransmissionUpdateHandler.EVENT_SEND_DATAGRAM_REQUESTED,
+                    datagramType);
+            msg.sendToTarget();
+        } else {
+            ploge("SatelliteTransmissionUpdateHandler not found for subId: " + subId);
         }
     }
 
@@ -432,6 +484,7 @@ public class PointingAppController {
         DatagramTransferStateHandlerRequest request = new DatagramTransferStateHandlerRequest(
                 SatelliteManager.DATAGRAM_TYPE_UNKNOWN, datagramTransferState, receivePendingCount,
                 errorCode);
+        subId = SubscriptionManager.DEFAULT_SUBSCRIPTION_ID;
         SatelliteTransmissionUpdateHandler handler =
                 mSatelliteTransmissionUpdateHandlers.get(subId);
 
@@ -441,7 +494,7 @@ public class PointingAppController {
                     request);
             msg.sendToTarget();
         } else {
-            loge(" SatelliteTransmissionUpdateHandler not found for subId: " + subId);
+            ploge(" SatelliteTransmissionUpdateHandler not found for subId: " + subId);
         }
     }
 
@@ -456,12 +509,12 @@ public class PointingAppController {
     boolean setSatellitePointingUiClassName(
             @Nullable String packageName, @Nullable String className) {
         if (!isMockModemAllowed()) {
-            loge("setSatellitePointingUiClassName: modifying satellite pointing UI package and "
+            ploge("setSatellitePointingUiClassName: modifying satellite pointing UI package and "
                     + "class name is not allowed");
             return false;
         }
 
-        logd("setSatellitePointingUiClassName: config_pointing_ui_package is updated, new "
+        plogd("setSatellitePointingUiClassName: config_pointing_ui_package is updated, new "
                 + "packageName=" + packageName
                 + ", config_pointing_ui_class new className=" + className);
 
@@ -506,6 +559,20 @@ public class PointingAppController {
 
     private static void loge(@NonNull String log) {
         Rlog.e(TAG, log);
+    }
+
+    private void plogd(@NonNull String log) {
+        Rlog.d(TAG, log);
+        if (mPersistentLogger != null) {
+            mPersistentLogger.debug(TAG, log);
+        }
+    }
+
+    private void ploge(@NonNull String log) {
+        Rlog.e(TAG, log);
+        if (mPersistentLogger != null) {
+            mPersistentLogger.error(TAG, log);
+        }
     }
     /**
      * TODO: The following needs to be added in this class:

@@ -16,7 +16,10 @@
 
 package android.adservices.common;
 
+import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
+
+import com.android.adservices.flags.Flags;
 
 /**
  * Callback interface intended for use when an asynchronous operation may result in a failure. Exact
@@ -28,7 +31,10 @@ import android.annotation.NonNull;
  *
  * @param <R> The type of the result that's being sent.
  * @param <E> The type of the {@link Throwable} that contains more information about the error.
+ * @deprecated use {@link android.os.OutcomeReceiver} instead. Android R is no longer supported.
  */
+@Deprecated
+@FlaggedApi(Flags.FLAG_ADSERVICES_OUTCOMERECEIVER_R_API_DEPRECATED)
 public interface AdServicesOutcomeReceiver<R, E extends Throwable> {
     /**
      * Called when the asynchronous operation succeeds and delivers a result value.

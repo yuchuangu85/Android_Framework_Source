@@ -98,7 +98,7 @@ final class OpenSSLRSAPrivateCrtKey extends OpenSSLRSAPrivateKey implements RSAP
     }
 
     static OpenSSLKey getInstance(RSAPrivateCrtKey rsaPrivateKey) throws InvalidKeyException {
-        /**
+        /*
          * If the key is not encodable (PKCS11-like key), then wrap it and use
          * JNI upcalls to satisfy requests.
          */
@@ -247,7 +247,7 @@ final class OpenSSLRSAPrivateCrtKey extends OpenSSLRSAPrivateKey implements RSAP
     }
 
     @Override
-    public final int hashCode() {
+    public int hashCode() {
         int hashCode = super.hashCode();
         if (publicExponent != null) {
             hashCode ^= publicExponent.hashCode();

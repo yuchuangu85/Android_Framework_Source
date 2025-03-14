@@ -50,8 +50,7 @@ public final class CredentialElement implements Parcelable {
                 @Override
                 public CredentialElement createFromParcel(Parcel in) {
                     String key = in.readString();
-                    byte[] value = new byte[in.readInt()];
-                    in.readByteArray(value);
+                    byte[] value = in.createByteArray();
                     return new CredentialElement(key, value);
                 }
 
@@ -69,7 +68,6 @@ public final class CredentialElement implements Parcelable {
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeString(mKey);
-        dest.writeInt(mValue.length);
         dest.writeByteArray(mValue);
     }
 

@@ -18,6 +18,14 @@ import java.io.IOException;
 public class ASN1Boolean
     extends ASN1Primitive
 {
+    static final ASN1UniversalType TYPE = new ASN1UniversalType(ASN1Boolean.class, BERTags.BOOLEAN)
+    {
+        ASN1Primitive fromImplicitPrimitive(DEROctetString octetString)
+        {
+            return createPrimitive(octetString.getOctets());
+        }
+    };
+
     private static final byte FALSE_VALUE = 0x00;
     private static final byte TRUE_VALUE = (byte)0xFF;
 
@@ -46,7 +54,7 @@ public class ASN1Boolean
             byte[] enc = (byte[])obj;
             try
             {
-                return (ASN1Boolean)fromByteArray(enc);
+                return (ASN1Boolean)TYPE.fromByteArray(enc);
             }
             catch (IOException e)
             {
@@ -91,25 +99,16 @@ public class ASN1Boolean
     /**
      * Return a Boolean from a tagged object.
      *
-     * @param obj the tagged object holding the object we want
+     * @param taggedObject the tagged object holding the object we want
      * @param explicit true if the object is meant to be explicitly
      *              tagged false otherwise.
      * @exception IllegalArgumentException if the tagged object cannot
      *               be converted.
      * @return an ASN1Boolean instance.
      */
-    public static ASN1Boolean getInstance(ASN1TaggedObject obj, boolean explicit)
+    public static ASN1Boolean getInstance(ASN1TaggedObject taggedObject, boolean explicit)
     {
-        ASN1Primitive o = obj.getObject();
-
-        if (explicit || o instanceof ASN1Boolean)
-        {
-            return getInstance(o);
-        }
-        else
-        {
-            return ASN1Boolean.fromOctetString(ASN1OctetString.getInstance(o).getOctets());
-        }
+        return (ASN1Boolean)TYPE.getContextInstance(taggedObject, explicit);
     }
 
     private ASN1Boolean(byte value)
@@ -122,19 +121,19 @@ public class ASN1Boolean
         return value != FALSE_VALUE;
     }
 
-    boolean isConstructed()
+    boolean encodeConstructed()
     {
         return false;
     }
 
-    int encodedLength()
+    int encodedLength(boolean withTag)
     {
-        return 3;
+        return ASN1OutputStream.getLengthOfEncodingDL(withTag, 1);
     }
 
     void encode(ASN1OutputStream out, boolean withTag) throws IOException
     {
-        out.writeEncoded(withTag, BERTags.BOOLEAN, value);
+        out.writeEncodingDL(withTag, BERTags.BOOLEAN, value);
     }
 
     boolean asn1Equals(ASN1Primitive other)
@@ -164,14 +163,14 @@ public class ASN1Boolean
       return isTrue() ? "TRUE" : "FALSE";
     }
 
-    static ASN1Boolean fromOctetString(byte[] value)
+    static ASN1Boolean createPrimitive(byte[] contents)
     {
-        if (value.length != 1)
+        if (contents.length != 1)
         {
             throw new IllegalArgumentException("BOOLEAN value should have 1 byte in it");
         }
 
-        byte b = value[0];
+        byte b = contents[0];
         switch (b)
         {
         case FALSE_VALUE:   return FALSE;

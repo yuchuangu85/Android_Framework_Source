@@ -15,7 +15,6 @@
  */
 package android.app.sdksandbox.sandboxactivity;
 
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
@@ -27,15 +26,12 @@ import android.os.Build;
 
 import androidx.annotation.RequiresApi;
 
-import com.android.sdksandbox.flags.Flags;
-
 /**
  * Provides information required for building the sandbox activities.
  *
  * @hide
  */
 @SystemApi(client = SystemApi.Client.MODULE_LIBRARIES)
-@FlaggedApi(Flags.FLAG_SANDBOX_ACTIVITY_SDK_BASED_CONTEXT)
 public abstract class SdkSandboxActivityAuthority {
     private static class InstanceHolder {
         private static final SdkSandboxActivityAuthority INSTANCE =

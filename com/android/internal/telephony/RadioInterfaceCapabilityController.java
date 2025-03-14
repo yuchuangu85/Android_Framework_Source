@@ -26,6 +26,8 @@ import android.util.ArraySet;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.Flags;
+import com.android.internal.telephony.util.WorkerThread;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -55,10 +57,19 @@ public class RadioInterfaceCapabilityController extends Handler {
             final CommandsInterface commandsInterface) {
         synchronized (RadioInterfaceCapabilityController.class) {
             if (sInstance == null) {
-                final HandlerThread handlerThread = new HandlerThread("RHC");
-                handlerThread.start();
-                sInstance = new RadioInterfaceCapabilityController(radioConfig, commandsInterface,
-                        handlerThread.getLooper());
+                if (Flags.threadShred()) {
+                    sInstance = new RadioInterfaceCapabilityController(
+                            radioConfig,
+                            commandsInterface,
+                            WorkerThread.get().getLooper());
+                } else {
+                    final HandlerThread handlerThread = new HandlerThread("RHC");
+                    handlerThread.start();
+                    sInstance = new RadioInterfaceCapabilityController(
+                            radioConfig,
+                            commandsInterface,
+                            handlerThread.getLooper());
+                }
             } else {
                 Log.wtf(LOG_TAG, "init() called multiple times!  sInstance = " + sInstance);
             }

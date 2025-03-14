@@ -73,7 +73,6 @@ public final class DistanceMeasurementMethod implements Parcelable {
      *
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING)
     @SystemApi
     public static final int DISTANCE_MEASUREMENT_METHOD_CHANNEL_SOUNDING = 2;
 
@@ -88,10 +87,25 @@ public final class DistanceMeasurementMethod implements Parcelable {
      * Id of the method used for {@link DistanceMeasurementParams.Builder#setMethod(int)}
      *
      * @return id of the method
+     * @deprecated use {@link #getMethodId} instead.
      * @hide
      */
+    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING_25Q2_APIS)
+    @Deprecated
     @SystemApi
-    public @DistanceMeasurementMethodId double getId() {
+    public double getId() {
+        return mId;
+    }
+
+    /**
+     * Id of the method used for {@link DistanceMeasurementParams.Builder#setMethodId(int)}
+     *
+     * @return ID of the measurement method
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_CHANNEL_SOUNDING_25Q2_APIS)
+    @SystemApi
+    public @DistanceMeasurementMethodId int getMethodId() {
         return mId;
     }
 
@@ -161,12 +175,7 @@ public final class DistanceMeasurementMethod implements Parcelable {
         if (!(o instanceof DistanceMeasurementMethod)) return false;
 
         final DistanceMeasurementMethod u = (DistanceMeasurementMethod) o;
-
-        if (mId != u.getId()) {
-            return false;
-        }
-
-        return true;
+        return mId == u.mId;
     }
 
     @Override

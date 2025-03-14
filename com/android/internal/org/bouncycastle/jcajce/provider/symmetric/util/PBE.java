@@ -15,6 +15,7 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.PBEParameterSpec;
 
 import com.android.internal.org.bouncycastle.crypto.CipherParameters;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicePurpose;
 import com.android.internal.org.bouncycastle.crypto.PBEParametersGenerator;
 // Android-removed: Unsupported algorithms
 // import org.bouncycastle.crypto.digests.GOST3411Digest;
@@ -107,25 +108,25 @@ public interface PBE
                 {
                 // Android-removed: Unsupported algorithms
                 // case MD2:
-                //     generator = new PKCS5S2ParametersGenerator(new MD2Digest());
+                    // generator = new PKCS5S2ParametersGenerator(new MD2Digest(CryptoServicePurpose.PRF));
                 //     break;
                 case MD5:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createMD5());
+                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createMD5PRF());
                     generator = new PKCS5S2ParametersGenerator(AndroidDigestFactory.getMD5());
                     break;
                 case SHA1:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA1());
+                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA1PRF());
                     generator = new PKCS5S2ParametersGenerator(AndroidDigestFactory.getSHA1());
                     break;
                 // BEGIN Android-removed: Unsupported algorithms
                 /*
                 case RIPEMD160:
-                    generator = new PKCS5S2ParametersGenerator(new RIPEMD160Digest());
+                    generator = new PKCS5S2ParametersGenerator(new RIPEMD160Digest(CryptoServicePurpose.PRF));
                     break;
                 case TIGER:
-                    generator = new PKCS5S2ParametersGenerator(new TigerDigest());
+                    generator = new PKCS5S2ParametersGenerator(new TigerDigest(CryptoServicePurpose.PRF));
                     break;
                 */
                 // END Android-removed: Unsupported algorithms
@@ -136,36 +137,43 @@ public interface PBE
                     break;
                 // Android-removed: Unsupported algorithms
                 // case GOST3411:
+                //     generator = new PKCS5S2ParametersGenerator(new GOST3411Digest(CryptoServicePurpose.PRF));
+                //     break;
+                // Android-removed: Unsupported algorithms
+                // case GOST3411:
                 //     generator = new PKCS5S2ParametersGenerator(new GOST3411Digest());
                 //     break;
                 case SHA224:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA224());
+                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA224PRF());
                     generator = new PKCS5S2ParametersGenerator(AndroidDigestFactory.getSHA224());
                     break;
                 case SHA384:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA384());
+                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA384PRF());
                     generator = new PKCS5S2ParametersGenerator(AndroidDigestFactory.getSHA384());
                     break;
                 case SHA512:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA512());
+                    // generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA512PRF());
                     generator = new PKCS5S2ParametersGenerator(AndroidDigestFactory.getSHA512());
                     break;
                 // BEGIN Android-removed: Unsupported algorithms
                 /*
                 case SHA3_224:
-                    generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_224());
+                    generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_224PRF());
                     break;
                 case SHA3_256:
-                     generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_256());
+                     generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_256PRF());
                      break;
                 case SHA3_384:
-                    generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_384());
+                    generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_384PRF());
                     break;
                 case SHA3_512:
-                    generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_512());
+                    generator = new PKCS5S2ParametersGenerator(DigestFactory.createSHA3_512PRF());
+                    break;
+                case SM3:
+                    generator = new PKCS5S2ParametersGenerator(new SM3Digest(CryptoServicePurpose.PRF));
                     break;
                 case SM3:
                     generator = new PKCS5S2ParametersGenerator(new SM3Digest());
@@ -182,50 +190,54 @@ public interface PBE
                 {
                 // Android-removed: Unsupported algorithms
                 // case MD2:
-                //     generator = new PKCS12ParametersGenerator(new MD2Digest());
+                    // generator = new PKCS12ParametersGenerator(new MD2Digest(CryptoServicePurpose.PRF));
                 //     break;
                 case MD5:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS12ParametersGenerator(DigestFactory.createMD5());
+                    // generator = new PKCS12ParametersGenerator(DigestFactory.createMD5PRF());
                     generator = new PKCS12ParametersGenerator(AndroidDigestFactory.getMD5());
                     break;
                 case SHA1:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA1());
+                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA1PRF());
                     generator = new PKCS12ParametersGenerator(AndroidDigestFactory.getSHA1());
                     break;
                 // BEGIN Android-removed: Unsupported algorithms
                 /*
                 case RIPEMD160:
-                    generator = new PKCS12ParametersGenerator(new RIPEMD160Digest());
+                    generator = new PKCS12ParametersGenerator(new RIPEMD160Digest(CryptoServicePurpose.PRF));
                     break;
                 case TIGER:
-                    generator = new PKCS12ParametersGenerator(new TigerDigest());
+                    generator = new PKCS12ParametersGenerator(new TigerDigest(CryptoServicePurpose.PRF));
                     break;
                 */
                 // END Android-removed: Unsupported algorithms
                 case SHA256:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA256());
+                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA256PRF());
                     generator = new PKCS12ParametersGenerator(AndroidDigestFactory.getSHA256());
                     break;
+                // Android-removed: Unsupported algorithms
+                // case GOST3411:
+                //     generator = new PKCS12ParametersGenerator(new GOST3411Digest(CryptoServicePurpose.PRF));
+                //     break;
                 // Android-removed: Unsupported algorithms
                 // case GOST3411:
                 //     generator = new PKCS12ParametersGenerator(new GOST3411Digest());
                 //     break;
                 case SHA224:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA224());
+                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA224PRF());
                     generator = new PKCS12ParametersGenerator(AndroidDigestFactory.getSHA224());
                     break;
                 case SHA384:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA384());
+                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA384PRF());
                     generator = new PKCS12ParametersGenerator(AndroidDigestFactory.getSHA384());
                     break;
                 case SHA512:
                     // Android-changed: Use Android digests
-                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA512());
+                    // generator = new PKCS12ParametersGenerator(DigestFactory.createSHA512PRF());
                     generator = new PKCS12ParametersGenerator(AndroidDigestFactory.getSHA512());
                     break;
                 default:

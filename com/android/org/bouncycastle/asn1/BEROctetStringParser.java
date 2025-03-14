@@ -8,6 +8,8 @@ import com.android.org.bouncycastle.util.io.Streams;
 
 /**
  * A parser for indefinite-length OCTET STRINGs.
+ * 
+ * @deprecated Check for 'ASN1OctetStringParser' instead 
  * @hide This class is not part of the Android public SDK API
  */
 public class BEROctetStringParser
@@ -40,7 +42,7 @@ public class BEROctetStringParser
     public ASN1Primitive getLoadedObject()
         throws IOException
     {
-        return new BEROctetString(Streams.readAll(getOctetStream()));
+        return parse(_parser);
     }
 
     /**
@@ -58,5 +60,10 @@ public class BEROctetStringParser
         {
             throw new ASN1ParsingException("IOException converting stream to byte array: " + e.getMessage(), e);
         }
+    }
+
+    static BEROctetString parse(ASN1StreamParser sp) throws IOException
+    {
+        return new BEROctetString(Streams.readAll(new ConstructedOctetStream(sp)));
     }
 }

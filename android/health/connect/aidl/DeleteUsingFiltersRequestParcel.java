@@ -22,7 +22,7 @@ import android.annotation.NonNull;
 import android.health.connect.DeleteUsingFiltersRequest;
 import android.health.connect.TimeRangeFilterHelper;
 import android.health.connect.datatypes.DataOrigin;
-import android.health.connect.internal.datatypes.utils.RecordMapper;
+import android.health.connect.internal.datatypes.utils.HealthConnectMappings;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -76,7 +76,9 @@ public class DeleteUsingFiltersRequestParcel implements Parcelable {
         mRecordTypeFilters =
                 request.getRecordTypes().stream()
                         .mapToInt(
-                                recordType -> RecordMapper.getInstance().getRecordType(recordType))
+                                recordType ->
+                                        HealthConnectMappings.getInstance()
+                                                .getRecordType(recordType))
                         .toArray();
 
         if (request.getTimeRangeFilter() == null) {
@@ -122,7 +124,7 @@ public class DeleteUsingFiltersRequestParcel implements Parcelable {
             return mRecordIdFiltersParcel.getRecordIdFilters().stream()
                     .map(
                             (recordIdFilter) ->
-                                    RecordMapper.getInstance()
+                                    HealthConnectMappings.getInstance()
                                             .getRecordType(recordIdFilter.getRecordType()))
                     .toList()
                     .stream()

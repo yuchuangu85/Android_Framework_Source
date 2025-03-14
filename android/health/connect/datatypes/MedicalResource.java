@@ -16,6 +16,7 @@
 
 package android.health.connect.datatypes;
 
+import static android.health.connect.datatypes.MedicalDataSource.validateMedicalDataSourceIds;
 import static android.health.connect.datatypes.validation.ValidationUtils.validateIntDefValue;
 
 import static com.android.healthfitness.flags.Flags.FLAG_PERSONAL_HEALTH_RECORD;
@@ -26,76 +27,232 @@ import static java.util.Objects.requireNonNull;
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
+import android.health.connect.MedicalResourceId;
+import android.os.Parcel;
+import android.os.Parcelable;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.Set;
 
 /**
- * Captures the user's medical data. This is the class used for all medical resource types, and the
- * type is specified via {@link MedicalResourceType}.
+ * A class to capture the user's medical data. This is the class used for all medical resource
+ * types.
+ *
+ * <p>The data representation follows the <a href="https://hl7.org/fhir/">Fast Healthcare
+ * Interoperability Resources (FHIR)</a> standard.
  */
 @FlaggedApi(FLAG_PERSONAL_HEALTH_RECORD)
-public final class MedicalResource {
-    /** Unknown medical resource type. */
-    public static final int MEDICAL_RESOURCE_TYPE_UNKNOWN = 0;
+public final class MedicalResource implements Parcelable {
+
+    /** Medical resource type labelling data as vaccines. */
+    public static final int MEDICAL_RESOURCE_TYPE_VACCINES = 1;
+
+    /** Medical resource type labelling data as allergies or intolerances. */
+    public static final int MEDICAL_RESOURCE_TYPE_ALLERGIES_INTOLERANCES = 2;
+
+    /** Medical resource type labelling data as to do with pregnancy. */
+    public static final int MEDICAL_RESOURCE_TYPE_PREGNANCY = 3;
+
+    /** Medical resource type labelling data as social history. */
+    public static final int MEDICAL_RESOURCE_TYPE_SOCIAL_HISTORY = 4;
+
+    /** Medical resource type labelling data as vital signs. */
+    public static final int MEDICAL_RESOURCE_TYPE_VITAL_SIGNS = 5;
+
+    /** Medical resource type labelling data as results (Laboratory or pathology). */
+    public static final int MEDICAL_RESOURCE_TYPE_LABORATORY_RESULTS = 6;
+
+    /**
+     * Medical resource type labelling data as medical conditions (clinical condition, problem,
+     * diagnosis etc).
+     */
+    public static final int MEDICAL_RESOURCE_TYPE_CONDITIONS = 7;
+
+    /** Medical resource type labelling data as procedures (actions taken on or for a patient). */
+    public static final int MEDICAL_RESOURCE_TYPE_PROCEDURES = 8;
+
+    /** Medical resource type labelling data as medication related. */
+    public static final int MEDICAL_RESOURCE_TYPE_MEDICATIONS = 9;
+
+    /**
+     * Medical resource type labelling data as related to personal details, including demographic
+     * information such as name, date of birth, and contact details such as address or telephone
+     * numbers.
+     */
+    public static final int MEDICAL_RESOURCE_TYPE_PERSONAL_DETAILS = 10;
+
+    /**
+     * Medical resource type labelling data as related to practitioners. This is information about
+     * the doctors, nurses, masseurs, physios, etc who have been involved with the user.
+     */
+    public static final int MEDICAL_RESOURCE_TYPE_PRACTITIONER_DETAILS = 11;
+
+    /**
+     * Medical resource type labelling data as related to an encounter with a practitioner. This
+     * includes visits to healthcare providers and remote encounters such as telephone and
+     * videoconference appointments, and information about the time, location and organization who
+     * is being met.
+     */
+    public static final int MEDICAL_RESOURCE_TYPE_VISITS = 12;
 
     /** @hide */
-    @IntDef({MEDICAL_RESOURCE_TYPE_UNKNOWN})
+    @IntDef({
+        MEDICAL_RESOURCE_TYPE_ALLERGIES_INTOLERANCES,
+        MEDICAL_RESOURCE_TYPE_CONDITIONS,
+        MEDICAL_RESOURCE_TYPE_LABORATORY_RESULTS,
+        MEDICAL_RESOURCE_TYPE_MEDICATIONS,
+        MEDICAL_RESOURCE_TYPE_PERSONAL_DETAILS,
+        MEDICAL_RESOURCE_TYPE_PRACTITIONER_DETAILS,
+        MEDICAL_RESOURCE_TYPE_PREGNANCY,
+        MEDICAL_RESOURCE_TYPE_PROCEDURES,
+        MEDICAL_RESOURCE_TYPE_SOCIAL_HISTORY,
+        MEDICAL_RESOURCE_TYPE_VACCINES,
+        MEDICAL_RESOURCE_TYPE_VISITS,
+        MEDICAL_RESOURCE_TYPE_VITAL_SIGNS,
+    })
     @Retention(RetentionPolicy.SOURCE)
     public @interface MedicalResourceType {}
 
-    @NonNull private final String mId;
     @MedicalResourceType private final int mType;
+    @NonNull private final MedicalResourceId mId;
     @NonNull private final String mDataSourceId;
-    @NonNull private final String mData;
+    @NonNull private final FhirVersion mFhirVersion;
+    @NonNull private final FhirResource mFhirResource;
+
+    /** @hide */
+    private long mLastModifiedTimestamp;
 
     /**
-     * @param id The unique identifier of this data, assigned by the Android Health Platform at
-     *     insertion time.
-     * @param type The medical resource type assigned by the Android Health Platform at insertion
-     *     time.
-     * @param dataSourceId Where the data comes from.
-     * @param data The FHIR resource data in JSON representation.
+     * Creates a new instance of {@link MedicalResource} which takes in {@code
+     * lastModifiedTimestamp} as a parameter as well. The {@code lastModifiedTimestamp} is currently
+     * only used internally to ensure D2D merge process, copies over the exact timestamp of when the
+     * {@link MedicalResource} was modified.
+     *
+     * @hide
      */
-    private MedicalResource(
-            @NonNull String id,
+    public MedicalResource(
             @MedicalResourceType int type,
             @NonNull String dataSourceId,
-            @NonNull String data) {
-        requireNonNull(id);
-        requireNonNull(dataSourceId);
-        requireNonNull(data);
-        validateIntDefValue(type, VALID_TYPES, MedicalResourceType.class.getSimpleName());
+            @NonNull FhirVersion fhirVersion,
+            @NonNull FhirResource fhirResource,
+            long lastModifiedTimestamp) {
+        this(type, dataSourceId, fhirVersion, fhirResource);
+        mLastModifiedTimestamp = lastModifiedTimestamp;
+    }
 
-        mId = id;
+    /**
+     * Creates a new instance of {@link MedicalResource}. Please see {@link MedicalResource.Builder}
+     * for more detailed parameters information.
+     */
+    private MedicalResource(
+            @MedicalResourceType int type,
+            @NonNull String dataSourceId,
+            @NonNull FhirVersion fhirVersion,
+            @NonNull FhirResource fhirResource) {
+        requireNonNull(dataSourceId);
+        requireNonNull(fhirVersion);
+        requireNonNull(fhirResource);
+        validateMedicalResourceType(type);
+        validateMedicalDataSourceIds(Set.of(dataSourceId));
+
         mType = type;
         mDataSourceId = dataSourceId;
-        mData = data;
+        mFhirVersion = fhirVersion;
+        mFhirResource = fhirResource;
+        mId = new MedicalResourceId(dataSourceId, fhirResource.getType(), fhirResource.getId());
     }
 
-    /** Returns the unique identifier of this data. */
+    /**
+     * Constructs this object with the data present in {@code parcel}. It should be in the same
+     * order as {@link MedicalResource#writeToParcel}.
+     */
+    private MedicalResource(@NonNull Parcel in) {
+        requireNonNull(in);
+        mType = in.readInt();
+        validateMedicalResourceType(mType);
+        mDataSourceId = requireNonNull(in.readString());
+        validateMedicalDataSourceIds(Set.of(mDataSourceId));
+        mFhirVersion =
+                requireNonNull(
+                        in.readParcelable(FhirVersion.class.getClassLoader(), FhirVersion.class));
+        mFhirResource =
+                requireNonNull(
+                        in.readParcelable(FhirResource.class.getClassLoader(), FhirResource.class));
+        mId = new MedicalResourceId(mDataSourceId, mFhirResource.getType(), mFhirResource.getId());
+    }
+
     @NonNull
-    public String getId() {
-        return mId;
-    }
+    public static final Creator<MedicalResource> CREATOR =
+            new Creator<>() {
+                @Override
+                public MedicalResource createFromParcel(Parcel in) {
+                    return new MedicalResource(in);
+                }
 
-    /** Returns the medical resource type. */
+                @Override
+                public MedicalResource[] newArray(int size) {
+                    return new MedicalResource[size];
+                }
+            };
+
+    /**
+     * Returns the medical resource type, assigned by the Android Health Platform at insertion time.
+     *
+     * <p>For a list of supported types, see the {@link MedicalResource} type constants, such as
+     * {@link #MEDICAL_RESOURCE_TYPE_VACCINES}. Clients should be aware that this list is non
+     * exhaustive and may increase in future releases when additional types will need to be handled.
+     */
     @MedicalResourceType
     public int getType() {
         return mType;
     }
 
-    /** Returns The data source ID where the data comes from. */
+    /** Returns the ID of this {@link MedicalResource} as {@link MedicalResourceId}. */
+    @NonNull
+    public MedicalResourceId getId() {
+        return mId;
+    }
+
+    /** Returns the unique {@link MedicalDataSource} ID of where the data comes from. */
     @NonNull
     public String getDataSourceId() {
         return mDataSourceId;
     }
 
-    /** Returns the FHIR resource data in JSON representation. */
+    /** Returns the FHIR version being used for {@code mFhirResource} */
     @NonNull
-    public String getData() {
-        return mData;
+    public FhirVersion getFhirVersion() {
+        return mFhirVersion;
+    }
+
+    /** Returns the enclosed {@link FhirResource} object. */
+    @NonNull
+    public FhirResource getFhirResource() {
+        return mFhirResource;
+    }
+
+    /**
+     * Returns the last modified timestamp for this {@link MedicalResource}.
+     *
+     * @hide
+     */
+    public long getLastModifiedTimestamp() {
+        return mLastModifiedTimestamp;
+    }
+
+    @Override
+    public int describeContents() {
+        return 0;
+    }
+
+    @Override
+    public void writeToParcel(@NonNull Parcel dest, int flags) {
+        requireNonNull(dest);
+        dest.writeInt(getType());
+        dest.writeString(getDataSourceId());
+        dest.writeParcelable(getFhirVersion(), 0);
+        dest.writeParcelable(getFhirResource(), 0);
     }
 
     /**
@@ -104,119 +261,159 @@ public final class MedicalResource {
      *
      * @hide
      */
-    public static final Set<Integer> VALID_TYPES = Set.of(MEDICAL_RESOURCE_TYPE_UNKNOWN);
+    public static final Set<Integer> VALID_TYPES =
+            Set.of(
+                    MEDICAL_RESOURCE_TYPE_ALLERGIES_INTOLERANCES,
+                    MEDICAL_RESOURCE_TYPE_CONDITIONS,
+                    MEDICAL_RESOURCE_TYPE_LABORATORY_RESULTS,
+                    MEDICAL_RESOURCE_TYPE_MEDICATIONS,
+                    MEDICAL_RESOURCE_TYPE_PERSONAL_DETAILS,
+                    MEDICAL_RESOURCE_TYPE_PRACTITIONER_DETAILS,
+                    MEDICAL_RESOURCE_TYPE_PREGNANCY,
+                    MEDICAL_RESOURCE_TYPE_PROCEDURES,
+                    MEDICAL_RESOURCE_TYPE_SOCIAL_HISTORY,
+                    MEDICAL_RESOURCE_TYPE_VACCINES,
+                    MEDICAL_RESOURCE_TYPE_VISITS,
+                    MEDICAL_RESOURCE_TYPE_VITAL_SIGNS);
 
-    /** Indicates whether some other object is "equal to" this one. */
+    /**
+     * Validates the provided {@code medicalResourceType} is in the {@link
+     * MedicalResource#VALID_TYPES} set.
+     *
+     * <p>Throws {@link IllegalArgumentException} if not.
+     *
+     * @hide
+     */
+    public static void validateMedicalResourceType(@MedicalResourceType int medicalResourceType) {
+        validateIntDefValue(
+                medicalResourceType, VALID_TYPES, MedicalResourceType.class.getSimpleName());
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof MedicalResource that)) return false;
-        return getId().equals(that.getId())
-                && getType() == that.getType()
+        return getType() == that.getType()
                 && getDataSourceId().equals(that.getDataSourceId())
-                && getData().equals(that.getData());
+                && getFhirVersion().equals(that.getFhirVersion())
+                && getFhirResource().equals(that.getFhirResource());
     }
 
-    /** Returns a hash code value for the object. */
     @Override
     public int hashCode() {
-        return hash(getId(), getType(), getDataSourceId(), getData());
+        return hash(getType(), getDataSourceId(), getFhirVersion(), getFhirResource());
     }
 
-    /** Returns a string representation of this {@link MedicalResource}. */
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(this.getClass().getSimpleName()).append("{");
-        sb.append("id=").append(getId());
-        sb.append(",type=").append(getType());
+        sb.append("type=").append(getType());
         sb.append(",dataSourceId=").append(getDataSourceId());
-        sb.append(",data=").append(getData());
+        sb.append(",fhirVersion=").append(getFhirVersion());
+        sb.append(",fhirResource=").append(getFhirResource());
         sb.append("}");
         return sb.toString();
     }
 
-    /** Builder class for {@link MedicalResource} */
+    /** Builder class for {@link MedicalResource}. */
     public static final class Builder {
-        @NonNull private String mId;
         @MedicalResourceType private int mType;
         @NonNull private String mDataSourceId;
-        @NonNull private String mData;
+        @NonNull private FhirVersion mFhirVersion;
+        @NonNull private FhirResource mFhirResource;
 
+        /**
+         * Constructs a new {@link MedicalResource.Builder} instance.
+         *
+         * @param type The medical resource type.
+         * @param dataSourceId The unique {@link MedicalDataSource} ID of where the data comes from.
+         * @param fhirVersion the FHIR version being used for {@code fhirResource}.
+         * @param fhirResource The enclosed {@link FhirResource} object.
+         * @throws IllegalArgumentException if the provided medical resource {@code type} is not a
+         *     valid supported type, or {@code dataSourceId} is not a valid ID.
+         */
         public Builder(
-                @NonNull String id,
                 @MedicalResourceType int type,
                 @NonNull String dataSourceId,
-                @NonNull String data) {
-            requireNonNull(id);
+                @NonNull FhirVersion fhirVersion,
+                @NonNull FhirResource fhirResource) {
             requireNonNull(dataSourceId);
-            requireNonNull(data);
-            validateIntDefValue(type, VALID_TYPES, MedicalResourceType.class.getSimpleName());
+            requireNonNull(fhirVersion);
+            requireNonNull(fhirResource);
+            validateMedicalResourceType(type);
+            validateMedicalDataSourceIds(Set.of(dataSourceId));
 
-            mId = id;
             mType = type;
             mDataSourceId = dataSourceId;
-            mData = data;
+            mFhirVersion = fhirVersion;
+            mFhirResource = fhirResource;
         }
 
-        public Builder(@NonNull Builder original) {
-            requireNonNull(original);
-            mId = original.mId;
-            mType = original.mType;
-            mDataSourceId = original.mDataSourceId;
-            mData = original.mData;
+        /** Constructs a clone of the other {@link MedicalResource.Builder}. */
+        public Builder(@NonNull Builder other) {
+            requireNonNull(other);
+            mType = other.mType;
+            mDataSourceId = other.mDataSourceId;
+            mFhirVersion = other.mFhirVersion;
+            mFhirResource = other.mFhirResource;
         }
 
-        public Builder(@NonNull MedicalResource original) {
-            requireNonNull(original);
-            mId = original.getId();
-            mType = original.getType();
-            mDataSourceId = original.getDataSourceId();
-            mData = original.getData();
-        }
-
-        /**
-         * Sets the unique identifier of this data, assigned by the Android Health Platform at
-         * insertion time.
-         */
-        @NonNull
-        public Builder setId(@NonNull String id) {
-            requireNonNull(id);
-            mId = id;
-            return this;
+        /** Constructs a clone of the other {@link MedicalResource} instance. */
+        public Builder(@NonNull MedicalResource other) {
+            requireNonNull(other);
+            mType = other.getType();
+            mDataSourceId = other.getDataSourceId();
+            mFhirVersion = other.getFhirVersion();
+            mFhirResource = other.getFhirResource();
         }
 
         /**
-         * Sets the medical resource type, assigned by the Android Health Platform at insertion
-         * time.
+         * Sets the medical resource type.
+         *
+         * @throws IllegalArgumentException if the provided medical resource {@code type} is not a
+         *     valid supported type.
          */
         @NonNull
         public Builder setType(@MedicalResourceType int type) {
-            validateIntDefValue(type, VALID_TYPES, MedicalResourceType.class.getSimpleName());
+            validateMedicalResourceType(type);
             mType = type;
             return this;
         }
 
-        /** Sets the data source ID where the data comes from. */
+        /**
+         * Sets the unique {@link MedicalDataSource} ID of where the data comes from.
+         *
+         * @throws IllegalArgumentException if the provided {@code dataSourceId} is not a valid ID.
+         */
         @NonNull
         public Builder setDataSourceId(@NonNull String dataSourceId) {
             requireNonNull(dataSourceId);
+            validateMedicalDataSourceIds(Set.of(dataSourceId));
             mDataSourceId = dataSourceId;
             return this;
         }
 
-        /** Sets the FHIR resource data in JSON representation. */
+        /** Sets the FHIR version being used for {@code fhirResource}. */
         @NonNull
-        public Builder setData(@NonNull String data) {
-            requireNonNull(data);
-            mData = data;
+        public Builder setFhirVersion(@NonNull FhirVersion fhirVersion) {
+            requireNonNull(fhirVersion);
+            mFhirVersion = fhirVersion;
+            return this;
+        }
+
+        /** Sets the enclosed {@link FhirResource} object. */
+        @NonNull
+        public Builder setFhirResource(@NonNull FhirResource fhirResource) {
+            requireNonNull(fhirResource);
+            mFhirResource = fhirResource;
             return this;
         }
 
         /** Returns a new instance of {@link MedicalResource} with the specified parameters. */
         @NonNull
         public MedicalResource build() {
-            return new MedicalResource(mId, mType, mDataSourceId, mData);
+            return new MedicalResource(mType, mDataSourceId, mFhirVersion, mFhirResource);
         }
     }
 }

@@ -27,6 +27,7 @@ import android.net.MacAddress;
 import android.net.wifi.OuiKeyedData;
 import android.net.wifi.ParcelUtil;
 import android.net.wifi.WpsInfo;
+import android.net.wifi.util.Environment;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -43,6 +44,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.regex.PatternSyntaxException;
 
 /**
@@ -51,6 +53,10 @@ import java.util.regex.PatternSyntaxException;
  * {@see WifiP2pManager}
  */
 public class WifiP2pConfig implements Parcelable {
+
+    static final int PSK_PASSWORD_MIN_LEN = 8;
+    static final int PSK_PASSWORD_MAX_LEN = 63;
+    static final int SAE_PASSWORD_MAX_LEN = 128;
 
     /**
      * The device MAC address uniquely identifies a Wi-Fi p2p device
@@ -85,7 +91,8 @@ public class WifiP2pConfig implements Parcelable {
      * The result will be one of the following:
      * {@link #GROUP_OWNER_BAND_AUTO},
      * {@link #GROUP_OWNER_BAND_2GHZ},
-     * {@link #GROUP_OWNER_BAND_5GHZ}
+     * {@link #GROUP_OWNER_BAND_5GHZ},
+     * {@link #GROUP_OWNER_BAND_6GHZ}
      */
     @GroupOperatingBandType
     public int getGroupOwnerBand() {
@@ -98,9 +105,10 @@ public class WifiP2pConfig implements Parcelable {
 
     /** @hide */
     @IntDef(flag = false, prefix = { "GROUP_OWNER_BAND_" }, value = {
-        GROUP_OWNER_BAND_AUTO,
-        GROUP_OWNER_BAND_2GHZ,
-        GROUP_OWNER_BAND_5GHZ
+            GROUP_OWNER_BAND_AUTO,
+            GROUP_OWNER_BAND_2GHZ,
+            GROUP_OWNER_BAND_5GHZ,
+            GROUP_OWNER_BAND_6GHZ,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface GroupOperatingBandType {}
@@ -127,6 +135,11 @@ public class WifiP2pConfig implements Parcelable {
      * Allow the system to pick the operating frequency from the 5 GHz band.
      */
     public static final int GROUP_OWNER_BAND_5GHZ = 2;
+    /**
+     * Allow the system to pick the operating frequency from the 6 GHz band.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int GROUP_OWNER_BAND_6GHZ = 3;
 
     /**
      * The least inclination to be a group owner, to be filled in the field
@@ -243,6 +256,165 @@ public class WifiP2pConfig implements Parcelable {
         return mVendorData;
     }
 
+    /**
+     * Default connection type used internally by the P2P service.
+     *
+     * @hide
+     */
+    public static final int PCC_MODE_DEFAULT_CONNECTION_TYPE_LEGACY_ONLY = 0;
+
+    /**
+     * Legacy connection type.
+     * <p>Group Owner: Configured to support WPA2-Personal connections.
+     * <p>Group Client: Configured to connect to Group Owner using WPA2-Personal.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY =
+            PCC_MODE_DEFAULT_CONNECTION_TYPE_LEGACY_ONLY;
+
+    /**
+     * Wi-Fi Direct R1/R2 compatible mode connection type.
+     * <p>Group Owner: Configured in WPA3-Personal Compatibility Mode to support WPA3-Personal and
+     *              WPA2-Personal connections simultaneously.
+     * <p>Group Client: Configured to connect to Group Owner using WPA3-Personal or WPA2-Personal.
+     *               The system will choose WPA3-Personal if Group Owner support WPA3-Personal.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int PCC_MODE_CONNECTION_TYPE_LEGACY_OR_R2 = 1;
+
+    /**
+     * This configuration allows only Wi-Fi Direct R2 supported devices to establish connection.
+     * <p>Group Owner: Configured to support WPA3-Personal connections.
+     * <p>Group Client: Configured to connect to Group Owner using WPA3-Personal.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int PCC_MODE_CONNECTION_TYPE_R2_ONLY = 2;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "PCC_MODE_CONNECTION_TYPE_" }, value = {
+            PCC_MODE_DEFAULT_CONNECTION_TYPE_LEGACY_ONLY,
+            PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY,
+            PCC_MODE_CONNECTION_TYPE_LEGACY_OR_R2,
+            PCC_MODE_CONNECTION_TYPE_R2_ONLY,
+    })
+    public @interface PccModeConnectionType {}
+
+    @PccModeConnectionType
+    private int mPccModeConnectionType = PCC_MODE_DEFAULT_CONNECTION_TYPE_LEGACY_ONLY;
+
+    /**
+     * Get the PCC Mode connection type.
+     *
+     * @return One of the {@code PCC_MODE_CONNECTION_TYPE_*}.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public @PccModeConnectionType int getPccModeConnectionType() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mPccModeConnectionType;
+    }
+
+    /**
+     * Default P2P version used internally by the P2P service.
+     *
+     * @hide
+     */
+    public static final int P2P_DEFAULT_VERSION_1 = 0;
+
+    /**
+     * P2P Protocol version 1
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int P2P_VERSION_1 = P2P_DEFAULT_VERSION_1;
+
+    /**
+     * P2P Protocol version 2
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int P2P_VERSION_2 = 1;
+
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(flag = false, prefix = { "P2P_VERSION_" }, value = {
+            P2P_DEFAULT_VERSION_1,
+            P2P_VERSION_1,
+            P2P_VERSION_2,
+    })
+    public @interface P2pVersion {}
+
+    @P2pVersion
+    private int mGroupOwnerVersion = P2P_DEFAULT_VERSION_1;
+
+    /**
+     * Get the P2P Group Owner version.
+     * See also {@link #setGroupOwnerVersion(int)}.
+     *
+     * @return The P2P Group Owner protocol version.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public @P2pVersion int getGroupOwnerVersion() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mGroupOwnerVersion;
+    }
+
+    /**
+     * Set the P2P Group Owner version.
+     *
+     * @param version The P2P Group Owner protocol version.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public void setGroupOwnerVersion(
+            @P2pVersion int version) {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        mGroupOwnerVersion = version;
+    }
+
+    private @Nullable WifiP2pPairingBootstrappingConfig mPairingBootstrappingConfig;
+
+    /**
+     * Get the pairing bootstrapping configuration , or null if unset.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    @Nullable
+    public WifiP2pPairingBootstrappingConfig getPairingBootstrappingConfig() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mPairingBootstrappingConfig;
+    }
+
+    /**
+     * Used to authorize a connection request from the peer device.
+     */
+    private boolean mIsAuthorizeConnectionFromPeerEnabled = false;
+
+    /**
+     * Query to check if the configuration is for authorizing a connection request
+     * from the peer device. @see {@link Builder#setAuthorizeConnectionFromPeerEnabled(boolean)}
+     *
+     * @return true if configured to authorize a connection request from the Peer device,
+     * False otherwise.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isAuthorizeConnectionFromPeerEnabled() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mIsAuthorizeConnectionFromPeerEnabled;
+    }
+
     public WifiP2pConfig() {
         //set defaults
         wps = new WpsInfo();
@@ -315,10 +487,19 @@ public class WifiP2pConfig implements Parcelable {
         sbuf.append("\n networkName: ").append(networkName);
         sbuf.append("\n passphrase: ").append(
                 TextUtils.isEmpty(passphrase) ? "<empty>" : "<non-empty>");
+        sbuf.append("\n pccModeConnectionType: ").append(mPccModeConnectionType);
         sbuf.append("\n groupOwnerBand: ").append(groupOwnerBand);
         sbuf.append("\n groupClientIpProvisioningMode: ").append(mGroupClientIpProvisioningMode);
         sbuf.append("\n joinExistingGroup: ").append(mJoinExistingGroup);
         sbuf.append("\n vendorData: ").append(mVendorData);
+        sbuf.append("\n Group Owner Version: ").append(mGroupOwnerVersion);
+        if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+            sbuf.append("\n Pairing bootstrapping config : ")
+                    .append((mPairingBootstrappingConfig == null)
+                            ? "<null>" : mPairingBootstrappingConfig.toString());
+        }
+        sbuf.append("\n authorizeConnectionFromPeerEnabled: ")
+                .append(mIsAuthorizeConnectionFromPeerEnabled);
         return sbuf.toString();
     }
 
@@ -336,10 +517,14 @@ public class WifiP2pConfig implements Parcelable {
             netId = source.netId;
             networkName = source.networkName;
             passphrase = source.passphrase;
+            mPccModeConnectionType = source.mPccModeConnectionType;
             groupOwnerBand = source.groupOwnerBand;
             mGroupClientIpProvisioningMode = source.mGroupClientIpProvisioningMode;
             mJoinExistingGroup = source.mJoinExistingGroup;
             mVendorData = new ArrayList<>(source.mVendorData);
+            mGroupOwnerVersion = source.mGroupOwnerVersion;
+            mPairingBootstrappingConfig = source.mPairingBootstrappingConfig;
+            mIsAuthorizeConnectionFromPeerEnabled = source.mIsAuthorizeConnectionFromPeerEnabled;
         }
     }
 
@@ -351,10 +536,16 @@ public class WifiP2pConfig implements Parcelable {
         dest.writeInt(netId);
         dest.writeString(networkName);
         dest.writeString(passphrase);
+        dest.writeInt(mPccModeConnectionType);
         dest.writeInt(groupOwnerBand);
         dest.writeInt(mGroupClientIpProvisioningMode);
         dest.writeBoolean(mJoinExistingGroup);
         dest.writeList(mVendorData);
+        dest.writeInt(mGroupOwnerVersion);
+        if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+            dest.writeParcelable(mPairingBootstrappingConfig, flags);
+        }
+        dest.writeBoolean(mIsAuthorizeConnectionFromPeerEnabled);
     }
 
     /** Implement the Parcelable interface */
@@ -362,18 +553,25 @@ public class WifiP2pConfig implements Parcelable {
     public static final Creator<WifiP2pConfig> CREATOR =
         new Creator<WifiP2pConfig>() {
             public WifiP2pConfig createFromParcel(Parcel in) {
-                WifiP2pConfig config = new WifiP2pConfig();
-                config.deviceAddress = in.readString();
-                config.wps = (WpsInfo) in.readParcelable(null);
-                config.groupOwnerIntent = in.readInt();
-                config.netId = in.readInt();
-                config.networkName = in.readString();
-                config.passphrase = in.readString();
-                config.groupOwnerBand = in.readInt();
-                config.mGroupClientIpProvisioningMode = in.readInt();
-                config.mJoinExistingGroup = in.readBoolean();
-                config.mVendorData = ParcelUtil.readOuiKeyedDataList(in);
-                return config;
+                    WifiP2pConfig config = new WifiP2pConfig();
+                    config.deviceAddress = in.readString();
+                    config.wps = (WpsInfo) in.readParcelable(WpsInfo.class.getClassLoader());
+                    config.groupOwnerIntent = in.readInt();
+                    config.netId = in.readInt();
+                    config.networkName = in.readString();
+                    config.passphrase = in.readString();
+                    config.mPccModeConnectionType = in.readInt();
+                    config.groupOwnerBand = in.readInt();
+                    config.mGroupClientIpProvisioningMode = in.readInt();
+                    config.mJoinExistingGroup = in.readBoolean();
+                    config.mVendorData = ParcelUtil.readOuiKeyedDataList(in);
+                    config.mGroupOwnerVersion = in.readInt();
+                    if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+                        config.mPairingBootstrappingConfig = in.readParcelable(
+                                WifiP2pPairingBootstrappingConfig.class.getClassLoader());
+                    }
+                    config.mIsAuthorizeConnectionFromPeerEnabled = in.readBoolean();
+                    return config;
             }
 
             public WifiP2pConfig[] newArray(int size) {
@@ -410,6 +608,10 @@ public class WifiP2pConfig implements Parcelable {
         private int mNetId = WifiP2pGroup.NETWORK_ID_TEMPORARY;
         private int mGroupClientIpProvisioningMode = GROUP_CLIENT_IP_PROVISIONING_MODE_IPV4_DHCP;
         private boolean mJoinExistingGroup = false;
+        @PccModeConnectionType
+        private int mPccModeConnectionType = PCC_MODE_DEFAULT_CONNECTION_TYPE_LEGACY_ONLY;
+        private @Nullable WifiP2pPairingBootstrappingConfig mPairingBootstrappingConfig;
+        private boolean mIsAuthorizeConnectionFromPeerEnabled = false;
 
         /**
          * Specify the peer's MAC address. If not set, the device will
@@ -477,8 +679,11 @@ public class WifiP2pConfig implements Parcelable {
         /**
          * Specify the passphrase for creating or joining a group.
          * <p>
-         * The passphrase must be an ASCII string whose length is between 8
-         * and 63.
+         * The passphrase must be an ASCII string whose length is,
+         * 1. Between 8 and 63 for {@link #PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY} and
+         *    {@link #PCC_MODE_CONNECTION_TYPE_LEGACY_OR_R2}.
+         * 2. Less than 128 for {@link #PCC_MODE_CONNECTION_TYPE_R2_ONLY}.
+         *
          * <p>
          *     Must be called - an empty passphrase is not valid.
          *
@@ -488,29 +693,60 @@ public class WifiP2pConfig implements Parcelable {
          */
         @NonNull
         public Builder setPassphrase(@NonNull String passphrase) {
+            Objects.requireNonNull(passphrase, "passphrase cannot be null");
             if (TextUtils.isEmpty(passphrase)) {
                 throw new IllegalArgumentException(
                         "passphrase must be non-empty.");
             }
-            if (passphrase.length() < 8 || passphrase.length() > 63) {
+            if (passphrase.length() > SAE_PASSWORD_MAX_LEN) {
                 throw new IllegalArgumentException(
-                        "The length of a passphrase must be between 8 and 63.");
+                        "The length of a passphrase must be less than 128");
             }
             mPassphrase = passphrase;
             return this;
         }
 
         /**
+         * Specifies the PCC Mode connection type.
+         *
+         * @param connectionType One of the {@code PCC_MODE_CONNECTION_TYPE_*}.
+         * @return Builder for chaining.
+         *
+         * @throws IllegalArgumentException when the connectionType is invalid.
+         */
+        @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+        @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+        @NonNull
+        public Builder setPccModeConnectionType(
+                @PccModeConnectionType int connectionType) {
+            if (!Environment.isSdkAtLeastB()) {
+                throw new UnsupportedOperationException();
+            }
+            switch (connectionType) {
+                case PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY:
+                case PCC_MODE_CONNECTION_TYPE_LEGACY_OR_R2:
+                case PCC_MODE_CONNECTION_TYPE_R2_ONLY:
+                    mPccModeConnectionType = connectionType;
+                    break;
+                default:
+                    throw new IllegalArgumentException(
+                            "Invalid constant for the PCC Mode connection type!");
+            }
+            return this;
+        }
+
+        /**
          * Specify the band to use for creating the group or joining the group. The band should
          * be {@link #GROUP_OWNER_BAND_2GHZ}, {@link #GROUP_OWNER_BAND_5GHZ} or
-         * {@link #GROUP_OWNER_BAND_AUTO}.
+         * {@link #GROUP_OWNER_BAND_6GHZ} or {@link #GROUP_OWNER_BAND_AUTO}.
          * <p>
          * When creating a group as Group Owner using {@link
          * WifiP2pManager#createGroup(WifiP2pManager.Channel,
          * WifiP2pConfig, WifiP2pManager.ActionListener)},
          * specifying {@link #GROUP_OWNER_BAND_AUTO} allows the system to pick the operating
          * frequency from all supported bands.
-         * Specifying {@link #GROUP_OWNER_BAND_2GHZ} or {@link #GROUP_OWNER_BAND_5GHZ}
+         * Specifying {@link #GROUP_OWNER_BAND_2GHZ} or {@link #GROUP_OWNER_BAND_5GHZ} or
+         * {@link #GROUP_OWNER_BAND_6GHZ}
          * only allows the system to pick the operating frequency in the specified band.
          * If the Group Owner cannot create a group in the specified band, the operation will fail.
          * <p>
@@ -519,7 +755,8 @@ public class WifiP2pConfig implements Parcelable {
          * WifiP2pManager.ActionListener)},
          * specifying {@link #GROUP_OWNER_BAND_AUTO} allows the system to scan all supported
          * frequencies to find the desired group. Specifying {@link #GROUP_OWNER_BAND_2GHZ} or
-         * {@link #GROUP_OWNER_BAND_5GHZ} only allows the system to scan the specified band.
+         * {@link #GROUP_OWNER_BAND_5GHZ} or {@link #GROUP_OWNER_BAND_6GHZ} only allows the
+         * system to scan the specified band.
          * <p>
          *     {@link #setGroupOperatingBand(int)} and {@link #setGroupOperatingFrequency(int)} are
          *     mutually exclusive. Setting operating band and frequency both is invalid.
@@ -528,20 +765,21 @@ public class WifiP2pConfig implements Parcelable {
          *
          * @param band the operating band of the group.
          *             This should be one of {@link #GROUP_OWNER_BAND_AUTO},
-         *             {@link #GROUP_OWNER_BAND_2GHZ}, {@link #GROUP_OWNER_BAND_5GHZ}.
+         *             {@link #GROUP_OWNER_BAND_2GHZ}, {@link #GROUP_OWNER_BAND_5GHZ},
+         *             {@link #GROUP_OWNER_BAND_6GHZ}.
          * @return The builder to facilitate chaining
          *         {@code builder.setXXX(..).setXXX(..)}.
          */
         @NonNull
         public Builder setGroupOperatingBand(@GroupOperatingBandType int band) {
-            switch (band) {
-                case GROUP_OWNER_BAND_AUTO:
-                case GROUP_OWNER_BAND_2GHZ:
-                case GROUP_OWNER_BAND_5GHZ:
-                    mGroupOperatingBand = band;
-                    break;
-                default:
-                    throw new IllegalArgumentException(
+            if (GROUP_OWNER_BAND_AUTO == band
+                    || GROUP_OWNER_BAND_2GHZ == band
+                    || GROUP_OWNER_BAND_5GHZ == band
+                    || (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()
+                    && GROUP_OWNER_BAND_6GHZ == band)) {
+                mGroupOperatingBand = band;
+            } else {
+                throw new IllegalArgumentException(
                         "Invalid constant for the group operating band!");
             }
             return this;
@@ -682,6 +920,54 @@ public class WifiP2pConfig implements Parcelable {
         }
 
         /**
+         * Set the pairing bootstrapping configuration for connecting using P2P pairing
+         * Protocol.
+         *
+         * @param config See {@link WifiP2pPairingBootstrappingConfig }
+         * @return The builder to facilitate chaining {@code builder.setXXX(..).setXXX(..)}.
+         */
+        @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+        @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+        @NonNull
+        public Builder setPairingBootstrappingConfig(
+                @NonNull WifiP2pPairingBootstrappingConfig config) {
+            if (!Environment.isSdkAtLeastB()) {
+                throw new UnsupportedOperationException();
+            }
+            Objects.requireNonNull(config, "config cannot be null");
+            mPairingBootstrappingConfig = config;
+            return this;
+        }
+
+        /**
+         * Specify that the configuration is to authorize a connection request from a peer device.
+         * The MAC address of the peer device is specified using
+         * {@link WifiP2pConfig.Builder#setDeviceAddress(MacAddress)}.
+         * <p>
+         * Optional. false by default. The default configuration is to join a group or to initiate
+         * a group formation.
+         * <p>
+         * This configuration is typically used in Bluetooth LE assisted P2P pairing protocol
+         * defined in Wi-Fi Direct R2 specification, section 3.9. The collocated Bluetooth Provider
+         * sends the pairing password to the peer device (Seeker) and direct the system to
+         * authorize the connection request from the peer device using {@link
+         * WifiP2pManager#connect(WifiP2pManager.Channel, WifiP2pConfig,
+         * WifiP2pManager.ActionListener)}. The device will then wait for the connection request
+         * from the peer device.
+         *
+         * @param enabled true to authorize a connection request from the peer device, false to
+         *                  let the device join a group or form a group.
+         * @return The builder to facilitate chaining {@code builder.setXXX(..).setXXX(..)}.
+         */
+        @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+        @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+        @NonNull
+        public Builder setAuthorizeConnectionFromPeerEnabled(boolean enabled) {
+            mIsAuthorizeConnectionFromPeerEnabled = enabled;
+            return this;
+        }
+
+        /**
          * Build {@link WifiP2pConfig} given the current requests made on the builder.
          * @return {@link WifiP2pConfig} constructed based on builder method calls.
          */
@@ -695,7 +981,21 @@ public class WifiP2pConfig implements Parcelable {
             if (TextUtils.isEmpty(mNetworkName)
                     && mDeviceAddress.equals(MAC_ANY_ADDRESS)) {
                 throw new IllegalStateException(
-                        "peer address must be set if network name and pasphrase are not set.");
+                        "peer address must be set if network name and passphrase are not set.");
+            }
+
+            if (!TextUtils.isEmpty(mNetworkName)
+                    && !TextUtils.isEmpty(mPassphrase)) {
+                if (mPccModeConnectionType == PCC_MODE_CONNECTION_TYPE_LEGACY_ONLY
+                        || mPccModeConnectionType == PCC_MODE_CONNECTION_TYPE_LEGACY_OR_R2) {
+                    if (mPassphrase.length() < PSK_PASSWORD_MIN_LEN
+                            || mPassphrase.length() > PSK_PASSWORD_MAX_LEN) {
+                        throw new IllegalArgumentException(
+                                "The length of a passphrase must be between "
+                                        + PSK_PASSWORD_MIN_LEN + " and "
+                                        + PSK_PASSWORD_MAX_LEN + " for legacy connection type");
+                    }
+                }
             }
 
             if (mGroupOperatingFrequency > 0 && mGroupOperatingBand > 0) {
@@ -707,6 +1007,7 @@ public class WifiP2pConfig implements Parcelable {
             config.deviceAddress = mDeviceAddress.toString();
             config.networkName = mNetworkName;
             config.passphrase = mPassphrase;
+            config.mPccModeConnectionType = mPccModeConnectionType;
             config.groupOwnerBand = GROUP_OWNER_BAND_AUTO;
             if (mGroupOperatingFrequency > 0) {
                 config.groupOwnerBand = mGroupOperatingFrequency;
@@ -716,6 +1017,13 @@ public class WifiP2pConfig implements Parcelable {
             config.netId = mNetId;
             config.mGroupClientIpProvisioningMode = mGroupClientIpProvisioningMode;
             config.mJoinExistingGroup = mJoinExistingGroup;
+            if (mPairingBootstrappingConfig != null) {
+                config.mPairingBootstrappingConfig = mPairingBootstrappingConfig;
+                config.mGroupClientIpProvisioningMode =
+                        GROUP_CLIENT_IP_PROVISIONING_MODE_IPV6_LINK_LOCAL;
+                config.wps.setup = WpsInfo.INVALID;
+            }
+            config.mIsAuthorizeConnectionFromPeerEnabled = mIsAuthorizeConnectionFromPeerEnabled;
             return config;
         }
     }

@@ -27,13 +27,16 @@ import android.content.IntentFilter;
 import android.database.Cursor;
 import android.database.SQLException;
 import android.os.PersistableBundle;
+import android.os.UserHandle;
 import android.os.UserManager;
 import android.telephony.CarrierConfigManager;
 import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.analytics.TelephonyAnalytics;
 import com.android.internal.telephony.analytics.TelephonyAnalytics.SmsMmsAnalytics;
 import com.android.internal.telephony.cdma.CdmaInboundSmsHandler;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.gsm.GsmInboundSmsHandler;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
@@ -96,6 +99,10 @@ public class SmsBroadcastUndelivered {
     /** Content resolver to use to access raw table from SmsProvider. */
     private final ContentResolver mResolver;
 
+    private final UserManager mUserManager;
+
+    private final FeatureFlags mFeatureFlags;
+
     /** Broadcast receiver that processes the raw table when the user unlocks the phone for the
      *  first time after reboot and the credential-encrypted storage is available.
      */
@@ -104,6 +111,12 @@ public class SmsBroadcastUndelivered {
         public void onReceive(final Context context, Intent intent) {
             Rlog.d(TAG, "Received broadcast " + intent.getAction());
             if (Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())) {
+                if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()) {
+                    int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, UserHandle.USER_NULL);
+                    if (userId != getMainUser().getIdentifier()) {
+                        return;
+                    }
+                }
                 new ScanRawTableThread(context).start();
             }
         }
@@ -125,9 +138,9 @@ public class SmsBroadcastUndelivered {
     }
 
     public static void initialize(Context context, GsmInboundSmsHandler gsmInboundSmsHandler,
-        CdmaInboundSmsHandler cdmaInboundSmsHandler) {
+        CdmaInboundSmsHandler cdmaInboundSmsHandler, FeatureFlags featureFlags) {
         if (instance == null) {
-            instance = new SmsBroadcastUndelivered(context);
+            instance = new SmsBroadcastUndelivered(context, featureFlags);
         }
 
         // Tell handlers to start processing new messages and transit from the startup state to the
@@ -142,18 +155,36 @@ public class SmsBroadcastUndelivered {
     }
 
     @UnsupportedAppUsage
-    private SmsBroadcastUndelivered(Context context) {
+    private SmsBroadcastUndelivered(Context context, FeatureFlags featureFlags) {
         mResolver = context.getContentResolver();
 
-        UserManager userManager = (UserManager) context.getSystemService(Context.USER_SERVICE);
+        mUserManager = context.getSystemService(UserManager.class);
+        mFeatureFlags = featureFlags;
 
-        if (userManager.isUserUnlocked()) {
+        UserHandle mainUser = getMainUser();
+        boolean isUserUnlocked = mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser() ?
+                        mUserManager.isUserUnlocked(mainUser) : mUserManager.isUserUnlocked();
+        if (isUserUnlocked) {
             new ScanRawTableThread(context).start();
         } else {
             IntentFilter userFilter = new IntentFilter();
             userFilter.addAction(Intent.ACTION_USER_UNLOCKED);
-            context.registerReceiver(mBroadcastReceiver, userFilter);
+            if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()) {
+                context.registerReceiverAsUser(
+                        mBroadcastReceiver, mainUser, userFilter, null, null);
+            } else {
+                context.registerReceiver(mBroadcastReceiver, userFilter);
+            }
         }
+    }
+
+    /** Returns the MainUser, which is the user designated for sending SMS broadcasts. */
+    private UserHandle getMainUser() {
+        UserHandle mainUser = null;
+        if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()) {
+            mainUser = mUserManager.getMainUser();
+        }
+        return mainUser != null ? mainUser : UserHandle.SYSTEM;
     }
 
     /**
@@ -243,7 +274,8 @@ public class SmsBroadcastUndelivered {
                             message.mMessageCount);
                     if (phone != null) {
                         phone.getSmsStats().onDroppedIncomingMultipartSms(message.mIs3gpp2, rows,
-                                message.mMessageCount);
+                                message.mMessageCount, TelephonyManager.from(context)
+                                        .isEmergencyNumber(message.mAddress));
                         TelephonyAnalytics telephonyAnalytics = phone.getTelephonyAnalytics();
                         if (telephonyAnalytics != null) {
                             SmsMmsAnalytics smsMmsAnalytics =
@@ -294,7 +326,8 @@ public class SmsBroadcastUndelivered {
         int subId = SubscriptionManager.getDefaultSmsSubscriptionId();
         CarrierConfigManager configManager =
                 (CarrierConfigManager) context.getSystemService(Context.CARRIER_CONFIG_SERVICE);
-        PersistableBundle bundle = configManager.getConfigForSubId(subId);
+        PersistableBundle bundle = null;
+        if (configManager != null) bundle = configManager.getConfigForSubId(subId);
 
         if (bundle != null) {
             return bundle.getLong(CarrierConfigManager.KEY_UNDELIVERED_SMS_MESSAGE_EXPIRATION_TIME,

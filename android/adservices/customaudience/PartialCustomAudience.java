@@ -31,11 +31,11 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Represents a partial custom audience that is passed along to DSP, when scheduling a delayed
- * update for Custom Audience. Any field set by the caller cannot be overridden by the custom
- * audience fetched from the {@code updateUri}
+ * Represents a partial custom audience that is passed along to the buyer ad tech, when scheduling a
+ * delayed update for Custom Audience. Any field set by the caller cannot be overridden by the
+ * custom audience fetched from the {@code updateUri}
  *
- * <p>Given multiple Custom Audiences could be returned by DSP we will match the override
+ * <p>Given multiple Custom Audiences could be returned by the buyer, we will match the override
  * restriction based on the name of Custom Audience. Thus name would be a required field.
  *
  * <p>Other nullable fields will not be overridden if left null

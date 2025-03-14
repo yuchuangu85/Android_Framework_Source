@@ -62,11 +62,11 @@ import sun.security.jca.GetInstance;
  *       <td>TLS</td>
  *       <td>1+</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>TLSv1</td>
  *       <td>10+</td>
  *     </tr>
- *     <tr>
+ *     <tr class="deprecated">
  *       <td>TLSv1.1</td>
  *       <td>16+</td>
  *     </tr>

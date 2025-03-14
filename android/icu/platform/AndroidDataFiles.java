@@ -38,13 +38,23 @@ public class AndroidDataFiles {
     public static final String ANDROID_I18N_ROOT_ENV = "ANDROID_I18N_ROOT";
     public static final String ANDROID_TZDATA_ROOT_ENV = "ANDROID_TZDATA_ROOT";
 
+    /**
+     * This is identical to
+     * {@link com.android.i18n.timezone.TzDataSetVersion#CURRENT_FORMAT_MAJOR_VERSION}, but because
+     * dependency is in the opposite direction we can't refer to that field from this class.
+     * TzDataSetVersionTest ensures that their values are the same.
+     */
     // VisibleForTesting
-    public static String getTimeZoneModuleIcuFile(String fileName) {
-        return getTimeZoneModuleFile("icu/" + fileName);
-    }
+    // LINT.IfChange
+    public static final int CURRENT_MAJOR_VERSION = 9;
+    // LINT.ThenChange(/android_icu4j/libcore_bridge/src/java/com/android/i18n/timezone/TzDataSetVersion.java)
 
     private static String getTimeZoneModuleFile(String fileName) {
         return System.getenv(ANDROID_TZDATA_ROOT_ENV) + "/etc/" + fileName;
+    }
+
+    private static String getTimeZoneModuleIcuFile(String fileName) {
+        return getTimeZoneModuleFile("tz/versioned/" + CURRENT_MAJOR_VERSION + "/icu/" + fileName);
     }
 
     // VisibleForTesting
@@ -57,13 +67,13 @@ public class AndroidDataFiles {
     }
 
     public static String generateIcuDataPath() {
-        List<String> paths = new ArrayList<>(3);
+        List<String> paths = new ArrayList<>(2);
 
         // Note: This logic below should match the logic in IcuRegistration.cpp in external/icu/
         // to ensure consistent behavior between ICU4C and ICU4J.
 
         // ICU should look for a mounted time zone module file in /apex. This is used for
-        // (optional) time zone data that can be updated with an APEX file.
+        // time zone data that can be updated with an APEX file.
         String timeZoneModuleIcuDataPath = getTimeZoneModuleIcuFile("");
         paths.add(timeZoneModuleIcuDataPath);
 

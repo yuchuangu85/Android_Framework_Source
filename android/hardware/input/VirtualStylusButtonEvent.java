@@ -16,11 +16,9 @@
 
 package android.hardware.input;
 
-import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
-import android.companion.virtual.flags.Flags;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.SystemClock;
@@ -35,7 +33,6 @@ import java.lang.annotation.RetentionPolicy;
  *
  * @hide
  */
-@FlaggedApi(Flags.FLAG_VIRTUAL_STYLUS)
 @SystemApi
 public final class VirtualStylusButtonEvent implements Parcelable {
     /** @hide */
@@ -128,7 +125,6 @@ public final class VirtualStylusButtonEvent implements Parcelable {
     /**
      * Builder for {@link VirtualStylusButtonEvent}.
      */
-    @FlaggedApi(Flags.FLAG_VIRTUAL_STYLUS)
     public static final class Builder {
 
         @Action
@@ -187,6 +183,10 @@ public final class VirtualStylusButtonEvent implements Parcelable {
          * obtained from {@link SystemClock#uptimeMillis()} (with nanosecond precision instead of
          * millisecond), but can be different depending on the use case.
          * This field is optional and can be omitted.
+         * <p>
+         * If this field is unset, then the time at which this event is sent to the framework would
+         * be considered as the event time (even though
+         * {@link VirtualStylusButtonEvent#getEventTimeNanos()}) would return {@code 0L}).
          *
          * @return this builder, to allow for chaining of calls
          * @see InputEvent#getEventTime()

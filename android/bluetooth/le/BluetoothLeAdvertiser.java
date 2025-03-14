@@ -16,6 +16,11 @@
 
 package android.bluetooth.le;
 
+import static android.Manifest.permission.BLUETOOTH_ADVERTISE;
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresNoPermission;
@@ -26,7 +31,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGattServer;
 import android.bluetooth.BluetoothUuid;
-import android.bluetooth.IBluetoothGatt;
+import android.bluetooth.IBluetoothAdvertise;
 import android.bluetooth.annotations.RequiresBluetoothAdvertisePermission;
 import android.bluetooth.annotations.RequiresLegacyBluetoothAdminPermission;
 import android.content.AttributionSource;
@@ -40,7 +45,6 @@ import android.util.Log;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * This class provides a way to perform Bluetooth LE advertise operations, such as starting and
@@ -53,7 +57,6 @@ import java.util.Objects;
  * @see AdvertiseData
  */
 public final class BluetoothLeAdvertiser {
-
     private static final String TAG = "BluetoothLeAdvertiser";
 
     private static final int MAX_LEGACY_ADVERTISING_DATA_BYTES = 31;
@@ -80,7 +83,7 @@ public final class BluetoothLeAdvertiser {
      * @hide
      */
     public BluetoothLeAdvertiser(BluetoothAdapter bluetoothAdapter) {
-        mBluetoothAdapter = Objects.requireNonNull(bluetoothAdapter);
+        mBluetoothAdapter = requireNonNull(bluetoothAdapter);
         mAttributionSource = mBluetoothAdapter.getAttributionSource();
         mHandler = new Handler(Looper.getMainLooper());
     }
@@ -89,13 +92,21 @@ public final class BluetoothLeAdvertiser {
      * Start Bluetooth LE Advertising. On success, the {@code advertiseData} will be broadcasted.
      * Returns immediately, the operation status is delivered through {@code callback}.
      *
+     * <p>Requires the {@link android.Manifest.permission#BLUETOOTH_PRIVILEGED} permission only when
+     * {@code settings.getOwnAddressType()} is different from {@code
+     * AdvertisingSetParameters.ADDRESS_TYPE_DEFAULT}.
+     *
+     * <p>The {@link android.Manifest.permission#BLUETOOTH_ADVERTISE} permission is always enforced.
+     *
      * @param settings Settings for Bluetooth LE advertising.
      * @param advertiseData Advertisement data to be broadcasted.
      * @param callback Callback for advertising status.
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(
+            allOf = {BLUETOOTH_ADVERTISE, BLUETOOTH_PRIVILEGED},
+            conditional = true)
     public void startAdvertising(
             AdvertiseSettings settings,
             AdvertiseData advertiseData,
@@ -109,6 +120,12 @@ public final class BluetoothLeAdvertiser {
      * active scan request. This method returns immediately, the operation status is delivered
      * through {@code callback}.
      *
+     * <p>Requires the {@link android.Manifest.permission#BLUETOOTH_PRIVILEGED} permission only when
+     * {@code settings.getOwnAddressType()} is different from {@code
+     * AdvertisingSetParameters.ADDRESS_TYPE_DEFAULT}.
+     *
+     * <p>The {@link android.Manifest.permission#BLUETOOTH_ADVERTISE} permission is always enforced.
+     *
      * @param settings Settings for Bluetooth LE advertising.
      * @param advertiseData Advertisement data to be advertised in advertisement packet.
      * @param scanResponse Scan response associated with the advertisement data.
@@ -116,7 +133,9 @@ public final class BluetoothLeAdvertiser {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(
+            allOf = {BLUETOOTH_ADVERTISE, BLUETOOTH_PRIVILEGED},
+            conditional = true)
     public void startAdvertising(
             AdvertiseSettings settings,
             AdvertiseData advertiseData,
@@ -230,7 +249,7 @@ public final class BluetoothLeAdvertiser {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(BLUETOOTH_ADVERTISE)
     public void stopAdvertising(final AdvertiseCallback callback) {
         synchronized (mLegacyAdvertisers) {
             if (callback == null) {
@@ -250,7 +269,11 @@ public final class BluetoothLeAdvertiser {
      * method returns immediately, the operation status is delivered through {@code
      * callback.onAdvertisingSetStarted()}.
      *
-     * <p>
+     * <p>Requires the {@link android.Manifest.permission#BLUETOOTH_PRIVILEGED} permission when
+     * {@code parameters.getOwnAddressType()} is different from {@code
+     * AdvertisingSetParameters.ADDRESS_TYPE_DEFAULT} or {@code parameters.isDirected()} is true.
+     *
+     * <p>The {@link android.Manifest.permission#BLUETOOTH_ADVERTISE} permission is always enforced.
      *
      * @param parameters advertising set parameters.
      * @param advertiseData Advertisement data to be broadcasted. Size must not exceed {@link
@@ -269,7 +292,9 @@ public final class BluetoothLeAdvertiser {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(
+            allOf = {BLUETOOTH_ADVERTISE, BLUETOOTH_PRIVILEGED},
+            conditional = true)
     public void startAdvertisingSet(
             AdvertisingSetParameters parameters,
             AdvertiseData advertiseData,
@@ -294,7 +319,11 @@ public final class BluetoothLeAdvertiser {
      * method returns immediately, the operation status is delivered through {@code
      * callback.onAdvertisingSetStarted()}.
      *
-     * <p>
+     * <p>Requires the {@link android.Manifest.permission#BLUETOOTH_PRIVILEGED} permission when
+     * {@code parameters.getOwnAddressType()} is different from {@code
+     * AdvertisingSetParameters.ADDRESS_TYPE_DEFAULT} or {@code parameters.isDirected()} is true.
+     *
+     * <p>The {@link android.Manifest.permission#BLUETOOTH_ADVERTISE} permission is always enforced.
      *
      * @param parameters advertising set parameters.
      * @param advertiseData Advertisement data to be broadcasted. Size must not exceed {@link
@@ -314,7 +343,9 @@ public final class BluetoothLeAdvertiser {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(
+            allOf = {BLUETOOTH_ADVERTISE, BLUETOOTH_PRIVILEGED},
+            conditional = true)
     public void startAdvertisingSet(
             AdvertisingSetParameters parameters,
             AdvertiseData advertiseData,
@@ -340,7 +371,11 @@ public final class BluetoothLeAdvertiser {
      * method returns immediately, the operation status is delivered through {@code
      * callback.onAdvertisingSetStarted()}.
      *
-     * <p>
+     * <p>Requires the {@link android.Manifest.permission#BLUETOOTH_PRIVILEGED} permission when
+     * {@code parameters.getOwnAddressType()} is different from {@code
+     * AdvertisingSetParameters.ADDRESS_TYPE_DEFAULT} or {@code parameters.isDirected()} is true.
+     *
+     * <p>The {@link android.Manifest.permission#BLUETOOTH_ADVERTISE} permission is always enforced.
      *
      * @param parameters advertising set parameters.
      * @param advertiseData Advertisement data to be broadcasted. Size must not exceed {@link
@@ -364,7 +399,9 @@ public final class BluetoothLeAdvertiser {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(
+            allOf = {BLUETOOTH_ADVERTISE, BLUETOOTH_PRIVILEGED},
+            conditional = true)
     public void startAdvertisingSet(
             AdvertisingSetParameters parameters,
             AdvertiseData advertiseData,
@@ -391,7 +428,11 @@ public final class BluetoothLeAdvertiser {
      * method returns immediately, the operation status is delivered through {@code
      * callback.onAdvertisingSetStarted()}.
      *
-     * <p>
+     * <p>Requires the {@link android.Manifest.permission#BLUETOOTH_PRIVILEGED} permission when
+     * {@code parameters.getOwnAddressType()} is different from {@code
+     * AdvertisingSetParameters.ADDRESS_TYPE_DEFAULT} or {@code parameters.isDirected()} is true.
+     *
+     * <p>The {@link android.Manifest.permission#BLUETOOTH_ADVERTISE} permission is always enforced.
      *
      * @param parameters Advertising set parameters.
      * @param advertiseData Advertisement data to be broadcasted. Size must not exceed {@link
@@ -418,7 +459,9 @@ public final class BluetoothLeAdvertiser {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(
+            allOf = {BLUETOOTH_ADVERTISE, BLUETOOTH_PRIVILEGED},
+            conditional = true)
     public void startAdvertisingSet(
             AdvertisingSetParameters parameters,
             AdvertiseData advertiseData,
@@ -451,6 +494,13 @@ public final class BluetoothLeAdvertiser {
      * services/characteristics in this server, rather than the union of all GATT services (across
      * all opened servers).
      *
+     * <p>Requires the {@link android.Manifest.permission#BLUETOOTH_PRIVILEGED} permission when
+     * {@code parameters.getOwnAddressType()} is different from {@code
+     * AdvertisingSetParameters.ADDRESS_TYPE_DEFAULT} or {@code parameters.isDirected()} is true or
+     * when the {@code gattServer} is already registered
+     *
+     * <p>The {@link android.Manifest.permission#BLUETOOTH_ADVERTISE} permission is always enforced.
+     *
      * @param parameters Advertising set parameters.
      * @param advertiseData Advertisement data to be broadcasted. Size must not exceed {@link
      *     BluetoothAdapter#getLeMaximumAdvertisingDataLength}. If the advertisement is connectable,
@@ -481,11 +531,8 @@ public final class BluetoothLeAdvertiser {
     @SuppressLint("ExecutorRegistration")
     @RequiresBluetoothAdvertisePermission
     @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-                android.Manifest.permission.BLUETOOTH_ADVERTISE,
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-            })
+            allOf = {BLUETOOTH_ADVERTISE, BLUETOOTH_PRIVILEGED},
+            conditional = true)
     public void startAdvertisingSet(
             @NonNull AdvertisingSetParameters parameters,
             @Nullable AdvertiseData advertiseData,
@@ -553,9 +600,9 @@ public final class BluetoothLeAdvertiser {
         }
 
         if (maxExtendedAdvertisingEvents != 0
-                && !mBluetoothAdapter.isLePeriodicAdvertisingSupported()) {
+                && !mBluetoothAdapter.isLeExtendedAdvertisingSupported()) {
             throw new IllegalArgumentException(
-                    "Can't use maxExtendedAdvertisingEvents with controller that don't support "
+                    "Can't use maxExtendedAdvertisingEvents with controller that doesn't support "
                             + "LE Extended Advertising");
         }
 
@@ -563,10 +610,10 @@ public final class BluetoothLeAdvertiser {
             throw new IllegalArgumentException("duration out of range: " + duration);
         }
 
-        IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
+        IBluetoothAdvertise advertise = mBluetoothAdapter.getBluetoothAdvertise();
 
-        if (gatt == null) {
-            Log.e(TAG, "Bluetooth GATT is null");
+        if (advertise == null) {
+            Log.e(TAG, "Bluetooth Advertise is null");
             postStartSetFailure(
                     handler, callback, AdvertiseCallback.ADVERTISE_FAILED_INTERNAL_ERROR);
             return;
@@ -579,7 +626,7 @@ public final class BluetoothLeAdvertiser {
         }
 
         try {
-            gatt.startAdvertisingSet(
+            advertise.startAdvertisingSet(
                     parameters,
                     advertiseData,
                     scanResponse,
@@ -607,7 +654,7 @@ public final class BluetoothLeAdvertiser {
      */
     @RequiresLegacyBluetoothAdminPermission
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(BLUETOOTH_ADVERTISE)
     public void stopAdvertisingSet(AdvertisingSetCallback callback) {
         if (callback == null) {
             throw new IllegalArgumentException("callback cannot be null");
@@ -618,13 +665,13 @@ public final class BluetoothLeAdvertiser {
             return;
         }
 
-        IBluetoothGatt gatt = mBluetoothAdapter.getBluetoothGatt();
-        if (gatt == null) {
-            Log.e(TAG, "Bluetooth GATT is null");
+        IBluetoothAdvertise advertise = mBluetoothAdapter.getBluetoothAdvertise();
+        if (advertise == null) {
+            Log.e(TAG, "Bluetooth Advertise is null");
             return;
         }
         try {
-            gatt.stopAdvertisingSet(wrapped, mAttributionSource);
+            advertise.stopAdvertisingSet(wrapped, mAttributionSource);
         } catch (RemoteException e) {
             Log.e(TAG, "Failed to stop advertising - ", e);
         }
@@ -644,7 +691,7 @@ public final class BluetoothLeAdvertiser {
 
     // Compute the size of advertisement data or scan resp
     @RequiresBluetoothAdvertisePermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE)
+    @RequiresPermission(BLUETOOTH_ADVERTISE)
     private int totalBytes(AdvertiseData data, boolean isFlagsIncluded) {
         if (data == null) return 0;
         // Flags field is omitted if the advertising is not connectable.
@@ -742,7 +789,7 @@ public final class BluetoothLeAdvertiser {
         return new IAdvertisingSetCallback.Stub() {
             @Override
             public void onAdvertisingSetStarted(
-                    IBinder gattBinder, int advertiserId, int txPower, int status) {
+                    IBinder advertiseBinder, int advertiserId, int txPower, int status) {
                 handler.post(
                         () -> {
                             if (status != AdvertisingSetCallback.ADVERTISE_SUCCESS) {
@@ -753,7 +800,7 @@ public final class BluetoothLeAdvertiser {
 
                             AdvertisingSet advertisingSet =
                                     new AdvertisingSet(
-                                            IBluetoothGatt.Stub.asInterface(gattBinder),
+                                            IBluetoothAdvertise.Stub.asInterface(advertiseBinder),
                                             advertiserId,
                                             mBluetoothAdapter,
                                             mAttributionSource);

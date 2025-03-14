@@ -5,6 +5,8 @@ import java.io.IOException;
 
 /**
  * Parser for indefinite-length SETs.
+ * 
+ * @deprecated Check for 'ASN1SetParser' instead 
  * @hide This class is not part of the Android public SDK API
  */
 public class BERSetParser
@@ -38,7 +40,7 @@ public class BERSetParser
     public ASN1Primitive getLoadedObject()
         throws IOException
     {
-        return new BERSet(_parser.readVector());
+        return parse(_parser);
     }
 
     /**
@@ -56,5 +58,10 @@ public class BERSetParser
         {
             throw new ASN1ParsingException(e.getMessage(), e);
         }
+    }
+
+    static BERSet parse(ASN1StreamParser sp) throws IOException
+    {
+        return new BERSet(sp.readVector());
     }
 }

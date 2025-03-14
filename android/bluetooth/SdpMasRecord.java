@@ -109,7 +109,7 @@ public class SdpMasRecord implements Parcelable {
         dest.writeInt(mProfileVersion);
         dest.writeInt(mSupportedFeatures);
         dest.writeInt(mSupportedMessageTypes);
-        dest.writeString(mServiceName);
+        BluetoothUtils.writeStringToParcel(dest, mServiceName);
     }
 
     @Override
@@ -117,25 +117,25 @@ public class SdpMasRecord implements Parcelable {
         String ret = "Bluetooth MAS SDP Record:\n";
 
         if (mMasInstanceId != -1) {
-            ret += "Mas Instance Id: " + mMasInstanceId + "\n";
+            ret = ret + "Mas Instance Id: " + mMasInstanceId + "\n";
         }
         if (mRfcommChannelNumber != -1) {
-            ret += "RFCOMM Chan Number: " + mRfcommChannelNumber + "\n";
+            ret = ret + "RFCOMM Chan Number: " + mRfcommChannelNumber + "\n";
         }
         if (mL2capPsm != -1) {
-            ret += "L2CAP PSM: " + mL2capPsm + "\n";
+            ret = ret + "L2CAP PSM: " + mL2capPsm + "\n";
         }
         if (mServiceName != null) {
-            ret += "Service Name: " + mServiceName + "\n";
+            ret = ret + "Service Name: " + mServiceName + "\n";
         }
         if (mProfileVersion != -1) {
-            ret += "Profile version: " + mProfileVersion + "\n";
+            ret = ret + "Profile version: " + mProfileVersion + "\n";
         }
         if (mSupportedMessageTypes != -1) {
-            ret += "Supported msg types: " + mSupportedMessageTypes + "\n";
+            ret = ret + "Supported msg types: " + mSupportedMessageTypes + "\n";
         }
         if (mSupportedFeatures != -1) {
-            ret += "Supported features: " + mSupportedFeatures + "\n";
+            ret = ret + "Supported features: " + mSupportedFeatures + "\n";
         }
         return ret;
     }

@@ -22,7 +22,7 @@ public class DERSet
         return (DERSet)set.toDERObject();
     }
 
-    private int bodyLength = -1;
+    private int contentsLength = -1;
 
     /**
      * create an empty set
@@ -64,9 +64,9 @@ public class DERSet
         super(checkSorted(isSorted), elements);
     }
 
-    private int getBodyLength() throws IOException
+    private int getContentsLength() throws IOException
     {
-        if (bodyLength < 0)
+        if (contentsLength < 0)
         {
             int count = elements.length;
             int totalLength = 0;
@@ -74,20 +74,18 @@ public class DERSet
             for (int i = 0; i < count; ++i)
             {
                 ASN1Primitive derObject = elements[i].toASN1Primitive().toDERObject();
-                totalLength += derObject.encodedLength();
+                totalLength += derObject.encodedLength(true);
             }
 
-            this.bodyLength = totalLength;
+            this.contentsLength = totalLength;
         }
 
-        return bodyLength;
+        return contentsLength;
     }
 
-    int encodedLength() throws IOException
+    int encodedLength(boolean withTag) throws IOException
     {
-        int length = getBodyLength();
-
-        return 1 + StreamUtil.calculateBodyLength(length) + length;
+        return ASN1OutputStream.getLengthOfEncodingDL(withTag, getContentsLength());
     }
 
     /*
@@ -100,17 +98,14 @@ public class DERSet
      */
     void encode(ASN1OutputStream out, boolean withTag) throws IOException
     {
-        if (withTag)
-        {
-            out.write(BERTags.SET | BERTags.CONSTRUCTED);
-        }
+        out.writeIdentifier(withTag, BERTags.CONSTRUCTED | BERTags.SET);
 
         DEROutputStream derOut = out.getDERSubStream();
 
         int count = elements.length;
-        if (bodyLength >= 0 || count > 16)
+        if (contentsLength >= 0 || count > 16)
         {
-            out.writeLength(getBodyLength());
+            out.writeDL(getContentsLength());
 
             for (int i = 0; i < count; ++i)
             {
@@ -127,11 +122,11 @@ public class DERSet
             {
                 ASN1Primitive derObject = elements[i].toASN1Primitive().toDERObject();
                 derObjects[i] = derObject;
-                totalLength += derObject.encodedLength();
+                totalLength += derObject.encodedLength(true);
             }
 
-            this.bodyLength = totalLength;
-            out.writeLength(totalLength);
+            this.contentsLength = totalLength;
+            out.writeDL(totalLength);
 
             for (int i = 0; i < count; ++i)
             {
@@ -142,7 +137,7 @@ public class DERSet
 
     ASN1Primitive toDERObject()
     {
-        return isSorted ? this : super.toDERObject();
+        return (sortedElements != null) ? this : super.toDERObject();
     }
 
     ASN1Primitive toDLObject()

@@ -21,11 +21,16 @@ import static android.graphics.pdf.PdfLinearizationTypes.PDF_DOCUMENT_TYPE_LINEA
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SuppressLint;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
 import android.graphics.Rect;
+import android.graphics.pdf.component.PdfAnnotation;
+import android.graphics.pdf.component.PdfAnnotationType;
+import android.graphics.pdf.component.PdfPageObject;
+import android.graphics.pdf.component.PdfPageObjectType;
 import android.graphics.pdf.content.PdfPageGotoLinkContent;
 import android.graphics.pdf.content.PdfPageImageContent;
 import android.graphics.pdf.content.PdfPageLinkContent;
@@ -38,8 +43,8 @@ import android.graphics.pdf.models.selection.PageSelection;
 import android.graphics.pdf.models.selection.SelectionBoundary;
 import android.graphics.pdf.utils.Preconditions;
 import android.os.ParcelFileDescriptor;
+import android.util.Pair;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.RestrictTo;
 
 import java.io.IOException;
@@ -336,6 +341,7 @@ public final class PdfRendererPreV implements AutoCloseable {
 
         private Page(int index) {
             this.mIndex = index;
+            mPdfProcessor.retainPage(mIndex);
             mWidth = mPdfProcessor.getPageWidth(index);
             mHeight = mPdfProcessor.getPageHeight(index);
         }
@@ -372,7 +378,8 @@ public final class PdfRendererPreV implements AutoCloseable {
         public void render(@NonNull Bitmap destination, @Nullable Rect destClip,
                 @Nullable Matrix transform, @NonNull RenderParams params) {
             throwIfDocumentOrPageClosed();
-            mPdfProcessor.renderPage(mIndex, destination, destClip, transform, params);
+            mPdfProcessor.renderPage(mIndex, destination, destClip, transform,
+                    params, /* renderFormFields= */ true);
         }
 
         /**
@@ -607,6 +614,205 @@ public final class PdfRendererPreV implements AutoCloseable {
         }
 
         /**
+         * Returns a list of pairs, where each pair consists of a supported {@link PdfAnnotation}
+         * and its corresponding ID on the specified page. ID of the annotation will be required for
+         * {@link #updatePageAnnotation(int, PdfAnnotation)} and {@link #removePageAnnotation(int)}
+         * and will remain same without mutate operations.
+         *
+         * <p>
+         * The returned list will be empty if no supported annotations are present on the page,
+         * even if the page contains other annotation types. Refer to {@link PdfAnnotationType} for
+         * the supported annotation types.
+         *
+         * @return A list of pairs representing the supported annotations and their ids on the page.
+         * @throws IllegalStateException    if {@link PdfRendererPreV} or
+         *                                  {@link PdfRendererPreV.Page} is closed before
+         *                                  invocation.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_ANNOTATIONS)
+        @NonNull
+        public List<Pair<Integer, PdfAnnotation>> getPageAnnotations() {
+            throwIfDocumentOrPageClosed();
+            return mPdfProcessor.getPageAnnotations(mIndex);
+        }
+
+        /**
+         * Adds the given annotation to the page. The annotation should be of supported type.
+         * See {@link PdfAnnotationType} for the supported types
+         *
+         * <p>
+         * {@link PdfRendererPreV#write} needs to be called to get the updated PDF stream
+         * after calling this method. {@link PdfRendererPreV.Page} instance can be closed before
+         * calling {@link PdfRendererPreV#write}.
+         *
+         * @param annotation the {@link PdfAnnotation} object to add
+         * @return id of the added annotation, or -1 if the annotation cannot be added. The id is
+         *         guaranteed to be non-negative if the annotation is added successfully.
+         * @throws IllegalArgumentException if the provided annotation is null or of unsupported
+         *                                  type i.e. {@link PdfAnnotationType#UNKNOWN}
+         * @throws IllegalStateException    if {@link PdfRendererPreV} or
+         *                                  {@link PdfRendererPreV.Page} is closed before invocation
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_ANNOTATIONS)
+        @IntRange(from = -1)
+        public int addPageAnnotation(@NonNull PdfAnnotation annotation) {
+            throwIfDocumentOrPageClosed();
+            Preconditions.checkNotNull(annotation, "Annotation should not be null");
+            Preconditions.checkArgument(
+                    annotation.getPdfAnnotationType() != PdfAnnotationType.UNKNOWN,
+                    "Annotation should be of valid type");
+            return mPdfProcessor.addPageAnnotation(mIndex, annotation);
+
+        }
+
+        /**
+         * Removes the annotation with the specified id.
+         *
+         * <p>
+         * {@link PdfRendererPreV#write} needs to be called to get the updated PDF stream after
+         * calling this method. {@link PdfRendererPreV.Page} instance can be closed before calling
+         * {@link PdfRendererPreV#write}.
+         *
+         * @param annotationId id of the annotation to remove from the page
+         * @throws IllegalArgumentException if annotationId ie negative
+         * @throws IllegalStateException    if {@link PdfRendererPreV} or
+         *                                  {@link PdfRendererPreV.Page} is closed before invocation
+         *                                  or if annotation is failed to get removed from the page.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_ANNOTATIONS)
+        public void removePageAnnotation(@IntRange(from = 0) int annotationId) {
+            throwIfDocumentOrPageClosed();
+            Preconditions.checkArgument(annotationId >= 0,
+                    "Annotation id should be non-negative");
+            mPdfProcessor.removePageAnnotation(mIndex, annotationId);
+        }
+
+        /**
+         * Update the given {@link PdfAnnotation} to the page.
+         *
+         * <p>
+         * {@link PdfRendererPreV#write} needs to be called to get the updated PDF stream after
+         * calling this method. {@link PdfRendererPreV.Page} instance can be closed before calling
+         * {@link PdfRendererPreV#write}.
+         *
+         * @param annotationId id corresponding to which the annotation is to be updated
+         * @param annotation the annotation to update
+         * @return true if annotation is updated, false otherwise
+         * @throws IllegalArgumentException if the provided annotation is null or of
+         *                                  unsupported type i.e. {@link PdfAnnotationType#UNKNOWN}
+         *                                  or if the provided annotationId is negative
+         * @throws IllegalStateException    if {@link PdfRendererPreV} or
+         *                                  {@link PdfRendererPreV.Page}  is closed before
+         *                                  invocation
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_ANNOTATIONS)
+        public boolean updatePageAnnotation(@IntRange(from = 0) int annotationId,
+                @NonNull PdfAnnotation annotation) {
+            throwIfDocumentOrPageClosed();
+            Preconditions.checkNotNull(annotation, "PdfAnnotation should not be null");
+            Preconditions.checkArgument(
+                    annotation.getPdfAnnotationType() != PdfAnnotationType.UNKNOWN,
+                    "Annotation should be of valid type");
+            Preconditions.checkArgument(annotationId >= 0,
+                    "Annotation Id should be non-negative");
+            return mPdfProcessor.updatePageAnnotation(mIndex, annotationId, annotation);
+        }
+
+        /**
+         * Returns {@link List} of {@link Pair} objects, where each pair contains:
+         * - An {@link Integer} representing the object ID, which is required for
+         * {@link #updatePageObject(int, PdfPageObject)} and {@link #removePageObject(int)}.
+         * Object ID will remain same without mutate operations.
+         * - A {@link PdfPageObject} representing the page object.
+         * <p>
+         * The list will be empty if there are no supported page
+         * objects present on the page, even if the page contains
+         * other page object types.
+         *
+         * @return {@link List} of {@link Pair} objects containing {@link Integer} and
+         * {@link PdfPageObject}.
+         * @throws IllegalStateException if the {@link PdfRenderer.Page} is closed before
+         *                               invocation.
+         */
+        @android.annotation.NonNull
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+        public List<Pair<Integer, PdfPageObject>> getPageObjects() {
+            throwIfDocumentOrPageClosed();
+            return mPdfProcessor.getPageObjects(mIndex);
+        }
+
+        /**
+         * Adds the given {@link PdfPageObject} to the page.
+         * <p>
+         * {@link PdfRenderer#write} needs to be called to get the updated PDF stream after calling
+         * this method. {@link PdfRenderer.Page} instance can be closed before calling
+         * {@link PdfRenderer#write}.
+         *
+         * @param pageObject the {@code PdfPageObject} object to add.
+         * @return id of the added page object, or -1 if the page object cannot be added. The
+         * id is guaranteed to be non-negative if the page object is added successfully.
+         * @throws IllegalArgumentException if the provided {@link PdfPageObject} is unknown or null
+         * @throws IllegalStateException    if the {@link PdfRenderer.Page} is closed before
+         *                                  invocation.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+        public int addPageObject(@android.annotation.NonNull PdfPageObject pageObject) {
+            throwIfDocumentOrPageClosed();
+            Preconditions.checkNotNull(pageObject, "PdfPageObject should not be null.");
+            Preconditions.checkArgument(
+                    pageObject.getPdfObjectType() != PdfPageObjectType.UNKNOWN,
+                    "PageObject should be of valid type.");
+            return mPdfProcessor.addPageObject(mIndex, pageObject);
+        }
+
+        /**
+         * Update the given {@link PdfPageObject} to the page.
+         * <p>
+         * {@link PdfRenderer#write} needs to be called to get the updated PDF stream after calling
+         * this method. {@link PdfRenderer.Page} instance can be closed before calling
+         * {@link PdfRenderer#write}.
+         *
+         * @param objectId   The unique identifier of the page object to update.
+         * @param pageObject The {@code PdfPageObject} object to update.
+         * @return true if page object is updated, false otherwise.
+         * @throws IllegalArgumentException if the provided {@link PdfPageObject} is unsupported or
+         *                                  null.
+         * @throws IllegalStateException    if the {@link PdfRenderer.Page} is closed before
+         *                                  invocation.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+        public boolean updatePageObject(@IntRange(from = 0) int objectId,
+                @NonNull PdfPageObject pageObject) {
+            throwIfDocumentOrPageClosed();
+            Preconditions.checkNotNull(pageObject, "PdfPageObject should not be null");
+            Preconditions.checkArgument(
+                    pageObject.getPdfObjectType() != PdfPageObjectType.UNKNOWN,
+                    "PageObject should be of valid type");
+            Preconditions.checkArgument(objectId >= 0,
+                    "Page object id should be greater than equal to 0.");
+            return mPdfProcessor.updatePageObject(mIndex, objectId, pageObject);
+        }
+
+        /**
+         * Removes the {@link PdfPageObject} with the specified ID.
+         * <p>
+         * {@link PdfRenderer#write} needs to be called to get the updated PDF stream after calling
+         * this method. {@link PdfRenderer.Page} instance can be closed before calling
+         * {@link PdfRenderer#write}.
+         *
+         * @param objectId the id of the page object to remove from the page.
+         * @throws IllegalArgumentException if the provided objectId doesn't exist.
+         * @throws IllegalStateException    if the page object cannot be removed.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_EDIT_PDF_PAGE_OBJECTS)
+        public void removePageObject(@IntRange(from = 0) int objectId) {
+            throwIfDocumentOrPageClosed();
+            Preconditions.checkArgument(objectId >= 0,
+                    "Page object id should be greater than equal to 0.");
+            mPdfProcessor.removePageObject(mIndex, objectId);
+        }
+
+        /**
          * Closes this page.
          *
          * @see android.graphics.pdf.PdfRenderer#openPage(int)
@@ -630,7 +836,7 @@ public final class PdfRendererPreV implements AutoCloseable {
         }
 
         private void doClose() {
-            if (mPdfProcessor != null) {
+            if (mPdfProcessor != null && mIndex != -1) {
                 mPdfProcessor.releasePage(mIndex);
                 mIndex = -1;
             }

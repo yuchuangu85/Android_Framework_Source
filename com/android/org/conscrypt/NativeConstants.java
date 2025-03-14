@@ -21,6 +21,7 @@ final class NativeConstants {
     static final int EXFLAG_CRITICAL = 512;
     static final int EVP_PKEY_RSA = 6;
     static final int EVP_PKEY_EC = 408;
+    static final int EVP_PKEY_ED25519 = 949;
     static final int RSA_PKCS1_PADDING = 1;
     static final int RSA_NO_PADDING = 3;
     static final int RSA_PKCS1_OAEP_PADDING = 4;

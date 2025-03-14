@@ -6,6 +6,8 @@ import java.io.OutputStream;
 import java.security.Signature;
 import java.security.SignatureException;
 
+import com.android.org.bouncycastle.util.Exceptions;
+
 class SignatureUpdatingOutputStream
     extends OutputStream
 {
@@ -25,7 +27,7 @@ class SignatureUpdatingOutputStream
         }
         catch (SignatureException e)
         {
-            throw new IOException(e.getMessage());
+            throw Exceptions.ioException(e.getMessage(), e);
         }
     }
 
@@ -38,7 +40,7 @@ class SignatureUpdatingOutputStream
         }
         catch (SignatureException e)
         {
-            throw new IOException(e.getMessage());
+            throw Exceptions.ioException(e.getMessage(), e);
         }
     }
 
@@ -51,7 +53,7 @@ class SignatureUpdatingOutputStream
         }
         catch (SignatureException e)
         {
-            throw new IOException(e.getMessage());
+            throw Exceptions.ioException(e.getMessage(), e);
         }
     }
 }

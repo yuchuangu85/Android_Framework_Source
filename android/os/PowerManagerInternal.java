@@ -98,16 +98,6 @@ public abstract class PowerManagerInternal {
     }
 
     /**
-     * Used by the window manager to override the screen brightness based on the
-     * current foreground activity.
-     *
-     * This method must only be called by the window manager.
-     *
-     * @param brightness The overridden brightness, or Float.NaN to disable the override.
-     */
-    public abstract void setScreenBrightnessOverrideFromWindowManager(float brightness);
-
-    /**
      * Used by the window manager to override the user activity timeout based on the
      * current foreground activity.  It can only be used to make the timeout shorter
      * than usual, not longer.
@@ -137,11 +127,17 @@ public abstract class PowerManagerInternal {
      * @param screenState The overridden screen state, or {@link Display#STATE_UNKNOWN}
      * to disable the override.
      * @param reason The reason for overriding the screen state.
-     * @param screenBrightness The overridden screen brightness, or
-     * {@link PowerManager#BRIGHTNESS_DEFAULT} to disable the override.
+     * @param screenBrightnessFloat The overridden screen brightness between
+     * {@link PowerManager#BRIGHTNESS_MIN} and {@link PowerManager#BRIGHTNESS_MAX}, or
+     * {@link PowerManager#BRIGHTNESS_INVALID_FLOAT} if screenBrightnessInt should be used instead.
+     * @param screenBrightnessInt The overridden screen brightness between 1 and 255, or
+     * {@link PowerManager#BRIGHTNESS_DEFAULT} to disable the override. Not used if
+     *                            screenBrightnessFloat is provided (is not NaN).
+     * @param useNormalBrightnessForDoze Whether use normal brightness while device is dozing.
      */
     public abstract void setDozeOverrideFromDreamManager(
-            int screenState, @Display.StateReason int reason, int screenBrightness);
+            int screenState, @Display.StateReason int reason, float screenBrightnessFloat,
+            int screenBrightnessInt, boolean useNormalBrightnessForDoze);
 
     /**
      * Used by sidekick manager to tell the power manager if it shouldn't change the display state
@@ -355,4 +351,10 @@ public abstract class PowerManagerInternal {
      * return false if ambient display is not available.
      */
     public abstract boolean isAmbientDisplaySuppressed();
+
+    /**
+     * Notifies PowerManager that the device has entered a postured state (stationary + upright).
+     * This may affect dream eligibility.
+     */
+    public abstract void setDevicePostured(boolean isPostured);
 }

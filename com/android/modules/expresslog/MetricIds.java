@@ -9,6 +9,7 @@ import java.util.InputMismatchException;
 
 public final class MetricIds {
 
+public static final long INVALID_METRIC_ID = 0;
 public static final int METRIC_TYPE_UNKNOWN = 0;
 public static final int METRIC_TYPE_COUNTER = 1;
 public static final int METRIC_TYPE_HISTOGRAM = 2;
@@ -29,6 +30,11 @@ static {
     metricIds = new ArrayMap<String, MetricInfo>();
     metricIds.put("accessibility.value_fab_shortcut_dismiss", new MetricInfo(-6072243364828125290l, METRIC_TYPE_COUNTER));
     metricIds.put("accessibility.value_fab_shortcut_edit", new MetricInfo(4192923649436966820l, METRIC_TYPE_COUNTER));
+    metricIds.put("accessibility.value_full_triple_tap_first_interval", new MetricInfo(-5769223201630976113l, METRIC_TYPE_HISTOGRAM));
+    metricIds.put("accessibility.value_full_triple_tap_second_interval", new MetricInfo(2036667908499563164l, METRIC_TYPE_HISTOGRAM));
+    metricIds.put("accessibility.value_hct_notification_dismissed", new MetricInfo(-1412632256886419037l, METRIC_TYPE_COUNTER));
+    metricIds.put("accessibility.value_hct_notification_opened_settings", new MetricInfo(3711937801790773082l, METRIC_TYPE_COUNTER));
+    metricIds.put("accessibility.value_hct_notification_posted", new MetricInfo(-6049469170867253673l, METRIC_TYPE_COUNTER));
     metricIds.put("accessibility.value_qs_shortcut_add", new MetricInfo(2834124234205782040l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("accessibility.value_qs_shortcut_remove", new MetricInfo(593334822861300811l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("app.value_force_stop_cancelled_pi_sent_from_top_per_caller", new MetricInfo(8623497374021313549l, METRIC_TYPE_COUNTER_WITH_UID));
@@ -48,17 +54,29 @@ static {
     metricIds.put("battery.value_app_background_restricted", new MetricInfo(2048093366999806818l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("battery.value_app_removed_from_power_allowlist", new MetricInfo(-4988440224544870744l, METRIC_TYPE_COUNTER));
     metricIds.put("binary_transparency.value_digest_all_packages_latency_uniform", new MetricInfo(-1663388052249034620l, METRIC_TYPE_HISTOGRAM));
+    metricIds.put("biometric.value_biometric_scheduler_operation_state_error_count", new MetricInfo(-6181982654674033194l, METRIC_TYPE_COUNTER));
     metricIds.put("biometric.value_scheduler_watchdog_triggered_count", new MetricInfo(-8949614549819407840l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_aac_codec_usage_over_a2dp", new MetricInfo(5658375456408090581l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_aptx_codec_usage_over_a2dp", new MetricInfo(-6068649430110206491l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_aptx_codec_usage_over_hfp", new MetricInfo(7003564244080163944l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_aptx_hd_codec_usage_over_a2dp", new MetricInfo(2026975900410694785l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_auto_on_disabled", new MetricInfo(38262175154558217l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_auto_on_enabled", new MetricInfo(4153375556285078717l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_auto_on_supported", new MetricInfo(-3270875478117966326l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_auto_on_triggered", new MetricInfo(2657249641697133856l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_close_profile_proxy_adapter_mismatch", new MetricInfo(5174922474613897731l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("bluetooth.value_cvsd_codec_usage_over_hfp", new MetricInfo(2237290434176331321l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_kill_from_binder_thread", new MetricInfo(1240857845875200167l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_lc3_codec_usage_over_hfp", new MetricInfo(8778544908497736848l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_ldac_codec_usage_over_a2dp", new MetricInfo(6570389444115753749l, METRIC_TYPE_COUNTER));
     metricIds.put("bluetooth.value_msbc_codec_usage_over_hfp", new MetricInfo(-3563813040444045278l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_opus_codec_usage_over_a2dp", new MetricInfo(-7449268747154765910l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_sbc_codec_usage_over_a2dp", new MetricInfo(-6723572027743435796l, METRIC_TYPE_COUNTER));
+    metricIds.put("bluetooth.value_shutdown_latency", new MetricInfo(8011357163887109173l, METRIC_TYPE_HISTOGRAM));
     metricIds.put("content_capture.value_content_capture_wrong_thread_count", new MetricInfo(-2722617273353133449l, METRIC_TYPE_COUNTER));
+    metricIds.put("core_networking.value_httpengine_preload_attempt_count", new MetricInfo(-1128365609590675471l, METRIC_TYPE_COUNTER));
+    metricIds.put("core_networking.value_nud_failure_ignored", new MetricInfo(-7303261864432545587l, METRIC_TYPE_COUNTER));
+    metricIds.put("core_networking.value_nud_failure_queried", new MetricInfo(887128944902165548l, METRIC_TYPE_COUNTER));
     metricIds.put("cpu.value_aggregated_thread_tracking_start_failure_count", new MetricInfo(-6863812985036080576l, METRIC_TYPE_COUNTER));
     metricIds.put("cpu.value_process_tracking_start_failure_count", new MetricInfo(7879492844327619097l, METRIC_TYPE_COUNTER));
     metricIds.put("device_lock.value_resets_unsuccessful_provisioning_deferred", new MetricInfo(1115524515723454059l, METRIC_TYPE_COUNTER));
@@ -67,8 +85,11 @@ static {
     metricIds.put("device_lock.value_successful_locking_count", new MetricInfo(8449007043296996467l, METRIC_TYPE_COUNTER));
     metricIds.put("device_lock.value_successful_provisioning_count", new MetricInfo(2831700733284693731l, METRIC_TYPE_COUNTER));
     metricIds.put("device_lock.value_successful_unlocking_count", new MetricInfo(-2324248776576908586l, METRIC_TYPE_COUNTER));
-    metricIds.put("health_services.value_hal_crash_counter", new MetricInfo(1163143892454419526l, METRIC_TYPE_COUNTER));
     metricIds.put("input.value_app_handled_stem_primary_key_gestures_count", new MetricInfo(1523110716521952632l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("input.value_rotary_input_device_full_rotation_count", new MetricInfo(-2118077315965764430l, METRIC_TYPE_COUNTER));
+    metricIds.put("intents.value_explicit_uri_grant_for_image_capture_action", new MetricInfo(7354394163045472330l, METRIC_TYPE_COUNTER));
+    metricIds.put("intents.value_explicit_uri_grant_for_send_action", new MetricInfo(-903477753418072438l, METRIC_TYPE_COUNTER));
+    metricIds.put("intents.value_explicit_uri_grant_for_send_multiple_action", new MetricInfo(-4527536272976715492l, METRIC_TYPE_COUNTER));
     metricIds.put("job_scheduler.value_cntr_w_uid_estimated_network_bytes_updated", new MetricInfo(-2040690094286153484l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("job_scheduler.value_cntr_w_uid_estimated_network_download_bytes_decreased", new MetricInfo(7559830738664114070l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("job_scheduler.value_cntr_w_uid_estimated_network_download_bytes_increased", new MetricInfo(4307374164472954573l, METRIC_TYPE_COUNTER_WITH_UID));
@@ -111,6 +132,22 @@ static {
     metricIds.put("job_scheduler.value_hist_w_uid_jwi_minimum_chunk_kilobytes", new MetricInfo(3314117374945417107l, METRIC_TYPE_HISTOGRAM_WITH_UID));
     metricIds.put("job_scheduler.value_job_quota_reduced_due_to_buggy_uid", new MetricInfo(2090030468725226029l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("job_scheduler.value_job_scheduler_job_deadline_expired_counter", new MetricInfo(-4904009711020652546l, METRIC_TYPE_COUNTER));
+    metricIds.put("media_audio.value_audio_focus_gain_appops_denial", new MetricInfo(729127605268875991l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_gain_granted", new MetricInfo(-3733444148686340753l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_gain_transient_appops_denial", new MetricInfo(-464308720680927150l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_gain_transient_duck_appops_denial", new MetricInfo(-2000005977607407796l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_gain_transient_duck_granted", new MetricInfo(7231741203015321508l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_gain_transient_excl_appops_denial", new MetricInfo(5305799243373862024l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_gain_transient_excl_granted", new MetricInfo(1802668179972962784l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_gain_transient_granted", new MetricInfo(-5849628684548255365l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_focus_grant_hardening_waived_by_sdk", new MetricInfo(-5543591710589068278l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_playback_hardening_partial_restriction", new MetricInfo(3891947970397803994l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_playback_hardening_strict_would_restrict", new MetricInfo(-2377218628165009393l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_volume_hardening_allowed", new MetricInfo(-2339614820538485358l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_volume_hardening_partial_restriction", new MetricInfo(5191211262850412923l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("media_audio.value_audio_volume_hardening_strict_restriction", new MetricInfo(-7273314886844574175l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("notifications.value_client_throttled_cancel_duplicate", new MetricInfo(6335376951243121478l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("notifications.value_client_throttled_notify_update", new MetricInfo(-4527886356097752985l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("screen.value_dim_to_screen_off", new MetricInfo(-8437355397311467341l, METRIC_TYPE_COUNTER));
     metricIds.put("screen.value_undim", new MetricInfo(673292744997347922l, METRIC_TYPE_COUNTER));
     metricIds.put("speech_recognition.value_exceed_service_connections_count", new MetricInfo(4137901124994142032l, METRIC_TYPE_COUNTER_WITH_UID));
@@ -131,6 +168,11 @@ static {
     metricIds.put("vibrator.value_vibration_param_request_timeout", new MetricInfo(8795177979007841024l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("vibrator.value_vibration_param_response_ignored", new MetricInfo(7429769541893516361l, METRIC_TYPE_COUNTER));
     metricIds.put("vibrator.value_vibration_param_scale", new MetricInfo(-3257976114455951225l, METRIC_TYPE_HISTOGRAM));
+    metricIds.put("vibrator.value_vibration_vendor_effect_requests", new MetricInfo(-6316400877903829348l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("vibrator.value_vibration_vendor_effect_size", new MetricInfo(-5213776178362596313l, METRIC_TYPE_HISTOGRAM_WITH_UID));
+    metricIds.put("vibrator.value_vibration_vendor_session_interrupted", new MetricInfo(-739334411738181396l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("vibrator.value_vibration_vendor_session_started", new MetricInfo(-5704517339245666598l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("vibrator.value_vibration_vendor_session_vibrations", new MetricInfo(1583216589797227976l, METRIC_TYPE_HISTOGRAM_WITH_UID));
     metricIds.put("virtual_devices.value_activity_blocked_count", new MetricInfo(-7079715898906024559l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("virtual_devices.value_secure_window_blocked_count", new MetricInfo(381600291587716893l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("virtual_devices.value_virtual_audio_created_count", new MetricInfo(216469278413724750l, METRIC_TYPE_COUNTER_WITH_UID));
@@ -142,10 +184,21 @@ static {
     metricIds.put("virtual_devices.value_virtual_keyboard_created_count", new MetricInfo(-4281936962231424349l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("virtual_devices.value_virtual_mouse_created_count", new MetricInfo(1498259102425665167l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("virtual_devices.value_virtual_navigationtouchpad_created_count", new MetricInfo(-8314108585791227748l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("virtual_devices.value_virtual_rotary_created_count", new MetricInfo(-8081505614155849697l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("virtual_devices.value_virtual_sensors_created_count", new MetricInfo(6487611638632272886l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("virtual_devices.value_virtual_stylus_created_count", new MetricInfo(-7217071694244830849l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("virtual_devices.value_virtual_touchscreen_created_count", new MetricInfo(8525699099567515279l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_frameworks.value_power_key_down_count", new MetricInfo(5531897575276512375l, METRIC_TYPE_COUNTER));
+    metricIds.put("wear_frameworks.value_stem_primary_key_down_count", new MetricInfo(6859426801987084769l, METRIC_TYPE_COUNTER));
     metricIds.put("wear_notifications.value_hist_image_asset_open_latency", new MetricInfo(8781758719844294982l, METRIC_TYPE_HISTOGRAM));
+    metricIds.put("wear_notifications.value_local_notification_orphan_candidates", new MetricInfo(-8941103521763827342l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_notifications.value_local_notification_orphans", new MetricInfo(7461818763025853260l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_notifications.value_local_notification_widow_candidates", new MetricInfo(-8192080907514237458l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_notifications.value_local_notification_widows", new MetricInfo(-3733683602254064473l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_notifications.value_notification_unhide", new MetricInfo(-4634188146636322553l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_notifications.value_notification_unhide_from_blocked", new MetricInfo(5929021748425133061l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_notifications.value_notification_unhide_from_dismissed", new MetricInfo(5839855729078863857l, METRIC_TYPE_COUNTER_WITH_UID));
+    metricIds.put("wear_notifications.value_notification_unhide_from_filtered", new MetricInfo(4451017006058195950l, METRIC_TYPE_COUNTER_WITH_UID));
     metricIds.put("webview.value_app_waiting_for_relro_completion_delay", new MetricInfo(5446477756832762351l, METRIC_TYPE_HISTOGRAM));
     metricIds.put("webview.value_default_webview_package_invalid_counter", new MetricInfo(-1261551960233354386l, METRIC_TYPE_COUNTER));
     metricIds.put("webview.value_find_preferred_webview_package_counter", new MetricInfo(-7372420611648388468l, METRIC_TYPE_COUNTER));
@@ -157,11 +210,8 @@ static {
 
 static long getMetricIdHash(String metricId, int type) {
     MetricInfo info = metricIds.get(metricId);
-    if(info == null) {
-        throw new IllegalArgumentException("Metric is undefined " + metricId);
-    }
-    if(info.mType != type) {
-        throw new InputMismatchException("Metric type is not " + type);
+    if(info == null || info.mType != type) {
+        return INVALID_METRIC_ID;
     }
     return info.mHash;
 }

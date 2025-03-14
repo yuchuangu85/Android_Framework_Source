@@ -16,6 +16,7 @@
 
 package android.app;
 
+import static android.app.Flags.enableCurrentModeTypeBinderCache;
 import static android.app.Flags.enableNightModeBinderCache;
 
 import android.annotation.CallbackExecutor;
@@ -117,6 +118,24 @@ public class UiModeManager {
          * @param contrast The color contrast as in {@link #getContrast}
          */
         void onContrastChanged(@FloatRange(from = -1.0f, to = 1.0f) float contrast);
+    }
+
+    /**
+     * Listener for the force invert state. To listen for changes to
+     * the force invert state on the device, implement this interface and
+     * register it with the system by calling {@link #addForceInvertStateChangeListener}.
+     *
+     * @hide
+     */
+    public interface ForceInvertStateChangeListener {
+
+        /**
+         * Called when the force invert state changes.
+         *
+         * @param forceInvertState The force invert state in {@link #getForceInvertState}
+         * @hide
+         */
+        void onForceInvertStateChanged(@ForceInvertType int forceInvertState);
     }
 
     /**
@@ -293,7 +312,6 @@ public class UiModeManager {
      * #getAttentionModeThemeOverlay()}: Keeps night mode as set by {@link #setNightMode(int)}.
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_MODES_API)
     @TestApi
     public static final int MODE_ATTENTION_THEME_OVERLAY_OFF = 1000;
 
@@ -302,7 +320,6 @@ public class UiModeManager {
      * #getAttentionModeThemeOverlay()}: Maintains night mode always on.
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_MODES_API)
     @TestApi
     public static final int MODE_ATTENTION_THEME_OVERLAY_NIGHT = 1001;
 
@@ -311,7 +328,6 @@ public class UiModeManager {
      * #getAttentionModeThemeOverlay()}: Maintains night mode always off (Light).
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_MODES_API)
     @TestApi
     public static final int MODE_ATTENTION_THEME_OVERLAY_DAY = 1002;
 
@@ -319,7 +335,6 @@ public class UiModeManager {
      * Constant for {@link #getAttentionModeThemeOverlay()}: Error communication with server.
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_MODES_API)
     @TestApi
     public static final int MODE_ATTENTION_THEME_OVERLAY_UNKNOWN = -1;
 
@@ -373,6 +388,36 @@ public class UiModeManager {
     @SystemApi
     public static final int MODE_NIGHT_CUSTOM_TYPE_BEDTIME = 1;
 
+    /** @hide */
+    @IntDef(prefix = {"Force_Invert_Type_"}, value = {
+            FORCE_INVERT_TYPE_OFF,
+            FORCE_INVERT_TYPE_DARK,
+            FORCE_INVERT_TYPE_LIGHT,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface ForceInvertType {}
+
+    /**
+     * Constant for {@link #getForceInvertState()}: Do not force invert.
+     *
+     * @hide
+     */
+    public static final int FORCE_INVERT_TYPE_OFF = 0;
+
+    /**
+     * Constant for {@link #getForceInvertState()}: Force apps to be dark.
+     *
+     * @hide
+     */
+    public static final int FORCE_INVERT_TYPE_DARK = 1;
+
+    /**
+     * Constant for {@link #getForceInvertState()}: Force apps to be light.
+     *
+     * @hide
+     */
+    public static final int FORCE_INVERT_TYPE_LIGHT = 2;
+
     private static Globals sGlobals;
 
     /**
@@ -404,6 +449,8 @@ public class UiModeManager {
         private final IUiModeManager mService;
         private final Object mGlobalsLock = new Object();
 
+        @ForceInvertType
+        private int mForceInvertState = FORCE_INVERT_TYPE_OFF;
         private float mContrast = ContrastUtils.CONTRAST_DEFAULT_VALUE;
 
         /**
@@ -413,14 +460,61 @@ public class UiModeManager {
         private final ArrayMap<ContrastChangeListener, Executor>
                 mContrastChangeListeners = new ArrayMap<>();
 
+        private final ArrayMap<ForceInvertStateChangeListener, Executor>
+                mForceInvertStateChangeListeners = new ArrayMap<>();
+
         Globals(IUiModeManager service) {
             mService = service;
             try {
                 mService.addCallback(this);
                 mContrast = mService.getContrast();
+                mForceInvertState = mService.getForceInvertState();
             } catch (RemoteException e) {
                 Log.e(TAG, "Setup failed: UiModeManagerService is dead", e);
             }
+        }
+
+        @ForceInvertType
+        private int getForceInvertState() {
+            synchronized (mGlobalsLock) {
+                return mForceInvertState;
+            }
+        }
+
+        private void addForceInvertStateChangeListener(ForceInvertStateChangeListener listener,
+                Executor executor) {
+            synchronized (mGlobalsLock) {
+                mForceInvertStateChangeListeners.put(listener, executor);
+            }
+        }
+
+        private void removeForceInvertStateChangeListener(ForceInvertStateChangeListener listener) {
+            synchronized (mGlobalsLock) {
+                mForceInvertStateChangeListeners.remove(listener);
+            }
+        }
+
+        @Override
+        public void notifyForceInvertStateChanged(@ForceInvertType int forceInvertState) {
+            final Map<ForceInvertStateChangeListener, Executor> listeners = new ArrayMap<>();
+            synchronized (mGlobalsLock) {
+                // if value changed in the settings, update the cached value and notify listeners
+                if (mForceInvertState == forceInvertState) {
+                    return;
+                }
+
+                mForceInvertState = forceInvertState;
+                listeners.putAll(mForceInvertStateChangeListeners);
+            }
+
+            listeners.forEach((listener, executor) -> {
+                final long token = Binder.clearCallingIdentity();
+                try {
+                    executor.execute(() -> listener.onForceInvertStateChanged(forceInvertState));
+                } finally {
+                    Binder.restoreCallingIdentity(token);
+                }
+            });
         }
 
         private float getContrast() {
@@ -682,6 +776,53 @@ public class UiModeManager {
         }
     }
 
+    private Integer getCurrentModeTypeFromServer() {
+        try {
+            if (sGlobals != null) {
+                return sGlobals.mService.getCurrentModeType();
+            }
+            return Configuration.UI_MODE_TYPE_NORMAL;
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+
+    /**
+     * Retrieve the current running mode type for the user.
+     */
+    private final IpcDataCache.QueryHandler<Void, Integer> mCurrentModeTypeQuery =
+            new IpcDataCache.QueryHandler<>() {
+
+                @Override
+                @NonNull
+                public Integer apply(Void query) {
+                    return getCurrentModeTypeFromServer();
+                }
+            };
+
+    private static final String CURRENT_MODE_TYPE_API = "getCurrentModeType";
+
+    /**
+     * Cache the current running mode type for a user.
+     */
+    private final IpcDataCache<Void, Integer> mCurrentModeTypeCache =
+            new IpcDataCache<>(1, IpcDataCache.MODULE_SYSTEM,
+                    CURRENT_MODE_TYPE_API, /* cacheName= */ "CurrentModeTypeCache",
+                    mCurrentModeTypeQuery);
+
+    /**
+     * Invalidate the current mode type cache.
+     *
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_ENABLE_CURRENT_MODE_TYPE_BINDER_CACHE)
+    public static void invalidateCurrentModeTypeCache() {
+        IpcDataCache.invalidateCache(IpcDataCache.MODULE_SYSTEM,
+                CURRENT_MODE_TYPE_API);
+    }
+
+
     /**
      * Return the current running mode type.  May be one of
      * {@link Configuration#UI_MODE_TYPE_NORMAL Configuration.UI_MODE_TYPE_NORMAL},
@@ -693,14 +834,11 @@ public class UiModeManager {
      * {@link Configuration#UI_MODE_TYPE_VR_HEADSET Configuration.UI_MODE_TYPE_VR_HEADSET}.
      */
     public int getCurrentModeType() {
-        if (sGlobals != null) {
-            try {
-                return sGlobals.mService.getCurrentModeType();
-            } catch (RemoteException e) {
-                throw e.rethrowFromSystemServer();
-            }
+        if (enableCurrentModeTypeBinderCache()) {
+            return mCurrentModeTypeCache.query(null);
+        } else {
+            return getCurrentModeTypeFromServer();
         }
-        return Configuration.UI_MODE_TYPE_NORMAL;
     }
 
     /**
@@ -708,7 +846,7 @@ public class UiModeManager {
      * <p>
      * The mode can be one of:
      * <ul>
-     *   <li><em>{@link #MODE_NIGHT_NO}<em> sets the device into
+     *   <li><em>{@link #MODE_NIGHT_NO}</em> sets the device into
      *       {@code notnight} mode</li>
      *   <li><em>{@link #MODE_NIGHT_YES}</em> sets the device into
      *       {@code night} mode</li>
@@ -798,7 +936,6 @@ public class UiModeManager {
      *                                  {@code AttentionModeThemeOverlayType}.
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_MODES_API)
     @RequiresPermission(android.Manifest.permission.MODIFY_DAY_NIGHT_MODE)
     public void setAttentionModeThemeOverlay(
             @AttentionModeThemeOverlayType int attentionModeThemeOverlayType) {
@@ -825,7 +962,6 @@ public class UiModeManager {
      *
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_MODES_API)
     @TestApi
     @RequiresPermission(android.Manifest.permission.MODIFY_DAY_NIGHT_MODE)
     public @AttentionModeThemeOverlayReturnType int getAttentionModeThemeOverlay() {
@@ -844,7 +980,7 @@ public class UiModeManager {
      * <p>
      * The mode can be one of:
      * <ul>
-     *   <li><em>{@link #MODE_NIGHT_NO}<em> sets the device into
+     *   <li><em>{@link #MODE_NIGHT_NO}</em> sets the device into
      *       {@code notnight} mode</li>
      *   <li><em>{@link #MODE_NIGHT_YES}</em> sets the device into
      *       {@code night} mode</li>
@@ -1407,5 +1543,45 @@ public class UiModeManager {
     public void removeContrastChangeListener(@NonNull ContrastChangeListener listener) {
         Objects.requireNonNull(listener);
         sGlobals.removeContrastChangeListener(listener);
+    }
+
+    /**
+     * Returns the force invert state for the user.
+     *
+     * @hide
+     */
+    @ForceInvertType
+    public int getForceInvertState() {
+        return sGlobals.getForceInvertState();
+    }
+
+    /**
+     * Registers a {@link ForceInvertStateChangeListener} for the current user.
+     *
+     * @param executor The executor on which the listener should be called back.
+     * @param listener The listener.
+     *
+     * @hide
+     */
+    public void addForceInvertStateChangeListener(
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull ForceInvertStateChangeListener listener) {
+        Objects.requireNonNull(executor);
+        Objects.requireNonNull(listener);
+        sGlobals.addForceInvertStateChangeListener(listener, executor);
+    }
+
+    /**
+     * Unregisters a {@link ForceInvertStateChangeListener} for the current user.
+     * If the listener was not registered, does nothing and returns.
+     *
+     * @param listener The listener to unregister.
+     *
+     * @hide
+     */
+    public void removeForceInvertStateChangeListener(
+            @NonNull ForceInvertStateChangeListener listener) {
+        Objects.requireNonNull(listener);
+        sGlobals.removeForceInvertStateChangeListener(listener);
     }
 }

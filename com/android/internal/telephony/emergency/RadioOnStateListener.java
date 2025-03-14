@@ -21,7 +21,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.telephony.ServiceState;
-import android.telephony.SubscriptionManager;
 import android.telephony.satellite.ISatelliteModemStateCallback;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -148,6 +147,21 @@ public class RadioOnStateListener {
         public void onSatelliteModemStateChanged(int state) {
             mHandler.obtainMessage(MSG_SATELLITE_ENABLED_CHANGED).sendToTarget();
         }
+
+        @Override
+        public void onEmergencyModeChanged(boolean isEmergency) {
+            Rlog.d(TAG, "onEmergencyModeChanged: ignored " + isEmergency);
+        }
+
+        @Override
+        public void onRegistrationFailure(int causeCode) {
+            Rlog.d(TAG, "onRegistrationFailure: causeCode " + causeCode);
+        }
+
+        @Override
+        public void onTerrestrialNetworkAvailableChanged(boolean isAvailable) {
+            Rlog.d(TAG, "onTerrestrialNetworkAvailableChanged: isAvailable " + isAvailable);
+        }
     };
 
     private Callback mCallback; // The callback to notify upon completion.
@@ -221,7 +235,7 @@ public class RadioOnStateListener {
         // Register for RADIO_OFF to handle cases where emergency call is dialed before
         // we receive UNSOL_RESPONSE_RADIO_STATE_CHANGED with RADIO_OFF.
         registerForRadioOff();
-        if (mSatelliteController.isSatelliteEnabled()) {
+        if (mSatelliteController.isSatelliteEnabledOrBeingEnabled()) {
             // Register for satellite modem state changed to notify when satellite is disabled.
             registerForSatelliteEnabledChanged();
         }
@@ -392,8 +406,8 @@ public class RadioOnStateListener {
                 Rlog.d(TAG, "Trying (again) to turn the radio on and satellite modem off.");
                 mPhone.setRadioPower(true, mForEmergencyCall, mSelectedPhoneForEmergencyCall,
                         false);
-                if (mSatelliteController.isSatelliteEnabled()) {
-                    mSatelliteController.requestSatelliteEnabled(mPhone.getSubId(),
+                if (mSatelliteController.isSatelliteEnabledOrBeingEnabled()) {
+                    mSatelliteController.requestSatelliteEnabled(
                             false /* enableSatellite */, false /* enableDemoMode */,
                             false /* isEmergency*/,
                             new IIntegerConsumer.Stub() {
@@ -497,16 +511,11 @@ public class RadioOnStateListener {
     }
 
     private void registerForSatelliteEnabledChanged() {
-        mSatelliteController.registerForSatelliteModemStateChanged(
-                mPhone.getSubId(), mSatelliteCallback);
+        mSatelliteController.registerForSatelliteModemStateChanged(mSatelliteCallback);
     }
 
     private void unregisterForSatelliteEnabledChanged() {
-        int subId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
-        if (mPhone != null) {
-            subId = mPhone.getSubId();
-        }
-        mSatelliteController.unregisterForModemStateChanged(subId, mSatelliteCallback);
+        mSatelliteController.unregisterForModemStateChanged(mSatelliteCallback);
         mHandler.removeMessages(MSG_SATELLITE_ENABLED_CHANGED);
     }
 

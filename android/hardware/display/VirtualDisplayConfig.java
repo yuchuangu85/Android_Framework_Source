@@ -18,24 +18,29 @@ package android.hardware.display;
 
 import static android.view.Display.DEFAULT_DISPLAY;
 
+import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
 import android.annotation.FloatRange;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.hardware.display.DisplayManager.VirtualDisplayFlag;
 import android.media.projection.MediaProjection;
 import android.os.Handler;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.os.PowerManager;
 import android.util.ArraySet;
 import android.view.Display;
+import android.view.DisplayCutout;
 import android.view.Surface;
 
 import java.util.Collections;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.Executor;
 
 /**
  * Holds configuration used to create {@link VirtualDisplay} instances.
@@ -55,9 +60,14 @@ public final class VirtualDisplayConfig implements Parcelable {
     private final String mUniqueId;
     private final int mDisplayIdToMirror;
     private final boolean mWindowManagerMirroringEnabled;
-    private ArraySet<String> mDisplayCategories = null;
+    private final ArraySet<String> mDisplayCategories;
     private final float mRequestedRefreshRate;
     private final boolean mIsHomeSupported;
+    private final DisplayCutout mDisplayCutout;
+    private final boolean mIgnoreActivitySizeRestrictions;
+    private final float mDefaultBrightness;
+    private final float mDimBrightness;
+    private final IBrightnessListener mBrightnessListener;
 
     private VirtualDisplayConfig(
             @NonNull String name,
@@ -71,7 +81,12 @@ public final class VirtualDisplayConfig implements Parcelable {
             boolean windowManagerMirroringEnabled,
             @NonNull ArraySet<String> displayCategories,
             float requestedRefreshRate,
-            boolean isHomeSupported) {
+            boolean isHomeSupported,
+            @Nullable DisplayCutout displayCutout,
+            boolean ignoreActivitySizeRestrictions,
+            @FloatRange(from = 0.0f, to = 1.0f) float defaultBrightness,
+            @FloatRange(from = 0.0f, to = 1.0f) float dimBrightness,
+            IBrightnessListener brightnessListener) {
         mName = name;
         mWidth = width;
         mHeight = height;
@@ -84,6 +99,11 @@ public final class VirtualDisplayConfig implements Parcelable {
         mDisplayCategories = displayCategories;
         mRequestedRefreshRate = requestedRefreshRate;
         mIsHomeSupported = isHomeSupported;
+        mDisplayCutout = displayCutout;
+        mIgnoreActivitySizeRestrictions = ignoreActivitySizeRestrictions;
+        mDefaultBrightness = defaultBrightness;
+        mDimBrightness = dimBrightness;
+        mBrightnessListener = brightnessListener;
     }
 
     /**
@@ -135,6 +155,56 @@ public final class VirtualDisplayConfig implements Parcelable {
     }
 
     /**
+     * Returns the cutout of this display.
+     *
+     * @return the cutout of the display or {@code null} if none is specified.
+     *
+     * @see Builder#setDisplayCutout
+     * @hide
+     */
+    @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_VIRTUAL_DISPLAY_INSETS)
+    @SystemApi
+    @Nullable
+    public DisplayCutout getDisplayCutout() {
+        return mDisplayCutout;
+    }
+
+    /**
+     * Returns the default brightness of the display.
+     *
+     * <p>Value of {@code 0.0} indicates the minimum supported brightness and value of {@code 1.0}
+     * indicates the maximum supported brightness.</p>
+     *
+     * @see Builder#setDefaultBrightness(float)
+     */
+    @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_DEVICE_AWARE_DISPLAY_POWER)
+    public @FloatRange(from = 0.0f, to = 1.0f) float getDefaultBrightness() {
+        return mDefaultBrightness;
+    }
+
+    /**
+     * Returns the dim brightness of the display.
+     *
+     * <p>Value of {@code 0.0} indicates the minimum supported brightness and value of {@code 1.0}
+     * indicates the maximum supported brightness.</p>
+     *
+     * @see Builder#setDimBrightness(float)
+     */
+    @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_DEVICE_AWARE_DISPLAY_POWER)
+    public @FloatRange(from = 0.0f, to = 1.0f) float getDimBrightness() {
+        return mDimBrightness;
+    }
+
+    /**
+     * Returns the listener to get notified about changes in the display brightness.
+     * @hide
+     */
+    @Nullable
+    public IBrightnessListener getBrightnessListener() {
+        return mBrightnessListener;
+    }
+
+    /**
      * Returns the unique identifier for the display. Shouldn't be displayed to the user.
      * @hide
      */
@@ -167,10 +237,25 @@ public final class VirtualDisplayConfig implements Parcelable {
      * @see Builder#setHomeSupported
      * @hide
      */
-    @FlaggedApi(android.companion.virtual.flags.Flags.FLAG_VDM_CUSTOM_HOME)
     @SystemApi
     public boolean isHomeSupported() {
-        return android.companion.virtual.flags.Flags.vdmCustomHome() && mIsHomeSupported;
+        return mIsHomeSupported;
+    }
+
+    /**
+     * Whether this virtual display ignores fixed orientation, aspect ratio, and resizability
+     * of apps.
+     *
+     * @return Whether orientation, aspect ratio, and resizability restrictions are ignored.
+     *
+     * @see Builder#setIgnoreActivitySizeRestrictions(boolean)
+     * @hide
+     */
+    @FlaggedApi(com.android.window.flags.Flags.FLAG_VDM_FORCE_APP_UNIVERSAL_RESIZABLE_API)
+    @SystemApi
+    public boolean isIgnoreActivitySizeRestrictions() {
+        return mIgnoreActivitySizeRestrictions
+                && com.android.window.flags.Flags.vdmForceAppUniversalResizableApi();
     }
 
     /**
@@ -207,6 +292,11 @@ public final class VirtualDisplayConfig implements Parcelable {
         dest.writeArraySet(mDisplayCategories);
         dest.writeFloat(mRequestedRefreshRate);
         dest.writeBoolean(mIsHomeSupported);
+        DisplayCutout.ParcelableWrapper.writeCutoutToParcel(mDisplayCutout, dest, flags);
+        dest.writeBoolean(mIgnoreActivitySizeRestrictions);
+        dest.writeFloat(mDefaultBrightness);
+        dest.writeFloat(mDimBrightness);
+        dest.writeStrongBinder(mBrightnessListener != null ? mBrightnessListener.asBinder() : null);
     }
 
     @Override
@@ -232,7 +322,12 @@ public final class VirtualDisplayConfig implements Parcelable {
                 && mWindowManagerMirroringEnabled == that.mWindowManagerMirroringEnabled
                 && Objects.equals(mDisplayCategories, that.mDisplayCategories)
                 && mRequestedRefreshRate == that.mRequestedRefreshRate
-                && mIsHomeSupported == that.mIsHomeSupported;
+                && mIsHomeSupported == that.mIsHomeSupported
+                && mIgnoreActivitySizeRestrictions == that.mIgnoreActivitySizeRestrictions
+                && Objects.equals(mDisplayCutout, that.mDisplayCutout)
+                && mDefaultBrightness == that.mDefaultBrightness
+                && mDimBrightness == that.mDimBrightness
+                && Objects.equals(mBrightnessListener, that.mBrightnessListener);
     }
 
     @Override
@@ -240,7 +335,9 @@ public final class VirtualDisplayConfig implements Parcelable {
         int hashCode = Objects.hash(
                 mName, mWidth, mHeight, mDensityDpi, mFlags, mSurface, mUniqueId,
                 mDisplayIdToMirror, mWindowManagerMirroringEnabled, mDisplayCategories,
-                mRequestedRefreshRate, mIsHomeSupported);
+                mRequestedRefreshRate, mIsHomeSupported, mDisplayCutout,
+                mIgnoreActivitySizeRestrictions, mDefaultBrightness, mDimBrightness,
+                mBrightnessListener);
         return hashCode;
     }
 
@@ -260,6 +357,10 @@ public final class VirtualDisplayConfig implements Parcelable {
                 + " mDisplayCategories=" + mDisplayCategories
                 + " mRequestedRefreshRate=" + mRequestedRefreshRate
                 + " mIsHomeSupported=" + mIsHomeSupported
+                + " mDisplayCutout=" + mDisplayCutout
+                + " mIgnoreActivitySizeRestrictions=" + mIgnoreActivitySizeRestrictions
+                + " mDefaultBrightness=" + mDefaultBrightness
+                + " mDimBrightness=" + mDimBrightness
                 + ")";
     }
 
@@ -276,6 +377,46 @@ public final class VirtualDisplayConfig implements Parcelable {
         mDisplayCategories = (ArraySet<String>) in.readArraySet(null);
         mRequestedRefreshRate = in.readFloat();
         mIsHomeSupported = in.readBoolean();
+        mDisplayCutout = DisplayCutout.ParcelableWrapper.readCutoutFromParcel(in);
+        mIgnoreActivitySizeRestrictions = in.readBoolean();
+        mDefaultBrightness = in.readFloat();
+        mDimBrightness = in.readFloat();
+        mBrightnessListener = IBrightnessListener.Stub.asInterface(in.readStrongBinder());
+    }
+
+    /**
+     * Listener for display brightness changes.
+     */
+    @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_DEVICE_AWARE_DISPLAY_POWER)
+    public interface BrightnessListener {
+
+        /**
+         * Called when the display's brightness has changed.
+         *
+         * @param brightness the new brightness of the display. Value of {@code 0.0} indicates the
+         *   minimum supported brightness and value of {@code 1.0} indicates the maximum supported
+         *   brightness.
+         */
+        void onBrightnessChanged(@FloatRange(from = 0.0f, to = 1.0f) float brightness);
+    }
+
+    private static class BrightnessListenerDelegate extends IBrightnessListener.Stub {
+
+        @NonNull
+        private final Executor mExecutor;
+        @NonNull
+        private final BrightnessListener mListener;
+
+        BrightnessListenerDelegate(@NonNull @CallbackExecutor Executor executor,
+                @NonNull BrightnessListener listener) {
+            mExecutor = executor;
+            mListener = listener;
+        }
+
+        @Override
+        public void onBrightnessChanged(float brightness) {
+            mExecutor.execute(() -> mListener.onBrightnessChanged(brightness));
+        }
     }
 
     @NonNull
@@ -308,6 +449,11 @@ public final class VirtualDisplayConfig implements Parcelable {
         private ArraySet<String> mDisplayCategories = new ArraySet<>();
         private float mRequestedRefreshRate = 0.0f;
         private boolean mIsHomeSupported = false;
+        private DisplayCutout mDisplayCutout = null;
+        private boolean mIgnoreActivitySizeRestrictions = false;
+        private float mDefaultBrightness = 0.0f;
+        private float mDimBrightness = PowerManager.BRIGHTNESS_INVALID;
+        private IBrightnessListener mBrightnessListener = null;
 
         /**
          * Creates a new Builder.
@@ -460,7 +606,6 @@ public final class VirtualDisplayConfig implements Parcelable {
          * @see DisplayManager#VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
          * @hide
          */
-        @FlaggedApi(android.companion.virtual.flags.Flags.FLAG_VDM_CUSTOM_HOME)
         @SystemApi
         @NonNull
         public Builder setHomeSupported(boolean isHomeSupported) {
@@ -469,10 +614,122 @@ public final class VirtualDisplayConfig implements Parcelable {
         }
 
         /**
+         * Sets the cutout of this display.
+         *
+         * @hide
+         */
+        @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_VIRTUAL_DISPLAY_INSETS)
+        @SystemApi
+        @NonNull
+        public Builder setDisplayCutout(@Nullable DisplayCutout displayCutout) {
+            mDisplayCutout = displayCutout;
+            return this;
+        }
+
+        /**
+         * Sets whether this display ignores fixed orientation, aspect ratio and resizability
+         * of apps.
+         *
+         * <p>Note: setting to {@code true} requires the display to have
+         * {@link DisplayManager#VIRTUAL_DISPLAY_FLAG_TRUSTED}. If this is false, this property
+         * is ignored.</p>
+         *
+         * @hide
+         */
+        @FlaggedApi(com.android.window.flags.Flags.FLAG_VDM_FORCE_APP_UNIVERSAL_RESIZABLE_API)
+        @SystemApi
+        @NonNull
+        public Builder setIgnoreActivitySizeRestrictions(boolean enabled) {
+            mIgnoreActivitySizeRestrictions = enabled;
+            return this;
+        }
+
+        /**
+         * Sets the default brightness of the display.
+         *
+         * <p>The system will use this brightness value whenever the display should be bright, i.e.
+         * it is powered on and not modified due to user activity or app activity.</p>
+         *
+         * <p>Value of {@code 0.0} indicates the minimum supported brightness and value of
+         * {@code 1.0} indicates the maximum supported brightness.</p>
+         *
+         * <p>If unset, defaults to {@code 0.0}</p>
+         *
+         * @throws IllegalArgumentException if the brightness is outside the valid range [0.0, 1.0]
+         * @see android.view.View#setKeepScreenOn(boolean)
+         * @see #setBrightnessListener(Executor, BrightnessListener)
+         */
+        @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_DEVICE_AWARE_DISPLAY_POWER)
+        @NonNull
+        public Builder setDefaultBrightness(@FloatRange(from = 0.0f, to = 1.0f) float brightness) {
+            if (!isValidBrightness(brightness)) {
+                throw new IllegalArgumentException(
+                        "Virtual display default brightness must be in range [0.0, 1.0]");
+            }
+            mDefaultBrightness = brightness;
+            return this;
+        }
+
+        /**
+         * Sets the dim brightness of the display.
+         *
+         * <p>The system will use this brightness value whenever the display should be dim, i.e.
+         * it is powered on and dimmed due to user activity or app activity.</p>
+         *
+         * <p>Value of {@code 0.0} indicates the minimum supported brightness and value of
+         * {@code 1.0} indicates the maximum supported brightness.</p>
+         *
+         * <p>If set, the default brightness must also be set to a value greater or equal to the
+         * dim brightness. If unset, defaults to the system default.</p>
+         *
+         * @throws IllegalArgumentException if the brightness is outside the valid range [0.0, 1.0]
+         * @see Builder#setDefaultBrightness(float)
+         * @see #setBrightnessListener(Executor, BrightnessListener)
+         */
+        @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_DEVICE_AWARE_DISPLAY_POWER)
+        @NonNull
+        public Builder setDimBrightness(@FloatRange(from = 0.0f, to = 1.0f) float brightness) {
+            if (!isValidBrightness(brightness)) {
+                throw new IllegalArgumentException(
+                        "Virtual display dim brightness must be in range [0.0, 1.0]");
+            }
+            mDimBrightness = brightness;
+            return this;
+        }
+
+        /**
+         * Sets the listener to get notified about changes in the display brightness.
+         *
+         * @param executor The executor where the callback is executed on.
+         * @param listener The listener to get notified when the display brightness has changed.
+         */
+        @SuppressLint("MissingGetterMatchingBuilder") // The hidden getter returns the AIDL object
+        @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_DEVICE_AWARE_DISPLAY_POWER)
+        @NonNull
+        public Builder setBrightnessListener(@NonNull @CallbackExecutor Executor executor,
+                @NonNull BrightnessListener listener) {
+            mBrightnessListener = new BrightnessListenerDelegate(
+                    Objects.requireNonNull(executor), Objects.requireNonNull(listener));
+            return this;
+        }
+
+        private boolean isValidBrightness(float brightness) {
+            return !Float.isNaN(brightness) && PowerManager.BRIGHTNESS_MIN <= brightness
+                    && brightness <= PowerManager.BRIGHTNESS_MAX;
+        }
+
+        /**
          * Builds the {@link VirtualDisplayConfig} instance.
+         *
+         * @throws IllegalArgumentException if the dim brightness is set to a value greater than
+         *   the default brightness.
          */
         @NonNull
         public VirtualDisplayConfig build() {
+            if (isValidBrightness(mDimBrightness) && mDimBrightness > mDefaultBrightness) {
+                throw new IllegalArgumentException(
+                        "The dim brightness must not be greater than the default brightness");
+            }
             return new VirtualDisplayConfig(
                     mName,
                     mWidth,
@@ -485,7 +742,12 @@ public final class VirtualDisplayConfig implements Parcelable {
                     mWindowManagerMirroringEnabled,
                     mDisplayCategories,
                     mRequestedRefreshRate,
-                    mIsHomeSupported);
+                    mIsHomeSupported,
+                    mDisplayCutout,
+                    mIgnoreActivitySizeRestrictions,
+                    mDefaultBrightness,
+                    mDimBrightness,
+                    mBrightnessListener);
         }
     }
 }

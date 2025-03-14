@@ -2952,4 +2952,39 @@ public interface CommandsInterface {
      * @param h Handler to be removed from the registrant list.
      */
     default void unregisterForSecurityAlgorithmUpdates(Handler h) {}
+
+    /**
+     * Set the non-terrestrial PLMN with lower priority than terrestrial networks.
+     *
+     * @param simSlot Indicates the SIM slot to which this API will be applied. The modem will use
+     *                this information to determine the relevant carrier.
+     * @param carrierPlmnList The list of roaming PLMN used for connecting to satellite networks
+     *                        supported by user subscription.
+     * @param allSatellitePlmnList Modem should use the allSatellitePlmnList to identify satellite
+     *                             PLMNs that are not supported by the carrier and make sure not to
+     *                             attach to them.
+     * @param result Callback message to receive the result.
+     */
+    default void setSatellitePlmn(int simSlot,
+            @NonNull List<String> carrierPlmnList, @NonNull List<String> allSatellitePlmnList,
+            Message result) {}
+
+    /**
+     * Enable or disable satellite in the cellular modem associated with a carrier.
+     *
+     * @param simSlot Indicates the SIM slot to which this API will be applied. The modem will use
+     *                this information to determine the relevant carrier.
+     * @param satelliteEnabled {@code true} to enable satellite, {@code false} to disable satellite.
+     * @param result Callback message to receive the result.
+     */
+    default void setSatelliteEnabledForCarrier(int simSlot, boolean satelliteEnabled,
+            Message result) {}
+
+    /**
+     * Check whether satellite is enabled in the cellular modem associated with a carrier.
+     *
+     * @param simSlot Indicates the SIM slot to which this API will be applied.
+     * @param result Callback message to receive the result.
+     */
+    default void isSatelliteEnabledForCarrier(int simSlot, Message result) {}
 }

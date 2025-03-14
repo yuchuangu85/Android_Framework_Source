@@ -40,6 +40,7 @@ import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.permission.flags.Flags;
+import android.permission.internal.compat.UserHandleCompat;
 import android.util.ArrayMap;
 import android.util.SparseArray;
 
@@ -211,6 +212,16 @@ public final class RoleManager {
             "android.app.role.SYSTEM_CALL_STREAMING";
 
     /**
+     * The name of the role used for testing cross-user roles.
+     *
+     * @hide
+     */
+    @FlaggedApi(com.android.permission.flags.Flags.FLAG_CROSS_USER_ROLE_ENABLED)
+    @SystemApi
+    public static final String ROLE_RESERVED_FOR_TESTING_PROFILE_GROUP_EXCLUSIVITY =
+            "android.app.role.RESERVED_FOR_TESTING_PROFILE_GROUP_EXCLUSIVITY";
+
+    /**
      * @hide
      */
     @IntDef(flag = true, value = { MANAGE_HOLDERS_FLAG_DONT_KILL_APP })
@@ -252,6 +263,19 @@ public final class RoleManager {
      */
     public static final String PERMISSION_MANAGE_ROLES_FROM_CONTROLLER =
             "com.android.permissioncontroller.permission.MANAGE_ROLES_FROM_CONTROLLER";
+
+    /**
+     * The name of the system dependency installer role.
+     *
+     * A dependency installer installs missing SDK or static shared library dependencies that an app
+     * requires to be installed.
+     *
+     * @hide
+     */
+    @FlaggedApi("android.content.pm.sdk_dependency_installer")
+    @SystemApi
+    public static final String ROLE_SYSTEM_DEPENDENCY_INSTALLER =
+            "android.app.role.SYSTEM_DEPENDENCY_INSTALLER";
 
     @NonNull
     private final Context mContext;
@@ -569,6 +593,87 @@ public final class RoleManager {
         try {
             mService.setDefaultApplicationAsUser(roleName, packageName, flags,
                     mContext.getUser().getIdentifier(), createRemoteCallback(executor, callback));
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Get the {@link UserHandle} of the user who that is the active user for the specified role.
+     * <p>
+     * Only profile-group exclusive roles can be used with this method, and they will
+     * have one active user within a profile group.
+     * <p>
+     * <strong>Note:</strong> Using this API requires holding
+     * {@code android.permission.INTERACT_ACROSS_USERS_FULL} and one of
+     * {@code android.permission.MANAGE_ROLE_HOLDERS} or
+     * {@code android.permission.MANAGE_DEFAULT_APPLICATIONS}.
+     *
+     * @param roleName the name of the role to get the active user for
+     *
+     * @return a {@link UserHandle} of the active user for the specified role
+     *
+     * @see #setActiveUserForRole(String, UserHandle, int)
+     *
+     * @hide
+     */
+    @RequiresPermission(allOf = {Manifest.permission.INTERACT_ACROSS_USERS_FULL,
+            Manifest.permission.MANAGE_ROLE_HOLDERS,
+            Manifest.permission.MANAGE_DEFAULT_APPLICATIONS},
+            conditional = true)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @SystemApi
+    @UserHandleAware
+    @FlaggedApi(com.android.permission.flags.Flags.FLAG_CROSS_USER_ROLE_ENABLED)
+    @Nullable
+    public UserHandle getActiveUserForRole(@NonNull String roleName) {
+        Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        try {
+            int userId = mService.getActiveUserForRoleAsUser(roleName,
+                    mContext.getUser().getIdentifier());
+            return userId == UserHandleCompat.USER_NULL ? null : UserHandle.of(userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set a specific user as active user for a role.
+     * <p>
+     * Only profile-group exclusive roles can be used with this method, and they will have
+     * one active user within a profile group.
+     * <p>
+     * <strong>Note:</strong> Using this API requires holding
+     * {@code android.permission.INTERACT_ACROSS_USERS_FULL} and one of
+     * {@code android.permission.MANAGE_ROLE_HOLDERS} or
+     * {@code android.permission.MANAGE_DEFAULT_APPLICATIONS}.
+     *
+     * @param roleName the name of the role to set the active user for
+     * @param user the user to set as active user for specified role
+     * @param flags optional behavior flags
+     *
+     * @see #getActiveUserForRole(String)
+     *
+     * @hide
+     */
+    @RequiresPermission(allOf = {Manifest.permission.INTERACT_ACROSS_USERS_FULL,
+            Manifest.permission.MANAGE_ROLE_HOLDERS,
+            Manifest.permission.MANAGE_DEFAULT_APPLICATIONS},
+            conditional = true)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @SystemApi
+    @UserHandleAware
+    @FlaggedApi(com.android.permission.flags.Flags.FLAG_CROSS_USER_ROLE_ENABLED)
+    // The user handle parameter is a value to be set by this method, while the context user of the
+    // operation is indeed read from the context
+    @SuppressLint("UserHandle")
+    public void setActiveUserForRole(
+            @NonNull String roleName, @NonNull UserHandle user, @ManageHoldersFlags int flags) {
+        Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        Objects.requireNonNull(user, "user cannot be null");
+        try {
+            mService.setActiveUserForRoleAsUser(roleName, user.getIdentifier(), flags,
+                    mContext.getUser().getIdentifier());
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1071,6 +1176,124 @@ public final class RoleManager {
         } else {
             getRoleControllerManager().isApplicationVisibleForRole(roleName, packageName, executor,
                     callback);
+        }
+    }
+
+    /**
+     * Get the default holders of this role, which will be added when the role is added for the
+     * first time.
+     * <p>
+     * <strong>Note:</strong> Use of this API should be limited to tests. The values returned are
+     * not persisted.
+     * <p>
+     * Throws {@link IllegalArgumentException} if role is not a test role
+     *
+     * @param roleName the name of the role to get test default holders for
+     * @return the list of package names of the default holders
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @SystemApi
+    @UserHandleAware
+    @FlaggedApi(com.android.permission.flags.Flags.FLAG_CROSS_USER_ROLE_ENABLED)
+    @NonNull
+    public List<String> getDefaultHoldersForTest(@NonNull String roleName) {
+        Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        try {
+            return mService.getDefaultHoldersForTestAsUser(roleName,
+                    mContext.getUser().getIdentifier());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set the default holders of this role, which will be added when the role is added for the
+     * first time.
+     * <p>
+     * <strong>Note:</strong> Use of this API should be limited to tests. The values used are
+     * not persisted.
+     * <p>
+     * Throws {@link IllegalArgumentException} if role is not a test role
+     * Throws {@link NullPointerException} if packageNames is {@code null}
+     *
+     * @param roleName the name of the role to set test default holders for
+     * @param packageNames a list of package names of the default holders, or an empty list to unset
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @SystemApi
+    @UserHandleAware
+    @FlaggedApi(com.android.permission.flags.Flags.FLAG_CROSS_USER_ROLE_ENABLED)
+    public void setDefaultHoldersForTest(
+            @NonNull String roleName, @NonNull List<String> packageNames) {
+        Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        Objects.requireNonNull(packageNames, "packageNames cannot be null");
+        try {
+            mService.setDefaultHoldersForTestAsUser(roleName, packageNames,
+                    mContext.getUser().getIdentifier());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Get whether a role should be visible for testing.
+     * <p>
+     * <strong>Note:</strong> Use of this API should be limited to tests. The values returned are
+     * not persisted.
+     * <p>
+     * Throws {@link IllegalArgumentException} if role is not a test role
+     *
+     * @param roleName the name of the role to get test visibility for
+     * @return {@code true} if role is visible, {@code false} otherwise
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @SystemApi
+    @UserHandleAware
+    @FlaggedApi(com.android.permission.flags.Flags.FLAG_CROSS_USER_ROLE_ENABLED)
+    public boolean isRoleVisibleForTest(@NonNull String roleName) {
+        Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        try {
+            return mService.isRoleVisibleForTestAsUser(roleName,
+                    mContext.getUser().getIdentifier());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Set whether a role should be visible for testing.
+     * <p>
+     * <strong>Note:</strong> Use of this API should be limited to tests. The values used are
+     * not persisted.
+     * <p>
+     * Throws {@link IllegalArgumentException} if role is not a test role
+     *
+     * @param roleName the name of the role to set test visibility for
+     * @param visible {@code true} to set role as visible, {@code false} otherwise
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_ROLE_HOLDERS)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @SystemApi
+    @UserHandleAware
+    @FlaggedApi(com.android.permission.flags.Flags.FLAG_CROSS_USER_ROLE_ENABLED)
+    public void setRoleVisibleForTest(@NonNull String roleName, boolean visible) {
+        Preconditions.checkStringNotEmpty(roleName, "roleName cannot be null or empty");
+        try {
+            mService.setRoleVisibleForTestAsUser(roleName, visible,
+                    mContext.getUser().getIdentifier());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
         }
     }
 

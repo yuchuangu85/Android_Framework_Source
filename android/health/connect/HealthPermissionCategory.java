@@ -16,6 +16,9 @@
 
 package android.health.connect;
 
+import static com.android.healthfitness.flags.Flags.FLAG_ACTIVITY_INTENSITY;
+import static com.android.healthfitness.flags.Flags.FLAG_MINDFULNESS;
+
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.SystemApi;
@@ -24,6 +27,7 @@ import android.health.connect.datatypes.BasalMetabolicRateRecord;
 import android.health.connect.datatypes.DistanceRecord;
 import android.health.connect.datatypes.ElevationGainedRecord;
 import android.health.connect.datatypes.HeartRateRecord;
+import android.health.connect.datatypes.MindfulnessSessionRecord;
 import android.health.connect.datatypes.PowerRecord;
 import android.health.connect.datatypes.Record;
 import android.health.connect.datatypes.SpeedRecord;
@@ -45,6 +49,10 @@ public class HealthPermissionCategory {
     // ACTIVITY
     /** Permission category for {@link ActiveCaloriesBurnedRecord} */
     public static final int ACTIVE_CALORIES_BURNED = 1;
+
+    /** Permission category for {@link android.health.connect.datatypes.ActivityIntensityRecord}. */
+    @FlaggedApi(FLAG_ACTIVITY_INTENSITY)
+    public static final int ACTIVITY_INTENSITY = 42;
 
     /** Permission category for {@link DistanceRecord} */
     public static final int DISTANCE = 2;
@@ -156,9 +164,7 @@ public class HealthPermissionCategory {
     /** Permission category for {RestingHeartRate} */
     public static final int RESTING_HEART_RATE = 34;
 
-    /**
-     * Permission category for {SkinTemperature}
-     */
+    /** Permission category for {SkinTemperature} */
     @FlaggedApi("com.android.healthconnect.flags.skin_temperature")
     public static final int SKIN_TEMPERATURE = 39;
 
@@ -166,12 +172,18 @@ public class HealthPermissionCategory {
     @FlaggedApi("com.android.healthconnect.flags.training_plans")
     public static final int PLANNED_EXERCISE = 40;
 
+    // WELLNESS
+    /** Permission category for {@link MindfulnessSessionRecord}. */
+    @FlaggedApi(FLAG_MINDFULNESS)
+    public static final int MINDFULNESS = 41;
+
     private HealthPermissionCategory() {}
 
     /** @hide */
     @IntDef({
         UNKNOWN,
         ACTIVE_CALORIES_BURNED,
+        ACTIVITY_INTENSITY,
         DISTANCE,
         ELEVATION_GAINED,
         EXERCISE,
@@ -207,7 +219,8 @@ public class HealthPermissionCategory {
         RESPIRATORY_RATE,
         RESTING_HEART_RATE,
         SKIN_TEMPERATURE,
-        PLANNED_EXERCISE
+        PLANNED_EXERCISE,
+        MINDFULNESS
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Type {}

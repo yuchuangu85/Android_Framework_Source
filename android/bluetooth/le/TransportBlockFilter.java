@@ -16,6 +16,8 @@
 
 package android.bluetooth.le;
 
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
@@ -433,8 +435,8 @@ public final class TransportBlockFilter implements Parcelable {
                         "setWifiNanHash() should be used instead of setTransportData() when orgId "
                                 + "is WIFI_ALLIANCE_NEIGHBOR_AWARENESS_NETWORKING");
             }
-            Objects.requireNonNull(transportData);
-            Objects.requireNonNull(transportDataMask);
+            requireNonNull(transportData);
+            requireNonNull(transportDataMask);
             if (transportData.length == 0) {
                 throw new IllegalArgumentException("transportData is empty");
             }
@@ -476,7 +478,7 @@ public final class TransportBlockFilter implements Parcelable {
                         "setWifiNanHash() can only be used when orgId is"
                                 + " WIFI_ALLIANCE_NEIGHBOR_AWARENESS_NETWORKING");
             }
-            Objects.requireNonNull(wifiNanHash);
+            requireNonNull(wifiNanHash);
             if (wifiNanHash.length != WIFI_NAN_HASH_LENGTH_BYTES) {
                 throw new IllegalArgumentException("Wi-Fi NAN hash must be 8 octets long");
             }

@@ -18,7 +18,7 @@ package android.health.connect.aidl;
 
 import android.annotation.NonNull;
 import android.health.connect.RecordIdFilter;
-import android.health.connect.internal.datatypes.utils.RecordMapper;
+import android.health.connect.internal.datatypes.utils.HealthConnectMappings;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -58,14 +58,14 @@ public final class RecordIdFiltersParcel implements Parcelable {
             if (id != null) {
                 mRecordIdFilters.add(
                         RecordIdFilter.fromId(
-                                RecordMapper.getInstance()
+                                HealthConnectMappings.getInstance()
                                         .getRecordIdToExternalRecordClassMap()
                                         .get(in.readInt()),
                                 id));
             } else {
                 mRecordIdFilters.add(
                         RecordIdFilter.fromClientRecordId(
-                                RecordMapper.getInstance()
+                                HealthConnectMappings.getInstance()
                                         .getRecordIdToExternalRecordClassMap()
                                         .get(in.readInt()),
                                 clientRecordId));
@@ -90,7 +90,8 @@ public final class RecordIdFiltersParcel implements Parcelable {
                     dest.writeString(recordId.getId());
                     dest.writeString(recordId.getClientRecordId());
                     dest.writeInt(
-                            RecordMapper.getInstance().getRecordType(recordId.getRecordType()));
+                            HealthConnectMappings.getInstance()
+                                    .getRecordType(recordId.getRecordType()));
                 }));
     }
 }

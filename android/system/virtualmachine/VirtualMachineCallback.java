@@ -35,23 +35,28 @@ import java.lang.annotation.RetentionPolicy;
 public interface VirtualMachineCallback {
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = "ERROR_", value = {
-        ERROR_UNKNOWN,
-        ERROR_PAYLOAD_VERIFICATION_FAILED,
-        ERROR_PAYLOAD_CHANGED,
-        ERROR_PAYLOAD_INVALID_CONFIG
-    })
+    @IntDef(
+            prefix = "ERROR_",
+            value = {
+                ERROR_UNKNOWN,
+                ERROR_PAYLOAD_VERIFICATION_FAILED,
+                ERROR_PAYLOAD_CHANGED,
+                ERROR_PAYLOAD_INVALID_CONFIG
+            })
     @interface ErrorCode {}
 
     /** Error code for all other errors not listed below. */
     int ERROR_UNKNOWN = 0;
+
     /**
      * Error code indicating that the payload can't be verified due to various reasons (e.g invalid
      * merkle tree, invalid formats, etc).
      */
     int ERROR_PAYLOAD_VERIFICATION_FAILED = 1;
+
     /** Error code indicating that the payload is verified, but has changed since the last boot. */
     int ERROR_PAYLOAD_CHANGED = 2;
+
     /** Error code indicating that the payload config is invalid. */
     int ERROR_PAYLOAD_INVALID_CONFIG = 3;
 

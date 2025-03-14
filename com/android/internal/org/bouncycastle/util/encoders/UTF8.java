@@ -3,7 +3,7 @@ package com.android.internal.org.bouncycastle.util.encoders;
 
 /**
  * Utilities for working with UTF-8 encodings.
- * 
+ * <p>
  * Decoding of UTF-8 is based on a presentation by Bob Steagall at CppCon2018 (see
  * https://github.com/BobSteagall/CppCon2018). It uses a Deterministic Finite Automaton (DFA) to
  * recognize and decode multi-byte code points.
@@ -73,8 +73,8 @@ public class UTF8
         fill(transitionTable, S_P4A + 0x9, S_P4A + 0xB, S_CS2);
         fill(transitionTable, S_P4B + 0x8, S_P4B + 0x8, S_CS2);
 
-        byte[] firstUnitMasks = { 0x00, 0x00, 0x00, 0x00, 0x1F, 0x0F, 0x0F, 0x0F, 0x07, 0x07, 0x07 };
-        byte[] firstUnitTransitions = { S_ERR, S_ERR, S_ERR, S_ERR, S_CS1, S_P3A, S_CS2, S_P3B, S_P4A, S_CS3, S_P4B };
+        byte[] firstUnitMasks = {0x00, 0x00, 0x00, 0x00, 0x1F, 0x0F, 0x0F, 0x0F, 0x07, 0x07, 0x07};
+        byte[] firstUnitTransitions = {S_ERR, S_ERR, S_ERR, S_ERR, S_CS1, S_P3A, S_CS2, S_P3B, S_P4A, S_CS3, S_P4B};
 
         for (int i = 0x00; i < 0x80; ++i)
         {
@@ -96,26 +96,52 @@ public class UTF8
      * "overlong" encodings, and unmappable code points. In particular, no unmatched surrogates will
      * be produced. An error will also result if {@code utf16} is found to be too small to store the
      * complete output.
-     * 
-     * @param utf8
-     *            A non-null array containing a well-formed UTF-8 encoding.
-     * @param utf16
-     *            A non-null array, at least as long as the {@code utf8} array in order to ensure
-     *            the output will fit.
+     *
+     * @param utf8  A non-null array containing a well-formed UTF-8 encoding.
+     * @param utf16 A non-null array, at least as long as the {@code utf8} array in order to ensure
+     *              the output will fit.
      * @return The number of UTF-16 code units written to {@code utf16} (beginning from index 0), or
-     *         else -1 if the input was either malformed or encoded any unmappable characters, or if
-     *         the {@code utf16} is too small.
+     * else -1 if the input was either malformed or encoded any unmappable characters, or if
+     * the {@code utf16} is too small.
      */
     public static int transcodeToUTF16(byte[] utf8, char[] utf16)
     {
-        int i = 0, j = 0;
+        return transcodeToUTF16(utf8, 0, utf8.length, utf16);
+    }
 
-        while (i < utf8.length)
+    /**
+     * Transcode a UTF-8 encoding into a UTF-16 representation. In the general case the output
+     * {@code utf16} array should be at least as long as the input length from {@code utf8} to handle
+     * arbitrary inputs. The number of output UTF-16 code units is returned, or -1 if any errors are
+     * encountered (in which case an arbitrary amount of data may have been written into the output
+     * array). Errors that will be detected are malformed UTF-8, including incomplete, truncated or
+     * "overlong" encodings, and unmappable code points. In particular, no unmatched surrogates will
+     * be produced. An error will also result if {@code utf16} is found to be too small to store the
+     * complete output.
+     *
+     * @param utf8  A non-null array containing a well-formed UTF-8 encoding.
+     * @param utf8Off start position in the array for the well-formed encoding.
+     * @param utf8Length length in bytes of the well-formed encoding.
+     * @param utf16 A non-null array, at least as long as the {@code utf8} array in order to ensure
+     *              the output will fit.
+     * @return The number of UTF-16 code units written to {@code utf16} (beginning from index 0), or
+     * else -1 if the input was either malformed or encoded any unmappable characters, or if
+     * the {@code utf16} is too small.
+     */
+    public static int transcodeToUTF16(byte[] utf8, int utf8Off, int utf8Length, char[] utf16)
+    {
+        int i = utf8Off, j = 0;
+        int maxI = utf8Off + utf8Length;
+
+        while (i < maxI)
         {
             byte codeUnit = utf8[i++];
             if (codeUnit >= 0)
             {
-                if (j >= utf16.length) { return -1; }
+                if (j >= utf16.length)
+                {
+                    return -1;
+                }
 
                 utf16[j++] = (char)codeUnit;
                 continue;
@@ -127,25 +153,37 @@ public class UTF8
 
             while (state >= 0)
             {
-                if (i >= utf8.length) { return -1; }
+                if (i >= maxI)
+                {
+                    return -1;
+                }
 
                 codeUnit = utf8[i++];
                 codePoint = (codePoint << 6) | (codeUnit & 0x3F);
                 state = transitionTable[state + ((codeUnit & 0xFF) >>> 4)];
             }
 
-            if (state == S_ERR) { return -1; }
+            if (state == S_ERR)
+            {
+                return -1;
+            }
 
             if (codePoint <= 0xFFFF)
             {
-                if (j >= utf16.length) { return -1; }
+                if (j >= utf16.length)
+                {
+                    return -1;
+                }
 
                 // Code points from U+D800 to U+DFFF are caught by the DFA
                 utf16[j++] = (char)codePoint;
             }
             else
             {
-                if (j >= utf16.length - 1) { return -1; }
+                if (j >= utf16.length - 1)
+                {
+                    return -1;
+                }
 
                 // Code points above U+10FFFF are caught by the DFA
                 utf16[j++] = (char)(0xD7C0 + (codePoint >>> 10));

@@ -26,8 +26,12 @@ import static android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_RENDER
 import static android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_LENGTH;
 import static android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX;
 import static android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY;
+import static android.view.accessibility.AccessibilityNodeInfo.EXTRA_DATA_TEXT_CHARACTER_LOCATION_IN_WINDOW_KEY;
+import static android.view.accessibility.Flags.FLAG_A11Y_CHARACTER_IN_WINDOW_API;
+import static android.view.accessibility.Flags.a11yCharacterInWindowApi;
 import static android.view.inputmethod.CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION;
 import static android.view.inputmethod.EditorInfo.STYLUS_HANDWRITING_ENABLED_ANDROIDX_EXTRAS_KEY;
+import static android.view.inputmethod.Flags.initiationWithoutInputConnection;
 
 import static com.android.text.flags.Flags.FLAG_FIX_LINE_HEIGHT_FOR_LOCALE;
 import static com.android.text.flags.Flags.FLAG_USE_BOUNDS_FOR_WIDTH;
@@ -105,7 +109,6 @@ import android.os.SystemClock;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.text.BoringLayout;
-import android.text.ClientFlags;
 import android.text.DynamicLayout;
 import android.text.Editable;
 import android.text.GetChars;
@@ -491,6 +494,20 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
     /** Accessibility action start id for "smart" actions. @hide */
     static final int ACCESSIBILITY_ACTION_SMART_START_ID = 0x10001000;
+
+    // Stable extra data keys supported by TextView.
+    private static final List<String> ACCESSIBILITY_EXTRA_DATA_KEYS = List.of(
+            EXTRA_DATA_RENDERING_INFO_KEY,
+            EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
+    );
+
+    // Flagged and stable extra data keys supported by TextView.
+    @FlaggedApi(FLAG_A11Y_CHARACTER_IN_WINDOW_API)
+    private static final List<String> ACCESSIBILITY_EXTRA_DATA_KEYS_FLAGGED = List.of(
+            EXTRA_DATA_RENDERING_INFO_KEY,
+            EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY,
+            EXTRA_DATA_TEXT_CHARACTER_LOCATION_IN_WINDOW_KEY
+    );
 
     /**
      * @hide
@@ -937,6 +954,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     private TextPaint mTempTextPaint;
 
     private Object mTempCursor;
+    private Matrix mTempMatrix;
 
     @UnsupportedAppUsage
     private BoringLayout.Metrics mBoring;
@@ -1658,11 +1676,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         }
 
         if (!hasUseBoundForWidthValue) {
-            if (CompatChanges.isChangeEnabled(USE_BOUNDS_FOR_WIDTH)) {
-                mUseBoundsForWidth = ClientFlags.useBoundsForWidth();
-            } else {
-                mUseBoundsForWidth = false;
-            }
+            mUseBoundsForWidth = CompatChanges.isChangeEnabled(USE_BOUNDS_FOR_WIDTH);
         }
 
         // TODO(b/179693024): Use a ChangeId instead.
@@ -2739,6 +2753,8 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
         InputMethodManager imm = getInputMethodManager();
         if (imm != null) imm.restartInput(this);
+
+        ensureEditorFocusedNotifiedToHandwritingInitiator();
     }
 
     private void setInputTypeFromEditor() {
@@ -4817,7 +4833,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         if (mFontWeightAdjustment != 0
                 && mFontWeightAdjustment != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED) {
             if (tf == null) {
-                tf = Typeface.DEFAULT;
+                if (Flags.fixNullTypefaceBolding()) {
+                    tf = Typeface.DEFAULT_BOLD;
+                } else {
+                    tf = Typeface.DEFAULT;
+                }
             } else {
                 int newWeight = Math.min(
                         Math.max(tf.getWeight() + mFontWeightAdjustment, FontStyle.FONT_WEIGHT_MIN),
@@ -5522,7 +5542,40 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                         && fontVariationSettings.equals(existingSettings))) {
             return true;
         }
-        boolean effective = mTextPaint.setFontVariationSettings(fontVariationSettings);
+
+        boolean effective;
+        if (Flags.typefaceRedesignReadonly()) {
+            if (mFontWeightAdjustment != 0
+                    && mFontWeightAdjustment != Configuration.FONT_WEIGHT_ADJUSTMENT_UNDEFINED) {
+                List<FontVariationAxis> axes = FontVariationAxis.fromFontVariationSettingsForList(
+                        fontVariationSettings);
+                if (axes == null) {
+                    return false;  // invalid format of the font variation settings.
+                }
+                boolean wghtAdjusted = false;
+                for (int i = 0; i < axes.size(); ++i) {
+                    FontVariationAxis axis = axes.get(i);
+                    if (axis.getOpenTypeTagValue() == 0x77676874 /* wght */) {
+                        axes.set(i, new FontVariationAxis("wght",
+                                Math.clamp(axis.getStyleValue() + mFontWeightAdjustment,
+                                        FontStyle.FONT_WEIGHT_MIN, FontStyle.FONT_WEIGHT_MAX)));
+                        wghtAdjusted = true;
+                    }
+                }
+                if (!wghtAdjusted) {
+                    axes.add(new FontVariationAxis("wght",
+                            Math.clamp(400 + mFontWeightAdjustment,
+                                    FontStyle.FONT_WEIGHT_MIN, FontStyle.FONT_WEIGHT_MAX)));
+                }
+                mTextPaint.setFontVariationSettings(
+                        FontVariationAxis.toFontVariationSettings(axes));
+            } else {
+                mTextPaint.setFontVariationSettings(fontVariationSettings);
+            }
+            effective = true;
+        } else {
+            effective = mTextPaint.setFontVariationSettings(fontVariationSettings);
+        }
 
         if (effective && mLayout != null) {
             nullLayouts();
@@ -7840,6 +7893,20 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         if (type == InputType.TYPE_NULL && mEditor == null) return; //TYPE_NULL is the default value
         createEditorIfNeeded();
         mEditor.mInputType = type;
+        ensureEditorFocusedNotifiedToHandwritingInitiator();
+    }
+
+    private void ensureEditorFocusedNotifiedToHandwritingInitiator() {
+        if (!initiationWithoutInputConnection() || isHandwritingDelegate()) {
+            return;
+        }
+        ViewRootImpl viewRoot = getViewRootImpl();
+        if (viewRoot == null) {
+            return;
+        }
+        if (isFocused() && hasWindowFocus() && onCheckIsTextEditor()) {
+            viewRoot.getHandwritingInitiator().onEditorFocused(this);
+        }
     }
 
     @Override
@@ -9728,7 +9795,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 break;
 
             case KeyEvent.KEYCODE_ESCAPE:
-                if (com.android.text.flags.Flags.escapeClearsFocus() && event.hasNoModifiers()) {
+                if (Flags.escapeClearsFocus() && event.hasNoModifiers()) {
                     if (mEditor != null && mEditor.getTextActionMode() != null) {
                         stopTextActionMode();
                         return KEY_EVENT_HANDLED;
@@ -10079,6 +10146,10 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                     }
                     outAttrs.extras.putBoolean(
                             STYLUS_HANDWRITING_ENABLED_ANDROIDX_EXTRAS_KEY, handwritingEnabled);
+                }
+                if (android.view.inputmethod.Flags.writingTools()) {
+                    // default to same behavior as isSuggestionsEnabled().
+                    outAttrs.setWritingToolsEnabled(isSuggestionsEnabled());
                 }
                 ArrayList<Class<? extends HandwritingGesture>> gestures = new ArrayList<>();
                 gestures.add(SelectGesture.class);
@@ -10606,7 +10677,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
         int startOffset = mLayout.getOffsetForHorizontal(line, point.x);
         if (mLayout.isLevelBoundary(startOffset)) {
-            // TODO(b/247551937): Support gesture at level boundaries.
+            // Gesture at level boundaries is not supported.
             return handleGestureFailure(gesture);
         }
 
@@ -12086,6 +12157,22 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     private PointF convertFromScreenToContentCoordinates(PointF point) {
+        if (Flags.handwritingGestureWithTransformation()) {
+            if (mTempMatrix == null) {
+                mTempMatrix = new Matrix();
+            }
+            Matrix matrix = mTempMatrix;
+            matrix.reset();
+            transformMatrixToLocal(matrix);
+            matrix.postTranslate(
+                    -viewportToContentHorizontalOffset(),
+                    -viewportToContentVerticalOffset()
+            );
+
+            float[] copy = new float[] { point.x, point.y };
+            matrix.mapPoints(copy);
+            return new PointF(copy[0], copy[1]);
+        }
         int[] screenToViewport = getLocationOnScreen();
         PointF copy = new PointF(point);
         copy.offset(
@@ -12095,6 +12182,22 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     private RectF convertFromScreenToContentCoordinates(RectF rect) {
+        if (Flags.handwritingGestureWithTransformation()) {
+            if (mTempMatrix == null) {
+                mTempMatrix = new Matrix();
+            }
+            Matrix matrix = mTempMatrix;
+            matrix.reset();
+            transformMatrixToLocal(matrix);
+            matrix.postTranslate(
+                    -viewportToContentHorizontalOffset(),
+                    -viewportToContentVerticalOffset()
+            );
+
+            RectF copy = new RectF(rect);
+            matrix.mapRect(copy);
+            return copy;
+        }
         int[] screenToViewport = getLocationOnScreen();
         RectF copy = new RectF(rect);
         copy.offset(
@@ -12202,7 +12305,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return selectionMin >= 0 && selectionMax > 0 && selectionMin != selectionMax;
     }
 
-    String getSelectedText() {
+    /**
+     * @hide
+     */
+    @VisibleForTesting
+    public String getSelectedText() {
         if (!hasSelection()) {
             return null;
         }
@@ -14027,7 +14134,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         structure.setInputType(getInputType());
     }
 
-    boolean canRequestAutofill() {
+    /**
+     * @hide
+     */
+    @VisibleForTesting
+    public boolean canRequestAutofill() {
         if (!isAutofillable()) {
             return false;
         }
@@ -14047,6 +14158,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
 
     @Override
     public void autofill(AutofillValue value) {
+        if (android.view.autofill.Helper.sVerbose) {
+            Log.v(LOG_TAG, "autofill() called on textview for id:" + getAutofillId());
+        }
         if (!isTextAutofillable()) {
             Log.w(LOG_TAG, "cannot autofill non-editable TextView: " + this);
             return;
@@ -14147,10 +14261,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                     | AccessibilityNodeInfo.MOVEMENT_GRANULARITY_PARAGRAPH
                     | AccessibilityNodeInfo.MOVEMENT_GRANULARITY_PAGE);
             info.addAction(AccessibilityNodeInfo.ACTION_SET_SELECTION);
-            info.setAvailableExtraData(Arrays.asList(
-                    EXTRA_DATA_RENDERING_INFO_KEY,
-                    EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY
-            ));
+            if (a11yCharacterInWindowApi()) {
+                info.setAvailableExtraData(ACCESSIBILITY_EXTRA_DATA_KEYS_FLAGGED);
+            } else {
+                info.setAvailableExtraData(ACCESSIBILITY_EXTRA_DATA_KEYS);
+            }
             info.setTextSelectable(isTextSelectable() || isTextEditable());
         } else {
             info.setAvailableExtraData(Arrays.asList(
@@ -14215,7 +14330,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     @Override
     public void addExtraDataToAccessibilityNodeInfo(
             AccessibilityNodeInfo info, String extraDataKey, Bundle arguments) {
-        if (arguments != null && extraDataKey.equals(EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY)) {
+        boolean isCharacterLocationKey = extraDataKey.equals(
+                EXTRA_DATA_TEXT_CHARACTER_LOCATION_KEY);
+        boolean isCharacterLocationInWindowKey = (a11yCharacterInWindowApi() && extraDataKey.equals(
+                EXTRA_DATA_TEXT_CHARACTER_LOCATION_IN_WINDOW_KEY));
+        if (arguments != null && (isCharacterLocationKey || isCharacterLocationInWindowKey)) {
             int positionInfoStartIndex = arguments.getInt(
                     EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX, -1);
             int positionInfoLength = arguments.getInt(
@@ -14237,7 +14356,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                     RectF bounds = cursorAnchorInfo
                             .getCharacterBounds(positionInfoStartIndex + i);
                     if (bounds != null) {
-                        mapRectFromViewToScreenCoords(bounds, true);
+                        if (isCharacterLocationKey) {
+                            mapRectFromViewToScreenCoords(bounds, true);
+                        } else if (isCharacterLocationInWindowKey) {
+                            mapRectFromViewToWindowCoords(bounds, true);
+                        }
                         boundingRects[i] = bounds;
                     }
                 }
@@ -14256,6 +14379,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
+     * Don't use, it returns wrong result when the view is scaled. This method can be removed once
+     * Flags.handwritingGestureWithTransformation is enabled.
+     * Assume
      * Helper method to set {@code rect} to this TextView's non-clipped area in its own coordinates.
      * This method obtains the view's visible rectangle whereas the method
      * {@link #getContentVisibleRect} returns the text layout's visible rectangle.
@@ -14276,6 +14402,8 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     }
 
     /**
+     * Don't use, it returns wrong result when view is scaled. This method can be removed once
+     * Flags.handwritingGestureWithTransformation is enabled.
      * Helper method to set {@code rect} to the text content's non-clipped area in the view's
      * coordinates.
      *
@@ -14284,6 +14412,58 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
      */
     private boolean getContentVisibleRect(Rect rect) {
         if (!getViewVisibleRect(rect)) {
+            return false;
+        }
+        // Clip the view's visible rect with the text layout's visible rect.
+        return rect.intersect(getCompoundPaddingLeft(), getCompoundPaddingTop(),
+                getWidth() - getCompoundPaddingRight(), getHeight() - getCompoundPaddingBottom());
+    }
+
+    private boolean getEditorAndHandwritingBounds(@NonNull RectF editorBounds,
+            @Nullable RectF handwritingBounds) {
+        if (mTempRect == null) {
+            mTempRect = new Rect();
+        }
+        Rect rect = mTempRect;
+        if (!getGlobalVisibleRect(rect)) {
+            return false;
+        }
+        if (mTempMatrix == null) {
+            mTempMatrix = new Matrix();
+        }
+
+        Matrix matrix = mTempMatrix;
+        matrix.reset();
+        transformMatrixRootToLocal(matrix);
+        editorBounds.set(rect);
+        // When the view has transformations like scaleX/scaleY computing the global visible
+        // rectangle will already apply the transformations. The getLocalVisibleRect only offsets
+        // the global rectangle to local. And the result is wrong the View is scaled.
+        //
+        // This approach use the local transformation matrix to map the global rectangle to
+        // local instead.
+        //
+        // Note: it doesn't work well with rotation. Because Rect must be
+        // axis-aligned, when a rotated Rect becomes quadrilateral, the quadrilateral's
+        // bounding box is stored at Rect instead. It makes the returned Rect larger than
+        // the correct size.
+        matrix.mapRect(editorBounds);
+
+        if (handwritingBounds != null) {
+            // Similar to editorBounds, handwritingBounds must be computed in global coordinates
+            // and then converted back to local coordinates. Otherwise, if the view is scaled,
+            // the handwritingBoundsOffsets are also scaled, which is not the expected behavior.
+            handwritingBounds.top = rect.top -  getHandwritingBoundsOffsetTop();
+            handwritingBounds.left = rect.left - getHandwritingBoundsOffsetLeft();
+            handwritingBounds.bottom = rect.bottom + getHandwritingBoundsOffsetBottom();
+            handwritingBounds.right = rect.right + getHandwritingBoundsOffsetRight();
+            matrix.mapRect(handwritingBounds);
+        }
+        return true;
+    }
+
+    private boolean getContentVisibleRect(RectF rect) {
+        if (!getEditorAndHandwritingBounds(rect, /* handwritingBounds= */null)) {
             return false;
         }
         // Clip the view's visible rect with the text layout's visible rect.
@@ -14310,9 +14490,15 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             // character bounds in this case yet.
             return;
         }
-        final Rect rect = new Rect();
-        getContentVisibleRect(rect);
-        final RectF visibleRect = new RectF(rect);
+        final RectF visibleRect = new RectF();
+
+        if (Flags.handwritingGestureWithTransformation()) {
+            getContentVisibleRect(visibleRect);
+        } else {
+            final Rect rect = new Rect();
+            getContentVisibleRect(rect);
+            visibleRect.set(rect);
+        }
 
         final float[] characterBounds = getCharacterBounds(startIndex, endIndex,
                 viewportToContentHorizontalOffset, viewportToContentVerticalOffset);
@@ -14415,24 +14601,26 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         builder.setMatrix(viewToScreenMatrix);
 
         if (includeEditorBounds) {
-            if (mTempRect == null) {
-                mTempRect = new Rect();
-            }
-            final Rect bounds = mTempRect;
-            final RectF editorBounds;
-            final RectF handwritingBounds;
-            if (getViewVisibleRect(bounds)) {
-                editorBounds = new RectF(bounds);
-                handwritingBounds = new RectF(editorBounds);
-                handwritingBounds.top -= getHandwritingBoundsOffsetTop();
-                handwritingBounds.left -= getHandwritingBoundsOffsetLeft();
-                handwritingBounds.bottom += getHandwritingBoundsOffsetBottom();
-                handwritingBounds.right += getHandwritingBoundsOffsetRight();
+            final RectF editorBounds = new RectF();
+            final RectF handwritingBounds = new RectF();
+            if (Flags.handwritingGestureWithTransformation()) {
+                getEditorAndHandwritingBounds(editorBounds, handwritingBounds);
             } else {
-                // The editor is not visible at all, return empty rectangles. We still need to
+                if (mTempRect == null) {
+                    mTempRect = new Rect();
+                }
+                final Rect bounds = mTempRect;
+
+                // If the editor is not visible at all, return empty rectangles. We still need to
                 // return an EditorBoundsInfo because IME has subscribed the EditorBoundsInfo.
-                editorBounds = new RectF();
-                handwritingBounds = new RectF();
+                if (getViewVisibleRect(bounds)) {
+                    editorBounds.set(bounds);
+                    handwritingBounds.set(editorBounds);
+                    handwritingBounds.top -= getHandwritingBoundsOffsetTop();
+                    handwritingBounds.left -= getHandwritingBoundsOffsetLeft();
+                    handwritingBounds.bottom += getHandwritingBoundsOffsetBottom();
+                    handwritingBounds.right += getHandwritingBoundsOffsetRight();
+                }
             }
             EditorBoundsInfo.Builder boundsBuilder = new EditorBoundsInfo.Builder();
             EditorBoundsInfo editorBoundsInfo = boundsBuilder.setEditorBounds(editorBounds)
@@ -14510,29 +14698,57 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             }
 
             if (includeVisibleLineBounds) {
-                final Rect visibleRect = new Rect();
-                if (getContentVisibleRect(visibleRect)) {
-                    // Subtract the viewportToContentVerticalOffset to convert the view
-                    // coordinates to layout coordinates.
-                    final float visibleTop =
-                            visibleRect.top - viewportToContentVerticalOffset;
-                    final float visibleBottom =
-                            visibleRect.bottom - viewportToContentVerticalOffset;
-                    final int firstLine =
-                            layout.getLineForVertical((int) Math.floor(visibleTop));
-                    final int lastLine =
-                            layout.getLineForVertical((int) Math.ceil(visibleBottom));
+                if (Flags.handwritingGestureWithTransformation()) {
+                    RectF visibleRect = new RectF();
+                    if (getContentVisibleRect(visibleRect)) {
+                        // Subtract the viewportToContentVerticalOffset to convert the view
+                        // coordinates to layout coordinates.
+                        final float visibleTop =
+                                visibleRect.top - viewportToContentVerticalOffset;
+                        final float visibleBottom =
+                                visibleRect.bottom - viewportToContentVerticalOffset;
+                        final int firstLine =
+                                layout.getLineForVertical((int) Math.floor(visibleTop));
+                        final int lastLine =
+                                layout.getLineForVertical((int) Math.ceil(visibleBottom));
 
-                    for (int line = firstLine; line <= lastLine; ++line) {
-                        final float left = layout.getLineLeft(line)
-                                + viewportToContentHorizontalOffset;
-                        final float top = layout.getLineTop(line)
-                                + viewportToContentVerticalOffset;
-                        final float right = layout.getLineRight(line)
-                                + viewportToContentHorizontalOffset;
-                        final float bottom = layout.getLineBottom(line, false)
-                                + viewportToContentVerticalOffset;
-                        builder.addVisibleLineBounds(left, top, right, bottom);
+                        for (int line = firstLine; line <= lastLine; ++line) {
+                            final float left = layout.getLineLeft(line)
+                                    + viewportToContentHorizontalOffset;
+                            final float top = layout.getLineTop(line)
+                                    + viewportToContentVerticalOffset;
+                            final float right = layout.getLineRight(line)
+                                    + viewportToContentHorizontalOffset;
+                            final float bottom = layout.getLineBottom(line, false)
+                                    + viewportToContentVerticalOffset;
+                            builder.addVisibleLineBounds(left, top, right, bottom);
+                        }
+                    }
+                } else {
+                    final Rect visibleRect = new Rect();
+                    if (getContentVisibleRect(visibleRect)) {
+                        // Subtract the viewportToContentVerticalOffset to convert the view
+                        // coordinates to layout coordinates.
+                        final float visibleTop =
+                                visibleRect.top - viewportToContentVerticalOffset;
+                        final float visibleBottom =
+                                visibleRect.bottom - viewportToContentVerticalOffset;
+                        final int firstLine =
+                                layout.getLineForVertical((int) Math.floor(visibleTop));
+                        final int lastLine =
+                                layout.getLineForVertical((int) Math.ceil(visibleBottom));
+
+                        for (int line = firstLine; line <= lastLine; ++line) {
+                            final float left = layout.getLineLeft(line)
+                                    + viewportToContentHorizontalOffset;
+                            final float top = layout.getLineTop(line)
+                                    + viewportToContentVerticalOffset;
+                            final float right = layout.getLineRight(line)
+                                    + viewportToContentHorizontalOffset;
+                            final float bottom = layout.getLineBottom(line, false)
+                                    + viewportToContentVerticalOffset;
+                            builder.addVisibleLineBounds(left, top, right, bottom);
+                        }
                     }
                 }
             }
@@ -15395,15 +15611,21 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         }
     }
 
-    boolean canUndo() {
+    /** @hide */
+    @VisibleForTesting
+    public boolean canUndo() {
         return mEditor != null && mEditor.canUndo();
     }
 
-    boolean canRedo() {
+    /** @hide */
+    @VisibleForTesting
+    public boolean canRedo() {
         return mEditor != null && mEditor.canRedo();
     }
 
-    boolean canCut() {
+    /** @hide */
+    @VisibleForTesting
+    public boolean canCut() {
         if (hasPasswordTransformationMethod()) {
             return false;
         }
@@ -15416,7 +15638,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return false;
     }
 
-    boolean canCopy() {
+    /** @hide */
+    @VisibleForTesting
+    public boolean canCopy() {
         if (hasPasswordTransformationMethod()) {
             return false;
         }
@@ -15437,7 +15661,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 && isSuggestionsEnabled() && mEditor.shouldOfferToShowSuggestions();
     }
 
-    boolean canShare() {
+    /** @hide */
+    @VisibleForTesting
+    public boolean canShare() {
         if (!getContext().canStartActivityForResult() || !isDeviceProvisioned()
                 || !getContext().getResources().getBoolean(
                 com.android.internal.R.bool.config_textShareSupported)) {
@@ -15456,8 +15682,10 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return mDeviceProvisionedState == DEVICE_PROVISIONED_YES;
     }
 
+    /** @hide */
+    @VisibleForTesting
     @UnsupportedAppUsage
-    boolean canPaste() {
+    public boolean canPaste() {
         return (mText instanceof Editable
                 && mEditor != null && mEditor.mKeyListener != null
                 && getSelectionStart() >= 0
@@ -15465,7 +15693,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                 && getClipboardManagerForUser().hasPrimaryClip());
     }
 
-    boolean canPasteAsPlainText() {
+    /** @hide */
+    @VisibleForTesting
+    public boolean canPasteAsPlainText() {
         if (!canPaste()) {
             return false;
         }
@@ -15487,7 +15717,9 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         return canShare();
     }
 
-    boolean canSelectAllText() {
+    /** @hide */
+    @VisibleForTesting
+    public boolean canSelectAllText() {
         return canSelectText() && !hasPasswordTransformationMethod()
                 && !(getSelectionStart() == 0 && getSelectionEnd() == mText.length());
     }

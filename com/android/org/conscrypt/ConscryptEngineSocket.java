@@ -23,8 +23,11 @@ import static com.android.org.conscrypt.SSLUtils.EngineStates.STATE_HANDSHAKE_ST
 import static com.android.org.conscrypt.SSLUtils.EngineStates.STATE_NEW;
 import static com.android.org.conscrypt.SSLUtils.EngineStates.STATE_READY;
 import static com.android.org.conscrypt.SSLUtils.EngineStates.STATE_READY_HANDSHAKE_CUT_THROUGH;
+
 import static javax.net.ssl.SSLEngineResult.Status.CLOSED;
 import static javax.net.ssl.SSLEngineResult.Status.OK;
+
+import com.android.org.conscrypt.metrics.StatsLog;
 
 import java.io.EOFException;
 import java.io.IOException;
@@ -37,6 +40,7 @@ import java.nio.ByteBuffer;
 import java.security.PrivateKey;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLEngineResult.HandshakeStatus;
@@ -107,7 +111,9 @@ class ConscryptEngineSocket extends OpenSSLSocketImpl implements SSLParametersIm
     private static ConscryptEngine newEngine(
             SSLParametersImpl sslParameters, final ConscryptEngineSocket socket) {
         SSLParametersImpl modifiedParams;
-        if (Platform.supportsX509ExtendedTrustManager()) {
+        if (sslParameters.isSpake()) {
+            modifiedParams = sslParameters.cloneWithSpake();
+        } else if (Platform.supportsX509ExtendedTrustManager()) {
             modifiedParams = sslParameters.cloneWithTrustManager(
                     getDelegatingTrustManager(sslParameters.getX509TrustManager(), socket));
         } else {
@@ -305,7 +311,8 @@ class ConscryptEngineSocket extends OpenSSLSocketImpl implements SSLParametersIm
 
                 case STATE_READY_HANDSHAKE_CUT_THROUGH:
                     if (handshakeStartedMillis > 0) {
-                        Platform.countTlsHandshake(true, engine.getSession().getProtocol(),
+                        StatsLog statsLog = Platform.getStatsLog();
+                        statsLog.countTlsHandshake(true, engine.getSession().getProtocol(),
                                 engine.getSession().getCipherSuite(),
                                 Platform.getMillisSinceBoot() - handshakeStartedMillis);
                         handshakeStartedMillis = 0;
@@ -319,8 +326,9 @@ class ConscryptEngineSocket extends OpenSSLSocketImpl implements SSLParametersIm
 
                 case STATE_CLOSED:
                     if (handshakeStartedMillis > 0) {
+                        StatsLog statsLog = Platform.getStatsLog();
                         // Handshake was in progress and so must have failed.
-                        Platform.countTlsHandshake(false, "TLS_PROTO_FAILED", "TLS_CIPHER_FAILED",
+                        statsLog.countTlsHandshake(false, "TLS_PROTO_FAILED", "TLS_CIPHER_FAILED",
                                 Platform.getMillisSinceBoot() - handshakeStartedMillis);
                         handshakeStartedMillis = 0;
                     }
@@ -831,6 +839,9 @@ class ConscryptEngineSocket extends OpenSSLSocketImpl implements SSLParametersIm
         @Override
         public int read(byte[] b, int off, int len) throws IOException {
             waitForHandshake();
+            if (len == 0) {
+                return 0;
+            }
             synchronized (readLock) {
                 return readUntilDataAvailable(b, off, len);
             }

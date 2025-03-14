@@ -59,7 +59,7 @@ public class DataEvaluation {
      *
      * @param reason The reason for this evaluation.
      */
-    public DataEvaluation(DataEvaluationReason reason) {
+    public DataEvaluation(@NonNull DataEvaluationReason reason) {
         mDataEvaluationReason = reason;
     }
 
@@ -105,14 +105,16 @@ public class DataEvaluation {
     /**
      * @return List of data disallowed reasons.
      */
-    public @NonNull List<DataDisallowedReason> getDataDisallowedReasons() {
+    @NonNull
+    public List<DataDisallowedReason> getDataDisallowedReasons() {
         return new ArrayList<>(mDataDisallowedReasons);
     }
 
     /**
      * @return The data allowed reason.
      */
-    public @NonNull DataAllowedReason getDataAllowedReason() {
+    @NonNull
+    public DataAllowedReason getDataAllowedReason() {
         return mDataAllowedReason;
     }
 
@@ -128,7 +130,8 @@ public class DataEvaluation {
     /**
      * @return The candidate data profile for setup data network.
      */
-    public @Nullable DataProfile getCandidateDataProfile() {
+    @Nullable
+    public DataProfile getCandidateDataProfile() {
         return mCandidateDataProfile;
     }
 
@@ -136,7 +139,7 @@ public class DataEvaluation {
      * @return {@code true} if the evaluation contains disallowed reasons.
      */
     public boolean containsDisallowedReasons() {
-        return mDataDisallowedReasons.size() != 0;
+        return !mDataDisallowedReasons.isEmpty();
     }
 
     /**
@@ -422,7 +425,8 @@ public class DataEvaluation {
     @Override
     public String toString() {
         StringBuilder evaluationStr = new StringBuilder();
-        evaluationStr.append("Data evaluation: evaluation reason:" + mDataEvaluationReason + ", ");
+        evaluationStr.append("Data evaluation: evaluation reason:")
+                .append(mDataEvaluationReason).append(", ");
         if (!mDataDisallowedReasons.isEmpty()) {
             evaluationStr.append("Data disallowed reasons:");
             for (DataDisallowedReason reason : mDataDisallowedReasons) {
@@ -432,8 +436,8 @@ public class DataEvaluation {
             evaluationStr.append("Data allowed reason:");
             evaluationStr.append(" ").append(mDataAllowedReason);
         }
-        evaluationStr.append(", candidate profile=" + mCandidateDataProfile);
-        evaluationStr.append(", time=" + DataUtils.systemTimeToString(mEvaluatedTime));
+        evaluationStr.append(", candidate profile=").append(mCandidateDataProfile);
+        evaluationStr.append(", time=").append(DataUtils.systemTimeToString(mEvaluatedTime));
         return evaluationStr.toString();
     }
 

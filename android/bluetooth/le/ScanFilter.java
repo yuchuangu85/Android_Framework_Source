@@ -16,15 +16,20 @@
 
 package android.bluetooth.le;
 
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+import static android.Manifest.permission.BLUETOOTH_SCAN;
+
 import static java.util.Objects.requireNonNull;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothDevice.AddressType;
 import android.bluetooth.BluetoothStatusCodes;
+import android.bluetooth.annotations.RequiresBluetoothScanPermission;
 import android.bluetooth.le.ScanRecord.AdvertisingDataType;
 import android.os.Parcel;
 import android.os.ParcelUuid;
@@ -74,7 +79,7 @@ public final class ScanFilter implements Parcelable {
     @Nullable private final byte[] mManufacturerData;
     @Nullable private final byte[] mManufacturerDataMask;
 
-    private int mAdvertisingDataType = ScanRecord.DATA_TYPE_NONE;
+    private @AdvertisingDataType int mAdvertisingDataType = ScanRecord.DATA_TYPE_NONE;
     @Nullable private final byte[] mAdvertisingData;
     @Nullable private final byte[] mAdvertisingDataMask;
 
@@ -98,7 +103,7 @@ public final class ScanFilter implements Parcelable {
             byte[] manufacturerDataMask,
             @AddressType int addressType,
             @Nullable byte[] irk,
-            int advertisingDataType,
+            @AdvertisingDataType int advertisingDataType,
             @Nullable byte[] advertisingData,
             @Nullable byte[] advertisingDataMask,
             @Nullable TransportBlockFilter transportBlockFilter) {
@@ -131,31 +136,31 @@ public final class ScanFilter implements Parcelable {
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeInt(mDeviceName == null ? 0 : 1);
         if (mDeviceName != null) {
-            dest.writeString(mDeviceName);
+            android.bluetooth.BluetoothUtils.writeStringToParcel(dest, mDeviceName);
         }
         dest.writeInt(mDeviceAddress == null ? 0 : 1);
         if (mDeviceAddress != null) {
-            dest.writeString(mDeviceAddress);
+            android.bluetooth.BluetoothUtils.writeStringToParcel(dest, mDeviceAddress);
         }
         dest.writeInt(mServiceUuid == null ? 0 : 1);
         if (mServiceUuid != null) {
-            dest.writeParcelable(mServiceUuid, flags);
+            mServiceUuid.writeToParcel(dest, flags);
             dest.writeInt(mServiceUuidMask == null ? 0 : 1);
             if (mServiceUuidMask != null) {
-                dest.writeParcelable(mServiceUuidMask, flags);
+                mServiceUuidMask.writeToParcel(dest, flags);
             }
         }
         dest.writeInt(mServiceSolicitationUuid == null ? 0 : 1);
         if (mServiceSolicitationUuid != null) {
-            dest.writeParcelable(mServiceSolicitationUuid, flags);
+            mServiceSolicitationUuid.writeToParcel(dest, flags);
             dest.writeInt(mServiceSolicitationUuidMask == null ? 0 : 1);
             if (mServiceSolicitationUuidMask != null) {
-                dest.writeParcelable(mServiceSolicitationUuidMask, flags);
+                mServiceSolicitationUuidMask.writeToParcel(dest, flags);
             }
         }
         dest.writeInt(mServiceDataUuid == null ? 0 : 1);
         if (mServiceDataUuid != null) {
-            dest.writeParcelable(mServiceDataUuid, flags);
+            mServiceDataUuid.writeToParcel(dest, flags);
             dest.writeInt(mServiceData == null ? 0 : 1);
             if (mServiceData != null) {
                 dest.writeInt(mServiceData.length);
@@ -220,6 +225,7 @@ public final class ScanFilter implements Parcelable {
                 }
 
                 @Override
+                @RequiresPermission(allOf = {BLUETOOTH_SCAN, BLUETOOTH_PRIVILEGED})
                 public ScanFilter createFromParcel(Parcel in) {
                     Builder builder = new Builder();
                     if (in.readInt() == 1) {
@@ -231,28 +237,25 @@ public final class ScanFilter implements Parcelable {
                         address = in.readString();
                     }
                     if (in.readInt() == 1) {
-                        ParcelUuid uuid = in.readParcelable(ParcelUuid.class.getClassLoader());
+                        ParcelUuid uuid = ParcelUuid.CREATOR.createFromParcel(in);
                         builder.setServiceUuid(uuid);
                         if (in.readInt() == 1) {
-                            ParcelUuid uuidMask =
-                                    in.readParcelable(ParcelUuid.class.getClassLoader());
+                            ParcelUuid uuidMask = ParcelUuid.CREATOR.createFromParcel(in);
                             builder.setServiceUuid(uuid, uuidMask);
                         }
                     }
                     if (in.readInt() == 1) {
-                        ParcelUuid solicitationUuid =
-                                in.readParcelable(ParcelUuid.class.getClassLoader());
+                        ParcelUuid solicitationUuid = ParcelUuid.CREATOR.createFromParcel(in);
                         builder.setServiceSolicitationUuid(solicitationUuid);
                         if (in.readInt() == 1) {
                             ParcelUuid solicitationUuidMask =
-                                    in.readParcelable(ParcelUuid.class.getClassLoader());
+                                    ParcelUuid.CREATOR.createFromParcel(in);
                             builder.setServiceSolicitationUuid(
                                     solicitationUuid, solicitationUuidMask);
                         }
                     }
                     if (in.readInt() == 1) {
-                        ParcelUuid serviceDataUuid =
-                                in.readParcelable(ParcelUuid.class.getClassLoader());
+                        ParcelUuid serviceDataUuid = ParcelUuid.CREATOR.createFromParcel(in);
                         if (in.readInt() == 1) {
                             int serviceDataLength = in.readInt();
                             byte[] serviceData = new byte[serviceDataLength];
@@ -300,11 +303,9 @@ public final class ScanFilter implements Parcelable {
                     // Advertising data type
                     int advertisingDataType = in.readInt();
                     if (in.readInt() == 1) {
-                        byte[] advertisingData = null;
-                        byte[] advertisingDataMask = null;
-
                         int advertisingDataLength = in.readInt();
-                        advertisingData = new byte[advertisingDataLength];
+                        byte[] advertisingData = new byte[advertisingDataLength];
+                        byte[] advertisingDataMask = null;
                         in.readByteArray(advertisingData);
                         if (in.readInt() == 1) {
                             int advertisingDataMaskLength = in.readInt();
@@ -417,8 +418,7 @@ public final class ScanFilter implements Parcelable {
      * if the type is not set. The values of advertising data type are defined in the Bluetooth
      * Generic Access Profile (https://www.bluetooth.com/specifications/assigned-numbers/)
      */
-    @AdvertisingDataType
-    public int getAdvertisingDataType() {
+    public @AdvertisingDataType int getAdvertisingDataType() {
         return mAdvertisingDataType;
     }
 
@@ -490,7 +490,7 @@ public final class ScanFilter implements Parcelable {
         }
 
         // Manufacturer data match.
-        if (mManufacturerId >= 0) {
+        if (mManufacturerId >= 0 && mManufacturerData != null) {
             if (!matchesPartialData(
                     mManufacturerData,
                     mManufacturerDataMask,
@@ -885,7 +885,7 @@ public final class ScanFilter implements Parcelable {
          *     uuidMask} is not {@code null}.
          */
         public Builder setServiceUuid(ParcelUuid serviceUuid, ParcelUuid uuidMask) {
-            if (mUuidMask != null && mServiceUuid == null) {
+            if (uuidMask != null && serviceUuid == null) {
                 throw new IllegalArgumentException("uuid is null while uuidMask is not null!");
             }
             mServiceUuid = serviceUuid;
@@ -956,14 +956,14 @@ public final class ScanFilter implements Parcelable {
             if (serviceDataUuid == null) {
                 throw new IllegalArgumentException("serviceDataUuid is null");
             }
-            if (mServiceDataMask != null) {
-                if (mServiceData == null) {
+            if (serviceDataMask != null) {
+                if (serviceData == null) {
                     throw new IllegalArgumentException(
                             "serviceData is null while serviceDataMask is not null");
                 }
-                // Since the mServiceDataMask is a bit mask for mServiceData, the lengths of the two
-                // byte array need to be the same.
-                if (mServiceData.length != mServiceDataMask.length) {
+                // Since the serviceDataMask is a bit mask for serviceData, the lengths of the two
+                // byte arrays need to be the same.
+                if (serviceData.length != serviceDataMask.length) {
                     throw new IllegalArgumentException(
                             "size mismatch for service data and service data mask");
                 }
@@ -1005,14 +1005,14 @@ public final class ScanFilter implements Parcelable {
             if (manufacturerData != null && manufacturerId < 0) {
                 throw new IllegalArgumentException("invalid manufacture id");
             }
-            if (mManufacturerDataMask != null) {
-                if (mManufacturerData == null) {
+            if (manufacturerDataMask != null) {
+                if (manufacturerData == null) {
                     throw new IllegalArgumentException(
                             "manufacturerData is null while manufacturerDataMask is not null");
                 }
-                // Since the mManufacturerDataMask is a bit mask for mManufacturerData, the lengths
-                // of the two byte array need to be the same.
-                if (mManufacturerData.length != mManufacturerDataMask.length) {
+                // Since the manufacturerDataMask is a bit mask for manufacturerData, the lengths
+                // of the two byte arrays need to be the same.
+                if (manufacturerData.length != manufacturerDataMask.length) {
                     throw new IllegalArgumentException(
                             "size mismatch for manufacturerData and manufacturerDataMask");
                 }
@@ -1037,6 +1037,12 @@ public final class ScanFilter implements Parcelable {
          * @hide
          */
         @SystemApi
+        @RequiresBluetoothScanPermission
+        @RequiresPermission(
+                allOf = {
+                    BLUETOOTH_SCAN,
+                    BLUETOOTH_PRIVILEGED,
+                })
         @NonNull
         public Builder setTransportBlockFilter(@NonNull TransportBlockFilter transportBlockFilter) {
             BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
@@ -1075,16 +1081,16 @@ public final class ScanFilter implements Parcelable {
             if (advertisingDataType < 0) {
                 throw new IllegalArgumentException("invalid advertising data type");
             }
-            if (mAdvertisingDataMask != null) {
-                if (mAdvertisingData == null) {
+            if (advertisingDataMask != null) {
+                if (advertisingData == null) {
                     throw new IllegalArgumentException(
-                            "mAdvertisingData is null while mAdvertisingDataMask is not null");
+                            "advertisingData is null while advertisingDataMask is not null");
                 }
-                // Since the mAdvertisingDataMask is a bit mask for mAdvertisingData, the lengths
-                // of the two byte array need to be the same.
-                if (mAdvertisingData.length != mAdvertisingDataMask.length) {
+                // Since the advertisingDataMask is a bit mask for advertisingData, the lengths
+                // of the two byte arrays need to be the same.
+                if (advertisingData.length != advertisingDataMask.length) {
                     throw new IllegalArgumentException(
-                            "size mismatch for mAdvertisingData and mAdvertisingDataMask");
+                            "size mismatch for advertisingData and advertisingDataMask");
                 }
             }
             mAdvertisingDataType = advertisingDataType;

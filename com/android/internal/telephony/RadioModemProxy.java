@@ -19,6 +19,8 @@ package com.android.internal.telephony;
 import android.os.RemoteException;
 import android.telephony.Rlog;
 
+import com.android.internal.telephony.flags.Flags;
+
 /**
  * A holder for IRadioModem.
  * Use getAidl to get IRadioModem and call the AIDL implementations of the HAL APIs.
@@ -195,6 +197,7 @@ public class RadioModemProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void nvReadItem(int serial, int itemId) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mModemProxy.nvReadItem(serial, itemId);
@@ -210,6 +213,7 @@ public class RadioModemProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void nvResetConfig(int serial, int resetType) throws RemoteException {
+        if (Flags.cleanupCdma() && resetType != 1) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mModemProxy.nvResetConfig(serial, RILUtils.convertToHalResetNvTypeAidl(resetType));
@@ -225,6 +229,7 @@ public class RadioModemProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void nvWriteCdmaPrl(int serial, byte[] prl) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             mModemProxy.nvWriteCdmaPrl(serial, prl);
@@ -241,6 +246,7 @@ public class RadioModemProxy extends RadioServiceProxy {
      * @throws RemoteException
      */
     public void nvWriteItem(int serial, int itemId, String itemValue) throws RemoteException {
+        if (Flags.cleanupCdma()) return;
         if (isEmpty()) return;
         if (isAidl()) {
             android.hardware.radio.modem.NvWriteItem item =

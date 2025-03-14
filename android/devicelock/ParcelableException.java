@@ -30,10 +30,6 @@ public final class ParcelableException extends Exception implements Parcelable {
         super(t);
     }
 
-    public ParcelableException(String message) {
-        super(message);
-    }
-
     private static Exception readFromParcel(Parcel in) {
         final String name = in.readString();
         final String msg = in.readString();

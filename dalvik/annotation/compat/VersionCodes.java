@@ -95,4 +95,10 @@ public class VersionCodes {
      */
     @IntraCoreApi
     public static final int VANILLA_ICE_CREAM = 35;
+
+    /**
+     * Baklava.
+     */
+    @IntraCoreApi
+    public static final int BAKLAVA = 36;
 }

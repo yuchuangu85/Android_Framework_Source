@@ -71,6 +71,47 @@ public class ECNamedCurveTable
         return ecP;
     }
 
+    public static X9ECParametersHolder getByNameLazy(String name)
+    {
+        X9ECParametersHolder holder = X962NamedCurves.getByNameLazy(name);
+
+        if (null == holder)
+        {
+            holder = SECNamedCurves.getByNameLazy(name);
+        }
+
+        if (null == holder)
+        {
+            holder = NISTNamedCurves.getByNameLazy(name);
+        }
+
+        // BEGIN Android-removed: Unsupported curves
+        /*
+        if (null == holder)
+        {
+            holder = TeleTrusTNamedCurves.getByNameLazy(name);
+        }
+
+        if (null == holder)
+        {
+            holder = ANSSINamedCurves.getByNameLazy(name);
+        }
+
+        if (null == holder)
+        {
+            holder = ECGOST3410NamedCurves.getByNameLazy(name);
+        }
+
+        if (null == holder)
+        {
+            holder = GMNamedCurves.getByNameLazy(name);
+        }
+        */
+        // END Android-removed: Unsupported curves
+
+        return holder;
+    }
+
     /**
      * return the object identifier signified by the passed in name. Null
      * if there is no object identifier associated with name.
@@ -222,6 +263,44 @@ public class ECNamedCurveTable
         // END Android-removed: Unsupported curves
 
         return ecP;
+    }
+
+    public static X9ECParametersHolder getByOIDLazy(ASN1ObjectIdentifier oid)
+    {
+        X9ECParametersHolder holder = X962NamedCurves.getByOIDLazy(oid);
+
+        if (null == holder)
+        {
+            holder = SECNamedCurves.getByOIDLazy(oid);
+        }
+
+        // NOTE: All the NIST curves are currently from SEC, so no point in redundant OID lookup
+
+        // BEGIN Android-removed: Unsupported curves
+        /*
+        if (null == holder)
+        {
+            holder = TeleTrusTNamedCurves.getByOIDLazy(oid);
+        }
+
+        if (null == holder)
+        {
+            holder = ANSSINamedCurves.getByOIDLazy(oid);
+        }
+
+        if (null == holder)
+        {
+            holder = ECGOST3410NamedCurves.getByOIDLazy(oid);
+        }
+
+        if (null == holder)
+        {
+            holder = GMNamedCurves.getByOIDLazy(oid);
+        }
+        */
+        // END Android-removed: Unsupported curves
+
+        return holder;
     }
 
     /**

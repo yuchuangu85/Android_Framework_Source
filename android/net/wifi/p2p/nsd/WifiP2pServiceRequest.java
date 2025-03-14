@@ -16,13 +16,21 @@
 
 package android.net.wifi.p2p.nsd;
 
+import android.annotation.FlaggedApi;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.annotation.RequiresApi;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.net.wifi.p2p.WifiP2pManager;
+import android.net.wifi.util.Environment;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.android.wifi.flags.Flags;
+
 import java.util.Locale;
+import java.util.Objects;
 
 /**
  * A class for creating a service discovery request for use with
@@ -68,6 +76,24 @@ public class WifiP2pServiceRequest implements Parcelable {
     private String mQuery;
 
     /**
+     * This field is used only when the service discovery request is using un-synchronized service
+     * discovery (USD) protocol. Refer Wi-Fi Alliance Wi-Fi Direct R2 specification section 3.7 -
+     * "Unsynchronized Service Discovery (USD)" for the details.
+     */
+    private WifiP2pUsdBasedServiceConfig mUsdServiceConfig;
+
+    /**
+     * Service discovery request session ID (Seeker ID) for USD based service discovery.
+     * The session ID is used to match the USD based service discovery request/response frames.
+     * A nonzero ID in the range of 1 to 255 is filled in the Service descriptor attribute (SDA) -
+     * instance ID field of the service discovery request frame (Subscribe frame). The responding
+     * device copies this ID in the Service descriptor attribute (SDA) - requester instance ID
+     * field of the service discovery response frame (Publish frame).
+     * Zero by default indicates that the USD session for this service is not running.
+     */
+    private int mUsdSessionId = 0;
+
+    /**
      * This constructor is only used in newInstance().
      *
      * @param protocolType service discovery protocol.
@@ -88,19 +114,24 @@ public class WifiP2pServiceRequest implements Parcelable {
     }
 
     /**
-     * This constructor is only used in Parcelable.
+     * This constructor is only used in parcelable.
      *
      * @param serviceType service discovery type.
      * @param length the length of service discovery packet.
      * @param transId the transaction id
      * @param query The part of service specific query.
+     * @param usdConfig The USD based service config.
+     * @param usdSessionId The USD based service discovery request session ID.
      */
     private WifiP2pServiceRequest(int serviceType, int length,
-            int transId, String query) {
+            int transId, String query, @NonNull WifiP2pUsdBasedServiceConfig usdConfig,
+            int usdSessionId) {
         mProtocolType = serviceType;
         mLength = length;
         mTransId = transId;
         mQuery = query;
+        mUsdServiceConfig = usdConfig;
+        mUsdSessionId = usdSessionId;
     }
 
     /**
@@ -148,6 +179,48 @@ public class WifiP2pServiceRequest implements Parcelable {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Return the USD based service discovery request session ID.
+     * This ID is used to match the USD based service request/response frames.
+     *
+     * @return A nonzero ID in the range of 1 to 255 when the session is running.
+     * @hide
+     */
+    public int getUsdSessionId() {
+        return mUsdSessionId;
+    }
+
+    /**
+     * Set the USD based service discovery request session ID.
+     * Default value is zero.
+     *
+     * @param sessionId nonzero session ID is set when the USD session for this service is started.
+     * @hide
+     */
+    public void setUsdSessionId(int sessionId) {
+        mUsdSessionId = sessionId;
+    }
+
+    /**
+     /**
+     * Get the service information configured to discover a service using un-synchronized service
+     * discovery (USD) protocol.
+     * See {@link #WifiP2pServiceRequest(WifiP2pUsdBasedServiceConfig)}.
+     *
+     * @return A valid or not null {@link WifiP2pUsdBasedServiceConfig} if the service information
+     * is configured to discover a service using un-synchronized service discovery (USD) protocol.
+     * Otherwise, it is null.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    @Nullable
+    public WifiP2pUsdBasedServiceConfig getWifiP2pUsdBasedServiceConfig() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mUsdServiceConfig;
     }
 
     /**
@@ -214,6 +287,25 @@ public class WifiP2pServiceRequest implements Parcelable {
         return new WifiP2pServiceRequest(protocolType, null);
     }
 
+    /**
+     * Constructor for creating a service discovery request for discovering the service using
+     * un-synchronized service discovery (USD) protocol. Refer Wi-Fi Alliance Wi-Fi Direct R2
+     * specification section 3.7 - "Unsynchronized Service Discovery (USD)" for the details.
+     *
+     * @param usdConfig See {@link WifiP2pUsdBasedServiceConfig}
+     *
+     * @return service discovery request containing USD based service configuration.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public WifiP2pServiceRequest(@NonNull WifiP2pUsdBasedServiceConfig usdConfig) {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        Objects.requireNonNull(usdConfig, "usdConfig cannot be null");
+        mUsdServiceConfig = usdConfig;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (o == this) {
@@ -229,17 +321,10 @@ public class WifiP2pServiceRequest implements Parcelable {
          * Not compare transaction id.
          * Transaction id may be changed on each service discovery operation.
          */
-        if ((req.mProtocolType != mProtocolType) ||
-                (req.mLength != mLength)) {
-            return false;
-        }
-
-        if (req.mQuery == null && mQuery == null) {
-            return true;
-        } else if (req.mQuery != null) {
-            return req.mQuery.equals(mQuery);
-        }
-        return false;
+        return mProtocolType == req.mProtocolType
+                && mLength == req.mLength
+                && Objects.equals(mQuery, req.mQuery)
+                && Objects.equals(mUsdServiceConfig, req.mUsdServiceConfig);
    }
 
     @Override
@@ -248,6 +333,7 @@ public class WifiP2pServiceRequest implements Parcelable {
         result = 31 * result + mProtocolType;
         result = 31 * result + mLength;
         result = 31 * result + (mQuery == null ? 0 : mQuery.hashCode());
+        result = 31 * result + (mUsdServiceConfig == null ? 0 : mUsdServiceConfig.hashCode());
         return result;
     }
 
@@ -262,22 +348,33 @@ public class WifiP2pServiceRequest implements Parcelable {
         dest.writeInt(mLength);
         dest.writeInt(mTransId);
         dest.writeString(mQuery);
+        if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+            dest.writeParcelable(mUsdServiceConfig, flags);
+            dest.writeInt(mUsdSessionId);
+        }
     }
 
     /** Implement the Parcelable interface {@hide} */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     public static final @android.annotation.NonNull Creator<WifiP2pServiceRequest> CREATOR =
-        new Creator<WifiP2pServiceRequest>() {
-            public WifiP2pServiceRequest createFromParcel(Parcel in) {
-                int servType = in.readInt();
-                int length = in.readInt();
-                int transId = in.readInt();
-                String query = in.readString();
-                return new WifiP2pServiceRequest(servType, length, transId, query);
-            }
-
-            public WifiP2pServiceRequest[] newArray(int size) {
-                return new WifiP2pServiceRequest[size];
-            }
-        };
+            new Creator<WifiP2pServiceRequest>() {
+                public WifiP2pServiceRequest createFromParcel(Parcel in) {
+                    int servType = in.readInt();
+                    int length = in.readInt();
+                    int transId = in.readInt();
+                    String query = in.readString();
+                    WifiP2pUsdBasedServiceConfig config = null;
+                    int usdSessionId = 0;
+                    if (Environment.isSdkAtLeastB() && Flags.wifiDirectR2()) {
+                        config = in.readParcelable(
+                                WifiP2pUsdBasedServiceConfig.class.getClassLoader());
+                        usdSessionId = in.readInt();
+                    }
+                    return new WifiP2pServiceRequest(servType, length, transId, query, config,
+                            usdSessionId);
+                }
+                public WifiP2pServiceRequest[] newArray(int size) {
+                    return new WifiP2pServiceRequest[size];
+                }
+            };
 }

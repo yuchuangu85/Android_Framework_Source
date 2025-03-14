@@ -46,9 +46,11 @@ public final class Histogram {
      */
     public void logSample(float sample) {
         final long hash = MetricIds.getMetricIdHash(mMetricId, MetricIds.METRIC_TYPE_HISTOGRAM);
-        final int binIndex = mBinOptions.getBinForSample(sample);
-        StatsExpressLog.write(
-                StatsExpressLog.EXPRESS_HISTOGRAM_SAMPLE_REPORTED, hash, /*count*/ 1, binIndex);
+        if (hash != MetricIds.INVALID_METRIC_ID) {
+          final int binIndex = mBinOptions.getBinForSample(sample);
+          StatsExpressLog.write(
+              StatsExpressLog.EXPRESS_HISTOGRAM_SAMPLE_REPORTED, hash, /*count*/ 1, binIndex);
+        }
     }
 
     /**
@@ -60,13 +62,12 @@ public final class Histogram {
     public void logSampleWithUid(int uid, float sample) {
         final long hash =
                 MetricIds.getMetricIdHash(mMetricId, MetricIds.METRIC_TYPE_HISTOGRAM_WITH_UID);
-        final int binIndex = mBinOptions.getBinForSample(sample);
-        StatsExpressLog.write(
-                StatsExpressLog.EXPRESS_UID_HISTOGRAM_SAMPLE_REPORTED,
-                hash, /*count*/
-                1,
-                binIndex,
-                uid);
+        if (hash != MetricIds.INVALID_METRIC_ID) {
+          final int binIndex = mBinOptions.getBinForSample(sample);
+          StatsExpressLog.write(StatsExpressLog.EXPRESS_UID_HISTOGRAM_SAMPLE_REPORTED,
+              hash, /*count*/
+              1, binIndex, uid);
+        }
     }
 
     /** Used by Histogram to map data sample to corresponding bin */

@@ -13,6 +13,7 @@ import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.DEROctetString;
 import com.android.org.bouncycastle.asn1.DERSequence;
+import com.android.org.bouncycastle.util.Arrays;
 
 /**
  * an object for the elements in the X.509 V3 extension block.
@@ -181,6 +182,26 @@ public class Extension
      */
     public static final ASN1ObjectIdentifier expiredCertsOnCRL = new ASN1ObjectIdentifier("2.5.29.60").intern();
 
+    /**
+     * the subject’s alternative public key information
+     */
+    public static final ASN1ObjectIdentifier subjectAltPublicKeyInfo = new ASN1ObjectIdentifier("2.5.29.72").intern();
+
+    /**
+     * the algorithm identifier for the alternative digital signature algorithm.
+     */
+    public static final ASN1ObjectIdentifier altSignatureAlgorithm = new ASN1ObjectIdentifier("2.5.29.73").intern();
+
+    /**
+     * alternative signature shall be created by the issuer using its alternative private key.
+     */
+    public static final ASN1ObjectIdentifier altSignatureValue = new ASN1ObjectIdentifier("2.5.29.74").intern();
+
+    /**
+     * delta certificate extension - prototype value will change!
+     */
+    public static final ASN1ObjectIdentifier deltaCertificateDescriptor = new ASN1ObjectIdentifier("2.16.840.1.114027.80.6.1");
+
     private ASN1ObjectIdentifier extnId;
     private boolean             critical;
     private ASN1OctetString      value;
@@ -212,7 +233,7 @@ public class Extension
         boolean critical,
         byte[] value)
     {
-        this(extnId, critical, new DEROctetString(value));
+        this(extnId, critical, new DEROctetString(Arrays.clone(value)));
     }
 
     /**

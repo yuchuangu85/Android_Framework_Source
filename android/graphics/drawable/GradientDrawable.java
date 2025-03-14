@@ -16,7 +16,11 @@
 
 package android.graphics.drawable;
 
+import static com.android.graphics.flags.Flags.FLAG_GRADIENT_DRAWABLE_SHAPE_ROUNDED_CAP;
+import static com.android.graphics.flags.Flags.gradientDrawableShapeRoundedCap;
+
 import android.annotation.ColorInt;
+import android.annotation.FlaggedApi;
 import android.annotation.FloatRange;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -125,8 +129,14 @@ public class GradientDrawable extends Drawable {
      */
     public static final int RING = 3;
 
+    /**
+     * Shape is an arc.
+     */
+    @FlaggedApi(FLAG_GRADIENT_DRAWABLE_SHAPE_ROUNDED_CAP)
+    public static final int ARC = 4;
+
     /** @hide */
-    @IntDef({RECTANGLE, OVAL, LINE, RING})
+    @IntDef({RECTANGLE, OVAL, LINE, RING, ARC})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Shape {}
 
@@ -167,6 +177,17 @@ public class GradientDrawable extends Drawable {
     @Retention(RetentionPolicy.SOURCE)
     public @interface RadiusType {}
 
+    private static final int BUTT = 0;
+
+    private static final int ROUND = 1;
+
+    private static final int SQUARE = 2;
+
+    /** @hide */
+    @IntDef({BUTT, ROUND, SQUARE})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface StrokeCap {}
+
     private static final float DEFAULT_INNER_RADIUS_RATIO = 3.0f;
     private static final float DEFAULT_THICKNESS_RATIO = 9.0f;
 
@@ -191,6 +212,8 @@ public class GradientDrawable extends Drawable {
     private boolean mMutated;
     private Path mRingPath;
     private boolean mPathIsDirty = true;
+    private Path mArcPath;
+    private Path mArcOutlinePath;
 
     /** Current gradient radius, valid when {@link #mGradientIsDirty} is false. */
     private float mGradientRadius;
@@ -850,6 +873,55 @@ public class GradientDrawable extends Drawable {
                 }
                 break;
             }
+            case ARC:
+                if (gradientDrawableShapeRoundedCap()) {
+                    // TODO(b/394988176): Consider applying ARC drawing logic to RING shape.
+                    float centerX = mRect.centerX();
+                    float centerY = mRect.centerY();
+                    float thickness =
+                            st.mThickness != -1 ? st.mThickness
+                                    : mRect.width() / st.mThicknessRatio;
+                    float radius = st.mInnerRadius != -1 ? st.mInnerRadius
+                            : mRect.width() / st.mInnerRadiusRatio;
+                    radius -= thickness;
+                    float sweep = st.mUseLevelForShape ? (360.0f * getLevel() / 10000.0f) : 360f;
+                    mRect.set(centerX - radius, centerY - radius, centerX + radius,
+                            centerY + radius);
+
+                    // Prepare paint. Set style to STROKE for purpose of drawing line ARC.
+                    mFillPaint.setStyle(Paint.Style.STROKE);
+                    mFillPaint.setStrokeWidth(thickness);
+                    mFillPaint.setStrokeCap(getStrokeLineCapForPaint(st.mStrokeCap));
+                    canvas.drawArc(mRect, 0.0f, sweep,  /* useCenter= */ false, mFillPaint);
+
+                    if (haveStroke) {
+                        if (mArcPath == null) {
+                            mArcPath = new Path();
+                        } else {
+                            mArcPath.reset();
+                        }
+                        if (mArcOutlinePath == null) {
+                            mArcOutlinePath = new Path();
+                        } else {
+                            mArcOutlinePath.reset();
+                        }
+                        if (sweep == 360f) {
+                            mArcPath.addOval(mRect, Path.Direction.CW);
+                        } else {
+                            mArcPath.arcTo(mRect, 0.0f, sweep, /* forceMoveTo= */ false);
+                        }
+
+                        // The arc path doesn't have width. So, to get the outline of the result arc
+                        // shape, we need to apply the paint effect to the path; then use the
+                        // output as the result outline.
+                        mFillPaint.getFillPath(mArcPath, mArcOutlinePath);
+                        canvas.drawPath(mArcOutlinePath, mStrokePaint);
+                    }
+
+                    // Restore to FILL
+                    mFillPaint.setStyle(Paint.Style.FILL);
+                    break;
+                }
             case RING:
                 Path path = buildRing(st);
                 canvas.drawPath(path, mFillPaint);
@@ -993,6 +1065,36 @@ public class GradientDrawable extends Drawable {
     }
 
     /**
+     * Return current drawable's stroke line cap. Note that this is only respected when drawable is
+     * {@link Shape#ARC}.
+     *
+     * @return the {@link StrokeCap} of current drawable.
+     * @attr ref android.R.styleable#GradientDrawable_strokeCap
+     * @see #setStrokeCap(int)
+     *
+     * @hide
+     */
+    @StrokeCap
+    public int getStrokeCap() {
+        return mGradientState.mStrokeCap;
+    }
+
+    /**
+     * Configure the stroke line cap type that drawable will use while drawing. Note that this is
+     * only respected when drawable is {@link Shape#ARC}.
+     *
+     * @param strokeCapType the stroke line cap type that the drawable will use while drawing.
+     * @attr ref android.R.styleable#GradientDrawable_strokeCap
+     * @see #getStrokeCap
+     *
+     * @hide
+     */
+    public void setStrokeCap(@StrokeCap int strokeCapType) {
+        mGradientState.mStrokeCap = strokeCapType;
+        invalidateSelf();
+    }
+
+    /**
      * Configure the padding of the gradient shape
      * @param left Left padding of the gradient shape
      * @param top Top padding of the gradient shape
@@ -1064,6 +1166,15 @@ public class GradientDrawable extends Drawable {
         }
 
         return ringPath;
+    }
+
+    private Paint.Cap getStrokeLineCapForPaint(@StrokeCap int strokeLineCap) {
+        return switch (strokeLineCap) {
+            case BUTT -> Paint.Cap.BUTT;
+            case ROUND -> Paint.Cap.ROUND;
+            case SQUARE -> Paint.Cap.SQUARE;
+            default -> Paint.Cap.SQUARE;
+        };
     }
 
     /**
@@ -1484,7 +1595,7 @@ public class GradientDrawable extends Drawable {
         state.mShape = a.getInt(R.styleable.GradientDrawable_shape, state.mShape);
         state.mDither = a.getBoolean(R.styleable.GradientDrawable_dither, state.mDither);
 
-        if (state.mShape == RING) {
+        if (state.mShape == RING || state.mShape == ARC) {
             state.mInnerRadius = a.getDimensionPixelSize(
                     R.styleable.GradientDrawable_innerRadius, state.mInnerRadius);
 
@@ -1503,6 +1614,9 @@ public class GradientDrawable extends Drawable {
 
             state.mUseLevelForShape = a.getBoolean(
                     R.styleable.GradientDrawable_useLevel, state.mUseLevelForShape);
+
+            state.mStrokeCap = a.getInt(
+                    R.styleable.GradientDrawable_strokeCap, state.mStrokeCap);
         }
 
         final int tintMode = a.getInt(R.styleable.GradientDrawable_tintMode, -1);
@@ -2045,6 +2159,9 @@ public class GradientDrawable extends Drawable {
         public int mInnerRadius = -1;
         @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 124050218)
         public int mThickness = -1;
+        @UnsupportedAppUsage(trackingBug = 380000245)
+        @StrokeCap public int mStrokeCap = ROUND;
+
         public boolean mDither = false;
         public Insets mOpticalInsets = Insets.NONE;
 

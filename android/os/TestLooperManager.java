@@ -14,8 +14,11 @@
 
 package android.os;
 
+import android.annotation.FlaggedApi;
+import android.annotation.Nullable;
 import android.util.ArraySet;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -36,9 +39,13 @@ public class TestLooperManager {
     private final MessageQueue mQueue;
     private final Looper mLooper;
     private final LinkedBlockingQueue<MessageExecution> mExecuteQueue = new LinkedBlockingQueue<>();
+    private final boolean mLooperIsMyLooper;
+
+    // When this latch is zero, it's guaranteed that the LooperHolder Message
+    // is not in the underlying queue.
+    private final CountDownLatch mLooperHolderLatch = new CountDownLatch(1);
 
     private boolean mReleased;
-    private boolean mLooperBlocked;
 
     /**
      * @hide
@@ -52,8 +59,13 @@ public class TestLooperManager {
         }
         mLooper = looper;
         mQueue = mLooper.getQueue();
-        // Post a message that will keep the looper blocked as long as we are dispatching.
-        new Handler(looper).post(new LooperHolder());
+        mLooperIsMyLooper = Looper.myLooper() == looper;
+        if (!mLooperIsMyLooper) {
+            // Post a message that will keep the looper blocked as long as we are dispatching.
+            new Handler(looper).post(new LooperHolder());
+        } else {
+            mLooperHolderLatch.countDown();
+        }
     }
 
     /**
@@ -78,24 +90,55 @@ public class TestLooperManager {
      * interactions with it have completed.
      */
     public Message next() {
-        // Wait for the looper block to come up, to make sure we don't accidentally get
-        // the message for the block.
-        while (!mLooperBlocked) {
-            synchronized (this) {
-                try {
-                    wait();
-                } catch (InterruptedException e) {
-                }
-            }
-        }
         checkReleased();
+        waitForLooperHolder();
         return mQueue.next();
     }
 
     /**
-     * Releases the looper to continue standard looping and processing of messages,
-     * no further interactions with TestLooperManager will be allowed after
-     * release() has been called.
+     * Retrieves and removes the next message that should be executed by this queue.
+     * If the queue is empty or no messages are deliverable, returns null.
+     * This method never blocks.
+     *
+     * <p>Callers should always call {@link #recycle(Message)} on the message when all interactions
+     * with it have completed.
+     */
+    @FlaggedApi(Flags.FLAG_MESSAGE_QUEUE_TESTABILITY)
+    @Nullable
+    public Message poll() {
+        checkReleased();
+        waitForLooperHolder();
+        return mQueue.pollForTest();
+    }
+
+    /**
+     * Retrieves, but does not remove, the values of {@link Message#when} of next message that
+     * should be executed by this queue.
+     * If the queue is empty or no messages are deliverable, returns null.
+     * This method never blocks.
+     */
+    @FlaggedApi(Flags.FLAG_MESSAGE_QUEUE_TESTABILITY)
+    @SuppressWarnings("AutoBoxing")  // box the primitive long, or return null to indicate no value
+    @Nullable
+    public Long peekWhen() {
+        checkReleased();
+        waitForLooperHolder();
+        return mQueue.peekWhenForTest();
+    }
+
+    /**
+     * Checks whether the Looper is currently blocked on a sync barrier.
+     */
+    @FlaggedApi(Flags.FLAG_MESSAGE_QUEUE_TESTABILITY)
+    public boolean isBlockedOnSyncBarrier() {
+        checkReleased();
+        waitForLooperHolder();
+        return mQueue.isBlockedOnSyncBarrier();
+    }
+
+    /**
+     * Releases the looper to continue standard looping and processing of messages, no further
+     * interactions with TestLooperManager will be allowed after release() has been called.
      */
     public void release() {
         synchronized (sHeldLoopers) {
@@ -116,10 +159,13 @@ public class TestLooperManager {
      */
     public void execute(Message message) {
         checkReleased();
-        if (Looper.myLooper() == mLooper) {
+        if (mLooper.isCurrentThread()) {
             // This is being called from the thread it should be executed on, we can just dispatch.
             message.target.dispatchMessage(message);
         } else {
+            if (mLooperIsMyLooper) {
+                throw new RuntimeException("Cannot call execute from non Looper thread");
+            }
             MessageExecution execution = new MessageExecution();
             execution.m = message;
             synchronized (execution) {
@@ -128,6 +174,7 @@ public class TestLooperManager {
                 try {
                     execution.wait();
                 } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
                 if (execution.response != null) {
                     throw new RuntimeException(execution.response);
@@ -175,13 +222,24 @@ public class TestLooperManager {
         }
     }
 
+    /**
+     * Waits until the Looper is blocked by the LooperHolder, if one was posted.
+     *
+     * After this method returns, it's guaranteed that the LooperHolder Message
+     * is not in the underlying queue.
+     */
+    private void waitForLooperHolder() {
+        try {
+            mLooperHolderLatch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private class LooperHolder implements Runnable {
         @Override
         public void run() {
-            synchronized (TestLooperManager.this) {
-                mLooperBlocked = true;
-                TestLooperManager.this.notify();
-            }
+            mLooperHolderLatch.countDown();
             while (!mReleased) {
                 try {
                     final MessageExecution take = mExecuteQueue.take();
@@ -189,10 +247,8 @@ public class TestLooperManager {
                         processMessage(take);
                     }
                 } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                 }
-            }
-            synchronized (TestLooperManager.this) {
-                mLooperBlocked = false;
             }
         }
 

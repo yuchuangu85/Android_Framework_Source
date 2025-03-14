@@ -22,12 +22,14 @@ import static android.provider.DeviceConfig.NAMESPACE_LATENCY_TRACKER;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_BACK_SYSTEM_ANIMATION;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_CHECK_CREDENTIAL;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_CHECK_CREDENTIAL_UNLOCKED;
+import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_DESKTOP_MODE_ENTER_APP_HANDLE_DRAG;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_EXPAND_PANEL;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_FACE_WAKE_AND_UNLOCK;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_FINGERPRINT_WAKE_AND_UNLOCK;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_FOLD_TO_AOD;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN;
+import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_KEYGUARD_FACE_UNLOCK_TO_HOME;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_KEYGUARD_FPS_UNLOCK_TO_HOME;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_LOAD_SHARE_SHEET;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_LOCKSCREEN_UNLOCK;
@@ -37,6 +39,7 @@ import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPOR
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_ROTATE_SCREEN;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_ROTATE_SCREEN_CAMERA_CHECK;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_ROTATE_SCREEN_SENSOR;
+import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_SHADE_WINDOW_DISPLAY_CHANGE;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_SHOW_BACK_ARROW;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_SHOW_SELECTION_TOOLBAR;
 import static com.android.internal.util.FrameworkStatsLog.UIACTION_LATENCY_REPORTED__ACTION__ACTION_SHOW_VOICE_INTERACTION;
@@ -227,7 +230,8 @@ public class LatencyTracker {
     public static final int ACTION_NOTIFICATION_BIG_PICTURE_LOADED = 23;
 
     /**
-     * Time it takes to unlock the device via udfps, until the whole launcher appears.
+     * Time it takes to unlock the device via fps,
+     * until either the launcher or the foreground app appears.
      */
     public static final int ACTION_KEYGUARD_FPS_UNLOCK_TO_HOME = 24;
 
@@ -248,6 +252,29 @@ public class LatencyTracker {
      * when the notifications are hidden and when the shade is open or keyguard is visible.
      */
     public static final int ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN = 27;
+
+    /**
+     * Time it takes to unlock the device via face,
+     * until either the launcher or the foreground app appears.
+     */
+    public static final int ACTION_KEYGUARD_FACE_UNLOCK_TO_HOME = 28;
+
+    /**
+     * Time it takes for the shade window to move display after a user interaction.
+     * <p>
+     * This starts when the user does an interaction that triggers the window reparenting, and
+     * finishes after the first doFrame done with the new display configuration.
+     */
+    public static final int ACTION_SHADE_WINDOW_DISPLAY_CHANGE = 29;
+
+    /**
+     * Applicable when the user drags a full screen app's handle into the desktop drop zone to enter
+     * desktop mode. This measure the time from when the user releases their finger in the drop zone
+     * to when the animation for entering desktop mode visually begins. During this period, the
+     * home task and app headers for each window are initialized. Both have historically been
+     * expensive. See b/381396057 and b/360452034 respectively.
+     */
+    public static final int ACTION_DESKTOP_MODE_ENTER_APP_HANDLE_DRAG = 30;
 
     private static final int[] ACTIONS_ALL = {
         ACTION_EXPAND_PANEL,
@@ -278,6 +305,9 @@ public class LatencyTracker {
         ACTION_BACK_SYSTEM_ANIMATION,
         ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE,
         ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN,
+        ACTION_KEYGUARD_FACE_UNLOCK_TO_HOME,
+        ACTION_SHADE_WINDOW_DISPLAY_CHANGE,
+        ACTION_DESKTOP_MODE_ENTER_APP_HANDLE_DRAG,
     };
 
     /** @hide */
@@ -310,10 +340,12 @@ public class LatencyTracker {
         ACTION_BACK_SYSTEM_ANIMATION,
         ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE,
         ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN,
+        ACTION_KEYGUARD_FACE_UNLOCK_TO_HOME,
+        ACTION_SHADE_WINDOW_DISPLAY_CHANGE,
+        ACTION_DESKTOP_MODE_ENTER_APP_HANDLE_DRAG,
     })
     @Retention(RetentionPolicy.SOURCE)
-    public @interface Action {
-    }
+    public @interface Action {}
 
     @VisibleForTesting
     public static final int[] STATSD_ACTION = new int[] {
@@ -345,6 +377,9 @@ public class LatencyTracker {
             UIACTION_LATENCY_REPORTED__ACTION__ACTION_BACK_SYSTEM_ANIMATION,
             UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE,
             UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN,
+            UIACTION_LATENCY_REPORTED__ACTION__ACTION_KEYGUARD_FACE_UNLOCK_TO_HOME,
+            UIACTION_LATENCY_REPORTED__ACTION__ACTION_SHADE_WINDOW_DISPLAY_CHANGE,
+            UIACTION_LATENCY_REPORTED__ACTION__ACTION_DESKTOP_MODE_ENTER_APP_HANDLE_DRAG,
     };
 
     private final Object mLock = new Object();
@@ -424,9 +459,11 @@ public class LatencyTracker {
     public void startListeningForLatencyTrackerConfigChanges() {
         final Context context = ActivityThread.currentApplication();
         if (context == null) {
-            if (DEBUG) {
-                Log.d(TAG, "No application for package: " + ActivityThread.currentPackageName());
-            }
+            Log.e(
+                    TAG,
+                    String.format(
+                            "No application for package: %s. Latency Tracker Disabled",
+                            ActivityThread.currentPackageName()));
             return;
         }
         if (context.checkCallingOrSelfPermission(READ_DEVICE_CONFIG) != PERMISSION_GRANTED) {
@@ -539,6 +576,12 @@ public class LatencyTracker {
                 return "ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE";
             case UIACTION_LATENCY_REPORTED__ACTION__ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN:
                 return "ACTION_NOTIFICATIONS_HIDDEN_FOR_MEASURE_WITH_SHADE_OPEN";
+            case UIACTION_LATENCY_REPORTED__ACTION__ACTION_KEYGUARD_FACE_UNLOCK_TO_HOME:
+                return "ACTION_KEYGUARD_FACE_UNLOCK_TO_HOME";
+            case UIACTION_LATENCY_REPORTED__ACTION__ACTION_SHADE_WINDOW_DISPLAY_CHANGE:
+                return "ACTION_SHADE_WINDOW_DISPLAY_CHANGE";
+            case UIACTION_LATENCY_REPORTED__ACTION__ACTION_DESKTOP_MODE_ENTER_APP_HANDLE_DRAG:
+                return "ACTION_DESKTOP_MODE_ENTER_APP_HANDLE_DRAG";
             default:
                 throw new IllegalArgumentException("Invalid action");
         }

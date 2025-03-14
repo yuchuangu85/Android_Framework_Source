@@ -113,9 +113,9 @@ public final class BluetoothHidDeviceAppSdpSettings implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeString(mName);
-        out.writeString(mDescription);
-        out.writeString(mProvider);
+        BluetoothUtils.writeStringToParcel(out, mName);
+        BluetoothUtils.writeStringToParcel(out, mDescription);
+        BluetoothUtils.writeStringToParcel(out, mProvider);
         out.writeByte(mSubclass);
         out.writeByteArray(mDescriptors);
     }

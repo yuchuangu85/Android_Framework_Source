@@ -1,6 +1,8 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.crypto.digests;
 
+import com.android.internal.org.bouncycastle.crypto.CryptoServiceProperties;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicePurpose;
 import com.android.internal.org.bouncycastle.crypto.ExtendedDigest;
 import com.android.internal.org.bouncycastle.util.Memoable;
 import com.android.internal.org.bouncycastle.util.Pack;
@@ -13,6 +15,8 @@ public abstract class LongDigest
     implements ExtendedDigest, Memoable, EncodableDigest
 {
     private static final int BYTE_LENGTH = 128;
+
+    protected final CryptoServicePurpose purpose;
 
     private byte[] xBuf = new byte[8];
     private int     xBufOff;
@@ -30,6 +34,16 @@ public abstract class LongDigest
      */
     protected LongDigest()
     {
+        this(CryptoServicePurpose.ANY);
+    }
+
+    /**
+     * Constructor for variable length word
+     */
+    protected LongDigest(CryptoServicePurpose purpose)
+    {
+        this.purpose = purpose;
+
         xBufOff = 0;
 
         reset();
@@ -42,6 +56,8 @@ public abstract class LongDigest
      */
     protected LongDigest(LongDigest t)
     {
+        this.purpose = t.purpose;
+
         copyIn(t);
     }
 
@@ -149,7 +165,7 @@ public abstract class LongDigest
         //
         // process whole words.
         //
-        while (len > xBuf.length)
+        while (len >= xBuf.length)
         {
             processWord(in, inOff);
 
@@ -408,4 +424,5 @@ public abstract class LongDigest
 0x4cc5d4becb3e42b6L, 0x597f299cfc657e2aL, 0x5fcb6fab3ad6faecL, 0x6c44198c4a475817L
     };
 
+    protected abstract CryptoServiceProperties cryptoServiceProperties();
 }

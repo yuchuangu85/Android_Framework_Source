@@ -151,6 +151,47 @@ public final class Arrays
         return 0 == d;
     }
 
+    /**
+     * A constant time equals comparison - does not terminate early if
+     * comparison fails. For best results always pass the expected value
+     * as the first parameter.
+     *
+     * @param expected first array
+     * @param supplied second array
+     * @return true if arrays equal, false otherwise.
+     */
+    public static boolean constantTimeAreEqual(
+        char[] expected,
+        char[] supplied)
+    {
+        if (expected == null || supplied == null)
+        {
+            return false;
+        }
+
+        if (expected == supplied)
+        {
+            return true;
+        }
+
+        int len = Math.min(expected.length, supplied.length);
+
+        int nonEqual = expected.length ^ supplied.length;
+
+        // do the char-wise comparison
+        for (int i = 0; i != len; i++)
+        {
+            nonEqual |= (expected[i] ^ supplied[i]);
+        }
+        // If supplied is longer than expected, iterate over rest of supplied with NOPs
+        for (int i = len; i < supplied.length; i++)
+        {
+            nonEqual |= ((byte)supplied[i] ^ (byte)~supplied[i]);
+        }
+
+        return nonEqual == 0;
+    }
+
     public static int compareUnsigned(byte[] a, byte[] b)
     {
         if (a == b)
@@ -276,14 +317,6 @@ public final class Arrays
         java.util.Arrays.fill(a, val);
     }
 
-    /**
-     * @deprecated Use {@link #fill(byte[], int, int, byte)} instead.
-     */
-    public static void fill(byte[] a, int fromIndex, byte val)
-    {
-        fill(a, fromIndex, a.length, val);
-    }
-
     public static void fill(byte[] a, int fromIndex, int toIndex, byte val)
     {
         java.util.Arrays.fill(a, fromIndex, toIndex, val);
@@ -304,14 +337,6 @@ public final class Arrays
         java.util.Arrays.fill(a, val);
     }
 
-    /**
-     * @deprecated Use {@link #fill(int[], int, int, int)} instead.
-     */
-    public static void fill(int[] a, int fromIndex, int val)
-    {
-        java.util.Arrays.fill(a, fromIndex, a.length, val);
-    }
-
     public static void fill(int[] a, int fromIndex, int toIndex, int val)
     {
         java.util.Arrays.fill(a, fromIndex, toIndex, val);
@@ -320,14 +345,6 @@ public final class Arrays
     public static void fill(long[] a, long val)
     {
         java.util.Arrays.fill(a, val);
-    }
-
-    /**
-     * @deprecated Use {@link #fill(long[], int, int, long)} instead.
-     */
-    public static void fill(long[] a, int fromIndex, long val)
-    {
-        java.util.Arrays.fill(a, fromIndex, a.length, val);
     }
 
     public static void fill(long[] a, int fromIndex, int toIndex, long val)
@@ -348,14 +365,6 @@ public final class Arrays
     public static void fill(short[] a, short val)
     {
         java.util.Arrays.fill(a, val);
-    }
-
-    /**
-     * @deprecated Use {@link #fill(short[], int, int, short)} instead.
-     */
-    public static void fill(short[] a, int fromIndex, short val)
-    {
-        java.util.Arrays.fill(a, fromIndex, a.length, val);
     }
 
     public static void fill(short[] a, int fromIndex, int toIndex, short val)
@@ -796,9 +805,7 @@ public final class Arrays
         int newLength = to - from;
         if (newLength < 0)
         {
-            StringBuffer sb = new StringBuffer(from);
-            sb.append(" > ").append(to);
-            throw new IllegalArgumentException(sb.toString());
+            throw new IllegalArgumentException(from + " > " + to);
         }
         return newLength;
     }
@@ -1063,6 +1070,80 @@ public final class Arrays
         }
 
         return result;
+    }
+
+    public static void reverse(byte[] input, byte[] output)
+    {
+        int last = input.length - 1;
+        for (int i = 0; i <= last; ++i)
+        {
+            output[i] = input[last - i];
+        }
+    }
+
+    public static byte[] reverseInPlace(byte[] a)
+    {
+        if (null == a)
+        {
+            return null;
+        }
+
+        int p1 = 0, p2 = a.length - 1;
+        while (p1 < p2)
+        {
+            byte t1 = a[p1], t2 = a[p2];
+            a[p1++] = t2;
+            a[p2--] = t1;
+        }
+
+        return a;
+    }
+
+    public static void reverseInPlace(byte[] a, int aOff, int aLen)
+    {
+        int p1 = aOff, p2 = aOff + aLen - 1;
+        while (p1 < p2)
+        {
+            byte t1 = a[p1], t2 = a[p2];
+            a[p1++] = t2;
+            a[p2--] = t1;
+        }
+    }
+
+    public static short[] reverseInPlace(short[] a)
+    {
+        if (null == a)
+        {
+            return null;
+        }
+
+        int p1 = 0, p2 = a.length - 1;
+        while (p1 < p2)
+        {
+            short t1 = a[p1], t2 = a[p2];
+            a[p1++] = t2;
+            a[p2--] = t1;
+        }
+
+        return a;
+    }
+
+    public static int[] reverseInPlace(int[] a)
+    {
+        if (null == a)
+        {
+            return null;
+        }
+
+        int p1 = 0, p2 = a.length - 1;
+        while (p1 < p2)
+        {
+            int t1 = a[p1], t2 = a[p2];
+            a[p1++] = t2;
+            a[p2--] = t1;
+        }
+
+        return a;
     }
 
     /**

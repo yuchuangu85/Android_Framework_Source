@@ -81,7 +81,6 @@ public class MessagingGroup extends NotificationOptimizedLinearLayout implements
     private MessagingLinearLayout mMessageContainer;
     ImageFloatingTextView mSenderView;
     private ImageView mAvatarView;
-    private View mAvatarContainer;
     private String mAvatarSymbol = "";
     private int mLayoutColor;
     private CharSequence mAvatarName = "";
@@ -261,12 +260,20 @@ public class MessagingGroup extends NotificationOptimizedLinearLayout implements
         MessagingGroup createdGroup = sInstancePool.acquire();
         if (createdGroup == null) {
             createdGroup = (MessagingGroup) LayoutInflater.from(layout.getContext()).inflate(
-                    R.layout.notification_template_messaging_group, layout,
+                    getMessagingGroupLayoutResource(), layout,
                     false);
             createdGroup.addOnLayoutChangeListener(MessagingLayout.MESSAGING_PROPERTY_ANIMATOR);
         }
         layout.addView(createdGroup);
         return createdGroup;
+    }
+
+    private static int getMessagingGroupLayoutResource() {
+        if (Flags.notificationsRedesignTemplates()) {
+            return R.layout.notification_2025_messaging_group;
+        } else {
+            return R.layout.notification_template_messaging_group;
+        }
     }
 
     public void removeMessage(MessagingMessage messagingMessage,
@@ -439,6 +446,13 @@ public class MessagingGroup extends NotificationOptimizedLinearLayout implements
         boolean hidden = (mIsFirstGroupInLayout || mSingleLine) && mCanHideSenderIfFirst
                 || TextUtils.isEmpty(mSenderName);
         mSenderView.setVisibility(hidden ? GONE : VISIBLE);
+    }
+
+    private void updateIconVisibility() {
+        if (Flags.notificationsRedesignTemplates()) {
+            // We don't show any icon (other than the app or person icon) in the collapsed form.
+            mMessagingIconContainer.setVisibility(mSingleLine ? GONE : VISIBLE);
+        }
     }
 
     @Override
@@ -696,6 +710,7 @@ public class MessagingGroup extends NotificationOptimizedLinearLayout implements
             updateMaxDisplayedLines();
             updateClipRect();
             updateSenderVisibility();
+            updateIconVisibility();
         }
     }
 
@@ -711,6 +726,14 @@ public class MessagingGroup extends NotificationOptimizedLinearLayout implements
     public void setIsInConversation(boolean isInConversation) {
         if (mIsInConversation != isInConversation) {
             mIsInConversation = isInConversation;
+
+            if (Flags.notificationsRedesignTemplates()) {
+                updateIconVisibility();
+                // No other alignment adjustments are necessary in the redesign, as the size of the
+                // icons in both conversations and old messaging notifications are the same.
+                return;
+            }
+
             MarginLayoutParams layoutParams =
                     (MarginLayoutParams) mMessagingIconContainer.getLayoutParams();
             layoutParams.width = mIsInConversation

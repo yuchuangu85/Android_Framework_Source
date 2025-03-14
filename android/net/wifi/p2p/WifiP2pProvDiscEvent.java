@@ -38,21 +38,40 @@ public class WifiP2pProvDiscEvent {
 
     private static final String TAG = "WifiP2pProvDiscEvent";
 
-    public static final int PBC_REQ     = 1;
-    public static final int PBC_RSP     = 2;
-    public static final int ENTER_PIN   = 3;
-    public static final int SHOW_PIN    = 4;
+    public static final int WPS_PBC_REQ     = 1;
+    public static final int WPS_PBC_RSP     = 2;
+    public static final int WPS_ENTER_PIN   = 3;
+    public static final int WPS_SHOW_PIN    = 4;
+    public static final int PAIRING_BOOTSTRAPPING_OPPORTUNISTIC_REQ = 5;
+    public static final int PAIRING_BOOTSTRAPPING_OPPORTUNISTIC_RSP = 6;
+    public static final int PAIRING_BOOTSTRAPPING_ENTER_PIN = 7;
+    public static final int PAIRING_BOOTSTRAPPING_SHOW_PIN = 8;
+    public static final int PAIRING_BOOTSTRAPPING_ENTER_PASSPHRASE = 9;
+    public static final int PAIRING_BOOTSTRAPPING_SHOW_PASSPHRASE = 10;
 
-    /* One of PBC_REQ, PBC_RSP, ENTER_PIN or SHOW_PIN */
+    /*
+     * One of WPS_PBC_REQ, WPS_PBC_RSP, WPS_ENTER_PIN, WPS_SHOW_PIN,
+     * PAIRING_BOOTSTRAPPING_OPPORTUNISTIC_REQ, PAIRING_BOOTSTRAPPING_OPPORTUNISTIC_RSP,
+     * PAIRING_BOOTSTRAPPING_ENTER_PIN, PAIRING_BOOTSTRAPPING_SHOW_PIN,
+     * PAIRING_BOOTSTRAPPING_ENTER_PASSPHRASE or PAIRING_BOOTSTRAPPING_SHOW_PASSPHRASE.
+     */
     @UnsupportedAppUsage
     public int event;
 
     @UnsupportedAppUsage
     public WifiP2pDevice device;
 
-    /* Valid when event = SHOW_PIN */
+    /*
+     * Valid when event = WPS_SHOW_PIN
+     */
     @UnsupportedAppUsage
-    public String pin;
+    public String wpsPin;
+
+    /*
+     * Valid when event = PAIRING_BOOTSTRAPPING_SHOW_PIN or PAIRING_BOOTSTRAPPING_SHOW_PASSPHRASE.
+     */
+    @UnsupportedAppUsage
+    public String pairingPinOrPassphrase;
 
     /** List of {@link OuiKeyedData} providing vendor-specific configuration data. */
     private @NonNull List<OuiKeyedData> mVendorData = Collections.emptyList();
@@ -114,18 +133,24 @@ public class WifiP2pProvDiscEvent {
             throw new IllegalArgumentException("Malformed event " + string);
         }
 
-        if (tokens[0].endsWith("PBC-REQ")) event = PBC_REQ;
-        else if (tokens[0].endsWith("PBC-RESP")) event = PBC_RSP;
-        else if (tokens[0].endsWith("ENTER-PIN")) event = ENTER_PIN;
-        else if (tokens[0].endsWith("SHOW-PIN")) event = SHOW_PIN;
-        else throw new IllegalArgumentException("Malformed event " + string);
+        if (tokens[0].endsWith("PBC-REQ")) {
+            event = WPS_PBC_REQ;
+        } else if (tokens[0].endsWith("PBC-RESP")) {
+            event = WPS_PBC_RSP;
+        } else if (tokens[0].endsWith("ENTER-PIN")) {
+            event = WPS_ENTER_PIN;
+        } else if (tokens[0].endsWith("SHOW-PIN")) {
+            event = WPS_SHOW_PIN;
+        } else {
+            throw new IllegalArgumentException("Malformed event " + string);
+        }
 
 
         device = new WifiP2pDevice();
         device.deviceAddress = tokens[1];
 
-        if (event == SHOW_PIN) {
-            pin = tokens[2];
+        if (event == WPS_SHOW_PIN) {
+            wpsPin = tokens[2];
         }
     }
 
@@ -133,7 +158,8 @@ public class WifiP2pProvDiscEvent {
         StringBuffer sbuf = new StringBuffer();
         sbuf.append(device);
         sbuf.append("\n event: ").append(event);
-        sbuf.append("\n pin: ").append(pin);
+        sbuf.append("\n wpsPin: ").append(wpsPin);
+        sbuf.append("\n PairingPinOrPassphrase: ").append(pairingPinOrPassphrase);
         sbuf.append("\n vendorData: ").append(mVendorData);
         return sbuf.toString();
     }

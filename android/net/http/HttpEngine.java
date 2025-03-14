@@ -4,22 +4,27 @@
 
 package android.net.http;
 
+import static android.annotation.SystemApi.Client.MODULE_LIBRARIES;
+import static android.net.http.HttpEngineJavaClasses.ALL_CLASSES;
+
+import android.annotation.FlaggedApi;
 import android.annotation.SuppressLint;
+import android.annotation.SystemApi;
 import android.content.Context;
 import android.net.Network;
-
-import org.chromium.net.ExperimentalCronetEngine;
-import org.chromium.net.ICronetEngineBuilder;
-import org.chromium.net.ApiVersion;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.android.internal.annotations.VisibleForTesting;
 
+import org.chromium.base.metrics.ScopedSysTraceEvent;
+import org.chromium.net.ApiVersion;
+import org.chromium.net.ExperimentalCronetEngine;
+import org.chromium.net.impl.CronetLibraryLoader;
+import org.chromium.net.impl.NativeCronetEngineBuilderImpl;
+
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLStreamHandlerFactory;
@@ -40,11 +45,47 @@ import javax.net.ssl.HttpsURLConnection;
 // the lifespan of the app.
 @SuppressLint("NotCloseable")
 public abstract class HttpEngine {
-
+    private static boolean sPreloaded = false;
     /**
      * {@hide}
      */
     protected HttpEngine() {}
+
+    /**
+     * Calling this will preload HttpEngine's Impl code.
+     * This is mostly meant to be called from the Zygote during init to reduce
+     * the impact of loading HttpEngine during app's startup.
+     *
+     * @hide
+     */
+    @SystemApi(client=MODULE_LIBRARIES)
+    @FlaggedApi(Flags.FLAG_PRELOAD_HTTPENGINE_IN_ZYGOTE)
+    public static void preload() {
+        if (sPreloaded) {
+            throw new IllegalStateException("HttpEngine already preloaded");
+        }
+
+        if (Flags.preloadHttpengineSharedLibrary()) {
+            CronetLibraryLoader.preload();
+        }
+
+        try {
+            if (Flags.preloadHttpengineJavaImplClasses()) {
+                for (String clazz : ALL_CLASSES) {
+                    // Load and explicitly initialize the given class. Use
+                    // Class.forName(String, boolean, ClassLoader) to avoid repeated stack lookups
+                    // (to derive the caller's class-loader). Use true to force initialization, and
+                    // null for the boot classpath class-loader (could as well cache the
+                    // class-loader of this class in a variable).
+                    Class.forName(clazz, true, null);
+                }
+            }
+        } catch (ClassNotFoundException e) {
+            throw new IllegalStateException("Failed to preload class", e);
+        } finally {
+            sPreloaded = true;
+        }
+    }
 
     /**
      * Returns a new {@link Builder} object that facilitates creating a {@link HttpEngine}.
@@ -365,34 +406,28 @@ public abstract class HttpEngine {
 
         /**
          * Build a {@link HttpEngine} using this builder's configuration.
+         *
          * @return constructed {@link HttpEngine}.
          */
         @NonNull
         public HttpEngine build() {
-            return mBuilderDelegate.build();
+            try (var traceEvent = ScopedSysTraceEvent.scoped("HttpEngine#build")) {
+                return mBuilderDelegate.build();
+            }
         }
 
         /**
-         * Creates an implementation of {@link IHttpEngineBuilder} that can be used
-         * to delegate the builder calls to.
+         * Creates an implementation of {@link IHttpEngineBuilder} that can be used to delegate the
+         * builder calls to.
          *
          * @param context Android Context to use.
          * @return the created {@link IHttpEngineBuilder}.
          */
         private static IHttpEngineBuilder createBuilderDelegate(Context context) {
-            try {
-                Class<?> cronetClazz = context.getClassLoader().loadClass(
-                        "android.net.connectivity.org.chromium.net.impl.NativeCronetEngineBuilderImpl");
-                Class<?> aospClazz = context.getClassLoader().loadClass(
-                        "android.net.http.CronetEngineBuilderWrapper");
-
-                ICronetEngineBuilder cronetBuilderImpl = (ICronetEngineBuilder)
-                        cronetClazz.getConstructor(Context.class).newInstance(context);
-                IHttpEngineBuilder aospBuilderImpl = (IHttpEngineBuilder)
-                        aospClazz.getConstructor(ExperimentalCronetEngine.Builder.class).newInstance(new ExperimentalCronetEngine.Builder(cronetBuilderImpl));
-                return aospBuilderImpl;
-            } catch (ClassNotFoundException | NoSuchMethodException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
-                throw new IllegalArgumentException(e);
+            try (var traceEvent = ScopedSysTraceEvent.scoped("HttpEngine#createBuilderDelegate")) {
+                return new CronetEngineBuilderWrapper(
+                        new ExperimentalCronetEngine.Builder(
+                                new NativeCronetEngineBuilderImpl(context)));
             }
         }
     }

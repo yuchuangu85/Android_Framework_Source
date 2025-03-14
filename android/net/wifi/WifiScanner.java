@@ -34,7 +34,6 @@ import android.content.Context;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Looper;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.os.Process;
@@ -375,12 +374,27 @@ public class WifiScanner {
          */
         @Override
         public void onFullResult(ScanResult fullScanResult) {
+            Log.i(TAG, "onFullResult");
             if (mActionListener == null) return;
             if (!(mActionListener instanceof ScanListener)) return;
             ScanListener scanListener = (ScanListener) mActionListener;
             Binder.clearCallingIdentity();
             mExecutor.execute(
                     () -> scanListener.onFullResult(fullScanResult));
+        }
+
+        /**
+         * reports full scan result for all access points found in scan
+         */
+        @Override
+        public void onFullResults(List<ScanResult> fullScanResult) {
+            Log.i(TAG, "onFullResults");
+            if (mActionListener == null) return;
+            if (!(mActionListener instanceof ScanListener)) return;
+            ScanListener scanListener = (ScanListener) mActionListener;
+            Binder.clearCallingIdentity();
+            mExecutor.execute(
+                    () -> fullScanResult.forEach(scanListener::onFullResult));
         }
 
         @Override
@@ -430,6 +444,16 @@ public class WifiScanner {
             this.frequency = frequency;
             passive = false;
             dwellTimeMS = 0;
+        }
+
+        /**
+         * @hide
+         * Todo: add it to the sdk
+         */
+        public ChannelSpec(int frequency, boolean passive, int dwellTimeMS) {
+            this.frequency = frequency;
+            this.passive = passive;
+            this.dwellTimeMS = dwellTimeMS;
         }
     }
 
@@ -730,6 +754,44 @@ public class WifiScanner {
                 throw new UnsupportedOperationException();
             }
             return mVendorIes;
+        }
+
+        public ScanSettings() {}
+
+        /**
+         * @hide
+         * Todo: add it to the sdk
+         */
+        public ScanSettings(@NonNull ScanSettings that) {
+            this.band = that.band;
+            this.periodInMs = that.periodInMs;
+            this.reportEvents = that.reportEvents;
+            this.numBssidsPerScan = that.numBssidsPerScan;
+            this.maxScansToCache = that.maxScansToCache;
+            this.maxPeriodInMs = that.maxPeriodInMs;
+            this.stepCount = that.stepCount;
+            this.isPnoScan = that.isPnoScan;
+            this.type = that.type;
+            this.ignoreLocationSettings = that.ignoreLocationSettings;
+            this.hideFromAppOps = that.hideFromAppOps;
+            this.mRnrSetting = that.mRnrSetting;
+            this.mEnable6GhzPsc = that.mEnable6GhzPsc;
+            if (that.channels != null) {
+                this.channels = new ChannelSpec[that.channels.length];
+                for (int i = 0; i < that.channels.length; i++) {
+                    ChannelSpec spec = new ChannelSpec(that.channels[i].frequency,
+                            that.channels[i].passive, that.channels[i].dwellTimeMS);
+                    this.channels[i] = spec;
+                }
+            } else {
+                this.channels = new ChannelSpec[0];
+            }
+            for (HiddenNetwork hiddenNetwork : that.hiddenNetworks) {
+                this.hiddenNetworks.add(new HiddenNetwork(hiddenNetwork.ssid));
+            }
+            for (ScanResult.InformationElement ie : that.mVendorIes) {
+                this.mVendorIes.add(new ScanResult.InformationElement(ie.id, ie.idExt, ie.bytes));
+            }
         }
 
         /** Implement the Parcelable interface {@hide} */
@@ -1959,12 +2021,9 @@ public class WifiScanner {
      *
      * @param context the application context
      * @param service the Binder interface for {@link Context#WIFI_SCANNING_SERVICE}
-     * @param looper the Looper used to deliver callbacks
-     *
      * @hide
      */
-    public WifiScanner(@NonNull Context context, @NonNull IWifiScanner service,
-            @NonNull Looper looper) {
+    public WifiScanner(@NonNull Context context, @NonNull IWifiScanner service) {
         mContext = context;
         mService = service;
     }

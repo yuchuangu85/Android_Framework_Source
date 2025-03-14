@@ -41,18 +41,16 @@ import java.lang.annotation.RetentionPolicy;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
- * This class provides functionality to load and register the native libraries.
- * Callers are allowed to separate loading the libraries from initializing
- * them. When a zygote process is used (WebView or AppZygote) the per process
- * initialization happens after the application processes are forked from the
- * zygote process.
+ * This class provides functionality to load and register the native libraries. Callers are allowed
+ * to separate loading the libraries from initializing them. When a zygote process is used (WebView
+ * or AppZygote) the per process initialization happens after the application processes are forked
+ * from the zygote process.
  *
- * The libraries may be loaded and initialized from any thread. Synchronization
- * primitives are used to ensure that overlapping requests from different
- * threads are handled sequentially.
+ * <p>The libraries may be loaded and initialized from any thread. Synchronization primitives are
+ * used to ensure that overlapping requests from different threads are handled sequentially.
  *
- * See also base/android/library_loader/library_loader_hooks.cc, which contains
- * the native counterpart to this class.
+ * <p>See also base/android/library_loader/library_loader_hooks.cc, which contains the native
+ * counterpart to this class.
  */
 @JNINamespace("base::android")
 public class LibraryLoader {
@@ -60,19 +58,6 @@ public class LibraryLoader {
 
     // Constant guarding debug logging in this class.
     static final boolean DEBUG = false;
-
-    // Shared preferences key for the reached code profiler.
-    private static final String DEPRECATED_REACHED_CODE_PROFILER_KEY =
-            "reached_code_profiler_enabled";
-    private static final String REACHED_CODE_SAMPLING_INTERVAL_KEY =
-            "reached_code_sampling_interval";
-
-    // Compile time switch for sharing RELRO between the browser and the app zygote.
-    // TODO(crbug.com/1154224): remove when the issue is closed.
-    private static final boolean ALLOW_CHROMIUM_LINKER_IN_ZYGOTE = true;
-
-    // Default sampling interval for reached code profiler in microseconds.
-    private static final int DEFAULT_REACHED_CODE_SAMPLING_INTERVAL_US = 10000;
 
     // Shared preferences key for the background thread pool setting.
     private static final String BACKGROUND_THREAD_POOL_KEY = "background_thread_pool_enabled";
@@ -172,38 +157,38 @@ public class LibraryLoader {
     // Returns true when sharing RELRO between the browser process and the app zygote should *not*
     // be attempted.
     public static boolean mainProcessIntendsToProvideRelroFd() {
-        return !ALLOW_CHROMIUM_LINKER_IN_ZYGOTE || Build.VERSION.SDK_INT <= Build.VERSION_CODES.R;
+        return Build.VERSION.SDK_INT <= Build.VERSION_CODES.R;
     }
 
     /**
      * Inner class encapsulating points of communication between instances of LibraryLoader in
      * different processes.
      *
-     * Usage:
+     * <p>Usage:
      *
-     * 0. In the main (Browser) process this mediator can be bypassed by
-     *    {@link LibraryLoader#ensureInitialized()}. It is convenient for targets that do not pay
-     *    attention to RELRO sharing and load time statistics, but it is also more error prone. The
-     *    {@link #ensureInitializedInMainProcess()} is recommended.
+     * <p>0. In the main (Browser) process this mediator can be bypassed by {@link
+     * LibraryLoader#ensureInitialized()}. It is convenient for targets that do not pay attention to
+     * RELRO sharing and load time statistics, but it is also more error prone. The {@link
+     * #ensureInitializedInMainProcess()} is recommended.
      *
-     * 1. For a {@link LibraryLoader} requiring the knowledge of the load address before
-     *    initialization, {@link #takeLoadAddressFromBundle(Bundle)} should be called first. It is
-     *    done very early after establishing a Binder connection.
+     * <p>1. For a {@link LibraryLoader} requiring the knowledge of the load address before
+     * initialization, {@link #takeLoadAddressFromBundle(Bundle)} should be called first. It is done
+     * very early after establishing a Binder connection.
      *
-     * 2. After the load address is received, the object needs to be initialized using one of
-     *    {@link #ensureInitializedInMainProcess()}, {@link #initInChildProcess()} and
-     *    {@link #initInAppZygote()}. For the main process the subsequent calls to initialization
-     *    are ignored, primarily to simplify tests.
+     * <p>2. After the load address is received, the object needs to be initialized using one of
+     * {@link #ensureInitializedInMainProcess()}, {@link #initInChildProcess()} and {@link
+     * #initInAppZygote()}. For the main process the subsequent calls to initialization are ignored,
+     * primarily to simplify tests.
      *
-     * 3. Later {@link #putLoadAddressToBundle(Bundle)} and
-     *    {@link #takeLoadAddressFromBundle(Bundle)} should be called for passing the RELRO
-     *    information between library loaders.
+     * <p>3. Later {@link #putLoadAddressToBundle(Bundle)} and {@link
+     * #takeLoadAddressFromBundle(Bundle)} should be called for passing the RELRO information
+     * between library loaders.
      *
-     * Internally the {@link LibraryLoader} may ignore these messages because it can fall back to
+     * <p>Internally the {@link LibraryLoader} may ignore these messages because it can fall back to
      * not sharing RELRO.
      *
-     * In general the class is *not* thread safe. The client must guarantee that the steps 1-3 above
-     * happen sequentially in the memory model sense. After that the class is safe to use from
+     * <p>In general the class is *not* thread safe. The client must guarantee that the steps 1-3
+     * above happen sequentially in the memory model sense. After that the class is safe to use from
      * multiple threads concurrently.
      */
     public class MultiProcessMediator {
@@ -594,8 +579,8 @@ public class LibraryLoader {
     /**
      * Checks whether the native library is fully loaded.
      *
-     * @deprecated: please avoid using in new code:
-     * https://crsrc.org/c/base/android/jni_generator/README.md#testing-for-readiness-use-get
+     * @deprecated please avoid using in new code:
+     *     https://crsrc.org/c/base/android/jni_generator/README.md#testing-for-readiness-use-get
      */
     @Deprecated
     @VisibleForTesting
@@ -612,8 +597,8 @@ public class LibraryLoader {
     /**
      * Checks whether the native library is fully loaded and initialized.
      *
-     * @deprecated: please avoid using in new code:
-     * https://chromium.googlesource.com/chromium/src/+/main/base/android/jni_generator/README.md#testing-for-readiness_use
+     * @deprecated please avoid using in new code:
+     *     https://chromium.googlesource.com/chromium/src/+/main/base/android/jni_generator/README.md#testing-for-readiness_use
      */
     @Deprecated
     public boolean isInitialized() {
@@ -671,46 +656,6 @@ public class LibraryLoader {
     public void initialize() {
         synchronized (mLock) {
             initializeAlreadyLocked();
-        }
-    }
-
-    /**
-     * Enables the reached code profiler. The value comes from "ReachedCodeProfiler"
-     * finch experiment, and is pushed on every run. I.e. the effect of the finch experiment
-     * lags by one run, which is the best we can do considering that the profiler has to be enabled
-     * before finch is initialized. Note that since LibraryLoader is in //base, it can't depend
-     * on ChromeFeatureList, and has to rely on external code pushing the value.
-     *
-     * @param enabled whether to enable the reached code profiler.
-     * @param samplingIntervalUs the sampling interval for reached code profiler.
-     */
-    public static void setReachedCodeProfilerEnabledOnNextRuns(
-            boolean enabled, int samplingIntervalUs) {
-        // Store 0 if the profiler is not enabled, otherwise store the sampling interval in
-        // microseconds.
-        if (enabled && samplingIntervalUs == 0) {
-            samplingIntervalUs = DEFAULT_REACHED_CODE_SAMPLING_INTERVAL_US;
-        } else if (!enabled) {
-            samplingIntervalUs = 0;
-        }
-        SharedPreferences.Editor editor = ContextUtils.getAppSharedPreferences().edit();
-        editor.remove(DEPRECATED_REACHED_CODE_PROFILER_KEY);
-        editor.putInt(REACHED_CODE_SAMPLING_INTERVAL_KEY, samplingIntervalUs).apply();
-    }
-
-    /**
-     * @return sampling interval for reached code profiler, or 0 when the profiler is disabled. (see
-     *         setReachedCodeProfilerEnabledOnNextRuns()).
-     */
-    @VisibleForTesting
-    public static int getReachedCodeSamplingIntervalUs() {
-        try (StrictModeContext ignored = StrictModeContext.allowDiskReads()) {
-            if (ContextUtils.getAppSharedPreferences()
-                    .getBoolean(DEPRECATED_REACHED_CODE_PROFILER_KEY, false)) {
-                return DEFAULT_REACHED_CODE_SAMPLING_INTERVAL_US;
-            }
-            return ContextUtils.getAppSharedPreferences()
-                    .getInt(REACHED_CODE_SAMPLING_INTERVAL_KEY, 0);
         }
     }
 
@@ -864,19 +809,7 @@ public class LibraryLoader {
         assert mLibraryProcessType != LibraryProcessType.PROCESS_UNINITIALIZED;
 
         if (mLibraryProcessType == LibraryProcessType.PROCESS_BROWSER) {
-            // Add a switch for the reached code profiler as late as possible since it requires a
-            // read from the shared preferences. At this point the shared preferences are usually
-            // warmed up.
-            int reachedCodeSamplingIntervalUs = getReachedCodeSamplingIntervalUs();
-            if (reachedCodeSamplingIntervalUs > 0) {
-                CommandLine.getInstance().appendSwitch(BaseSwitches.ENABLE_REACHED_CODE_PROFILER);
-                CommandLine.getInstance()
-                        .appendSwitchWithValue(
-                                BaseSwitches.REACHED_CODE_SAMPLING_INTERVAL_US,
-                                Integer.toString(reachedCodeSamplingIntervalUs));
-            }
-
-            // Similarly, append a switch to enable the background thread pool group if the cached
+            // Append a switch to enable the background thread pool group if the cached
             // preference indicates it should be enabled.
             if (isBackgroundThreadPoolEnabled()) {
                 CommandLine.getInstance().appendSwitch(BaseSwitches.ENABLE_BACKGROUND_THREAD_POOL);
@@ -914,9 +847,8 @@ public class LibraryLoader {
     /**
      * Overrides the library loader (normally with a mock) for testing.
      *
-     * @deprecated: please avoid using in new code:
-     * https://chromium.googlesource.com/chromium/src/+/main/base/android/jni_generator/README.md#testing-for-readiness_use
-     *
+     * @deprecated please avoid using in new code:
+     *     https://chromium.googlesource.com/chromium/src/+/main/base/android/jni_generator/README.md#testing-for-readiness_use
      * @param loader the mock library loader.
      */
     @Deprecated

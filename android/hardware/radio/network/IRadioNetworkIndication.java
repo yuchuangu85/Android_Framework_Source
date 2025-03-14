@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash c45c122528c07c449ea08f6eacaace17bb7abc38 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen/android/hardware/radio/network/IRadioNetworkIndication.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/3/android/hardware/radio/network/IRadioNetworkIndication.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 5867b4f5be491ec815fafea8a3f268b0295427df --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V4-java-source/gen/android/hardware/radio/network/IRadioNetworkIndication.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.network-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.network/4/android/hardware/radio/network/IRadioNetworkIndication.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.network;
 /** @hide */
@@ -12,14 +16,15 @@ public interface IRadioNetworkIndication extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "c45c122528c07c449ea08f6eacaace17bb7abc38";
+  public static final int VERSION = 4;
+  public static final String HASH = "5867b4f5be491ec815fafea8a3f268b0295427df";
   /** Default implementation for IRadioNetworkIndication. */
   public static class Default implements android.hardware.radio.network.IRadioNetworkIndication
   {
     @Override public void barringInfoChanged(int type, android.hardware.radio.network.CellIdentity cellIdentity, android.hardware.radio.network.BarringInfo[] barringInfos) throws android.os.RemoteException
     {
     }
+    /** @deprecated Legacy CDMA is unsupported. */
     @Override public void cdmaPrlChanged(int type, int version) throws android.os.RemoteException
     {
     }
@@ -84,7 +89,7 @@ public interface IRadioNetworkIndication extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.radio.network.IRadioNetworkIndication
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -353,6 +358,7 @@ public interface IRadioNetworkIndication extends android.os.IInterface
           _data.recycle();
         }
       }
+      /** @deprecated Legacy CDMA is unsupported. */
       @Override public void cdmaPrlChanged(int type, int version) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -671,6 +677,8 @@ public interface IRadioNetworkIndication extends android.os.IInterface
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android$hardware$radio$network$IRadioNetworkIndication".replace('$', '.');
   public void barringInfoChanged(int type, android.hardware.radio.network.CellIdentity cellIdentity, android.hardware.radio.network.BarringInfo[] barringInfos) throws android.os.RemoteException;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public void cdmaPrlChanged(int type, int version) throws android.os.RemoteException;
   public void cellInfoList(int type, android.hardware.radio.network.CellInfo[] records) throws android.os.RemoteException;
   public void currentLinkCapacityEstimate(int type, android.hardware.radio.network.LinkCapacityEstimate lce) throws android.os.RemoteException;

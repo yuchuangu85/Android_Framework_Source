@@ -60,6 +60,7 @@ import com.android.internal.statusbar.NotificationVisibility;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -195,12 +196,40 @@ public class StatusBarManager {
      */
     private static final int DEFAULT_SIM_LOCKED_DISABLED_FLAGS = DISABLE_EXPAND;
 
-    /** @hide */
-    public static final int NAVIGATION_HINT_BACK_ALT      = 1 << 0;
-    /** @hide */
-    public static final int NAVIGATION_HINT_IME_SHOWN     = 1 << 1;
-    /** @hide */
-    public static final int NAVIGATION_HINT_IME_SWITCHER_SHOWN = 1 << 2;
+    /**
+     * The back button is visually adjusted to indicate that it will dismiss the IME when pressed.
+     * This only takes effect while the IME is visible. By default, it is set while the IME is
+     * visible, but may be overridden by the
+     * {@link android.inputmethodservice.InputMethodService.BackDispositionMode backDispositionMode}
+     * set by the IME.
+     *
+     * @hide
+     */
+    public static final int NAVBAR_BACK_DISMISS_IME = 1 << 0;
+    /**
+     * The IME is visible.
+     *
+     * @hide
+     */
+    public static final int NAVBAR_IME_VISIBLE = 1 << 1;
+    /**
+     * The IME Switcher button is visible. This only takes effect while the IME is visible.
+     *
+     * @hide
+     */
+    public static final int NAVBAR_IME_SWITCHER_BUTTON_VISIBLE = 1 << 2;
+    /**
+     * Navigation bar state flags.
+     *
+     * @hide
+     */
+    @IntDef(flag = true, prefix = { "NAVBAR_" }, value = {
+            NAVBAR_BACK_DISMISS_IME,
+            NAVBAR_IME_VISIBLE,
+            NAVBAR_IME_SWITCHER_BUTTON_VISIBLE,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface NavbarFlags {}
 
     /** @hide */
     public static final int WINDOW_STATUS_BAR = 1;
@@ -601,6 +630,15 @@ public class StatusBarManager {
     @ChangeId
     @LoggingOnly
     private static final long MEDIA_CONTROL_BLANK_TITLE = 274775190L;
+
+    /**
+     * Media controls based on {@link android.app.Notification.MediaStyle} notifications will have
+     * actions from the associated {@link androidx.media3.MediaController}, if available.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.CUR_DEVELOPMENT)
+    // TODO(b/360196209): Set target SDK to Baklava once available
+    private static final long MEDIA_CONTROL_MEDIA3_ACTIONS = 360196209L;
 
     @UnsupportedAppUsage
     private Context mContext;
@@ -1270,6 +1308,21 @@ public class StatusBarManager {
     }
 
     /**
+     * Checks whether the media controls for a given package should use a Media3 controller
+     *
+     * @param packageName App posting media controls
+     * @param user Current user handle
+     * @return true if Media3 should be used
+     *
+     * @hide
+     */
+    @RequiresPermission(allOf = {android.Manifest.permission.READ_COMPAT_CHANGE_CONFIG,
+            android.Manifest.permission.LOG_COMPAT_CHANGE})
+    public static boolean useMedia3ControllerForApp(String packageName, UserHandle user) {
+        return CompatChanges.isChangeEnabled(MEDIA_CONTROL_MEDIA3_ACTIONS, packageName, user);
+    }
+
+    /**
      * Checks whether the supplied activity can {@link Activity#startActivityForResult(Intent, int)}
      * a system activity that captures content on the screen to take a screenshot.
      *
@@ -1301,6 +1354,22 @@ public class StatusBarManager {
     }
 
     /** @hide */
+    @NonNull
+    public static String navbarFlagsToString(@NavbarFlags int flags) {
+        final var flagStrings = new ArrayList<String>();
+        if ((flags & NAVBAR_BACK_DISMISS_IME) != 0) {
+            flagStrings.add("NAVBAR_BACK_DISMISS_IME");
+        }
+        if ((flags & NAVBAR_IME_VISIBLE) != 0) {
+            flagStrings.add("NAVBAR_IME_VISIBLE");
+        }
+        if ((flags & NAVBAR_IME_SWITCHER_BUTTON_VISIBLE) != 0) {
+            flagStrings.add("NAVBAR_IME_SWITCHER_BUTTON_VISIBLE");
+        }
+        return String.join(" | ", flagStrings);
+    }
+
+    /** @hide */
     public static String windowStateToString(int state) {
         if (state == WINDOW_STATE_HIDING) return "WINDOW_STATE_HIDING";
         if (state == WINDOW_STATE_HIDDEN) return "WINDOW_STATE_HIDDEN";
@@ -1326,6 +1395,7 @@ public class StatusBarManager {
         private boolean mClock;
         private boolean mNotificationIcons;
         private boolean mRotationSuggestion;
+        private boolean mQuickSettings;
 
         /** @hide */
         public DisableInfo(int flags1, int flags2) {
@@ -1338,6 +1408,7 @@ public class StatusBarManager {
             mClock = (flags1 & DISABLE_CLOCK) != 0;
             mNotificationIcons = (flags1 & DISABLE_NOTIFICATION_ICONS) != 0;
             mRotationSuggestion = (flags2 & DISABLE2_ROTATE_SUGGESTIONS) != 0;
+            mQuickSettings = (flags2 & DISABLE2_QUICK_SETTINGS) != 0;
         }
 
         /** @hide */
@@ -1471,6 +1542,20 @@ public class StatusBarManager {
         }
 
         /**
+         * @hide
+         */
+        public void setQuickSettingsDisabled(boolean disabled) {
+            mQuickSettings = disabled;
+        }
+
+        /**
+         * @hide
+         */
+        public boolean isQuickSettingsDisabled() {
+            return mQuickSettings;
+        }
+
+        /**
          * @return {@code true} if no components are disabled (default state)
          * @hide
          */
@@ -1478,7 +1563,7 @@ public class StatusBarManager {
         public boolean areAllComponentsEnabled() {
             return !mStatusBarExpansion && !mNavigateHome && !mNotificationPeeking && !mRecents
                     && !mSearch && !mSystemIcons && !mClock && !mNotificationIcons
-                    && !mRotationSuggestion;
+                    && !mRotationSuggestion && !mQuickSettings;
         }
 
         /** @hide */
@@ -1492,6 +1577,7 @@ public class StatusBarManager {
             mClock = false;
             mNotificationIcons = false;
             mRotationSuggestion = false;
+            mQuickSettings = false;
         }
 
         /**
@@ -1502,7 +1588,7 @@ public class StatusBarManager {
         public boolean areAllComponentsDisabled() {
             return mStatusBarExpansion && mNavigateHome && mNotificationPeeking
                     && mRecents && mSearch && mSystemIcons && mClock && mNotificationIcons
-                    && mRotationSuggestion;
+                    && mRotationSuggestion && mQuickSettings;
         }
 
         /** @hide */
@@ -1516,6 +1602,7 @@ public class StatusBarManager {
             mClock = true;
             mNotificationIcons = true;
             mRotationSuggestion = true;
+            mQuickSettings = true;
         }
 
         @NonNull
@@ -1533,6 +1620,7 @@ public class StatusBarManager {
             sb.append(" mClock=").append(mClock ? "disabled" : "enabled");
             sb.append(" mNotificationIcons=").append(mNotificationIcons ? "disabled" : "enabled");
             sb.append(" mRotationSuggestion=").append(mRotationSuggestion ? "disabled" : "enabled");
+            sb.append(" mQuickSettings=").append(mQuickSettings ? "disabled" : "enabled");
 
             return sb.toString();
 
@@ -1557,6 +1645,7 @@ public class StatusBarManager {
             if (mClock) disable1 |= DISABLE_CLOCK;
             if (mNotificationIcons) disable1 |= DISABLE_NOTIFICATION_ICONS;
             if (mRotationSuggestion) disable2 |= DISABLE2_ROTATE_SUGGESTIONS;
+            if (mQuickSettings) disable2 |= DISABLE2_QUICK_SETTINGS;
 
             return new Pair<Integer, Integer>(disable1, disable2);
         }

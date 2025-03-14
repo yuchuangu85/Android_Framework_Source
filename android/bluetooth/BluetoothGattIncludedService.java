@@ -52,7 +52,7 @@ public class BluetoothGattIncludedService implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeParcelable(new ParcelUuid(mUuid), 0);
+        (new ParcelUuid(mUuid)).writeToParcel(out, flags);
         out.writeInt(mInstanceId);
         out.writeInt(mServiceType);
     }
@@ -69,7 +69,7 @@ public class BluetoothGattIncludedService implements Parcelable {
             };
 
     private BluetoothGattIncludedService(Parcel in) {
-        mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
+        mUuid = ParcelUuid.CREATOR.createFromParcel(in).getUuid();
         mInstanceId = in.readInt();
         mServiceType = in.readInt();
     }

@@ -1,4 +1,5 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
+// BEGIN Android-changed: maintain old behaviour
 package com.android.internal.org.bouncycastle.crypto.digests;
 
 import com.android.internal.org.bouncycastle.util.Memoable;
@@ -350,6 +351,4 @@ public class SHA1Digest
     }
 }
 
-
-
-
+// END Android-changed: maintain old behaviour

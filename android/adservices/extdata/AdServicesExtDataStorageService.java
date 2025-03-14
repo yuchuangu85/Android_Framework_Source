@@ -114,18 +114,7 @@ public abstract class AdServicesExtDataStorageService extends Service {
                 public void getAdServicesExtData(@NonNull IGetAdServicesExtDataCallback callback)
                         throws RemoteException {
                     Objects.requireNonNull(callback);
-
-                    try {
-                        AdServicesExtDataParams adServicesExtDataParams = onGetAdServicesExtData();
-
-                        GetAdServicesExtDataResult result =
-                                new GetAdServicesExtDataResult.Builder()
-                                        .setAdServicesExtDataParams(adServicesExtDataParams)
-                                        .build();
-                        callback.onResult(result);
-                    } catch (Exception e) {
-                        callback.onError(e.getMessage());
-                    }
+                    callback.onError("AdServicesExtDataStorageService is not implemented.");
                 }
 
                 @Override
@@ -138,16 +127,7 @@ public abstract class AdServicesExtDataStorageService extends Service {
                     Objects.requireNonNull(adServicesExtDataFields);
                     Objects.requireNonNull(callback);
 
-                    try {
-                        onPutAdServicesExtData(params, adServicesExtDataFields);
-                        GetAdServicesExtDataResult result =
-                                new GetAdServicesExtDataResult.Builder()
-                                        .setAdServicesExtDataParams(params)
-                                        .build();
-                        callback.onResult(result);
-                    } catch (Exception e) {
-                        callback.onError(e.getMessage());
-                    }
+                    callback.onError("AdServicesExtDataStorageService is not implemented.");
                 }
             };
 }

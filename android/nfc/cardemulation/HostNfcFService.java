@@ -16,9 +16,11 @@
 
 package android.nfc.cardemulation;
 
+import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
 import android.app.Service;
+import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.os.Bundle;
@@ -161,6 +163,29 @@ public abstract class HostNfcFService extends Service {
     public static final String KEY_MESSENGER = "messenger";
 
     /**
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public Messenger getNfcService() {
+        return mNfcService;
+    }
+
+    /**
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public Messenger getMessenger() {
+        return mMessenger;
+    }
+    /**
+     * @hide
+     */
+    @UnsupportedAppUsage
+    public void setNfcService(Messenger nfcService) {
+        mNfcService = nfcService;
+    }
+
+    /**
      * Messenger interface to NfcService for sending responses.
      * Only accessed on main thread by the message handler.
      *
@@ -168,65 +193,7 @@ public abstract class HostNfcFService extends Service {
      */
     Messenger mNfcService = null;
 
-    final Messenger mMessenger = new Messenger(new MsgHandler());
-
-    final class MsgHandler extends Handler {
-        @Override
-        public void handleMessage(Message msg) {
-            switch (msg.what) {
-            case MSG_COMMAND_PACKET:
-                Bundle dataBundle = msg.getData();
-                if (dataBundle == null) {
-                    return;
-                }
-                if (mNfcService == null) mNfcService = msg.replyTo;
-
-                byte[] packet = dataBundle.getByteArray(KEY_DATA);
-                if (packet != null) {
-                    byte[] responsePacket = processNfcFPacket(packet, null);
-                    if (responsePacket != null) {
-                        if (mNfcService == null) {
-                            Log.e(TAG, "Response not sent; service was deactivated.");
-                            return;
-                        }
-                        Message responseMsg = Message.obtain(null, MSG_RESPONSE_PACKET);
-                        Bundle responseBundle = new Bundle();
-                        responseBundle.putByteArray(KEY_DATA, responsePacket);
-                        responseMsg.setData(responseBundle);
-                        responseMsg.replyTo = mMessenger;
-                        try {
-                            mNfcService.send(responseMsg);
-                        } catch (RemoteException e) {
-                            Log.e("TAG", "Response not sent; RemoteException calling into " +
-                                    "NfcService.");
-                        }
-                    }
-                } else {
-                    Log.e(TAG, "Received MSG_COMMAND_PACKET without data.");
-                }
-                break;
-            case MSG_RESPONSE_PACKET:
-                if (mNfcService == null) {
-                    Log.e(TAG, "Response not sent; service was deactivated.");
-                    return;
-                }
-                try {
-                    msg.replyTo = mMessenger;
-                    mNfcService.send(msg);
-                } catch (RemoteException e) {
-                    Log.e(TAG, "RemoteException calling into NfcService.");
-                }
-                break;
-            case MSG_DEACTIVATED:
-                // Make sure we won't call into NfcService again
-                mNfcService = null;
-                onDeactivated(msg.arg1);
-                break;
-            default:
-                super.handleMessage(msg);
-            }
-        }
-    }
+    final Messenger mMessenger = new Messenger(new HostNfcFServiceMsgHandler(this));
 
     @Override
     public final IBinder onBind(Intent intent) {

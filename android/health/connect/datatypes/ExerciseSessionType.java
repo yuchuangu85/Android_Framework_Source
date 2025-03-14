@@ -16,6 +16,9 @@
 
 package android.health.connect.datatypes;
 
+import static com.android.healthfitness.flags.Flags.FLAG_DEPRECATE_EXERCISE_SESSION_TYPE_BREATHING;
+
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 
 import java.lang.annotation.Retention;
@@ -78,7 +81,14 @@ public final class ExerciseSessionType {
     /** Use this type for the golf playing session. */
     public static final int EXERCISE_SESSION_TYPE_GOLF = 16;
 
-    /** Use this type for the guided breathing session. */
+    /**
+     * Use this type for the guided breathing session.
+     *
+     * @deprecated Use {@link MindfulnessSessionRecord} of the corresponding type {@link
+     *     MindfulnessSessionRecord#MINDFULNESS_SESSION_TYPE_BREATHING}.
+     */
+    @FlaggedApi(FLAG_DEPRECATE_EXERCISE_SESSION_TYPE_BREATHING)
+    @Deprecated
     public static final int EXERCISE_SESSION_TYPE_GUIDED_BREATHING = 17;
 
     /** Use this type for the gymnastics session. */

@@ -15,6 +15,8 @@
  */
 package android.annotation;
 
+import static android.annotation.SpecialUsers.SpecialUser.DISALLOW_EVERY;
+
 import static java.lang.annotation.ElementType.CONSTRUCTOR;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PACKAGE;
@@ -52,7 +54,7 @@ public @interface UserHandleAware {
      * if it was not always so.
      *
      * Prior to this level, the method is not considered {@literal @}UserHandleAware and therefore
-     * uses the {@link android.os#myUserHandle() calling user},
+     * uses the {@link android.os.Process#myUserHandle() calling user},
      * not the {@link android.content.Context#getUser context user}.
      *
      * Note that when an API marked with this parameter is run on a device whose OS predates the
@@ -93,4 +95,22 @@ public @interface UserHandleAware {
      * @see android.annotation.RequiresPermission#anyOf()
      */
     String[] requiresAnyOfPermissionsIfNotCallerProfileGroup() default {};
+
+    /**
+     * Indicates whether special {@link android.os.UserHandle UserHandle} values are supported by
+     * this method or class.
+     *
+     * <p>When creating a Context using (e.g. via
+     * {@link android.content.Context#createContextAsUser}), a special UserHandle (such as
+     * {@link android.os.UserHandle#CURRENT}) can be used.
+     * However, most UserHandleAware methods do not support Contexts built upon such special
+     * users. This annotation indicates whether they are supported, and which. Note that it is
+     * likely rare that any special users are supported.
+     *
+     * <p>Typical values could include one or more of
+     * <li>{@link SpecialUsers.SpecialUser#USER_ALL}
+     * <li>{@link SpecialUsers.SpecialUser#USER_CURRENT}
+     * <li>{@link SpecialUsers.SpecialUser#DISALLOW_EVERY}
+     */
+    SpecialUsers.SpecialUser[] specialUsersAllowed() default {DISALLOW_EVERY};
 }

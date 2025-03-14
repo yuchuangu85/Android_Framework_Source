@@ -16,18 +16,15 @@
 
 package android.app.appsearch.util;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
-import android.app.appsearch.safeparcel.SafeParcelable;
-import android.app.appsearch.safeparcel.SafeParcelableSerializer;
 import android.os.Bundle;
 import android.os.Parcel;
-import android.os.Parcelable;
 import android.util.SparseArray;
+
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 
 /**
  * Utilities for working with {@link android.os.Bundle}.
@@ -240,8 +237,7 @@ public final class BundleUtil {
      *
      * <p>Values which are Bundles, Lists or Arrays are deeply copied themselves.
      */
-    @NonNull
-    public static Bundle deepCopy(@NonNull Bundle bundle) {
+    public static @NonNull Bundle deepCopy(@NonNull Bundle bundle) {
         // Write bundle to bytes
         Parcel parcel = Parcel.obtain();
         try {
@@ -255,49 +251,5 @@ public final class BundleUtil {
         } finally {
             parcel.recycle();
         }
-    }
-
-    /**
-     * Helper function to serialize a {@link SafeParcelable} in a Bundle.
-     *
-     * <p>Note: {@link Bundle#putParcelableArrayList(String, java.util.ArrayList)} does not preserve
-     * SafeParcelable semantics. Use this method instead.Failure to heed this advice will inevitably
-     * result in unanticipated runtime crash loops.
-     *
-     * <p>See http://shortn/_vLTA1IpXK1
-     *
-     * <p>See http://shortn/_b2QcRB4tpG
-     *
-     * @param parcel the {@link SafeParcelable} to write to the bundle.
-     * @param bundle the bundle containing the key to deserialize from.
-     * @param key the name of the key mapping to the serialized object.
-     */
-    public static <T extends Parcelable & SafeParcelable> void putParcelable(
-            @NonNull T parcel, @NonNull Bundle bundle, @NonNull String key) {
-        // We always pass single SafeParcelable in list, we use Iterable to
-        // maintain code-sync with GMSCore.
-        SafeParcelableSerializer.serializeIterableToBundleSafe(bundle, key, Arrays.asList(parcel));
-    }
-
-    /**
-     * Helper function to deserialize a {@link SafeParcelable} from a Bundle.
-     *
-     * @param bundle the bundle containing the key to deserialize from.
-     * @param key the name of the key mapping to the serialized object.
-     */
-    @Nullable
-    public static <T extends SafeParcelable> T getParcelable(
-            @NonNull Bundle bundle,
-            @NonNull String key,
-            @NonNull Parcelable.Creator<T> safeParcelableCreator) {
-        List<T> parcelables =
-                SafeParcelableSerializer.deserializeIterableFromBundleSafe(
-                        bundle, key, safeParcelableCreator);
-        if (parcelables != null && !parcelables.isEmpty()) {
-            // We always pass single SafeParcelable in list, we use Iterable to
-            // maintain code-sync with GMSCore.
-            return parcelables.get(0);
-        }
-        return null;
     }
 }

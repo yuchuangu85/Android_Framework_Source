@@ -10,6 +10,7 @@ import android.util.StatsLog;
 
 /**
  * Utility class for logging statistics events.
+ * @hide
  */
 public final class TelephonyCommonStatsLog {
     // Constants for atom codes.

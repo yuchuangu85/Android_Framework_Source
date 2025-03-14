@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import libcore.util.EmptyArray;
+import libcore.util.NativeAllocationRegistry;
 
 import dalvik.system.VMRuntime;
 import dalvik.system.VMDebug;
@@ -237,28 +238,44 @@ public final class Daemons {
             // Call once early to reduce later allocation, and hence chance of OOMEs.
             FinalizerWatchdogDaemon.INSTANCE.resetTimeouts();
 
+            long lastGcCount = VMRuntime.getFullGcCount();
+
             while (isRunning()) {
-                Reference<?> list;
+                Reference<?> list = null;
+                boolean runPostCleanupCallbacks = false;
                 try {
                     synchronized (ReferenceQueue.class) {
                         if (ReferenceQueue.unenqueued == null) {
-                            FinalizerWatchdogDaemon.INSTANCE.monitoringNotNeeded(
+                            long gcCount = VMRuntime.getFullGcCount();
+                            if (gcCount > lastGcCount) {
+                                lastGcCount = gcCount;
+                                runPostCleanupCallbacks = true;
+                            } else {
+                                FinalizerWatchdogDaemon.INSTANCE.monitoringNotNeeded(
                                     FinalizerWatchdogDaemon.RQ_DAEMON);
-                            // Increment after above call. If watchdog saw it active, it should see
-                            // the counter update.
-                            progressCounter.incrementAndGet();
-                            do {
-                               ReferenceQueue.class.wait();
-                            } while (ReferenceQueue.unenqueued == null);
-                            progressCounter.incrementAndGet();
-                            FinalizerWatchdogDaemon.INSTANCE.monitoringNeeded(
+                                // Increment after above call. If watchdog saw it active,
+                                // it should see the counter update.
+                                progressCounter.incrementAndGet();
+                                do {
+                                   ReferenceQueue.class.wait();
+                                } while (ReferenceQueue.unenqueued == null);
+                                progressCounter.incrementAndGet();
+                                FinalizerWatchdogDaemon.INSTANCE.monitoringNeeded(
                                     FinalizerWatchdogDaemon.RQ_DAEMON);
+                            }
                         }
-                        list = ReferenceQueue.unenqueued;
-                        ReferenceQueue.unenqueued = null;
+                        if (!runPostCleanupCallbacks) {
+                            list = ReferenceQueue.unenqueued;
+                            ReferenceQueue.unenqueued = null;
+                        }
                     }
-                    ReferenceQueue.enqueuePending(list, progressCounter);
-                    FinalizerWatchdogDaemon.INSTANCE.resetTimeouts();
+                    if (runPostCleanupCallbacks) {
+                        VMRuntime.onPostCleanup();
+                    }
+                    if (list != null) {
+                        ReferenceQueue.enqueuePending(list, progressCounter);
+                        FinalizerWatchdogDaemon.INSTANCE.resetTimeouts();
+                    }
                 } catch (InterruptedException e) {
                     // Happens when we are asked to stop.
                 } catch (OutOfMemoryError ignored) {
@@ -527,6 +544,19 @@ public final class Daemons {
             }
         }
 
+        /**
+         * A toString() that cannot possibly be stopped by a hung finalizer.
+         * Mirrors Object.toString(), except that we use the system hashcode.
+         * Thus no user monitors can be acquired.
+         */
+        static private String safeToString(Object obj) {
+            if (NativeAllocationRegistry.isCleanerThunk(obj)) {
+                // Known to not acquire user monitors, and has toString() method tailored for this.
+                return obj.toString();
+            }
+            return obj.getClass().getName() + '@'
+                    + Integer.toHexString(System.identityHashCode(obj));
+        }
 
         /**
          * Return null (normal case) or an exception describing what timed out.
@@ -610,7 +640,7 @@ public final class Daemons {
                 // since we may not increment the reference counter for every processed queue
                 // element.
                 Object current = ReferenceQueueDaemon.INSTANCE.currentlyProcessing();
-                String currentTarget = current == null ? "unknown" : current.toString();
+                String currentTarget = current == null ? "unknown" : safeToString(current);
                 System.logE("ReferenceQueueDaemon timed out while targeting " + currentTarget
                         + ". Total nanos: " + (System.nanoTime() - startNanos));
                 if (observedReferenceQueueTimeouts.incrementAndGet()
@@ -647,9 +677,9 @@ public final class Daemons {
                 return "unknown";
             }
             if (obj instanceof Cleaner.Cleanable) {
-                return VH_ACTION.get(obj).toString();
+                return safeToString(VH_ACTION.get(obj));
             } else {
-                return obj.toString();
+                return safeToString(obj);
             }
         }
 

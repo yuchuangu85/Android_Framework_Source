@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen/android/content/pm/IPackageManagerNative.java.d -o out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen -Nframeworks/native/libs/binder/aidl frameworks/native/libs/binder/aidl/android/content/pm/IPackageManagerNative.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.content.pm;
 /**
@@ -136,16 +140,8 @@ public interface IPackageManagerNative extends android.os.IInterface
     @Override public void unregisterStagedApexObserver(android.content.pm.IStagedApexObserver observer) throws android.os.RemoteException
     {
     }
-    /** Get APEX module names of all APEX that are staged ready for installation */
-    @Override public java.lang.String[] getStagedApexModuleNames() throws android.os.RemoteException
-    {
-      return null;
-    }
-    /**
-     * Get information of APEX which is staged ready for installation.
-     * Returns null if no such APEX is found.
-     */
-    @Override public android.content.pm.StagedApexInfo getStagedApexInfo(java.lang.String moduleName) throws android.os.RemoteException
+    /** Get information of staged APEXes. */
+    @Override public android.content.pm.StagedApexInfo[] getStagedApexInfos() throws android.os.RemoteException
     {
       return null;
     }
@@ -157,7 +153,7 @@ public interface IPackageManagerNative extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.content.pm.IPackageManagerNative
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -327,21 +323,11 @@ public interface IPackageManagerNative extends android.os.IInterface
           reply.writeNoException();
           break;
         }
-        case TRANSACTION_getStagedApexModuleNames:
+        case TRANSACTION_getStagedApexInfos:
         {
-          java.lang.String[] _result = this.getStagedApexModuleNames();
+          android.content.pm.StagedApexInfo[] _result = this.getStagedApexInfos();
           reply.writeNoException();
-          reply.writeStringArray(_result);
-          break;
-        }
-        case TRANSACTION_getStagedApexInfo:
-        {
-          java.lang.String _arg0;
-          _arg0 = data.readString();
-          data.enforceNoDataAvail();
-          android.content.pm.StagedApexInfo _result = this.getStagedApexInfo(_arg0);
-          reply.writeNoException();
-          reply.writeTypedObject(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          reply.writeTypedArray(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
           break;
         }
         default:
@@ -662,39 +648,17 @@ public interface IPackageManagerNative extends android.os.IInterface
           _data.recycle();
         }
       }
-      /** Get APEX module names of all APEX that are staged ready for installation */
-      @Override public java.lang.String[] getStagedApexModuleNames() throws android.os.RemoteException
+      /** Get information of staged APEXes. */
+      @Override public android.content.pm.StagedApexInfo[] getStagedApexInfos() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
         android.os.Parcel _reply = android.os.Parcel.obtain();
-        java.lang.String[] _result;
+        android.content.pm.StagedApexInfo[] _result;
         try {
           _data.writeInterfaceToken(DESCRIPTOR);
-          boolean _status = mRemote.transact(Stub.TRANSACTION_getStagedApexModuleNames, _data, _reply, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getStagedApexInfos, _data, _reply, 0);
           _reply.readException();
-          _result = _reply.createStringArray();
-        }
-        finally {
-          _reply.recycle();
-          _data.recycle();
-        }
-        return _result;
-      }
-      /**
-       * Get information of APEX which is staged ready for installation.
-       * Returns null if no such APEX is found.
-       */
-      @Override public android.content.pm.StagedApexInfo getStagedApexInfo(java.lang.String moduleName) throws android.os.RemoteException
-      {
-        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
-        android.os.Parcel _reply = android.os.Parcel.obtain();
-        android.content.pm.StagedApexInfo _result;
-        try {
-          _data.writeInterfaceToken(DESCRIPTOR);
-          _data.writeString(moduleName);
-          boolean _status = mRemote.transact(Stub.TRANSACTION_getStagedApexInfo, _data, _reply, 0);
-          _reply.readException();
-          _result = _reply.readTypedObject(android.content.pm.StagedApexInfo.CREATOR);
+          _result = _reply.createTypedArray(android.content.pm.StagedApexInfo.CREATOR);
         }
         finally {
           _reply.recycle();
@@ -718,8 +682,7 @@ public interface IPackageManagerNative extends android.os.IInterface
     static final int TRANSACTION_hasSystemFeature = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
     static final int TRANSACTION_registerStagedApexObserver = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
     static final int TRANSACTION_unregisterStagedApexObserver = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
-    static final int TRANSACTION_getStagedApexModuleNames = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
-    static final int TRANSACTION_getStagedApexInfo = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
+    static final int TRANSACTION_getStagedApexInfos = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
   }
   /** ApplicationInfo.isSystemApp() == true */
   public static final int LOCATION_SYSTEM = 1;
@@ -805,11 +768,6 @@ public interface IPackageManagerNative extends android.os.IInterface
    * This does nothing if this observer was not already registered.
    */
   public void unregisterStagedApexObserver(android.content.pm.IStagedApexObserver observer) throws android.os.RemoteException;
-  /** Get APEX module names of all APEX that are staged ready for installation */
-  public java.lang.String[] getStagedApexModuleNames() throws android.os.RemoteException;
-  /**
-   * Get information of APEX which is staged ready for installation.
-   * Returns null if no such APEX is found.
-   */
-  public android.content.pm.StagedApexInfo getStagedApexInfo(java.lang.String moduleName) throws android.os.RemoteException;
+  /** Get information of staged APEXes. */
+  public android.content.pm.StagedApexInfo[] getStagedApexInfos() throws android.os.RemoteException;
 }

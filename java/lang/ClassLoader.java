@@ -2673,15 +2673,20 @@ public abstract class ClassLoader {
 
 class BootClassLoader extends ClassLoader {
 
-    private static BootClassLoader instance;
+    private static volatile BootClassLoader instance;
 
     @FindBugsSuppressWarnings("DP_CREATE_CLASSLOADER_INSIDE_DO_PRIVILEGED")
-    public static synchronized BootClassLoader getInstance() {
-        if (instance == null) {
-            instance = new BootClassLoader();
+    public static BootClassLoader getInstance() {
+        BootClassLoader myInstance = instance;
+        if (myInstance == null) {
+            synchronized(BootClassLoader.class) {
+                if (instance == null) {
+                    instance = myInstance = new BootClassLoader();
+                }
+            }
         }
 
-        return instance;
+        return myInstance;
     }
 
     public BootClassLoader() {

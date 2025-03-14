@@ -119,10 +119,22 @@ public class BundleMerger implements Parcelable {
     public static final int STRATEGY_ARRAY_APPEND = 50;
 
     /**
+     * Merge strategy that combines two conflicting array values by creating a new array
+     * containing all unique elements from both arrays.
+     */
+    public static final int STRATEGY_ARRAY_UNION = 55;
+
+    /**
      * Merge strategy that combines two conflicting {@link ArrayList} values by
      * appending the last {@link ArrayList} after the first {@link ArrayList}.
      */
     public static final int STRATEGY_ARRAY_LIST_APPEND = 60;
+
+    /**
+     * Merge strategy that combines two conflicting {@link String} values by
+     * appending the last {@link String} after the first {@link String}.
+     */
+    public static final int STRATEGY_STRING_APPEND = 70;
 
     @IntDef(flag = false, prefix = { "STRATEGY_" }, value = {
             STRATEGY_REJECT,
@@ -136,7 +148,9 @@ public class BundleMerger implements Parcelable {
             STRATEGY_BOOLEAN_AND,
             STRATEGY_BOOLEAN_OR,
             STRATEGY_ARRAY_APPEND,
+            STRATEGY_ARRAY_UNION,
             STRATEGY_ARRAY_LIST_APPEND,
+            STRATEGY_STRING_APPEND,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Strategy {}
@@ -298,8 +312,12 @@ public class BundleMerger implements Parcelable {
                 return booleanOr(first, last);
             case STRATEGY_ARRAY_APPEND:
                 return arrayAppend(first, last);
+            case STRATEGY_ARRAY_UNION:
+                return arrayUnion(first, last);
             case STRATEGY_ARRAY_LIST_APPEND:
                 return arrayListAppend(first, last);
+            case STRATEGY_STRING_APPEND:
+                return stringAppend(first, last);
             default:
                 throw new UnsupportedOperationException();
         }
@@ -361,6 +379,29 @@ public class BundleMerger implements Parcelable {
         return res;
     }
 
+    private static @NonNull Object arrayUnion(@NonNull Object first, @NonNull Object last) {
+        if (!first.getClass().isArray()) {
+            throw new IllegalArgumentException("Unable to union " + first.getClass());
+        }
+        final int firstLength = Array.getLength(first);
+        final int lastLength = Array.getLength(last);
+        final ArrayList<Object> list = new ArrayList<>(firstLength + lastLength);
+        final ArraySet<Object> set = new ArraySet<>();
+        for (int i = 0; i < firstLength; i++) {
+            set.add(Array.get(first, i));
+        }
+        for (int i = 0; i < lastLength; i++) {
+            set.add(Array.get(last, i));
+        }
+        final Class<?> clazz = first.getClass().getComponentType();
+        final int setSize = set.size();
+        final Object res = Array.newInstance(clazz, setSize);
+        for (int i = 0; i < setSize; i++) {
+            Array.set(res, i, set.valueAt(i));
+        }
+        return res;
+    }
+
     @SuppressWarnings("unchecked")
     private static @NonNull Object arrayListAppend(@NonNull Object first, @NonNull Object last) {
         if (!(first instanceof ArrayList)) {
@@ -372,6 +413,13 @@ public class BundleMerger implements Parcelable {
         res.addAll(firstList);
         res.addAll(lastList);
         return res;
+    }
+
+    private static @NonNull Object stringAppend(@NonNull Object first, @NonNull Object last) {
+        if (!(first instanceof String)) {
+            throw new IllegalArgumentException("Unable to append " + first.getClass());
+        }
+        return ((String) first) + ((String) last);
     }
 
     public static final @android.annotation.NonNull Parcelable.Creator<BundleMerger> CREATOR =

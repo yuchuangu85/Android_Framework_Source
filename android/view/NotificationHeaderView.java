@@ -16,6 +16,11 @@
 
 package android.view;
 
+import static android.app.Flags.notificationsRedesignTemplates;
+import static android.util.MathUtils.abs;
+import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
+import static android.view.ViewGroup.LayoutParams.WRAP_CONTENT;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.compat.annotation.UnsupportedAppUsage;
@@ -27,6 +32,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.util.AttributeSet;
+import android.widget.FrameLayout;
 import android.widget.RelativeLayout;
 import android.widget.RemoteViews;
 import android.widget.TextView;
@@ -55,6 +61,8 @@ public class NotificationHeaderView extends RelativeLayout {
     private boolean mEntireHeaderClickable;
     private boolean mExpandOnlyOnButton;
     private boolean mAcceptAllTouches;
+    private float mTopLineTranslation;
+    private float mExpandButtonTranslation;
 
     ViewOutlineProvider mProvider = new ViewOutlineProvider() {
         @Override
@@ -171,6 +179,85 @@ public class NotificationHeaderView extends RelativeLayout {
     public void setTopLineExtraMarginEndDp(float extraMarginEndDp) {
         setTopLineExtraMarginEnd(
                 (int) (extraMarginEndDp * getResources().getDisplayMetrics().density));
+    }
+
+    /**
+     * Center top line  and expand button vertically.
+     */
+    @RemotableViewMethod
+    public void centerTopLine(boolean center) {
+        if (notificationsRedesignTemplates()) {
+            // The content of the top line view is already center-aligned, but since the height
+            // matches the content by default, it looks top-aligned. If the height matches the
+            // parent instead, the text ends up correctly centered in the parent.
+            ViewGroup.LayoutParams lp = mTopLineView.getLayoutParams();
+            lp.height = center ? MATCH_PARENT : WRAP_CONTENT;
+            mTopLineView.setLayoutParams(lp);
+
+            centerExpandButton(center);
+        }
+    }
+
+    /** Center expand button vertically. */
+    private void centerExpandButton(boolean center) {
+        ViewGroup.LayoutParams lp = mExpandButton.getLayoutParams();
+        lp.height = center ? MATCH_PARENT : WRAP_CONTENT;
+        if (lp instanceof FrameLayout.LayoutParams flp) {
+            flp.gravity = center ? Gravity.CENTER : (Gravity.TOP | Gravity.END);
+        }
+        mExpandButton.setLayoutParams(lp);
+    }
+
+    /** The view containing the app name, timestamp etc at the top of the notification. */
+    public NotificationTopLineView getTopLineView() {
+        return mTopLineView;
+    }
+
+    /** The view containing the button to expand the notification. */
+    public NotificationExpandButton getExpandButton() {
+        return mExpandButton;
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+
+        if (notificationsRedesignTemplates()) {
+            // TODO: b/378660052 - These should never be null in practice, consider using
+            //  requireViewById() in the onFinishInflate.
+            if (mTopLineView != null) {
+                mTopLineTranslation = measureCenterTranslation(mTopLineView);
+            }
+            if (mExpandButton != null) {
+                mExpandButtonTranslation = measureCenterTranslation(mExpandButton);
+            }
+        }
+    }
+
+    private float measureCenterTranslation(View view) {
+        // When the view is centered (see centerTopLine), its height is MATCH_PARENT
+        int parentHeight = getMeasuredHeight();
+        // When the view is top-aligned, its height is WRAP_CONTENT
+        float wrapContentHeight = view.getMeasuredHeight();
+        // Calculate the translation needed between the two alignments
+        final MarginLayoutParams lp = (MarginLayoutParams) view.getLayoutParams();
+        return abs((parentHeight - wrapContentHeight) / 2f - lp.topMargin);
+    }
+
+    /**
+     * The vertical translation necessary between the two positions of the top line, to be used in
+     * the animation. See also {@link NotificationHeaderView#centerTopLine(boolean)}.
+     */
+    public float getTopLineTranslation() {
+        return mTopLineTranslation;
+    }
+
+    /**
+     * The vertical translation necessary between the two positions of the expander, to be used in
+     * the animation. See also {@link NotificationHeaderView#centerTopLine(boolean)}.
+     */
+    public float getExpandButtonTranslation() {
+        return mExpandButtonTranslation;
     }
 
     /**

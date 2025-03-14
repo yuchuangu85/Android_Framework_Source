@@ -18,7 +18,6 @@ package android.app.appsearch.util;
 
 import static android.app.appsearch.AppSearchResult.RESULT_INVALID_SCHEMA;
 
-import android.annotation.NonNull;
 import android.app.appsearch.AppSearchSchema;
 import android.app.appsearch.InternalSetSchemaResponse;
 import android.app.appsearch.Migrator;
@@ -26,6 +25,8 @@ import android.app.appsearch.SetSchemaResponse;
 import android.app.appsearch.exceptions.AppSearchException;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+
+import org.jspecify.annotations.NonNull;
 
 import java.util.Collections;
 import java.util.Map;
@@ -44,8 +45,7 @@ public final class SchemaMigrationUtil {
      *
      * <p>{@link Migrator#shouldMigrate} returns {@code true} will make the {@link Migrator} active.
      */
-    @NonNull
-    public static Map<String, Migrator> getActiveMigrators(
+    public static @NonNull Map<String, Migrator> getActiveMigrators(
             @NonNull Set<AppSearchSchema> existingSchemas,
             @NonNull Map<String, Migrator> migrators,
             int currentVersion,

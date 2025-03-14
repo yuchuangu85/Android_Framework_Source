@@ -31,6 +31,8 @@ import android.os.Message;
 import android.os.RemoteException;
 import android.util.ArrayMap;
 
+import com.android.internal.policy.IDeviceLockedStateListener;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -259,6 +261,35 @@ public class TrustManager {
     }
 
     /**
+     * Registers a listener for device lock state events.
+     *
+     * Requires the {@link android.Manifest.permission#SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE}
+     * permission.
+     */
+    public void registerDeviceLockedStateListener(final IDeviceLockedStateListener listener,
+            int deviceId) {
+        try {
+            mService.registerDeviceLockedStateListener(listener, deviceId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Unregisters a listener for device lock state events.
+     *
+     * Requires the {@link android.Manifest.permission#SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE}
+     * permission.
+     */
+    public void unregisterDeviceLockedStateListener(final IDeviceLockedStateListener listener) {
+        try {
+            mService.unregisterDeviceLockedStateListener(listener);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * @return whether {@param userId} has enabled and configured trust agents. Ignores short-term
      * unavailability of trust due to {@link LockPatternUtils.StrongAuthTracker}.
      */
@@ -294,6 +325,21 @@ public class TrustManager {
     public void clearAllBiometricRecognized(BiometricSourceType source, int unlockedUser) {
         try {
             mService.clearAllBiometricRecognized(source, unlockedUser);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns true if the device is currently in a significant place, and false in all other
+     * circumstances.
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+    public boolean isInSignificantPlace() {
+        try {
+            return mService.isInSignificantPlace();
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

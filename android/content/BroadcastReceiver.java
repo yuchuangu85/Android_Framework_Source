@@ -34,6 +34,8 @@ import android.os.UserHandle;
 import android.util.Log;
 import android.util.Slog;
 
+import com.android.internal.os.DebugStore;
+
 /**
  * Base class for code that receives and handles broadcast intents sent by
  * {@link android.content.Context#sendBroadcast(Intent)}.
@@ -54,6 +56,9 @@ public abstract class BroadcastReceiver {
     @UnsupportedAppUsage
     private PendingResult mPendingResult;
     private boolean mDebugUnregister;
+
+    private static final boolean DEBUG_STORE_ENABLED =
+            com.android.internal.os.Flags.debugStoreEnabled();
 
     /**
      * State for a result that is pending for a broadcast receiver.  Returned
@@ -255,6 +260,9 @@ public abstract class BroadcastReceiver {
                         "PendingResult#finish#ClassName:" + mReceiverClassName,
                         1);
             }
+            if (DEBUG_STORE_ENABLED) {
+                DebugStore.recordFinish(mReceiverClassName);
+            }
 
             if (mType == TYPE_COMPONENT) {
                 final IActivityManager mgr = ActivityManager.getService();
@@ -348,7 +356,6 @@ public abstract class BroadcastReceiver {
             }
             RuntimeException e = new RuntimeException(
                     "BroadcastReceiver trying to return result during a non-ordered broadcast");
-            e.fillInStackTrace();
             Log.e("BroadcastReceiver", e.getMessage(), e);
         }
     }
@@ -433,7 +440,9 @@ public abstract class BroadcastReceiver {
     public final PendingResult goAsync() {
         PendingResult res = mPendingResult;
         mPendingResult = null;
-
+        if (DEBUG_STORE_ENABLED) {
+            DebugStore.recordGoAsync(getClass().getName());
+        }
         if (res != null && Trace.isTagEnabled(Trace.TRACE_TAG_ACTIVITY_MANAGER)) {
             res.mReceiverClassName = getClass().getName();
             Trace.traceCounter(Trace.TRACE_TAG_ACTIVITY_MANAGER,
@@ -758,7 +767,6 @@ public abstract class BroadcastReceiver {
         }
         RuntimeException e = new RuntimeException(
                 "BroadcastReceiver trying to return result during a non-ordered broadcast");
-        e.fillInStackTrace();
         Log.e("BroadcastReceiver", e.getMessage(), e);
     }
 }

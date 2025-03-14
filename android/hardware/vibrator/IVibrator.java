@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash ea8742d6993e1a82917da38b9938e537aa7fcb54 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen/android/hardware/vibrator/IVibrator.java.d -o out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V2-java-source/gen -Nhardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2 hardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/2/android/hardware/vibrator/IVibrator.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 720a16b521507c378f14c516749ae178a60dfc44 --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V3-java-source/gen/android/hardware/vibrator/IVibrator.java.d -o out/soong/.intermediates/hardware/interfaces/vibrator/aidl/android.hardware.vibrator-V3-java-source/gen -Iframeworks/native/aidl/binder -Nhardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/3 hardware/interfaces/vibrator/aidl/aidl_api/android.hardware.vibrator/3/android/hardware/vibrator/IVibrator.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.vibrator;
 public interface IVibrator extends android.os.IInterface
@@ -11,8 +15,8 @@ public interface IVibrator extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "ea8742d6993e1a82917da38b9938e537aa7fcb54";
+  public static final int VERSION = 3;
+  public static final String HASH = "720a16b521507c378f14c516749ae178a60dfc44";
   /** Default implementation for IVibrator. */
   public static class Default implements android.hardware.vibrator.IVibrator
   {
@@ -77,31 +81,60 @@ public interface IVibrator extends android.os.IInterface
     {
       return 0.0f;
     }
+    /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
     @Override public float getFrequencyResolution() throws android.os.RemoteException
     {
       return 0.0f;
     }
+    /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
     @Override public float getFrequencyMinimum() throws android.os.RemoteException
     {
       return 0.0f;
     }
+    /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
     @Override public float[] getBandwidthAmplitudeMap() throws android.os.RemoteException
     {
       return null;
     }
+    /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.getPwleV2PrimitiveDurationMaxMillis` instead. */
     @Override public int getPwlePrimitiveDurationMax() throws android.os.RemoteException
     {
       return 0;
     }
+    /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.getPwleV2CompositionSizeMax` instead. */
     @Override public int getPwleCompositionSizeMax() throws android.os.RemoteException
     {
       return 0;
     }
+    /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. */
     @Override public int[] getSupportedBraking() throws android.os.RemoteException
     {
       return null;
     }
+    /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.composePwleV2` instead. */
     @Override public void composePwle(android.hardware.vibrator.PrimitivePwle[] composite, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
+    {
+    }
+    @Override public void performVendorEffect(android.hardware.vibrator.VendorEffect vendorEffect, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
+    {
+    }
+    @Override public java.util.List<android.hardware.vibrator.FrequencyAccelerationMapEntry> getFrequencyToOutputAccelerationMap() throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public int getPwleV2PrimitiveDurationMaxMillis() throws android.os.RemoteException
+    {
+      return 0;
+    }
+    @Override public int getPwleV2CompositionSizeMax() throws android.os.RemoteException
+    {
+      return 0;
+    }
+    @Override public int getPwleV2PrimitiveDurationMinMillis() throws android.os.RemoteException
+    {
+      return 0;
+    }
+    @Override public void composePwleV2(android.hardware.vibrator.CompositePwleV2 composite, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
     {
     }
     @Override
@@ -120,7 +153,7 @@ public interface IVibrator extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.vibrator.IVibrator
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -366,6 +399,56 @@ public interface IVibrator extends android.os.IInterface
           _arg1 = android.hardware.vibrator.IVibratorCallback.Stub.asInterface(data.readStrongBinder());
           data.enforceNoDataAvail();
           this.composePwle(_arg0, _arg1);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_performVendorEffect:
+        {
+          android.hardware.vibrator.VendorEffect _arg0;
+          _arg0 = data.readTypedObject(android.hardware.vibrator.VendorEffect.CREATOR);
+          android.hardware.vibrator.IVibratorCallback _arg1;
+          _arg1 = android.hardware.vibrator.IVibratorCallback.Stub.asInterface(data.readStrongBinder());
+          data.enforceNoDataAvail();
+          this.performVendorEffect(_arg0, _arg1);
+          reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_getFrequencyToOutputAccelerationMap:
+        {
+          java.util.List<android.hardware.vibrator.FrequencyAccelerationMapEntry> _result = this.getFrequencyToOutputAccelerationMap();
+          reply.writeNoException();
+          reply.writeTypedList(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_getPwleV2PrimitiveDurationMaxMillis:
+        {
+          int _result = this.getPwleV2PrimitiveDurationMaxMillis();
+          reply.writeNoException();
+          reply.writeInt(_result);
+          break;
+        }
+        case TRANSACTION_getPwleV2CompositionSizeMax:
+        {
+          int _result = this.getPwleV2CompositionSizeMax();
+          reply.writeNoException();
+          reply.writeInt(_result);
+          break;
+        }
+        case TRANSACTION_getPwleV2PrimitiveDurationMinMillis:
+        {
+          int _result = this.getPwleV2PrimitiveDurationMinMillis();
+          reply.writeNoException();
+          reply.writeInt(_result);
+          break;
+        }
+        case TRANSACTION_composePwleV2:
+        {
+          android.hardware.vibrator.CompositePwleV2 _arg0;
+          _arg0 = data.readTypedObject(android.hardware.vibrator.CompositePwleV2.CREATOR);
+          android.hardware.vibrator.IVibratorCallback _arg1;
+          _arg1 = android.hardware.vibrator.IVibratorCallback.Stub.asInterface(data.readStrongBinder());
+          data.enforceNoDataAvail();
+          this.composePwleV2(_arg0, _arg1);
           reply.writeNoException();
           break;
         }
@@ -726,6 +809,7 @@ public interface IVibrator extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
       @Override public float getFrequencyResolution() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -746,6 +830,7 @@ public interface IVibrator extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
       @Override public float getFrequencyMinimum() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -766,6 +851,7 @@ public interface IVibrator extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
       @Override public float[] getBandwidthAmplitudeMap() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -786,6 +872,7 @@ public interface IVibrator extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.getPwleV2PrimitiveDurationMaxMillis` instead. */
       @Override public int getPwlePrimitiveDurationMax() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -806,6 +893,7 @@ public interface IVibrator extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.getPwleV2CompositionSizeMax` instead. */
       @Override public int getPwleCompositionSizeMax() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -826,6 +914,7 @@ public interface IVibrator extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. */
       @Override public int[] getSupportedBraking() throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -846,6 +935,7 @@ public interface IVibrator extends android.os.IInterface
         }
         return _result;
       }
+      /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.composePwleV2` instead. */
       @Override public void composePwle(android.hardware.vibrator.PrimitivePwle[] composite, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
       {
         android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
@@ -857,6 +947,124 @@ public interface IVibrator extends android.os.IInterface
           boolean _status = mRemote.transact(Stub.TRANSACTION_composePwle, _data, _reply, 0);
           if (!_status) {
             throw new android.os.RemoteException("Method composePwle is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
+      @Override public void performVendorEffect(android.hardware.vibrator.VendorEffect vendorEffect, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(vendorEffect, 0);
+          _data.writeStrongInterface(callback);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_performVendorEffect, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method performVendorEffect is unimplemented.");
+          }
+          _reply.readException();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+      }
+      @Override public java.util.List<android.hardware.vibrator.FrequencyAccelerationMapEntry> getFrequencyToOutputAccelerationMap() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        java.util.List<android.hardware.vibrator.FrequencyAccelerationMapEntry> _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getFrequencyToOutputAccelerationMap, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getFrequencyToOutputAccelerationMap is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.createTypedArrayList(android.hardware.vibrator.FrequencyAccelerationMapEntry.CREATOR);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public int getPwleV2PrimitiveDurationMaxMillis() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        int _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getPwleV2PrimitiveDurationMaxMillis, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getPwleV2PrimitiveDurationMaxMillis is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readInt();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public int getPwleV2CompositionSizeMax() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        int _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getPwleV2CompositionSizeMax, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getPwleV2CompositionSizeMax is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readInt();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public int getPwleV2PrimitiveDurationMinMillis() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        int _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getPwleV2PrimitiveDurationMinMillis, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getPwleV2PrimitiveDurationMinMillis is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readInt();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public void composePwleV2(android.hardware.vibrator.CompositePwleV2 composite, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeTypedObject(composite, 0);
+          _data.writeStrongInterface(callback);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_composePwleV2, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method composePwleV2 is unimplemented.");
           }
           _reply.readException();
         }
@@ -924,6 +1132,12 @@ public interface IVibrator extends android.os.IInterface
     static final int TRANSACTION_getPwleCompositionSizeMax = (android.os.IBinder.FIRST_CALL_TRANSACTION + 21);
     static final int TRANSACTION_getSupportedBraking = (android.os.IBinder.FIRST_CALL_TRANSACTION + 22);
     static final int TRANSACTION_composePwle = (android.os.IBinder.FIRST_CALL_TRANSACTION + 23);
+    static final int TRANSACTION_performVendorEffect = (android.os.IBinder.FIRST_CALL_TRANSACTION + 24);
+    static final int TRANSACTION_getFrequencyToOutputAccelerationMap = (android.os.IBinder.FIRST_CALL_TRANSACTION + 25);
+    static final int TRANSACTION_getPwleV2PrimitiveDurationMaxMillis = (android.os.IBinder.FIRST_CALL_TRANSACTION + 26);
+    static final int TRANSACTION_getPwleV2CompositionSizeMax = (android.os.IBinder.FIRST_CALL_TRANSACTION + 27);
+    static final int TRANSACTION_getPwleV2PrimitiveDurationMinMillis = (android.os.IBinder.FIRST_CALL_TRANSACTION + 28);
+    static final int TRANSACTION_composePwleV2 = (android.os.IBinder.FIRST_CALL_TRANSACTION + 29);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
@@ -940,6 +1154,8 @@ public interface IVibrator extends android.os.IInterface
   public static final int CAP_GET_Q_FACTOR = 256;
   public static final int CAP_FREQUENCY_CONTROL = 512;
   public static final int CAP_COMPOSE_PWLE_EFFECTS = 1024;
+  public static final int CAP_PERFORM_VENDOR_EFFECTS = 2048;
+  public static final int CAP_COMPOSE_PWLE_EFFECTS_V2 = 4096;
   public int getCapabilities() throws android.os.RemoteException;
   public void off() throws android.os.RemoteException;
   public void on(int timeoutMs, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException;
@@ -957,13 +1173,33 @@ public interface IVibrator extends android.os.IInterface
   public void alwaysOnDisable(int id) throws android.os.RemoteException;
   public float getResonantFrequency() throws android.os.RemoteException;
   public float getQFactor() throws android.os.RemoteException;
+  /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
+  @Deprecated
   public float getFrequencyResolution() throws android.os.RemoteException;
+  /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
+  @Deprecated
   public float getFrequencyMinimum() throws android.os.RemoteException;
+  /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented even if CAP_FREQUENCY_CONTROL capability is reported. */
+  @Deprecated
   public float[] getBandwidthAmplitudeMap() throws android.os.RemoteException;
+  /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.getPwleV2PrimitiveDurationMaxMillis` instead. */
+  @Deprecated
   public int getPwlePrimitiveDurationMax() throws android.os.RemoteException;
+  /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.getPwleV2CompositionSizeMax` instead. */
+  @Deprecated
   public int getPwleCompositionSizeMax() throws android.os.RemoteException;
+  /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. */
+  @Deprecated
   public int[] getSupportedBraking() throws android.os.RemoteException;
+  /** @deprecated This method is deprecated from AIDL v3 and is no longer required to be implemented. Use `IVibrator.composePwleV2` instead. */
+  @Deprecated
   public void composePwle(android.hardware.vibrator.PrimitivePwle[] composite, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException;
+  public void performVendorEffect(android.hardware.vibrator.VendorEffect vendorEffect, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException;
+  public java.util.List<android.hardware.vibrator.FrequencyAccelerationMapEntry> getFrequencyToOutputAccelerationMap() throws android.os.RemoteException;
+  public int getPwleV2PrimitiveDurationMaxMillis() throws android.os.RemoteException;
+  public int getPwleV2CompositionSizeMax() throws android.os.RemoteException;
+  public int getPwleV2PrimitiveDurationMinMillis() throws android.os.RemoteException;
+  public void composePwleV2(android.hardware.vibrator.CompositePwleV2 composite, android.hardware.vibrator.IVibratorCallback callback) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

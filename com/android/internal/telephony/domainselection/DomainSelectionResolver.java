@@ -64,8 +64,7 @@ public class DomainSelectionResolver {
      *                               to be bound to the domain selection controller.
      */
     public static void make(Context context, String flattenedComponentName) {
-        Log.i(TAG, "make flag=" + Flags.apDomainSelectionEnabled()
-                + ", useOem=" + Flags.useOemDomainSelectionService());
+        Log.i(TAG, "make useOem=" + Flags.useOemDomainSelectionService());
         if (sInstance == null) {
             sInstance = new DomainSelectionResolver(context, flattenedComponentName);
         }

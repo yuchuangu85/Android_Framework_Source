@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 0c86a38729dd5d560fe3a0eca6aa9d8cf83efb00 --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen/android/media/audio/common/AudioHalProductStrategy.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V3-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/3/android/media/audio/common/AudioHalProductStrategy.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash af71e6ae2c6861fc2b09bb477e7285e6777cd41c --stability vintf --min_sdk_version 29 --ninja -d out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V4-java-source/gen/android/media/audio/common/AudioHalProductStrategy.java.d -o out/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types-V4-java-source/gen -Nsystem/hardware/interfaces/media/aidl_api/android.media.audio.common.types/4 system/hardware/interfaces/media/aidl_api/android.media.audio.common.types/4/android/media/audio/common/AudioHalProductStrategy.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.media.audio.common;
 /** @hide */
@@ -8,6 +12,8 @@ public class AudioHalProductStrategy implements android.os.Parcelable
 {
   public int id = -1;
   public android.media.audio.common.AudioHalAttributesGroup[] attributesGroups;
+  public java.lang.String name;
+  public int zoneId = 0;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
   public static final android.os.Parcelable.Creator<AudioHalProductStrategy> CREATOR = new android.os.Parcelable.Creator<AudioHalProductStrategy>() {
@@ -28,6 +34,8 @@ public class AudioHalProductStrategy implements android.os.Parcelable
     _aidl_parcel.writeInt(0);
     _aidl_parcel.writeInt(id);
     _aidl_parcel.writeTypedArray(attributesGroups, _aidl_flag);
+    _aidl_parcel.writeString(name);
+    _aidl_parcel.writeInt(zoneId);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -43,6 +51,10 @@ public class AudioHalProductStrategy implements android.os.Parcelable
       id = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       attributesGroups = _aidl_parcel.createTypedArray(android.media.audio.common.AudioHalAttributesGroup.CREATOR);
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      name = _aidl_parcel.readString();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      zoneId = _aidl_parcel.readInt();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -56,6 +68,8 @@ public class AudioHalProductStrategy implements android.os.Parcelable
     java.util.StringJoiner _aidl_sj = new java.util.StringJoiner(", ", "{", "}");
     _aidl_sj.add("id: " + (id));
     _aidl_sj.add("attributesGroups: " + (java.util.Arrays.toString(attributesGroups)));
+    _aidl_sj.add("name: " + (java.util.Objects.toString(name)));
+    _aidl_sj.add("zoneId: " + (zoneId));
     return "AudioHalProductStrategy" + _aidl_sj.toString()  ;
   }
   @Override
@@ -66,12 +80,14 @@ public class AudioHalProductStrategy implements android.os.Parcelable
     AudioHalProductStrategy that = (AudioHalProductStrategy)other;
     if (!java.util.Objects.deepEquals(id, that.id)) return false;
     if (!java.util.Objects.deepEquals(attributesGroups, that.attributesGroups)) return false;
+    if (!java.util.Objects.deepEquals(name, that.name)) return false;
+    if (!java.util.Objects.deepEquals(zoneId, that.zoneId)) return false;
     return true;
   }
 
   @Override
   public int hashCode() {
-    return java.util.Arrays.deepHashCode(java.util.Arrays.asList(id, attributesGroups).toArray());
+    return java.util.Arrays.deepHashCode(java.util.Arrays.asList(id, attributesGroups, name, zoneId).toArray());
   }
   @Override
   public int describeContents() {
@@ -92,5 +108,8 @@ public class AudioHalProductStrategy implements android.os.Parcelable
       return ((android.os.Parcelable) _v).describeContents();
     }
     return 0;
+  }
+  public static @interface ZoneId {
+    public static final int DEFAULT = 0;
   }
 }

@@ -292,7 +292,6 @@ abstract class CECalendar extends Calendar {
      * month in each year in the CECalendar, the value is "M13".
      *
      * @return       One of 13 possible strings in {"M01".. "M12", "M13"}.
-     * @hide draft / provisional / internal are hidden on Android
      */
     public String getTemporalMonthCode() {
         if (get(MONTH) == 12) return "M13";
@@ -306,7 +305,6 @@ abstract class CECalendar extends Calendar {
      * (non-leap) year. For CECalendar calendar, the values are "M01" .. "M13"
      * while the "M13" is represent the short thirteen month in each year.
      * @param temporalMonth One of 13 possible strings in {"M01".. "M12", "M13"}.
-     * @hide draft / provisional / internal are hidden on Android
      */
     public void setTemporalMonthCode( String temporalMonth ) {
         if (temporalMonth.equals("M13")) {

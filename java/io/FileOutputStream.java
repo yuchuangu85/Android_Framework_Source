@@ -295,6 +295,10 @@ public class FileOutputStream extends OutputStream
      * is {@link java.io.FileDescriptor#valid() invalid}.
      * However, if the methods are invoked on the resulting stream to attempt
      * I/O on the stream, an {@code IOException} is thrown.
+     * <p>
+     * Android-specific warning: {@link #close()} method doesn't close the {@code fdObj} provided,
+     * because this object doesn't own the file descriptor, but the caller does. The caller can
+     * call {@link android.system.Os#close(FileDescriptor)} to close the fd.
      *
      * @param      fdObj   the file descriptor to be opened for writing
      * @throws     SecurityException  if a security manager exists and its

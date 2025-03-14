@@ -274,6 +274,11 @@ public class SubscriptionInfo implements Parcelable {
     private final int mServiceCapabilities;
 
     /**
+     * Whether the carrier roaming to satellite is using ESOS for emergency messaging.
+     */
+    private final boolean mIsSatelliteESOSSupported;
+
+    /**
      * @hide
      *
      * @deprecated Use {@link SubscriptionInfo.Builder}.
@@ -400,6 +405,7 @@ public class SubscriptionInfo implements Parcelable {
         this.mIsOnlyNonTerrestrialNetwork = false;
         this.mServiceCapabilities = 0;
         this.mTransferStatus = 0;
+        this.mIsSatelliteESOSSupported = false;
     }
 
     /**
@@ -441,6 +447,7 @@ public class SubscriptionInfo implements Parcelable {
         this.mIsOnlyNonTerrestrialNetwork = builder.mIsOnlyNonTerrestrialNetwork;
         this.mServiceCapabilities = builder.mServiceCapabilities;
         this.mTransferStatus = builder.mTransferStatus;
+        this.mIsSatelliteESOSSupported = builder.mIsSatelliteESOSSupported;
     }
 
     /**
@@ -611,9 +618,9 @@ public class SubscriptionInfo implements Parcelable {
     @Deprecated
     public int getMcc() {
         try {
-            return mMcc == null ? 0 : Integer.parseInt(mMcc);
+            return TextUtils.isEmpty(mMcc) ? 0 : Integer.parseInt(mMcc);
         } catch (NumberFormatException e) {
-            Log.w(SubscriptionInfo.class.getSimpleName(), "MCC string is not a number");
+            Log.w(SubscriptionInfo.class.getSimpleName(), "MCC string is not a number: " + mMcc);
             return 0;
         }
     }
@@ -626,9 +633,9 @@ public class SubscriptionInfo implements Parcelable {
     @Deprecated
     public int getMnc() {
         try {
-            return mMnc == null ? 0 : Integer.parseInt(mMnc);
+            return TextUtils.isEmpty(mMnc) ? 0 : Integer.parseInt(mMnc);
         } catch (NumberFormatException e) {
-            Log.w(SubscriptionInfo.class.getSimpleName(), "MNC string is not a number");
+            Log.w(SubscriptionInfo.class.getSimpleName(), "MNC string is not a number: " + mMnc);
             return 0;
         }
     }
@@ -898,6 +905,19 @@ public class SubscriptionInfo implements Parcelable {
         return mIsOnlyNonTerrestrialNetwork;
     }
 
+
+    /**
+     * Checks if the subscription is supported ESOS over Carrier Roaming NB-IOT Satellite.
+     *
+     * @return {@code true} if the subscription supports ESOS over Carrier Roaming NB-IOT Satellite,
+     * {@code false} otherwise.
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_CARRIER_ROAMING_NB_IOT_NTN)
+    public boolean isSatelliteESOSSupported() {
+        return mIsSatelliteESOSSupported;
+    }
+
     // TODO(b/316183370): replace @code with @link in javadoc after feature is released
     /**
      * Retrieves the service capabilities for the current subscription.
@@ -931,7 +951,6 @@ public class SubscriptionInfo implements Parcelable {
      * @see SubscriptionManager#SERVICE_CAPABILITY_DATA
      */
     @NonNull
-    @FlaggedApi(Flags.FLAG_DATA_ONLY_CELLULAR_SERVICE)
     public @SubscriptionManager.ServiceCapability Set<Integer> getServiceCapabilities() {
         return SubscriptionManager.getServiceCapabilitiesSet(mServiceCapabilities);
     }
@@ -989,6 +1008,7 @@ public class SubscriptionInfo implements Parcelable {
                     .setServiceCapabilities(
                             SubscriptionManager.getServiceCapabilitiesSet(source.readInt()))
                     .setTransferStatus(source.readInt())
+                    .setSatelliteESOSSupported(source.readBoolean())
                     .build();
         }
 
@@ -1033,6 +1053,7 @@ public class SubscriptionInfo implements Parcelable {
         dest.writeBoolean(mIsOnlyNonTerrestrialNetwork);
         dest.writeInt(mServiceCapabilities);
         dest.writeInt(mTransferStatus);
+        dest.writeBoolean(mIsSatelliteESOSSupported);
     }
 
     @Override
@@ -1099,6 +1120,7 @@ public class SubscriptionInfo implements Parcelable {
                 + " serviceCapabilities=" + SubscriptionManager.getServiceCapabilitiesSet(
                 mServiceCapabilities).toString()
                 + " transferStatus=" + mTransferStatus
+                + " isSatelliteESOSSupported=" + mIsSatelliteESOSSupported
                 + "]";
     }
 
@@ -1126,7 +1148,8 @@ public class SubscriptionInfo implements Parcelable {
                 && mCountryIso.equals(that.mCountryIso) && mGroupOwner.equals(that.mGroupOwner)
                 && mIsOnlyNonTerrestrialNetwork == that.mIsOnlyNonTerrestrialNetwork
                 && mServiceCapabilities == that.mServiceCapabilities
-                && mTransferStatus == that.mTransferStatus;
+                && mTransferStatus == that.mTransferStatus
+                && mIsSatelliteESOSSupported == that.mIsSatelliteESOSSupported;
     }
 
     @Override
@@ -1136,7 +1159,7 @@ public class SubscriptionInfo implements Parcelable {
                 mCardString, mIsOpportunistic, mGroupUuid, mCountryIso, mCarrierId, mProfileClass,
                 mType, mGroupOwner, mAreUiccApplicationsEnabled, mPortIndex, mUsageSetting, mCardId,
                 mIsGroupDisabled, mIsOnlyNonTerrestrialNetwork, mServiceCapabilities,
-                mTransferStatus);
+                mTransferStatus, mIsSatelliteESOSSupported);
         result = 31 * result + Arrays.hashCode(mEhplmns);
         result = 31 * result + Arrays.hashCode(mHplmns);
         result = 31 * result + Arrays.hashCode(mNativeAccessRules);
@@ -1346,6 +1369,11 @@ public class SubscriptionInfo implements Parcelable {
          * Service capabilities bitmasks the subscription supports.
          */
         private int mServiceCapabilities = 0;
+        /**
+         * {@code true} if the subscription supports ESOS over Carrier Roaming NB-IOT Satellite.
+         * {@code false} otherwise.
+         */
+        private boolean mIsSatelliteESOSSupported = false;
 
         /**
          * Default constructor.
@@ -1392,6 +1420,7 @@ public class SubscriptionInfo implements Parcelable {
             mIsOnlyNonTerrestrialNetwork = info.mIsOnlyNonTerrestrialNetwork;
             mServiceCapabilities = info.mServiceCapabilities;
             mTransferStatus = info.mTransferStatus;
+            mIsSatelliteESOSSupported = info.mIsSatelliteESOSSupported;
         }
 
         /**
@@ -1799,7 +1828,6 @@ public class SubscriptionInfo implements Parcelable {
          * @throws IllegalArgumentException when any capability is not supported.
          */
         @NonNull
-        @FlaggedApi(Flags.FLAG_DATA_ONLY_CELLULAR_SERVICE)
         public Builder setServiceCapabilities(
                 @NonNull @SubscriptionManager.ServiceCapability Set<Integer> capabilities) {
             int combinedCapabilities = 0;
@@ -1824,6 +1852,21 @@ public class SubscriptionInfo implements Parcelable {
         @NonNull
         public Builder setTransferStatus(@TransferStatus int status) {
             mTransferStatus = status;
+            return this;
+        }
+
+        /**
+         * Set whether the subscription is supported ESOS over Carrier Roaming NB-IOT Satellite or
+         * not.
+         *
+         * @param isSatelliteESOSSupported {@code true} if the subscription supports ESOS over
+         * Carrier Roaming NB-IOT Satellite, {@code false} otherwise.
+         * @return The builder.
+         */
+        @FlaggedApi(Flags.FLAG_CARRIER_ROAMING_NB_IOT_NTN)
+        @NonNull
+        public Builder setSatelliteESOSSupported(boolean isSatelliteESOSSupported) {
+            mIsSatelliteESOSSupported = isSatelliteESOSSupported;
             return this;
         }
 

@@ -64,9 +64,7 @@ public class DefaultNetworkMonitor extends Handler {
 
     DefaultNetworkMonitor(@NonNull Context context, @NonNull FeatureFlags featureFlags) {
         super(Looper.myLooper());
-        if (featureFlags.dataCallSessionStatsCapturesCrossSimCalling()) {
-            registerSystemDefaultNetworkCallback(context);
-        }
+        registerSystemDefaultNetworkCallback(context);
     }
 
     private void registerSystemDefaultNetworkCallback(@NonNull Context context) {

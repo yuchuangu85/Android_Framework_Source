@@ -4276,13 +4276,13 @@ public class BigDecimal extends Number implements Comparable<BigDecimal> {
     }
 
     private static class UnsafeHolder {
-        private static final sun.misc.Unsafe unsafe;
+        private static final jdk.internal.misc.Unsafe unsafe;
         private static final long intCompactOffset;
         private static final long intValOffset;
         private static final long scaleOffset;
         static {
             try {
-                unsafe = sun.misc.Unsafe.getUnsafe();
+                unsafe = jdk.internal.misc.Unsafe.getUnsafe();
                 intCompactOffset = unsafe.objectFieldOffset
                     (BigDecimal.class.getDeclaredField("intCompact"));
                 intValOffset = unsafe.objectFieldOffset

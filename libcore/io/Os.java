@@ -415,6 +415,11 @@ public interface Os {
     /**
      * @hide
      */
+    public void madvise(long addr, long byteCount, int advice) throws ErrnoException;
+
+    /**
+     * @hide
+     */
     public FileDescriptor memfd_create(String name, int flags) throws ErrnoException;
 
     /**

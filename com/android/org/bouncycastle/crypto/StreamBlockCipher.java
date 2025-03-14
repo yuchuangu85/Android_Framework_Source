@@ -7,7 +7,8 @@ package com.android.org.bouncycastle.crypto;
  * @hide This class is not part of the Android public SDK API
  */
 public abstract class StreamBlockCipher
-    implements BlockCipher, StreamCipher
+    extends DefaultMultiBlockCipher
+    implements StreamCipher
 {
     private final BlockCipher cipher;
 

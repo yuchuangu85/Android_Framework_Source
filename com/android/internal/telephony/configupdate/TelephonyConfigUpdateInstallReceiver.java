@@ -157,17 +157,19 @@ public class TelephonyConfigUpdateInstallReceiver extends ConfigUpdateInstallRec
             if (getInstance().mConfigParser != null) {
                 int updatedVersion = newConfigParser.mVersion;
                 int previousVersion = getInstance().mConfigParser.mVersion;
-                Log.d(TAG, "previous version is " + previousVersion + " | updated version is "
-                        + updatedVersion);
-                mConfigUpdaterMetricsStats.setConfigVersion(updatedVersion);
+                Log.d(TAG, "previous proto version is " + previousVersion
+                        + " | updated proto version is " + updatedVersion);
+
                 if (updatedVersion <= previousVersion) {
-                    Log.e(TAG, "updatedVersion is smaller than previousVersion");
+                    Log.e(TAG, "updated proto Version [" + updatedVersion
+                            + "] is smaller than previous proto Version [" + previousVersion + "]");
                     mConfigUpdaterMetricsStats.reportOemAndCarrierConfigError(
                             SatelliteConstants.CONFIG_UPDATE_RESULT_INVALID_VERSION);
                     return;
                 }
             }
             getInstance().mConfigParser = newConfigParser;
+            mConfigUpdaterMetricsStats.setConfigVersion(getInstance().mConfigParser.getVersion());
         }
 
         if (!getInstance().mCallbackHashMap.keySet().isEmpty()) {

@@ -18,17 +18,6 @@ public abstract class Mod
     private static final int M30 = 0x3FFFFFFF;
     private static final long M32L = 0xFFFFFFFFL;
 
-    /** @deprecated Will be removed. */
-    public static void add(int[] p, int[] x, int[] y, int[] z)
-    {
-        int len = p.length;
-        int c = Nat.add(len, x, y, z);
-        if (c != 0)
-        {
-            Nat.subFrom(len, p, z);
-        }
-    }
-
     public static void checkedModOddInverse(int[] m, int[] x, int[] z)
     {
         if (0 == modOddInverse(m, x, z))
@@ -58,12 +47,6 @@ public abstract class Mod
         return  x;
     }
 
-    /** @deprecated Use {@link #checkedModOddInverseVar(int[], int[], int[])} instead. */
-    public static void invert(int[] m, int[] x, int[] z)
-    {
-        checkedModOddInverseVar(m,  x,  z);
-    }
-
     public static int modOddInverse(int[] m, int[] x, int[] z)
     {
         int len32 = m.length;
@@ -86,13 +69,13 @@ public abstract class Mod
         encode30(bits, m, 0, M, 0);
         System.arraycopy(M, 0, F, 0, len30);
 
-        int eta = -1;
+        int delta = 0;
         int m0Inv32 = inverse32(M[0]);
         int maxDivsteps = getMaximumDivsteps(bits);
 
         for (int divSteps = 0; divSteps < maxDivsteps; divSteps += 30)
         {
-            eta = divsteps30(eta, F[0], G[0], t);
+            delta = divsteps30(delta, F[0], G[0], t);
             updateDE30(len30, D, E, t, m0Inv32, M);
             updateFG30(len30, F, G, t);
         }
@@ -232,17 +215,6 @@ public abstract class Mod
         return s;
     }
 
-    /** @deprecated Will be removed. */
-    public static void subtract(int[] p, int[] x, int[] y, int[] z)
-    {
-        int len = p.length;
-        int c = Nat.sub(len, x, y, z);
-        if (c != 0)
-        {
-            Nat.addTo(len, p, z);
-        }
-    }
-
     private static int add30(int len30, int[] D, int[] M)
     {
 //        assert len30 > 0;
@@ -280,7 +252,6 @@ public abstract class Mod
 //        assert len30 > 0;
 //        assert D.length >= len30;
 //        assert M.length >= len30;
-
         int last = len30 - 1;
 
         {
@@ -335,38 +306,38 @@ public abstract class Mod
         }
     }
 
-    private static int divsteps30(int eta, int f0, int g0, int[] t)
+    private static int divsteps30(int delta, int f0, int g0, int[] t)
     {
-        int u = 1, v = 0, q = 0, r = 1;
+        int u = 1 << 30, v = 0, q = 0, r = 1 << 30;
         int f = f0, g = g0;
 
         for (int i = 0; i < 30; ++i)
         {
 //            assert (f & 1) == 1;
-//            assert (u * f0 + v * g0) == f << i;
-//            assert (q * f0 + r * g0) == g << i;
+//            assert ((u >> (30 - i)) * f0 + (v >> (30 - i)) * g0) == f << i;
+//            assert ((q >> (30 - i)) * f0 + (r >> (30 - i)) * g0) == g << i;
 
-            int c1 = eta >> 31;
+            int c1 = delta >> 31;
             int c2 = -(g & 1);
 
-            int x = (f ^ c1) - c1;
-            int y = (u ^ c1) - c1;
-            int z = (v ^ c1) - c1;
+            int x = f ^ c1;
+            int y = u ^ c1;
+            int z = v ^ c1;
 
-            g += x & c2;
-            q += y & c2;
-            r += z & c2;
+            g -= x & c2;
+            q -= y & c2;
+            r -= z & c2;
 
-            c1 &= c2;
-            eta = (eta ^ c1) - (c1 + 1);
+            c2 &= ~c1;
+            delta = (delta ^ c2) - (c2 - 1);
 
-            f += g & c1;
-            u += q & c1;
-            v += r & c1;
+            f += g & c2;
+            u += q & c2;
+            v += r & c2;
 
             g >>= 1;
-            u <<= 1;
-            v <<= 1;
+            q >>= 1;
+            r >>= 1;
         }
 
         t[0] = u;
@@ -374,7 +345,7 @@ public abstract class Mod
         t[2] = q;
         t[3] = r;
 
-        return eta;
+        return delta;
     }
 
     private static int divsteps30Var(int eta, int f0, int g0, int[] t)

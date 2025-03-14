@@ -583,17 +583,16 @@ public final class IkeSaPayload extends IkePayload {
     }
 
     /**
-     * Release IPsec SPI resources in the outbound Create Child request
+     * Release SPI resources in the outbound Create IKE/Child request
      *
-     * <p>This method is usually called when an IKE library fails to receive a Create Child response
-     * before it is terminated. It is also safe to call after the Create Child exchange has
-     * succeeded because the newly created IpSecTransform pair will hold the IPsec SPI resource.
+     * <p>This method is usually called when an IKE library fails to receive a Create IKE/Child
+     * response before it is terminated. It is also safe to call after the Create IKE/Child exchange
+     * has succeeded because the newly created IkeSaRecord or ChildSaRecord (IpSecTransform pair)
+     * will hold the SPI resource.
      */
-    public void releaseChildSpiResourcesIfExists() {
+    public void releaseSpiResources() {
         for (Proposal proposal : proposalList) {
-            if (proposal instanceof ChildProposal) {
-                proposal.releaseSpiResourceIfExists();
-            }
+            proposal.releaseSpiResourceIfExists();
         }
     }
 

@@ -39,6 +39,8 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
     private static final String TAG = AndroidServiceBinder.class.getSimpleName();
 
     private static final int BINDER_CONNECTION_TIMEOUT_MS = 5000;
+    private static final int MAX_GET_SERVICE_RETRIES = 2;
+    private static final long GET_SERVICE_RETRY_DELAY_MS = 100L;
     private final String mServiceIntentActionOrName;
     private final List<String> mServicePackages;
     private final Function<IBinder, T> mBinderConverter;
@@ -48,7 +50,7 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
     private final int mBindFlags;
     // Concurrency mLock.
     private final Object mLock = new Object();
-    // A CountDownloadLatch which will be opened when the connection is established or any error
+    // A CountDownLatch which will be opened when the connection is established or any error
     // occurs.
     private CountDownLatch mConnectionCountDownLatch;
 
@@ -71,7 +73,7 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
             @NonNull String serviceIntentAction,
             @NonNull List<String> servicePackages,
             @NonNull Function<IBinder, T> converter) {
-        this(context, serviceIntentAction,  servicePackages, 0, converter);
+        this(context, serviceIntentAction, servicePackages, /* bindFlags= */ 0, converter);
     }
 
     AndroidServiceBinder(
@@ -80,13 +82,14 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
             @NonNull List<String> servicePackages,
             int bindFlags,
             @NonNull Function<IBinder, T> converter) {
-        this.mServiceIntentActionOrName = serviceIntentAction;
-        this.mContext = context;
-        this.mBinderConverter = converter;
-        this.mServicePackages = servicePackages;
-        this.mEnableLookupByServiceName = false;
-        this.mBindFlags = bindFlags;
-        this.mIsolatedProcessName = null;
+        this(
+                context,
+                serviceIntentAction,
+                servicePackages,
+                /* isolatedProcessName= */ null,
+                /* enableLookupByName= */ false,
+                bindFlags,
+                converter);
     }
 
     AndroidServiceBinder(
@@ -95,13 +98,14 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
             @NonNull String servicePackage,
             boolean enableLookupByName,
             @NonNull Function<IBinder, T> converter) {
-        this.mServiceIntentActionOrName = serviceIntentActionOrName;
-        this.mContext = context;
-        this.mBinderConverter = converter;
-        this.mServicePackages = List.of(servicePackage);
-        this.mEnableLookupByServiceName = enableLookupByName;
-        this.mBindFlags = 0;
-        this.mIsolatedProcessName = null;
+        this(
+                context,
+                serviceIntentActionOrName,
+                servicePackage,
+                /* isolatedProcessName= */ null,
+                enableLookupByName,
+                /* bindFlags= */ 0,
+                converter);
     }
 
     AndroidServiceBinder(
@@ -112,10 +116,28 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
             boolean enableLookupByName,
             int bindFlags,
             @NonNull Function<IBinder, T> converter) {
+        this(
+                context,
+                serviceIntentActionOrName,
+                List.of(servicePackage),
+                isolatedProcessName,
+                enableLookupByName,
+                bindFlags,
+                converter);
+    }
+
+    private AndroidServiceBinder(
+            @NonNull Context context,
+            @NonNull String serviceIntentActionOrName,
+            @NonNull List<String> servicePackages,
+            @NonNull String isolatedProcessName,
+            boolean enableLookupByName,
+            int bindFlags,
+            @NonNull Function<IBinder, T> converter) {
         this.mServiceIntentActionOrName = serviceIntentActionOrName;
         this.mContext = context;
         this.mBinderConverter = converter;
-        this.mServicePackages = List.of(servicePackage);
+        this.mServicePackages = servicePackages;
         this.mEnableLookupByServiceName = enableLookupByName;
         this.mBindFlags = bindFlags;
         this.mIsolatedProcessName = isolatedProcessName;
@@ -123,6 +145,36 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
 
     @Override
     public T getService(@NonNull Executor executor) {
+        int retryAttempts = 0;
+        T service;
+        IllegalStateException exceptionInfo = null;
+
+        while (retryAttempts < MAX_GET_SERVICE_RETRIES) {
+            try {
+                service = getServiceWithoutRetry(executor);
+                if (service != null) {
+                    return service;
+                }
+            } catch (IllegalStateException e) {
+                LogUtil.e(TAG, e, "Failed to get service on attempt " + (retryAttempts + 1));
+                exceptionInfo = e;
+            }
+            retryAttempts++;
+            try {
+                Thread.sleep(GET_SERVICE_RETRY_DELAY_MS);
+            } catch (InterruptedException e) {
+                LogUtil.w(TAG, "Thread sleep interrupted");
+            }
+        }
+
+        throw exceptionInfo != null
+            ? exceptionInfo
+            : new IllegalStateException(
+                String.format("Failed to get non-null service %s after %d retries",
+                    mServiceIntentActionOrName, retryAttempts));
+    }
+
+    private T getServiceWithoutRetry(@NonNull Executor executor) {
         synchronized (mLock) {
             if (mService != null) {
                 return mService;
@@ -163,10 +215,12 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
                 LogUtil.i(TAG, "bindService() %s already pending...", mServiceIntentActionOrName);
             }
         }
-        // release the lock to let connection to set the mFcpService
+        // Release the lock to let the ServiceConnection set the mService. If unbind race condition
+        // happen here (e.g. onBindingDied called) client should retry
         try {
             mConnectionCountDownLatch.await(BINDER_CONNECTION_TIMEOUT_MS, MILLISECONDS);
         } catch (InterruptedException e) {
+            LogUtil.e(TAG, "Failed to connect to the service %s ", mServiceIntentActionOrName);
             throw new IllegalStateException("Thread interrupted"); // TODO Handle it better.
         }
         synchronized (mLock) {
@@ -250,7 +304,11 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
         synchronized (mLock) {
             if (mServiceConnection != null) {
                 LogUtil.d(TAG, "unbinding %s...", mServiceIntentActionOrName);
-                mContext.unbindService(mServiceConnection);
+                try {
+                    mContext.unbindService(mServiceConnection);
+                } catch (IllegalArgumentException e) {
+                    LogUtil.e(TAG, e, "unbinding failed %s", mServiceIntentActionOrName);
+                }
             }
             mServiceConnection = null;
             mService = null;
@@ -276,14 +334,14 @@ class AndroidServiceBinder<T> extends AbstractServiceBinder<T> {
 
         @Override
         public void onBindingDied(ComponentName name) {
-            LogUtil.e(TAG, "onBindingDied " + mServiceIntentActionOrName);
+            LogUtil.w(TAG, "onBindingDied " + mServiceIntentActionOrName);
             unbindFromService();
             mConnectionCountDownLatch.countDown();
         }
 
         @Override
         public void onNullBinding(ComponentName name) {
-            LogUtil.e(TAG, "onNullBinding shouldn't happen. " + mServiceIntentActionOrName);
+            LogUtil.w(TAG, "onNullBinding shouldn't happen. " + mServiceIntentActionOrName);
             unbindFromService();
             mConnectionCountDownLatch.countDown();
         }

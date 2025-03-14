@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash cd8913a3f9d39f1cc0a5fcf9e90257be94ec38df --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen/android/hardware/radio/data/DataCallFailCause.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/3/android/hardware/radio/data/DataCallFailCause.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 70713939dbe39fdbd3a294b3a3e3d2842b3bf4eb --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V4-java-source/gen/android/hardware/radio/data/DataCallFailCause.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.data-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.data/4/android/hardware/radio/data/DataCallFailCause.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.data;
 /** @hide */
@@ -139,6 +143,8 @@ public @interface DataCallFailCause {
   public static final int MAX_PPP_INACTIVITY_TIMER_EXPIRED = 2046;
   public static final int IPV6_ADDRESS_TRANSFER_FAILED = 2047;
   public static final int TRAT_SWAP_FAILED = 2048;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EHRPD_TO_HRPD_FALLBACK = 2049;
   public static final int MIP_CONFIG_FAILURE = 2050;
   public static final int PDN_INACTIVITY_TIMER_EXPIRED = 2051;
@@ -162,11 +168,23 @@ public @interface DataCallFailCause {
   public static final int NON_IP_NOT_SUPPORTED = 2069;
   public static final int PDN_NON_IP_CALL_THROTTLED = 2070;
   public static final int PDN_NON_IP_CALL_DISALLOWED = 2071;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_LOCK = 2072;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_INTERCEPT = 2073;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_REORDER = 2074;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_RELEASE_DUE_TO_SO_REJECTION = 2075;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_INCOMING_CALL = 2076;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_ALERT_STOP = 2077;
   public static final int CHANNEL_ACQUISITION_FAILURE = 2078;
   public static final int MAX_ACCESS_PROBE = 2079;
@@ -174,8 +192,12 @@ public @interface DataCallFailCause {
   public static final int NO_RESPONSE_FROM_BASE_STATION = 2081;
   public static final int REJECTED_BY_BASE_STATION = 2082;
   public static final int CONCURRENT_SERVICES_INCOMPATIBLE = 2083;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NO_CDMA_SERVICE = 2084;
   public static final int RUIM_NOT_PRESENT = 2085;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_RETRY_ORDER = 2086;
   public static final int ACCESS_BLOCK = 2087;
   public static final int ACCESS_BLOCK_ALL = 2088;
@@ -293,12 +315,26 @@ public @interface DataCallFailCause {
   public static final int LOWER_LAYER_REGISTRATION_FAILURE = 2197;
   public static final int DATA_PLAN_EXPIRED = 2198;
   public static final int UMTS_HANDOVER_TO_IWLAN = 2199;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_CONNECTION_DENY_BY_GENERAL_OR_NETWORK_BUSY = 2200;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_CONNECTION_DENY_BY_BILLING_OR_AUTHENTICATION_FAILURE = 2201;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_HDR_CHANGED = 2202;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_HDR_EXITED = 2203;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_HDR_NO_SESSION = 2204;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_USING_GPS_FIX_INSTEAD_OF_HDR_CALL = 2205;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int EVDO_HDR_CONNECTION_SETUP_TIMEOUT = 2206;
   public static final int FAILED_TO_ACQUIRE_COLOCATED_HDR = 2207;
   public static final int OTASP_COMMIT_IN_PROGRESS = 2208;

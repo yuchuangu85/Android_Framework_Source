@@ -22,6 +22,7 @@ import android.annotation.Nullable;
 import android.app.AppGlobals;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.util.Log;
 
 import com.android.internal.util.FastPrintWriter;
@@ -114,6 +115,7 @@ public final class Debug
         "opengl-tracing",
         "view-hierarchy",
         "support_boot_stages",
+        "app_info",
     };
 
     /**
@@ -1016,14 +1018,14 @@ public final class Debug
         // send VM_START.
         System.out.println("Waiting for debugger first packet");
 
-        mWaiting = true;
+        setWaitingForDebugger(true);
         while (!isDebuggerConnected()) {
             try {
                 Thread.sleep(100);
             } catch (InterruptedException ie) {
             }
         }
-        mWaiting = false;
+        setWaitingForDebugger(false);
 
         System.out.println("Debug.suspendAllAndSentVmStart");
         VMDebug.suspendAllAndSendVmStart();
@@ -1049,12 +1051,12 @@ public final class Debug
         Chunk waitChunk = new Chunk(ChunkHandler.type("WAIT"), data, 0, 1);
         DdmServer.sendChunk(waitChunk);
 
-        mWaiting = true;
+        setWaitingForDebugger(true);
         while (!isDebuggerConnected()) {
             try { Thread.sleep(SPIN_DELAY); }
             catch (InterruptedException ie) {}
         }
-        mWaiting = false;
+        setWaitingForDebugger(false);
 
         System.out.println("Debugger has connected");
 
@@ -1109,6 +1111,16 @@ public final class Debug
      */
     public static String[] getVmFeatureList() {
         return VMDebug.getVmFeatureList();
+    }
+
+    /**
+     * Set whether the app is waiting for a debugger to connect
+     *
+     * @hide
+     */
+    private static void setWaitingForDebugger(boolean waiting) {
+        mWaiting = waiting;
+        VMDebug.setWaitingForDebugger(waiting);
     }
 
     /**
@@ -2128,6 +2140,47 @@ public final class Debug
     }
 
     /**
+     * Like dumpHprofData(String), but takes an argument of bitmapFormat,
+     * which can be png, jpg, webp, or null (no bitmaps in heapdump).
+     *
+     * @hide
+     */
+    public static void dumpHprofData(String fileName, String bitmapFormat)
+            throws IOException {
+        try {
+            if (bitmapFormat != null) {
+                Bitmap.dumpAll(bitmapFormat);
+            }
+            VMDebug.dumpHprofData(fileName);
+        } finally {
+            if (bitmapFormat != null) {
+                Bitmap.dumpAll(null); // clear dump data
+            }
+        }
+    }
+
+    /**
+     * Like dumpHprofData(String, FileDescriptor), but takes an argument
+     * of bitmapFormat, which can be png, jpg, webp, or null (no bitmaps
+     * in heapdump).
+     *
+     * @hide
+     */
+    public static void dumpHprofData(String fileName, FileDescriptor fd,
+            String bitmapFormat) throws IOException {
+        try {
+            if (bitmapFormat != null) {
+                Bitmap.dumpAll(bitmapFormat);
+            }
+            VMDebug.dumpHprofData(fileName, fd);
+        } finally {
+            if (bitmapFormat != null) {
+                Bitmap.dumpAll(null); // clear dump data
+            }
+        }
+    }
+
+    /**
      * Collect "hprof" and send it to DDMS.  This may cause a GC.
      *
      * @throws UnsupportedOperationException if the VM was built without
@@ -2729,5 +2782,13 @@ public final class Debug
      * @hide
      */
     public static native boolean logAllocatorStats();
+
+    /**
+     * Return the amount of memory (in kB) allocated by kernel drivers through CMA.
+     * @return a non-negative value or -1 on error.
+     *
+     * @hide
+     */
+    public static native long getKernelCmaUsageKb();
 
 }

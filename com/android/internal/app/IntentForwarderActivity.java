@@ -48,6 +48,8 @@ import android.content.pm.IPackageManager;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.pm.UserInfo;
+import android.content.res.Configuration;
+import android.graphics.Insets;
 import android.graphics.drawable.Drawable;
 import android.metrics.LogMaker;
 import android.os.Build;
@@ -60,6 +62,7 @@ import android.telecom.TelecomManager;
 import android.util.Log;
 import android.util.Slog;
 import android.view.View;
+import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -67,6 +70,7 @@ import android.widget.Toast;
 
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.app.chooser.TargetInfo;
 import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 
@@ -114,6 +118,12 @@ public class IntentForwarderActivity extends Activity  {
     protected void onDestroy() {
         super.onDestroy();
         mExecutorService.shutdown();
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        setMiniresolverPadding();
     }
 
     @Override
@@ -333,8 +343,7 @@ public class IntentForwarderActivity extends Activity  {
         icon.setImageDrawable(
                 getAppIcon(target, launchIntent, targetUserId, pmForTargetUser));
 
-        View buttonContainer = findViewById(R.id.button_bar_container);
-        buttonContainer.setPadding(0, 0, 0, buttonContainer.getPaddingBottom());
+        setMiniresolverPadding();
 
         ((TextView) findViewById(R.id.open_cross_profile)).setText(
                 resolverTitle);
@@ -344,6 +353,7 @@ public class IntentForwarderActivity extends Activity  {
         findViewById(R.id.use_same_profile_browser).setOnClickListener(v -> finish());
 
         findViewById(R.id.button_open).setOnClickListener(v -> {
+            TargetInfo.refreshIntentCreatorToken(launchIntent);
             startActivityAsCaller(
                     launchIntent,
                     ActivityOptions.makeCustomAnimation(
@@ -468,6 +478,7 @@ public class IntentForwarderActivity extends Activity  {
 
     private void startActivityAsCaller(Intent newIntent, int userId) {
         try {
+            TargetInfo.refreshIntentCreatorToken(newIntent);
             startActivityAsCaller(
                     newIntent,
                     /* options= */ null,
@@ -494,6 +505,7 @@ public class IntentForwarderActivity extends Activity  {
             return;
         }
         sanitizeIntent(innerIntent);
+        TargetInfo.refreshIntentCreatorToken(intentReceived);
         startActivityAsCaller(intentReceived, null, false, getUserId());
         finish();
     }
@@ -517,6 +529,7 @@ public class IntentForwarderActivity extends Activity  {
         if (singleTabOnly) {
             intentReceived.putExtra(EXTRA_RESTRICT_TO_SINGLE_USER, true);
         }
+        TargetInfo.refreshIntentCreatorToken(intentReceived);
         startActivityAsCaller(intentReceived, null, false, userId);
         finish();
     }
@@ -586,24 +599,35 @@ public class IntentForwarderActivity extends Activity  {
                 Intent.FLAG_ACTIVITY_FORWARD_RESULT | Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP);
         sanitizeIntent(forwardIntent);
 
-        Intent intentToCheck = forwardIntent;
-        if (Intent.ACTION_CHOOSER.equals(forwardIntent.getAction())) {
+        if (!canForwardInner(forwardIntent, sourceUserId, targetUserId, packageManager,
+                contentResolver)) {
             return null;
         }
         if (forwardIntent.getSelector() != null) {
-            intentToCheck = forwardIntent.getSelector();
+            sanitizeIntent(forwardIntent.getSelector());
+            if (!canForwardInner(forwardIntent.getSelector(), sourceUserId, targetUserId,
+                    packageManager, contentResolver)) {
+                return null;
+            }
         }
-        String resolvedType = intentToCheck.resolveTypeIfNeeded(contentResolver);
-        sanitizeIntent(intentToCheck);
+        return forwardIntent;
+    }
+
+    private static boolean canForwardInner(Intent intent, int sourceUserId, int targetUserId,
+            IPackageManager packageManager, ContentResolver contentResolver) {
+        if (Intent.ACTION_CHOOSER.equals(intent.getAction())) {
+            return false;
+        }
+        String resolvedType = intent.resolveTypeIfNeeded(contentResolver);
         try {
             if (packageManager.canForwardTo(
-                    intentToCheck, resolvedType, sourceUserId, targetUserId)) {
-                return forwardIntent;
+                    intent, resolvedType, sourceUserId, targetUserId)) {
+                return true;
             }
         } catch (RemoteException e) {
             Slog.e(TAG, "PackageManagerService is dead?");
         }
-        return null;
+        return false;
     }
 
     /**
@@ -673,6 +697,18 @@ public class IntentForwarderActivity extends Activity  {
         return android.os.Flags.allowPrivateProfile()
                 && android.multiuser.Flags.enablePrivateSpaceFeatures()
                 && android.multiuser.Flags.enablePrivateSpaceIntentRedirection();
+    }
+
+    private void setMiniresolverPadding() {
+        View buttonContainer = findViewById(R.id.button_bar_container);
+        if (buttonContainer != null) {
+            Insets systemWindowInsets =
+                    getWindowManager().getCurrentWindowMetrics().getWindowInsets().getInsets(
+                            WindowInsets.Type.systemBars());
+            buttonContainer.setPadding(0, 0, 0,
+                    systemWindowInsets.bottom + getResources().getDimensionPixelOffset(
+                            R.dimen.resolver_button_bar_spacing));
+        }
     }
 
     @VisibleForTesting

@@ -22,6 +22,7 @@ import static android.health.connect.HealthDataCategory.CYCLE_TRACKING;
 import static android.health.connect.HealthDataCategory.NUTRITION;
 import static android.health.connect.HealthDataCategory.SLEEP;
 import static android.health.connect.HealthDataCategory.VITALS;
+import static android.health.connect.HealthDataCategory.WELLNESS;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_ACTIVE_CALORIES_BURNED;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_BASAL_BODY_TEMPERATURE;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_BASAL_METABOLIC_RATE;
@@ -45,6 +46,7 @@ import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_LEAN_BODY_MASS;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_MENSTRUATION_FLOW;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_MENSTRUATION_PERIOD;
+import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_MINDFULNESS_SESSION;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_NUTRITION;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_OVULATION_TEST;
 import static android.health.connect.datatypes.RecordTypeIdentifier.RECORD_TYPE_OXYGEN_SATURATION;
@@ -121,12 +123,18 @@ public final class RecordTypeRecordCategoryMapper {
                         put(RECORD_TYPE_EXERCISE_SESSION, ACTIVITY);
                         put(RECORD_TYPE_PLANNED_EXERCISE_SESSION, ACTIVITY);
                         put(RECORD_TYPE_SLEEP_SESSION, SLEEP);
+                        put(RECORD_TYPE_MINDFULNESS_SESSION, WELLNESS);
                     }
                 };
     }
 
-    /** Returns {@link HealthDataCategory} for the input {@link RecordTypeIdentifier.RecordType}. */
+    /**
+     * Returns {@link HealthDataCategory} for the input {@link RecordTypeIdentifier.RecordType}.
+     *
+     * @deprecated Use {@link HealthConnectMappings#getRecordCategoryForRecordType(int)}
+     */
     @SuppressLint("LongLogTag")
+    @Deprecated
     @HealthDataCategory.Type
     public static int getRecordCategoryForRecordType(
             @RecordTypeIdentifier.RecordType int recordType) {

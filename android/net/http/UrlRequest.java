@@ -86,6 +86,9 @@ public abstract class UrlRequest {
         public abstract Builder addHeader(@NonNull String header, @NonNull String value);
 
         /**
+         * WARNING: This method should not be called with `setCacheDisabled(false)` as this may
+         * lead to incorrect behaviour on older versions of HttpEngine.
+         *
          * Whether to disable cache for the request. If the engine is not set up to use cache,
          * this call has no effect.
          * @param disableCache {@code true} to disable cache, {@code false} otherwise.
@@ -122,6 +125,9 @@ public abstract class UrlRequest {
                 @NonNull UploadDataProvider uploadDataProvider, @NonNull Executor executor);
 
         /**
+         * WARNING: This method should not be called with `setDirectExecutorAllowed(false)` as
+         * this may lead to incorrect behaviour on older versions of HttpEngine.
+         *
          * Marks whether the executors this request will use to notify callbacks (for
          * {@code UploadDataProvider}s and {@code UrlRequest.Callback}s) is intentionally performing
          * inline execution, like Guava's directExecutor or

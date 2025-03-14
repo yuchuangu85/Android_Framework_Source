@@ -20,7 +20,6 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.content.Context;
 import android.os.Environment;
-import android.os.Process;
 import android.os.UserHandle;
 
 import java.io.File;
@@ -79,6 +78,13 @@ public class FrameworkAppSearchEnvironment implements AppSearchEnvironment {
         return Executors.newSingleThreadExecutor();
     }
 
+    /** Creates and returns an Executor with cached thread pools. */
+    @NonNull
+    @Override
+    public ExecutorService createCachedThreadPoolExecutor() {
+        return Executors.newCachedThreadPool();
+    }
+
     /**
      * Returns a cache directory for creating temporary files like in case of migrating documents.
      */
@@ -89,22 +95,15 @@ public class FrameworkAppSearchEnvironment implements AppSearchEnvironment {
         return null;
     }
 
-    /** Returns an INVALID UID, this is duplicated to maintain code-sync with GMSCore. */
-    @Override
-    public int getInvalidUid() {
-        return Process.INVALID_UID;
-    }
-
-    /** Creates and returns an Executor with cached thread pools. */
-    @NonNull
-    @Override
-    public ExecutorService createCachedThreadPoolExecutor() {
-        return Executors.newCachedThreadPool();
-    }
-
     /** Returns if we can log INFO level logs. */
     @Override
     public boolean isInfoLoggingEnabled() {
         return true;
+    }
+
+    /** Returns the {@code EnvironmentType} for this environment. */
+    @Override
+    public int getEnvironment() {
+        return FRAMEWORK_ENVIRONMENT;
     }
 }

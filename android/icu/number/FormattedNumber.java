@@ -127,7 +127,6 @@ public class FormattedNumber implements FormattedValue {
      *
      * @return NounClass
      */
-    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_V_API)
     public DisplayOptions.NounClass getNounClass() {
         return DisplayOptions.NounClass.fromIdentifier(this.gender);
     }

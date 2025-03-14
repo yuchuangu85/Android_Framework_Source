@@ -24,12 +24,14 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.text.TextUtils;
 
+import com.android.net.flags.Flags;
+
 import java.util.Objects;
 
 /**
  * Encapsulates parameters for {@link NsdManager#discoverServices}.
  */
-@FlaggedApi(NsdManager.Flags.NSD_SUBTYPES_SUPPORT_ENABLED)
+@FlaggedApi(Flags.FLAG_NSD_SUBTYPES_SUPPORT_ENABLED)
 public final class DiscoveryRequest implements Parcelable {
     private final int mProtocolType;
 

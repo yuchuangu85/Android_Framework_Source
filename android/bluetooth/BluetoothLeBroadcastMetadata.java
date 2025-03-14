@@ -16,7 +16,8 @@
 
 package android.bluetooth;
 
-import android.annotation.FlaggedApi;
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -24,8 +25,6 @@ import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
-
-import com.android.bluetooth.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -359,7 +358,6 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
      *
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_BROADCAST_MONITOR_SOURCE_SYNC_STATUS)
     @SystemApi
     public static final int RSSI_UNKNOWN = 0x7F;
 
@@ -373,7 +371,6 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
      * @return the RSSI {@link #RSSI_UNKNOWN} if unknown
      * @hide
      */
-    @FlaggedApi(Flags.FLAG_LEAUDIO_BROADCAST_MONITOR_SOURCE_SYNC_STATUS)
     @SystemApi
     public @IntRange(from = -127, to = 127) int getRssi() {
         return mRssi;
@@ -442,7 +439,7 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
         out.writeInt(mPresentationDelayMicros);
         out.writeTypedList(mSubgroups);
         out.writeBoolean(mIsPublicBroadcast);
-        out.writeString(mBroadcastName);
+        BluetoothUtils.writeStringToParcel(out, mBroadcastName);
         out.writeInt(mAudioConfigQuality);
         out.writeTypedObject(mPublicBroadcastMetadata, 0);
         out.writeInt(mRssi);
@@ -552,7 +549,9 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
             mAudioConfigQuality = original.getAudioConfigQuality();
             mRssi = original.getRssi();
             mPublicBroadcastMetadata = original.getPublicBroadcastMetadata();
-            mSubgroups = original.getSubgroups();
+            for (BluetoothLeBroadcastSubgroup subgroup : original.getSubgroups()) {
+                mSubgroups.add(new BluetoothLeBroadcastSubgroup.Builder(subgroup).build());
+            }
         }
 
         /**
@@ -585,7 +584,7 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
                 throw new IllegalArgumentException(
                         "sourceAddressType " + sourceAddressType + " is invalid");
             }
-            Objects.requireNonNull(sourceDevice, "sourceDevice cannot be null");
+            requireNonNull(sourceDevice);
             mSourceAddressType = sourceAddressType;
             mSourceDevice = sourceDevice;
             return this;
@@ -751,7 +750,6 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
          * @throws IllegalArgumentException if rssi is not in the range [-127, 127].
          * @hide
          */
-        @FlaggedApi(Flags.FLAG_LEAUDIO_BROADCAST_MONITOR_SOURCE_SYNC_STATUS)
         @SystemApi
         @NonNull
         public Builder setRssi(@IntRange(from = -127, to = 127) int rssi) {
@@ -789,7 +787,7 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
          */
         @SystemApi
         public @NonNull Builder addSubgroup(@NonNull BluetoothLeBroadcastSubgroup subgroup) {
-            Objects.requireNonNull(subgroup, "subgroup cannot be null");
+            requireNonNull(subgroup);
             mSubgroups.add(subgroup);
             return this;
         }
@@ -825,7 +823,7 @@ public final class BluetoothLeBroadcastMetadata implements Parcelable {
                 throw new IllegalArgumentException(
                         "sourceAddressType " + mSourceAddressType + " is invalid");
             }
-            Objects.requireNonNull(mSourceDevice, "mSourceDevice cannot be null");
+            requireNonNull(mSourceDevice);
             if (mSubgroups.isEmpty()) {
                 throw new IllegalArgumentException("Must contain at least one subgroup");
             }

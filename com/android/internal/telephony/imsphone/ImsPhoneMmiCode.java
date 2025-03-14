@@ -63,6 +63,7 @@ import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.MmiCode;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.gsm.GsmMmiCode;
 import com.android.internal.telephony.uicc.IccRecords;
 import com.android.telephony.Rlog;
@@ -165,6 +166,9 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
     private static final int NUM_PRESENTATION_ALLOWED     = 0;
     private static final int NUM_PRESENTATION_RESTRICTED  = 1;
 
+    // Using same value with CallForwardEditPreference#DEFAULT_NO_REPLY_TIMER_FOR_CFNRY
+    private static final int DEFAULT_NO_REPLY_TIMER_FOR_CFNRY = 20;
+
     //***** Supplementary Service Query Bundle Keys
     // Used by IMS Service layer to put supp. serv. query
     // responses into the ssInfo Bundle.
@@ -245,6 +249,8 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
     private static final int MATCH_GROUP_DIALING_NUMBER = 12;
     static private String[] sTwoDigitNumberPattern;
 
+    private final FeatureFlags mFeatureFlags;
+
     //***** Public Class methods
 
     /**
@@ -262,12 +268,13 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @VisibleForTesting
-    public static ImsPhoneMmiCode newFromDialString(String dialString, ImsPhone phone) {
-       return newFromDialString(dialString, phone, null);
+    public static ImsPhoneMmiCode newFromDialString(String dialString, ImsPhone phone,
+            FeatureFlags featureFlags) {
+        return newFromDialString(dialString, phone, null, featureFlags);
     }
 
-    static ImsPhoneMmiCode newFromDialString(String dialString,
-                                             ImsPhone phone, ResultReceiver wrappedCallback) {
+    static ImsPhoneMmiCode newFromDialString(String dialString, ImsPhone phone,
+            ResultReceiver wrappedCallback, FeatureFlags featureFlags) {
         Matcher m;
         ImsPhoneMmiCode ret = null;
 
@@ -287,7 +294,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
 
         // Is this formatted like a standard supplementary service code?
         if (m.matches()) {
-            ret = new ImsPhoneMmiCode(phone);
+            ret = new ImsPhoneMmiCode(phone, featureFlags);
             ret.mPoundString = makeEmptyNull(m.group(MATCH_GROUP_POUND_STRING));
             ret.mAction = makeEmptyNull(m.group(MATCH_GROUP_ACTION));
             ret.mSc = makeEmptyNull(m.group(MATCH_GROUP_SERVICE_CODE));
@@ -305,7 +312,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             if (ret.mDialingNumber != null &&
                     ret.mDialingNumber.endsWith("#") &&
                     dialString.endsWith("#")){
-                ret = new ImsPhoneMmiCode(phone);
+                ret = new ImsPhoneMmiCode(phone, featureFlags);
                 ret.mPoundString = dialString;
             }
         } else if (dialString.endsWith("#")) {
@@ -313,7 +320,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             // "Entry of any characters defined in the 3GPP TS 23.038 [8] Default Alphabet
             // (up to the maximum defined in 3GPP TS 24.080 [10]), followed by #SEND".
 
-            ret = new ImsPhoneMmiCode(phone);
+            ret = new ImsPhoneMmiCode(phone, featureFlags);
             ret.mPoundString = dialString;
         } else if (GsmMmiCode.isTwoDigitShortCode(phone.getContext(), phone.getSubId(),
                 dialString)) {
@@ -321,7 +328,7 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             ret = null;
         } else if (isShortCode(dialString, phone)) {
             // this may be a short code, as defined in TS 22.030, 6.5.3.2
-            ret = new ImsPhoneMmiCode(phone);
+            ret = new ImsPhoneMmiCode(phone, featureFlags);
             ret.mDialingNumber = dialString;
         }
         return ret;
@@ -348,10 +355,10 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
     }
 
     public static ImsPhoneMmiCode newNetworkInitiatedUssd(String ussdMessage,
-            boolean isUssdRequest, ImsPhone phone) {
+            boolean isUssdRequest, ImsPhone phone, FeatureFlags featureFlags) {
         ImsPhoneMmiCode ret;
 
-        ret = new ImsPhoneMmiCode(phone);
+        ret = new ImsPhoneMmiCode(phone, featureFlags);
 
         ret.mMessage = ussdMessage;
         ret.mIsUssdRequest = isUssdRequest;
@@ -368,10 +375,11 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
         return ret;
     }
 
-    static ImsPhoneMmiCode newFromUssdUserInput(String ussdMessge, ImsPhone phone) {
-        ImsPhoneMmiCode ret = new ImsPhoneMmiCode(phone);
+    static ImsPhoneMmiCode newFromUssdUserInput(String ussdMessage, ImsPhone phone,
+            FeatureFlags featureFlags) {
+        ImsPhoneMmiCode ret = new ImsPhoneMmiCode(phone, featureFlags);
 
-        ret.mMessage = ussdMessge;
+        ret.mMessage = ussdMessage;
         ret.mState = State.PENDING;
         ret.mIsPendingUSSD = true;
 
@@ -584,13 +592,15 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
 
     //***** Constructor
 
-    public ImsPhoneMmiCode(ImsPhone phone) {
+    public ImsPhoneMmiCode(ImsPhone phone, FeatureFlags featureFlags) {
         // The telephony unit-test cases may create ImsPhoneMmiCode's
         // in secondary threads
         super(phone.getHandler().getLooper());
         mPhone = phone;
         mContext = phone.getContext();
         mIccRecords = mPhone.mDefaultPhone.getIccRecords();
+
+        mFeatureFlags = featureFlags;
     }
 
     //***** MmiCode implementation
@@ -907,7 +917,19 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
                 String dialingNumber = mSia;
                 int reason = scToCallForwardReason(mSc);
                 int serviceClass = siToServiceClass(mSib);
-                int time = siToTime(mSic);
+                int time;
+
+                if (mFeatureFlags.useCarrierConfigForCfnryTimeViaMmi()) {
+                    // If the code is CFNRy and time is null(empty)
+                    // use the default time value from CarrierConfig
+                    if (mSc.equals(SC_CFNRy) && isEmptyOrNull(mSic)) {
+                        time = getCfnryTime();
+                    } else {
+                        time = siToTime(mSic);
+                    }
+                } else {
+                    time = siToTime(mSic);
+                }
 
                 if (isInterrogate()) {
                     mPhone.getCallForwardingOption(reason, serviceClass,
@@ -1145,6 +1167,27 @@ public final class ImsPhoneMmiCode extends Handler implements MmiCode {
             Rlog.d(LOG_TAG, "processCode: RuntimeException = " + exc);
             mPhone.onMMIDone(this);
         }
+    }
+
+    private int getCfnryTime() {
+        CarrierConfigManager configManager = mContext.getSystemService(CarrierConfigManager.class);
+        if (configManager == null) {
+            return DEFAULT_NO_REPLY_TIMER_FOR_CFNRY;
+        }
+
+        PersistableBundle carrierConfig = configManager.getConfigForSubId(mPhone.getSubId());
+        if (carrierConfig == null
+                || !carrierConfig.getBoolean(
+                        CarrierConfigManager.KEY_SUPPORT_NO_REPLY_TIMER_FOR_CFNRY_BOOL, true)) {
+            return DEFAULT_NO_REPLY_TIMER_FOR_CFNRY;
+        }
+
+        int time = carrierConfig.getInt(
+                CarrierConfigManager.KEY_NO_REPLY_TIMER_FOR_CFNRY_SEC_INT,
+                DEFAULT_NO_REPLY_TIMER_FOR_CFNRY);
+
+        Rlog.d(LOG_TAG, "getCfnryTime: " + time);
+        return time;
     }
 
     private boolean isUssdOverImsAllowed() {

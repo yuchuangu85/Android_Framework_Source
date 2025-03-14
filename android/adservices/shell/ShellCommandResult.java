@@ -27,7 +27,7 @@ import java.util.Objects;
  *
  * @hide
  */
-public class ShellCommandResult implements Parcelable {
+public final class ShellCommandResult implements Parcelable {
 
     private static final int RESULT_OK = 0;
 
@@ -96,6 +96,19 @@ public class ShellCommandResult implements Parcelable {
     @Nullable
     public String getErr() {
         return mErr;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder string = new StringBuilder("ShellCommandResult[code=").append(mResultCode);
+        // Redact the output, as it could be too large
+        if (mOut != null) {
+            string.append(", out_size=").append(mOut.length());
+        }
+        if (mErr != null) {
+            string.append(", err_size=").append(mErr.length());
+        }
+        return string.append(']').toString();
     }
 
     /**

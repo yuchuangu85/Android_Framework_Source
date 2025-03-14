@@ -1127,7 +1127,7 @@ public class SubscriptionManager {
      * <P>Type: INTEGER (int)</P>
      * @hide
      */
-    public static final String IS_NTN = SimInfo.COLUMN_IS_NTN;
+    public static final String IS_ONLY_NTN = SimInfo.COLUMN_IS_ONLY_NTN;
 
     /**
      * TelephonyProvider column name to identify service capabilities.
@@ -1166,6 +1166,26 @@ public class SubscriptionManager {
      */
     public static final String SATELLITE_ENTITLEMENT_PLMNS =
             SimInfo.COLUMN_SATELLITE_ENTITLEMENT_PLMNS;
+
+    /**
+     * TelephonyProvider column name to indicate the satellite ESOS supported. The value of this
+     * column is set based on {@link CarrierConfigManager#KEY_SATELLITE_ESOS_SUPPORTED_BOOL}.
+     * By default, it's disabled.
+     * <P>Type: INTEGER (int)</P>
+     *
+     * @hide
+     */
+    public static final String SATELLITE_ESOS_SUPPORTED = SimInfo.COLUMN_SATELLITE_ESOS_SUPPORTED;
+
+    /**
+     * TelephonyProvider column name for satellite provisioned status. The value of this
+     * column is set based on whether carrier roaming NB-IOT satellite service is provisioned or
+     * not. By default, it's disabled.
+     *
+     * @hide
+     */
+    public static final String IS_SATELLITE_PROVISIONED_FOR_NON_IP_DATAGRAM =
+            SimInfo.COLUMN_IS_SATELLITE_PROVISIONED_FOR_NON_IP_DATAGRAM;
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
@@ -1402,7 +1422,6 @@ public class SubscriptionManager {
      *
      * @see TelephonyManager#isDeviceVoiceCapable()
      */
-    @FlaggedApi(Flags.FLAG_DATA_ONLY_CELLULAR_SERVICE)
     public static final int SERVICE_CAPABILITY_VOICE = 1;
 
     /**
@@ -1420,13 +1439,11 @@ public class SubscriptionManager {
      *
      * @see TelephonyManager#isDeviceSmsCapable()
      */
-    @FlaggedApi(Flags.FLAG_DATA_ONLY_CELLULAR_SERVICE)
     public static final int SERVICE_CAPABILITY_SMS = 2;
 
     /**
      * Represents a value indicating the data calling capabilities of a subscription.
      */
-    @FlaggedApi(Flags.FLAG_DATA_ONLY_CELLULAR_SERVICE)
     public static final int SERVICE_CAPABILITY_DATA = 3;
 
     /**
@@ -1436,21 +1453,21 @@ public class SubscriptionManager {
     public static final int SERVICE_CAPABILITY_MAX = SERVICE_CAPABILITY_DATA;
 
     /**
-     * Bitmask for {@code SERVICE_CAPABILITY_VOICE}.
+     * Bitmask for {@link #SERVICE_CAPABILITY_VOICE}.
      * @hide
      */
     public static final int SERVICE_CAPABILITY_VOICE_BITMASK =
             serviceCapabilityToBitmask(SERVICE_CAPABILITY_VOICE);
 
     /**
-     * Bitmask for {@code SERVICE_CAPABILITY_SMS}.
+     * Bitmask for {@link #SERVICE_CAPABILITY_SMS}.
      * @hide
      */
     public static final int SERVICE_CAPABILITY_SMS_BITMASK =
             serviceCapabilityToBitmask(SERVICE_CAPABILITY_SMS);
 
     /**
-     * Bitmask for {@code SERVICE_CAPABILITY_DATA}.
+     * Bitmask for {@link #SERVICE_CAPABILITY_DATA}.
      * @hide
      */
     public static final int SERVICE_CAPABILITY_DATA_BITMASK =
@@ -2783,17 +2800,17 @@ public class SubscriptionManager {
         return phoneId >= 0 && phoneId < TelephonyManager.getDefault().getActiveModemCount();
     }
 
-    /** @hide */
+    /**
+     * Puts phone ID and subscription ID into the {@code intent}.
+     *
+     * <p>If the subscription ID is not valid, only puts phone ID into the {@code intent}.
+     *
+     * @hide
+     */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P)
     public static void putPhoneIdAndSubIdExtra(Intent intent, int phoneId) {
         int subId = SubscriptionManager.getSubscriptionId(phoneId);
-        if (isValidSubscriptionId(subId)) {
-            putPhoneIdAndSubIdExtra(intent, phoneId, subId);
-        } else {
-            logd("putPhoneIdAndSubIdExtra: no valid subs");
-            intent.putExtra(PhoneConstants.PHONE_KEY, phoneId);
-            intent.putExtra(EXTRA_SLOT_INDEX, phoneId);
-        }
+        putPhoneIdAndMaybeSubIdExtra(intent, phoneId, subId);
     }
 
     /** @hide */
@@ -2803,6 +2820,23 @@ public class SubscriptionManager {
         intent.putExtra(EXTRA_SLOT_INDEX, phoneId);
         intent.putExtra(PhoneConstants.PHONE_KEY, phoneId);
         putSubscriptionIdExtra(intent, subId);
+    }
+
+    /**
+     * Puts phone ID and subscription ID into the {@code intent}.
+     *
+     * <p>If the subscription ID is not valid, only puts phone ID into the {@code intent}.
+     *
+     * @hide
+     */
+    public static void putPhoneIdAndMaybeSubIdExtra(Intent intent, int phoneId, int subId) {
+        if (isValidSubscriptionId(subId)) {
+            putPhoneIdAndSubIdExtra(intent, phoneId, subId);
+        } else {
+            if (VDBG) logd("putPhoneIdAndMaybeSubIdExtra: invalid subId");
+            intent.putExtra(PhoneConstants.PHONE_KEY, phoneId);
+            intent.putExtra(EXTRA_SLOT_INDEX, phoneId);
+        }
     }
 
     /**
@@ -3437,14 +3471,62 @@ public class SubscriptionManager {
     @SystemApi
     public boolean canManageSubscription(@NonNull SubscriptionInfo info,
             @NonNull String packageName) {
+        if (Flags.hsumPackageManager()) {
+            return canManageSubscriptionAsUser(info, packageName, mContext.getUser());
+        } else {
+            if (info == null || info.getAccessRules() == null || packageName == null) {
+                return false;
+            }
+            PackageManager packageManager = mContext.getPackageManager();
+            PackageInfo packageInfo;
+            try {
+                packageInfo = packageManager.getPackageInfo(packageName,
+                        PackageManager.GET_SIGNING_CERTIFICATES);
+            } catch (PackageManager.NameNotFoundException e) {
+                logd("Unknown package: " + packageName);
+                return false;
+            }
+            for (UiccAccessRule rule : info.getAccessRules()) {
+                if (rule.getCarrierPrivilegeStatus(packageInfo)
+                        == TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Checks whether the given app is authorized to manage the given subscription for given user.
+     *
+     * <p>An app can only be authorized if it is available to the given user and included in the
+     * {@link android.telephony.UiccAccessRule} of the {@link android.telephony.SubscriptionInfo}
+     * with the access status.
+     *
+     * <p>Only supported for embedded subscriptions (if {@link SubscriptionInfo#isEmbedded} returns
+     * true). To check for permissions for non-embedded subscription as well,
+     * see {@link android.telephony.TelephonyManager#hasCarrierPrivileges}.
+     *
+     * @param info        The subscription to check.
+     * @param packageName Package name of the app to check.
+     * @param user        UserHandle to check
+     * @return whether the app is authorized to manage this subscription per its access rules.
+     *
+     * @see android.telephony.TelephonyManager#hasCarrierPrivileges
+     * @hide
+     */
+    public boolean canManageSubscriptionAsUser(@NonNull SubscriptionInfo info,
+            @NonNull String packageName, @NonNull UserHandle user) {
         if (info == null || info.getAccessRules() == null || packageName == null) {
             return false;
         }
-        PackageManager packageManager = mContext.getPackageManager();
+        PackageManager pm = mContext.getUser().equals(user)
+                ? mContext.getPackageManager()
+                : mContext.createContextAsUser(user, 0).getPackageManager();
         PackageInfo packageInfo;
         try {
-            packageInfo = packageManager.getPackageInfo(packageName,
-                PackageManager.GET_SIGNING_CERTIFICATES);
+            packageInfo = pm.getPackageInfo(packageName,
+                    PackageManager.GET_SIGNING_CERTIFICATES);
         } catch (PackageManager.NameNotFoundException e) {
             logd("Unknown package: " + packageName);
             return false;
@@ -3626,7 +3708,7 @@ public class SubscriptionManager {
      * Caller will either have {@link android.Manifest.permission#MODIFY_PHONE_STATE} or carrier
      * privilege permission of the subscription.
      *
-     * @param opportunistic whether it’s opportunistic subscription.
+     * @param opportunistic whether it's an opportunistic subscription.
      * @param subId the unique SubscriptionInfo index in database
      * @return {@code true} if the operation is succeed, {@code false} otherwise.
      *
@@ -3748,7 +3830,7 @@ public class SubscriptionManager {
     }
 
     private boolean isSystemProcess() {
-        return Process.myUid() == Process.SYSTEM_UID;
+        return UserHandle.isSameApp(Process.myUid(), Process.SYSTEM_UID);
     }
 
     /**
@@ -4739,10 +4821,14 @@ public class SubscriptionManager {
                     + "Invalid subscriptionId: " + subscriptionId);
         }
 
+        String contextPkg = mContext != null ? mContext.getOpPackageName() : "<unknown>";
+        String contextAttributionTag = mContext != null ? mContext.getAttributionTag() : null;
+
         try {
             ISub iSub = TelephonyManager.getSubscriptionService();
             if (iSub != null) {
-                return iSub.isSubscriptionAssociatedWithCallingUser(subscriptionId);
+                return iSub.isSubscriptionAssociatedWithCallingUser(subscriptionId, contextPkg,
+                        contextAttributionTag);
             } else {
                 throw new IllegalStateException("subscription service unavailable.");
             }

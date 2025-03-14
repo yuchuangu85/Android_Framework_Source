@@ -36,8 +36,6 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import jdk.internal.HotSpotIntrinsicCandidate;
 
-import static java.lang.String.LATIN1;
-import static java.lang.String.UTF16;
 import static java.lang.String.checkOffset;
 
 final class StringLatin1 {
@@ -263,6 +261,38 @@ final class StringLatin1 {
         return -1;
     }
 
+    // BEGIN Android-added: Latin1 AbstractStringBuilder has a larger char range than Latin1 String.
+    public static int indexOfUTF16(byte[] value, int valueCount, String str, int strCount,
+            int fromIndex) {
+        char first = str.charAt(0);
+        int max = (valueCount - strCount);
+        for (int i = fromIndex; i <= max; i++) {
+            // Look for first character.
+            if (first != ((char) (value[i] & 0xff))) {
+                while (++i <= max && first != ((char) (value[i] & 0xff)));
+            }
+            // Found first character, now look at the rest of value
+            if (i <= max) {
+                int j = i + 1;
+                int end = j + strCount - 1;
+                for (int k = 1; j < end && ((char) (value[j] & 0xff)) == str.charAt(k); j++, k++);
+                if (j == end) {
+                    // Found whole string.
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    public static int lastIndexOfUTF16(byte[] src, int srcCount,
+            String tgt, int tgtCount, int fromIndex) {
+        // Re-use the lastIndexOf implementation for Latin1 because our patched implementation
+        // casts Latin1 byte into char anyway. We can potentially do the same for indexOfUTF16.
+        return lastIndexOf(src, srcCount, tgt, tgtCount, fromIndex);
+    }
+    // END Android-added: Latin1 AbstractStringBuilder has a larger char range than Latin1 String.
+
     public static int lastIndexOf(byte[] src, int srcCount,
                                   // Android-changed: String has no byte[] field in libcore.
                                   // byte[] tgt, int tgtCount, int fromIndex) {
@@ -275,7 +305,9 @@ final class StringLatin1 {
 
   startSearchForLastChar:
         while (true) {
-            while (i >= min && (src[i] & 0xff) != strLastChar) {
+            // Android-changed: Latin1 AbstractStringBuilder has a larger char range than Latin1.
+            // while (i >= min && (src[i] & 0xff) != strLastChar) {
+            while (i >= min && ((char) (src[i] & 0xff)) != strLastChar) {
                 i--;
             }
             if (i < min) {
@@ -287,7 +319,7 @@ final class StringLatin1 {
             while (j > start) {
                 // Android-changed: Use charAt() because libcore doesn't store byte[] in java level.
                 // if ((src[j--] & 0xff) != (tgt[k--] & 0xff)) {
-                if ((src[j--] & 0xff) != (tgt.charAt(k--) & 0xff)) {
+                if (((char)(src[j--] & 0xff)) != tgt.charAt(k--)) {
                     i--;
                     continue startSearchForLastChar;
                 }

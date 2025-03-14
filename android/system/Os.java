@@ -444,6 +444,12 @@ public final class Os {
     public static StructStat lstat(String path) throws ErrnoException { return Libcore.os.lstat(path); }
 
     /**
+     * See <a href="http://man7.org/linux/man-pages/man2/madvise.2.html">mlock(2)</a>.
+     */
+    @android.annotation.FlaggedApi(com.android.libcore.Flags.FLAG_MADVISE_API)
+    public static void madvise(long address, long byteCount, int advice) throws ErrnoException { Libcore.os.madvise(address, byteCount, advice); }
+
+    /**
      * See <a href="http://man7.org/linux/man-pages/man2/memfd_create.2.html">memfd_create(2)</a>.
      */
     public static @NonNull FileDescriptor memfd_create(@NonNull String name, int flags) throws ErrnoException { return Libcore.os.memfd_create(name, flags); }

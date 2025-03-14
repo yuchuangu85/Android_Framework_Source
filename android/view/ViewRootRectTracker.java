@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.graphics.Rect;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.Preconditions;
 
 import java.lang.ref.WeakReference;
@@ -32,8 +33,10 @@ import java.util.function.Function;
 /**
  * Abstract class to track a collection of rects reported by the views under the same
  * {@link ViewRootImpl}.
+ * @hide
  */
-class ViewRootRectTracker {
+@VisibleForTesting
+public class ViewRootRectTracker {
     private final Function<View, List<Rect>> mRectCollector;
     private boolean mViewsChanged = false;
     private boolean mRootRectsChanged = false;
@@ -41,11 +44,18 @@ class ViewRootRectTracker {
     private List<ViewInfo> mViewInfos = new ArrayList<>();
     private List<Rect> mRects = Collections.emptyList();
 
+    // Keeps track of whether updateRectsForView has been called but there was no subsequent call
+    // on computeChanges yet. Since updateRectsForView is called when sending a message and
+    // computeChanges when it is received, this tracks whether such message is in the queue already
+    private boolean mWaitingForComputeChanges = false;
+
     /**
      * @param rectCollector given a view returns a list of the rects of interest for this
      *                      ViewRootRectTracker
+     * @hide
      */
-    ViewRootRectTracker(Function<View, List<Rect>> rectCollector) {
+    @VisibleForTesting
+    public ViewRootRectTracker(Function<View, List<Rect>> rectCollector) {
         mRectCollector = rectCollector;
     }
 
@@ -70,6 +80,7 @@ class ViewRootRectTracker {
             mViewInfos.add(new ViewInfo(view));
             mViewsChanged = true;
         }
+        mWaitingForComputeChanges = true;
     }
 
     /**
@@ -92,6 +103,7 @@ class ViewRootRectTracker {
      * @return {@code true} if there were changes, {@code false} otherwise.
      */
     public boolean computeChanges() {
+        mWaitingForComputeChanges = false;
         boolean changed = mRootRectsChanged;
         final Iterator<ViewInfo> i = mViewInfos.iterator();
         final List<Rect> rects = new ArrayList<>(mRootRects);
@@ -121,6 +133,10 @@ class ViewRootRectTracker {
         return false;
     }
 
+    public boolean isWaitingForComputeChanges() {
+        return mWaitingForComputeChanges;
+    }
+
     /**
      * Returns a List of all Rects from all visible Views in the global (root) coordinate system.
      * This list is only updated when calling {@link #computeChanges()} or
@@ -140,6 +156,7 @@ class ViewRootRectTracker {
         Preconditions.checkNotNull(rects, "rects must not be null");
         mRootRects = rects;
         mRootRectsChanged = true;
+        mWaitingForComputeChanges = true;
     }
 
     @NonNull

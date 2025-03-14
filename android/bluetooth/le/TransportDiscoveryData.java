@@ -38,6 +38,7 @@ import java.util.List;
  */
 public final class TransportDiscoveryData implements Parcelable {
     private static final String TAG = "TransportDiscoveryData";
+
     private final int mTransportDataType;
     private final List<TransportBlock> mTransportBlocks;
 

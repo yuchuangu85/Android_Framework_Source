@@ -18,8 +18,12 @@ package com.android.i18n.timezone;
 
 import static com.android.i18n.timezone.XmlUtils.normalizeCountryIso;
 
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+
 import com.android.i18n.timezone.TelephonyNetwork.MccMnc;
 import com.android.i18n.util.Log;
+import com.android.icu.Flags;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -40,13 +44,16 @@ public final class TelephonyNetworkFinder {
 
     private final Map<MccMnc, TelephonyNetwork> networksMap;
     private final List<TelephonyNetwork> networksList;
+    private final Map<String, MobileCountries> countriesByMcc;
 
-    public static TelephonyNetworkFinder create(List<TelephonyNetwork> networksList) {
+    public static TelephonyNetworkFinder create(List<TelephonyNetwork> networksList,
+            List<MobileCountries> mobileCountriesList) {
         Set<String> validCountryIsoCodes = new HashSet<>();
         for (String validCountryIsoCode : Locale.getISOCountries()) {
             validCountryIsoCodes.add(normalizeCountryIso(validCountryIsoCode));
         }
 
+        /* Generate network map */
         Map<MccMnc, TelephonyNetwork> networksMap = new HashMap<>();
         for (TelephonyNetwork network : networksList) {
             if (!validCountryIsoCodes.contains(network.getCountryIsoCode())) {
@@ -61,15 +68,46 @@ public final class TelephonyNetworkFinder {
                         + ". New entry=" + network + " replacing previous entry.");
             }
         }
+        /* ************************* */
+
+        /* Generate countries map */
+        Map<String, MobileCountries> countriesByMcc = new HashMap<>();
+        for (MobileCountries mobileCountries : mobileCountriesList) {
+            for (String countryIsoCode : mobileCountries.getCountryIsoCodes()) {
+                if (!validCountryIsoCodes.contains(countryIsoCode)) {
+                    Log.w("Unrecognized country code: " + countryIsoCode
+                            + " for telephony MCC=" + mobileCountries.getMcc());
+                }
+            }
+
+            if (!validCountryIsoCodes.contains(mobileCountries.getDefaultCountryIsoCode())) {
+                Log.w("Unrecognized default country code: "
+                        + mobileCountries.getDefaultCountryIsoCode()
+                        + " for telephony MCC=" + mobileCountries.getMcc());
+            }
+
+            if (countriesByMcc.containsKey(mobileCountries.getMcc())) {
+                Log.w("Duplicate MCC detected for " + mobileCountries.getMcc()
+                        + ". New entry=" + mobileCountries
+                        + " replacing previous entry.");
+            }
+
+            countriesByMcc.put(mobileCountries.getMcc(), mobileCountries);
+        }
+        /* ************************* */
+
         return new TelephonyNetworkFinder(
                 Collections.unmodifiableList(new ArrayList<>(networksList)),
-                networksMap);
+                networksMap,
+                countriesByMcc);
     }
 
     private TelephonyNetworkFinder(List<TelephonyNetwork> networksList,
-            Map<MccMnc, TelephonyNetwork> networksMap) {
+            Map<MccMnc, TelephonyNetwork> networksMap,
+            Map<String, MobileCountries> countriesByMcc) {
         this.networksList = networksList;
         this.networksMap = networksMap;
+        this.countriesByMcc = countriesByMcc;
     }
 
     /**
@@ -82,8 +120,24 @@ public final class TelephonyNetworkFinder {
         return networksMap.get(new MccMnc(mcc, mnc));
     }
 
+    /**
+     * Returns the countries where a given MCC is in use. It is expected for this method to return
+     * {@code null} if the MCC is not found.
+     */
+    @libcore.api.CorePlatformApi
+    @android.annotation.FlaggedApi(Flags.FLAG_TELEPHONY_LOOKUP_MCC_EXTENSION)
+    @Nullable
+    public MobileCountries findCountriesByMcc(@NonNull String mcc) {
+        return countriesByMcc.get(mcc);
+    }
+
     // @VisibleForTesting
-    public List<TelephonyNetwork> getAll() {
+    public List<TelephonyNetwork> getAllNetworks() {
         return networksList;
+    }
+
+    // @VisibleForTesting
+    public List<MobileCountries> getAllMobileCountries() {
+        return countriesByMcc.values().stream().toList();
     }
 }

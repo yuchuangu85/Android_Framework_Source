@@ -18,6 +18,7 @@ package android.view;
 
 import static android.graphics.PointProto.X;
 import static android.graphics.PointProto.Y;
+import static android.util.SequenceUtils.getInitSeq;
 import static android.view.InsetsSourceControlProto.LEASH;
 import static android.view.InsetsSourceControlProto.POSITION;
 import static android.view.InsetsSourceControlProto.TYPE_NUMBER;
@@ -30,8 +31,10 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.proto.ProtoOutputStream;
 import android.view.WindowInsets.Type.InsetsType;
+import android.view.inputmethod.ImeTracker;
 
 import java.io.PrintWriter;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -53,6 +56,9 @@ public class InsetsSourceControl implements Parcelable {
 
     private boolean mSkipAnimationOnce;
     private int mParcelableFlags;
+
+    /** The token tracking the current IME request */
+    private @Nullable ImeTracker.Token mImeStatsToken;
 
     public InsetsSourceControl(int id, @InsetsType int type, @Nullable SurfaceControl leash,
             boolean initiallyVisible, Point surfacePosition, Insets insetsHint) {
@@ -76,6 +82,7 @@ public class InsetsSourceControl implements Parcelable {
         mSurfacePosition = new Point(other.mSurfacePosition);
         mInsetsHint = other.mInsetsHint;
         mSkipAnimationOnce = other.getAndClearSkipAnimationOnce();
+        mImeStatsToken = other.getImeStatsToken();
     }
 
     public InsetsSourceControl(Parcel in) {
@@ -86,6 +93,7 @@ public class InsetsSourceControl implements Parcelable {
         mSurfacePosition = in.readTypedObject(Point.CREATOR);
         mInsetsHint = in.readTypedObject(Insets.CREATOR);
         mSkipAnimationOnce = in.readBoolean();
+        mImeStatsToken = in.readTypedObject(ImeTracker.Token.CREATOR);
     }
 
     public int getId() {
@@ -134,6 +142,10 @@ public class InsetsSourceControl implements Parcelable {
         return mInsetsHint;
     }
 
+    public boolean isFake() {
+        return mLeash == null && Insets.NONE.equals(mInsetsHint);
+    }
+
     public void setSkipAnimationOnce(boolean skipAnimation) {
         mSkipAnimationOnce = skipAnimation;
     }
@@ -149,6 +161,15 @@ public class InsetsSourceControl implements Parcelable {
         final boolean result = mSkipAnimationOnce;
         mSkipAnimationOnce = false;
         return result;
+    }
+
+    @Nullable
+    public ImeTracker.Token getImeStatsToken() {
+        return mImeStatsToken;
+    }
+
+    public void setImeStatsToken(@Nullable ImeTracker.Token imeStatsToken) {
+        mImeStatsToken = imeStatsToken;
     }
 
     public void setParcelableFlags(int parcelableFlags) {
@@ -169,10 +190,11 @@ public class InsetsSourceControl implements Parcelable {
         dest.writeTypedObject(mSurfacePosition, mParcelableFlags);
         dest.writeTypedObject(mInsetsHint, mParcelableFlags);
         dest.writeBoolean(mSkipAnimationOnce);
+        dest.writeTypedObject(mImeStatsToken, mParcelableFlags);
     }
 
     public void release(Consumer<SurfaceControl> surfaceReleaseConsumer) {
-        if (mLeash != null) {
+        if (mLeash != null && mLeash.isValid()) {
             surfaceReleaseConsumer.accept(mLeash);
         }
     }
@@ -200,7 +222,7 @@ public class InsetsSourceControl implements Parcelable {
     @Override
     public int hashCode() {
         return Objects.hash(mId, mType, mLeash, mInitiallyVisible, mSurfacePosition, mInsetsHint,
-                mSkipAnimationOnce);
+                mSkipAnimationOnce, mImeStatsToken);
     }
 
     @Override
@@ -223,6 +245,7 @@ public class InsetsSourceControl implements Parcelable {
         pw.print(" mSurfacePosition="); pw.print(mSurfacePosition);
         pw.print(" mInsetsHint="); pw.print(mInsetsHint);
         pw.print(" mSkipAnimationOnce="); pw.print(mSkipAnimationOnce);
+        pw.print(" mImeStatsToken="); pw.print(mImeStatsToken);
         pw.println();
     }
 
@@ -265,19 +288,79 @@ public class InsetsSourceControl implements Parcelable {
 
         private @Nullable InsetsSourceControl[] mControls;
 
+        /** To make sure the info update between client and system server is in order. */
+        private int mSeq = getInitSeq();
+
         public Array() {
         }
 
-        public Array(Parcel in) {
+        /**
+         * @param copyControls whether or not to make a copy of the each {@link InsetsSourceControl}
+         */
+        public Array(@NonNull Array other, boolean copyControls) {
+            setTo(other, copyControls);
+        }
+
+        public Array(@NonNull Parcel in) {
             readFromParcel(in);
         }
 
-        public void set(@Nullable InsetsSourceControl[] controls) {
-            mControls = controls;
+        public int getSeq() {
+            return mSeq;
         }
 
+        public void setSeq(int seq) {
+            mSeq = seq;
+        }
+
+        /** Updates the current Array to the given Array. */
+        public void setTo(@NonNull Array other, boolean copyControls) {
+            set(other.mControls, copyControls);
+            mSeq = other.mSeq;
+        }
+
+        /** Updates the current controls to the given controls. */
+        public void set(@Nullable InsetsSourceControl[] controls, boolean copyControls) {
+            if (controls == null || !copyControls) {
+                mControls = controls;
+                return;
+            }
+            // Make a copy of the array.
+            mControls = new InsetsSourceControl[controls.length];
+            for (int i = mControls.length - 1; i >= 0; i--) {
+                if (controls[i] != null) {
+                    mControls[i] = new InsetsSourceControl(controls[i]);
+                }
+            }
+        }
+
+        /** Gets the controls. */
         public @Nullable InsetsSourceControl[] get() {
             return mControls;
+        }
+
+        /** Cleanup {@link SurfaceControl} stored in controls to prevent leak. */
+        public void release() {
+            if (mControls == null) {
+                return;
+            }
+            for (InsetsSourceControl control : mControls) {
+                if (control != null) {
+                    control.release(SurfaceControl::release);
+                }
+            }
+        }
+
+        /** Sets the given flags to all controls. */
+        public void setParcelableFlags(int parcelableFlags) {
+            if (mControls == null) {
+                return;
+            }
+            for (InsetsSourceControl control : mControls) {
+                if (control != null) {
+                    control.setParcelableFlags(parcelableFlags);
+                }
+            }
         }
 
         @Override
@@ -287,11 +370,13 @@ public class InsetsSourceControl implements Parcelable {
 
         public void readFromParcel(Parcel in) {
             mControls = in.createTypedArray(InsetsSourceControl.CREATOR);
+            mSeq = in.readInt();
         }
 
         @Override
         public void writeToParcel(Parcel out, int flags) {
             out.writeTypedArray(mControls, flags);
+            out.writeInt(mSeq);
         }
 
         public static final @NonNull Creator<Array> CREATOR = new Creator<>() {
@@ -303,5 +388,23 @@ public class InsetsSourceControl implements Parcelable {
                 return new Array[size];
             }
         };
+
+        @Override
+        public boolean equals(@Nullable Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            final InsetsSourceControl.Array other = (InsetsSourceControl.Array) o;
+            // mSeq is for internal bookkeeping only.
+            return Arrays.equals(mControls, other.mControls);
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(mControls);
+        }
     }
 }

@@ -30,8 +30,9 @@ import android.os.Parcelable;
 @SystemApi
 public final class AdServicesStates implements Parcelable {
 
-    public static final @NonNull Creator<AdServicesStates> CREATOR =
-            new Parcelable.Creator<AdServicesStates>() {
+    @NonNull
+    public static final Creator<AdServicesStates> CREATOR =
+            new Parcelable.Creator<>() {
                 @Override
                 public AdServicesStates createFromParcel(Parcel in) {
                     return new AdServicesStates(in);
@@ -43,11 +44,11 @@ public final class AdServicesStates implements Parcelable {
                 }
             };
 
-    private boolean mIsPrivacySandboxUiEnabled;
-    private boolean mIsPrivacySandboxUiRequest;
-    private boolean mIsU18Account;
-    private boolean mIsAdultAccount;
-    private boolean mIsAdIdEnabled;
+    private final boolean mIsPrivacySandboxUiEnabled;
+    private final boolean mIsPrivacySandboxUiRequest;
+    private final boolean mIsU18Account;
+    private final boolean mIsAdultAccount;
+    private final boolean mIsAdIdEnabled;
 
     private AdServicesStates(
             boolean isPrivacySandboxUiEnabled,
@@ -107,7 +108,7 @@ public final class AdServicesStates implements Parcelable {
 
     /**
      * Determines whether the user account is eligible for the U18 (under 18) privacy sandbox, in
-     * which all ads relevancepersonalized Ads APIs are * permanently disabled and the ad
+     * which all ads relevance personalized Ads APIs are * permanently disabled and the ad
      * measurement API can be enabled/disabled by the user. An account is considered a U18 account
      * if privacy sandbox has received signals that the user is a minor.
      */
@@ -139,37 +140,43 @@ public final class AdServicesStates implements Parcelable {
         }
 
         /** Set if the privacy sandbox UX entry point is enabled. */
-        public @NonNull Builder setPrivacySandboxUiEnabled(boolean isPrivacySandboxUiEnabled) {
+        @NonNull
+        public Builder setPrivacySandboxUiEnabled(boolean isPrivacySandboxUiEnabled) {
             mIsPrivacySandboxUiEnabled = isPrivacySandboxUiEnabled;
             return this;
         }
 
         /** Set if the API call was the result of a privacy sandbox UX entry point request. */
-        public @NonNull Builder setPrivacySandboxUiRequest(boolean isPrivacySandboxUiRequest) {
+        @NonNull
+        public Builder setPrivacySandboxUiRequest(boolean isPrivacySandboxUiRequest) {
             mIsPrivacySandboxUiRequest = isPrivacySandboxUiRequest;
             return this;
         }
 
-        /** Set if the device is currently running under an U18 account. */
-        public @NonNull Builder setU18Account(boolean isU18Account) {
+        /** Set if the device is currently running under a U18 account. */
+        @NonNull
+        public Builder setU18Account(boolean isU18Account) {
             mIsU18Account = isU18Account;
             return this;
         }
 
         /** Set if the device is currently running under an adult account. */
-        public @NonNull Builder setAdultAccount(boolean isAdultAccount) {
+        @NonNull
+        public Builder setAdultAccount(boolean isAdultAccount) {
             mIsAdultAccount = isAdultAccount;
             return this;
         }
 
         /** Set if user has opt-in/out of Advertising ID. */
-        public @NonNull Builder setAdIdEnabled(boolean isAdIdEnabled) {
+        @NonNull
+        public Builder setAdIdEnabled(boolean isAdIdEnabled) {
             mIsAdIdEnabled = isAdIdEnabled;
             return this;
         }
 
         /** Builds a {@link AdServicesStates} instance. */
-        public @NonNull AdServicesStates build() {
+        @NonNull
+        public AdServicesStates build() {
             return new AdServicesStates(
                     mIsPrivacySandboxUiEnabled,
                     mIsPrivacySandboxUiRequest,

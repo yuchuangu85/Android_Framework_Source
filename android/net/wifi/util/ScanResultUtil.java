@@ -26,6 +26,8 @@ import android.net.wifi.SecurityParams;
 import android.net.wifi.WifiConfiguration;
 import android.util.Log;
 
+import androidx.annotation.Keep;
+
 import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.PrintWriter;
@@ -314,6 +316,7 @@ public class ScanResultUtil {
     /**
      * Creates a network configuration object using the provided |scanResult|.
      */
+    @Keep
     public static @Nullable WifiConfiguration createNetworkFromScanResult(
             @NonNull ScanResult scanResult) {
         WifiConfiguration config = new WifiConfiguration();
@@ -464,9 +467,10 @@ public class ScanResultUtil {
                 } else {
                     rssiInfo = String.format("%9d         ", r.level);
                 }
+                String capabilities = r.capabilities;
                 if ((r.flags & FLAG_PASSPOINT_NETWORK)
                         == FLAG_PASSPOINT_NETWORK) {
-                    r.capabilities += "[PASSPOINT]";
+                    capabilities += "[PASSPOINT]";
                 }
                 pw.printf("  %17s  %9d  %18s   %7s    %-32s  %s\n",
                         r.BSSID,
@@ -474,7 +478,7 @@ public class ScanResultUtil {
                         rssiInfo,
                         age,
                         String.format("%1.32s", ssid),
-                        r.capabilities);
+                        capabilities);
             }
         }
     }

@@ -17,6 +17,7 @@
 package com.android.i18n.timezone;
 
 import static com.android.i18n.timezone.XmlUtils.checkOnEndTag;
+import static com.android.i18n.timezone.XmlUtils.consumeText;
 import static com.android.i18n.timezone.XmlUtils.consumeUntilEndTag;
 import static com.android.i18n.timezone.XmlUtils.findNextStartTagOrEndTagNoRecurse;
 import static com.android.i18n.timezone.XmlUtils.findNextStartTagOrThrowNoRecurse;
@@ -25,6 +26,7 @@ import static com.android.i18n.timezone.XmlUtils.normalizeCountryIso;
 import com.android.i18n.timezone.TelephonyNetwork.MccMnc;
 import com.android.i18n.timezone.XmlUtils.ReaderSupplier;
 import com.android.i18n.util.Log;
+import com.android.icu.Flags;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -64,6 +66,13 @@ public final class TelephonyLookup {
     private static final String MOBILE_NETWORK_CODE_ATTRIBUTE = "mnc";
     // This is the ISO 3166 alpha-2 code (in lower case).
     private static final String COUNTRY_ISO_CODE_ATTRIBUTE = "country";
+
+    // <mobile_countries>
+    private static final String MOBILE_COUNTRIES_ELEMENT = "mobile_countries";
+
+    // <mobile_country mcc="123" [default="gu"]>
+    private static final String MOBILE_COUNTRY_ELEMENT = "mobile_country";
+    private static final String DEFAULT_ATTRIBUTE = "default";
 
     private static TelephonyLookup instance;
 
@@ -112,7 +121,12 @@ public final class TelephonyLookup {
 
         Log.e("No valid file found in set: " + Arrays.toString(telephonyLookupFilePaths)
                 + " Printing exceptions and falling back to empty map.", lastException);
-        return createInstanceForTests("<telephony_lookup><networks /></telephony_lookup>");
+        return createInstanceFromString("""
+                             <telephony_lookup>
+                              <networks/>
+                              <mobile_countries/>
+                             </telephony_lookup>
+                             """);
     }
 
     /**
@@ -128,7 +142,7 @@ public final class TelephonyLookup {
 
     /** Used to create an instance using an in-memory XML String instead of a file. */
     // VisibleForTesting
-    public static TelephonyLookup createInstanceForTests(String xml) {
+    public static TelephonyLookup createInstanceFromString(String xml) {
         return new TelephonyLookup(ReaderSupplier.forString(xml));
     }
 
@@ -182,22 +196,39 @@ public final class TelephonyLookup {
              *     <network mcc="123" mnc="456" country="ab"/>
              *     <network mcc="123" mnc="567" country="cd"/>
              *   </networks>
+             *   <mobile_countries>
+             *     <mobile_country mcc="310"/>
+             *       <country>us</country>
+             *     </mobile_country>
+             *     <mobile_country mcc="340" default="gp">
+             *       <country>gp</country>
+             *       <country>gf</country>
+             *     </mobile_country>
+             *   </mobile_countries>
              * </telephony_lookup>
              */
 
             findNextStartTagOrThrowNoRecurse(parser, TELEPHONY_LOOKUP_ELEMENT);
 
-            // There is only one expected sub-element <telephony_lookup> in the format currently,
-            // skip over anything before it.
+            /* Start parsing <networks> */
             findNextStartTagOrThrowNoRecurse(parser, NETWORKS_ELEMENT);
-
             processNetworks(parser, processor);
-
-            // Make sure we are on the </networks> tag.
             checkOnEndTag(parser, NETWORKS_ELEMENT);
+            /* End parsing </networks> */
 
             // Advance to the next event.
             parser.next();
+
+            if (Flags.telephonyLookupMccExtension()) {
+                /* Start parsing <mobile_countries> */
+                findNextStartTagOrThrowNoRecurse(parser, MOBILE_COUNTRIES_ELEMENT);
+                processMobileCountries(parser, processor);
+                checkOnEndTag(parser, MOBILE_COUNTRIES_ELEMENT);
+                /* End parsing </mobile_countries> */
+
+                // Advance to the next event.
+                parser.next();
+            }
 
             // Skip anything until </telephony_lookup>, and make sure the file is not truncated and
             // we can find the end.
@@ -210,7 +241,6 @@ public final class TelephonyLookup {
 
     private static void processNetworks(XmlPullParser parser,
             TelephonyNetworkProcessor processor) throws IOException, XmlPullParserException {
-
         // Skip over any unexpected elements and process <network> elements.
         while (findNextStartTagOrEndTagNoRecurse(parser, NETWORK_ELEMENT)) {
             String mcc = parser.getAttributeValue(
@@ -244,19 +274,44 @@ public final class TelephonyLookup {
         }
     }
 
-    /**
-     * Processes &lt;network&gt; data.
-     */
-    private interface TelephonyNetworkProcessor {
+    private static void processMobileCountries(XmlPullParser parser,
+            TelephonyNetworkProcessor processor) throws IOException, XmlPullParserException {
+        // Skip over any unexpected elements and process <mobile_country> elements.
+        while (findNextStartTagOrEndTagNoRecurse(parser, MOBILE_COUNTRY_ELEMENT)) {
+            String mcc = parser.getAttributeValue(
+                    null /* namespace */, MOBILE_COUNTRY_CODE_ATTRIBUTE);
+            String defaultCountryIsoCode = parser.getAttributeValue(
+                    null /* namespace */, DEFAULT_ATTRIBUTE);
+            Set<String> countryIsoCodes = new HashSet<>();
 
-        boolean CONTINUE = true;
-        boolean HALT = false;
+            if (mcc == null) {
+                throw new XmlPullParserException(
+                        "Unable to find mcc: " + parser.getPositionDescription());
+            }
 
-        /**
-         * Process network data. Problems with the data are reported as an exception.
-         */
-        void processNetwork(String mcc, String mnc, String countryIso, String debugInfo)
-                throws XmlPullParserException;
+            while (findNextStartTagOrEndTagNoRecurse(parser, COUNTRY_ISO_CODE_ATTRIBUTE)) {
+                String countryIsoCode = consumeText(parser);
+                if (countryIsoCode == null) {
+                    throw new XmlPullParserException(
+                            "Unable to find country for mcc=" + mcc + ": "
+                                    + parser.getPositionDescription());
+                }
+                if (defaultCountryIsoCode == null) {
+                    defaultCountryIsoCode = countryIsoCode;
+                }
+                countryIsoCodes.add(countryIsoCode);
+
+                // Skip anything until </country>.
+                consumeUntilEndTag(parser, COUNTRY_ISO_CODE_ATTRIBUTE);
+            }
+
+            String debugInfo = parser.getPositionDescription();
+            processor.processMobileCountries(mcc, countryIsoCodes, defaultCountryIsoCode,
+                    debugInfo);
+
+            // Skip anything until </mobile_country>.
+            consumeUntilEndTag(parser, MOBILE_COUNTRY_ELEMENT);
+        }
     }
 
     /**
@@ -267,6 +322,7 @@ public final class TelephonyLookup {
     private static class TelephonyNetworkValidator implements TelephonyNetworkProcessor {
 
         private final Set<MccMnc> knownMccMncs = new HashSet<>();
+        private final Set<String> knownMccs = new HashSet<>();
 
         @Override
         public void processNetwork(String mcc, String mnc, String countryIso, String debugInfo)
@@ -294,6 +350,43 @@ public final class TelephonyLookup {
             knownMccMncs.add(mccMnc);
         }
 
+        @Override
+        public void processMobileCountries(String mcc, Set<String> countryIsoCodes,
+                String defaultCountryIso, String debugInfo) throws XmlPullParserException {
+            if (mcc == null || mcc.length() != 3 || !isAsciiNumeric(mcc)) {
+                throw new XmlPullParserException(
+                        "MCC is not valid: mcc=" + mcc + " at " + debugInfo);
+            }
+
+            if (countryIsoCodes.isEmpty()) {
+                throw new XmlPullParserException(
+                        "No country found for mcc=" + mcc + " at " + debugInfo);
+            }
+
+            if (!normalizeCountryIso(defaultCountryIso).equals(defaultCountryIso)) {
+                throw new XmlPullParserException("Default country code: " + defaultCountryIso
+                        + " is not normalized at " + debugInfo);
+            }
+
+            for (String countryIso : countryIsoCodes) {
+                if (!normalizeCountryIso(countryIso).equals(countryIso)) {
+                    throw new XmlPullParserException("Country code: " + countryIso
+                            + " is not normalized at " + debugInfo);
+                }
+            }
+
+            if (!countryIsoCodes.contains(defaultCountryIso)) {
+                throw new XmlPullParserException(
+                        "Default country not in country list for mcc=" + mcc + " at " + debugInfo);
+            }
+
+            if (knownMccs.contains(mcc)) {
+                throw new XmlPullParserException("Second entry for MCC: " + mcc
+                        + " at " + debugInfo);
+            }
+            knownMccs.add(mcc);
+        }
+
         private static boolean isAsciiNumeric(String string) {
             for (int i = 0; i < string.length(); i++) {
                 char character = string.charAt(i);
@@ -311,16 +404,40 @@ public final class TelephonyLookup {
      */
     private static class TelephonyNetworksExtractor implements TelephonyNetworkProcessor {
         private List<TelephonyNetwork> networksList = new ArrayList<>(10 /* default */);
+        private List<MobileCountries> mobileCountries = new ArrayList<>();
 
         @Override
-        public void processNetwork(String mcc, String mnc, String countryIso, String debugInfo)
-                throws XmlPullParserException {
+        public void processNetwork(String mcc, String mnc, String countryIso, String debugInfo) {
             TelephonyNetwork network = TelephonyNetwork.create(mcc, mnc, countryIso);
             networksList.add(network);
         }
 
-        TelephonyNetworkFinder getTelephonyNetworkFinder() {
-            return TelephonyNetworkFinder.create(networksList);
+        @Override
+        public void processMobileCountries(String mcc, Set<String> countryIsos,
+                String defaultCountryIso, String debugInfo) {
+            mobileCountries.add(MobileCountries.create(mcc, countryIsos, defaultCountryIso));
         }
+
+        TelephonyNetworkFinder getTelephonyNetworkFinder() {
+            return TelephonyNetworkFinder.create(networksList, mobileCountries);
+        }
+    }
+
+    /**
+     * Processes &lt;network&gt; data.
+     */
+    private interface TelephonyNetworkProcessor {
+
+        boolean CONTINUE = true;
+        boolean HALT = false;
+
+        /**
+         * Process network data. Problems with the data are reported as an exception.
+         */
+        void processNetwork(String mcc, String mnc, String countryIso, String debugInfo)
+                throws XmlPullParserException;
+
+        void processMobileCountries(String mcc, Set<String> countryIsos, String defaultCountryIso,
+                String debugInfo) throws XmlPullParserException;
     }
 }

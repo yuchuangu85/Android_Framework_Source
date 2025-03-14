@@ -18,14 +18,16 @@ package com.android.internal.telephony.uicc.euicc.apdu;
 
 import android.annotation.Nullable;
 import android.content.Context;
-import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.telephony.IccOpenLogicalChannelResponse;
 import android.util.Base64;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.telephony.CommandsInterface;
+import com.android.internal.telephony.euicc.EuiccSession;
 import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.euicc.async.AsyncResultCallback;
 import com.android.internal.telephony.uicc.euicc.async.AsyncResultHelper;
@@ -34,20 +36,24 @@ import com.android.telephony.Rlog;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
-import java.util.NoSuchElementException;
 
 /**
  * This class sends a list of APDU commands to an AID on a UICC. A logical channel will be opened
  * before sending and closed after all APDU commands are sent. The complete response of the last
  * APDU command will be returned. If any APDU command returns an error status (other than
  * {@link #STATUS_NO_ERROR}) or causing an exception, an {@link ApduException} will be returned
- * immediately without sending the rest of commands. This class is thread-safe.
+ * immediately without sending the rest of commands.
+ *
+ * <p>If {@link EuiccSession} indicates ongoing session(s), the behavior changes: 1) before
+ * sending, check if a channel is opened already. If yes, reuse the channel and send APDU commands
+ * directly. If no, open a channel before sending. 2) The channel is closed when EuiccSession
+ * class ends all sessions, independent of APDU sending.
+ *
+ * <p>This class is thread-safe.
  *
  * @hide
  */
 public class ApduSender {
-    private static final String LOG_TAG = "ApduSender";
-
     // Parameter and response used by the command to get extra responses of an APDU command.
     private static final int INS_GET_MORE_RESPONSE = 0xC0;
     private static final int SW1_MORE_RESPONSE = 0x61;
@@ -55,19 +61,12 @@ public class ApduSender {
     // Status code of APDU response
     private static final int STATUS_NO_ERROR = 0x9000;
     private static final int SW1_NO_ERROR = 0x91;
+    private static final int STATUS_CHANNEL_CLOSED = 0x6881; // b/359336875
 
     private static final int WAIT_TIME_MS = 2000;
     private static final String CHANNEL_ID_PRE = "esim-channel";
-    private static final String ISD_R_AID = "A0000005591010FFFFFFFF8900000100";
+    static final String ISD_R_AID = "A0000005591010FFFFFFFF8900000100";
     private static final String CHANNEL_RESPONSE_ID_PRE = "esim-res-id";
-
-    private static void logv(String msg) {
-        Rlog.v(LOG_TAG, msg);
-    }
-
-    private static void logd(String msg) {
-        Rlog.d(LOG_TAG, msg);
-    }
 
     private final String mAid;
     private final boolean mSupportExtendedApdu;
@@ -77,10 +76,17 @@ public class ApduSender {
     private final Context mContext;
     private final String mChannelKey;
     private final String mChannelResponseKey;
+    // closeAnyOpenChannel() needs a handler for its async callbacks.
+    private final Handler mHandler;
+    private final String mLogTag;
 
-    // Lock for accessing mChannelOpened. We only allow to open a single logical channel at any
-    // time for an AID.
-    private final Object mChannelLock = new Object();
+    // Lock for accessing mChannelInUse. We only allow to open a single logical
+    // channel at any time for an AID and to invoke one command at any time.
+    // Only the thread (and its async callbacks) that sets mChannelInUse
+    // can open/close/send, and update mChannelOpened.
+    private final Object mChannelInUseLock = new Object();
+    @GuardedBy("mChannelInUseLock")
+    private boolean mChannelInUse;
     private boolean mChannelOpened;
 
     /**
@@ -88,6 +94,10 @@ public class ApduSender {
      */
     public ApduSender(Context context, int phoneId, CommandsInterface ci, String aid,
             boolean supportExtendedApdu) {
+        if (!aid.equals(ISD_R_AID) && !"user".equals(Build.TYPE)) {
+            throw new IllegalArgumentException("Only ISD-R AID is supported.");
+        }
+        mLogTag = "ApduSender-" + phoneId;
         mAid = aid;
         mContext = context;
         mSupportExtendedApdu = supportExtendedApdu;
@@ -96,7 +106,8 @@ public class ApduSender {
         mTransmitApdu = new TransmitApduLogicalChannelInvocation(ci);
         mChannelKey = CHANNEL_ID_PRE + "_" + phoneId;
         mChannelResponseKey = CHANNEL_RESPONSE_ID_PRE + "_" + phoneId;
-        closeExistingChannelIfExists();
+        mHandler = new Handler();
+        mChannelInUse = false;
     }
 
     /**
@@ -115,86 +126,133 @@ public class ApduSender {
             RequestProvider requestProvider,
             ApduSenderResultCallback resultCallback,
             Handler handler) {
-        synchronized (mChannelLock) {
-            if (mChannelOpened) {
-                if (!Looper.getMainLooper().equals(Looper.myLooper())) {
-                    logd("Logical channel has already been opened. Wait.");
-                    try {
-                        mChannelLock.wait(WAIT_TIME_MS);
-                    } catch (InterruptedException e) {
-                        // nothing to do
-                    }
-                    if (mChannelOpened) {
-                        AsyncResultHelper.throwException(
-                                new ApduException("The logical channel is still in use."),
-                                resultCallback, handler);
-                        return;
-                    }
-                } else {
-                    AsyncResultHelper.throwException(
-                            new ApduException("The logical channel is in use."),
-                            resultCallback, handler);
-                    return;
-                }
-            }
-            mChannelOpened = true;
+        if (!acquireChannelLock()) {
+            AsyncResultHelper.throwException(
+                    new ApduException("The logical channel is still in use."),
+                    resultCallback,
+                    handler);
+            return;
         }
 
-        mOpenChannel.invoke(mAid, new AsyncResultCallback<IccOpenLogicalChannelResponse>() {
-            @Override
-            public void onResult(IccOpenLogicalChannelResponse openChannelResponse) {
-                int channel = openChannelResponse.getChannel();
-                int status = openChannelResponse.getStatus();
-                byte[] selectResponse = openChannelResponse.getSelectResponse();
-                if (mAid.equals(ISD_R_AID)
-                      && status == IccOpenLogicalChannelResponse.STATUS_NO_SUCH_ELEMENT) {
-                    channel = PreferenceManager.getDefaultSharedPreferences(mContext)
-                                .getInt(mChannelKey, IccOpenLogicalChannelResponse.INVALID_CHANNEL);
-                    if (channel != IccOpenLogicalChannelResponse.INVALID_CHANNEL) {
-                        logv("Try to use already opened channel: " + channel);
-                        status = IccOpenLogicalChannelResponse.STATUS_NO_ERROR;
-                        String storedResponse = PreferenceManager
-                                .getDefaultSharedPreferences(mContext)
-                                      .getString(mChannelResponseKey, "");
-                        selectResponse = Base64.decode(storedResponse, Base64.DEFAULT);
-                    }
-                }
-                if (channel == IccOpenLogicalChannelResponse.INVALID_CHANNEL
-                        || status != IccOpenLogicalChannelResponse.STATUS_NO_ERROR) {
-                    synchronized (mChannelLock) {
-                        mChannelOpened = false;
-                        mChannelLock.notify();
-                    }
-                    resultCallback.onException(
-                            new ApduException("Failed to open logical channel opened for AID: "
-                                    + mAid + ", with status: " + status));
-                    return;
-                }
-
-                RequestBuilder builder = new RequestBuilder(channel, mSupportExtendedApdu);
-                Throwable requestException = null;
-                if (mAid.equals(ISD_R_AID)) {
-                   PreferenceManager.getDefaultSharedPreferences(mContext)
-                         .edit().putInt(mChannelKey, channel).apply();
-                   PreferenceManager.getDefaultSharedPreferences(mContext)
-                        .edit().putString(mChannelResponseKey,
-                           Base64.encodeToString(selectResponse, Base64.DEFAULT)).apply();
-                }
-                try {
-                    requestProvider.buildRequest(selectResponse, builder);
-                } catch (Throwable e) {
-                    requestException = e;
-                }
-                if (builder.getCommands().isEmpty() || requestException != null) {
-                    // Just close the channel if we don't have commands to send or an error
-                    // was encountered.
-                    closeAndReturn(channel, null /* response */, requestException, resultCallback,
-                            handler);
-                    return;
-                }
-                sendCommand(builder.getCommands(), 0 /* index */, resultCallback, handler);
+        boolean euiccSession = EuiccSession.get().hasSession();
+        // Case 1, channel was already opened AND EuiccSession is ongoing.
+        // sendCommand directly. Do not immediately close channel after sendCommand.
+        // Case 2, channel was already opened AND EuiccSession is not ongoing. This means
+        // EuiccSession#endSession is already called but closeAnyOpenChannel() is not
+        // yet executed because of waiting to acquire lock hold by this thread.
+        // sendCommand directly. Close channel immediately anyways after sendCommand.
+        // Case 3, channel is not open AND EuiccSession is ongoing. Open channel
+        // before sendCommand. Do not immediately close channel after sendCommand.
+        // Case 4, channel is not open AND EuiccSession is not ongoing. Open channel
+        // before sendCommand. Close channel immediately after sendCommand.
+        if (mChannelOpened) {  // Case 1 or 2
+            if (euiccSession) {
+                EuiccSession.get().noteChannelOpen(this);
             }
-        }, handler);
+            RequestBuilder builder = getRequestBuilderWithOpenedChannel(requestProvider,
+                    !euiccSession /* closeChannelImmediately */, resultCallback, handler);
+            if (builder == null) {
+                return;
+            }
+            sendCommand(builder.getCommands(), 0 /* index */,
+                    !euiccSession /* closeChannelImmediately */, resultCallback, handler);
+        } else {  // Case 3 or 4
+            if (euiccSession) {
+                EuiccSession.get().noteChannelOpen(this);
+            }
+            openChannel(requestProvider,
+                    !euiccSession /* closeChannelImmediately */, resultCallback, handler);
+        }
+    }
+
+    private RequestBuilder getRequestBuilderWithOpenedChannel(
+            RequestProvider requestProvider,
+            boolean closeChannelImmediately,
+            ApduSenderResultCallback resultCallback,
+            Handler handler) {
+        Throwable requestException = null;
+        int channel =
+                PreferenceManager.getDefaultSharedPreferences(mContext)
+                        .getInt(mChannelKey, IccOpenLogicalChannelResponse.INVALID_CHANNEL);
+        String storedResponse =
+                PreferenceManager.getDefaultSharedPreferences(mContext)
+                        .getString(mChannelResponseKey, "");
+        byte[] selectResponse = Base64.decode(storedResponse, Base64.DEFAULT);
+        RequestBuilder builder = new RequestBuilder(channel, mSupportExtendedApdu);
+        try {
+            requestProvider.buildRequest(selectResponse, builder);
+        } catch (Throwable e) {
+            requestException = e;
+        }
+        if (builder.getCommands().isEmpty() || requestException != null) {
+            logd("Release as commands are empty or exception occurred");
+            returnRespnseOrException(channel, closeChannelImmediately,
+                    null /* response */, requestException, resultCallback, handler);
+            return null;
+        }
+        return builder;
+    }
+
+    private void openChannel(
+            RequestProvider requestProvider,
+            boolean closeChannelImmediately,
+            ApduSenderResultCallback resultCallback,
+            Handler handler) {
+        mOpenChannel.invoke(mAid, new AsyncResultCallback<IccOpenLogicalChannelResponse>() {
+                    @Override
+                    public void onResult(IccOpenLogicalChannelResponse openChannelResponse) {
+                        int channel = openChannelResponse.getChannel();
+                        int status = openChannelResponse.getStatus();
+                        byte[] selectResponse = openChannelResponse.getSelectResponse();
+                        if (status == IccOpenLogicalChannelResponse.STATUS_NO_SUCH_ELEMENT) {
+                            channel = PreferenceManager.getDefaultSharedPreferences(mContext)
+                                            .getInt(mChannelKey,
+                                                    IccOpenLogicalChannelResponse.INVALID_CHANNEL);
+                            if (channel != IccOpenLogicalChannelResponse.INVALID_CHANNEL) {
+                                logv("Try to use already opened channel: " + channel);
+                                status = IccOpenLogicalChannelResponse.STATUS_NO_ERROR;
+                                String storedResponse = PreferenceManager
+                                        .getDefaultSharedPreferences(mContext)
+                                              .getString(mChannelResponseKey, "");
+                                selectResponse = Base64.decode(storedResponse, Base64.DEFAULT);
+                            }
+                        }
+
+                        if (channel == IccOpenLogicalChannelResponse.INVALID_CHANNEL
+                                || status != IccOpenLogicalChannelResponse.STATUS_NO_ERROR) {
+                            mChannelOpened = false;
+                            returnRespnseOrException(
+                                    channel,
+                                    /* closeChannelImmediately= */ false,
+                                    /* response= */ null,
+                                    new ApduException(
+                                            "Failed to open logical channel for AID: "
+                                                    + mAid
+                                                    + ", with status: "
+                                                    + status),
+                                    resultCallback,
+                                    handler);
+                            return;
+                        }
+                        PreferenceManager.getDefaultSharedPreferences(mContext)
+                                .edit()
+                                .putInt(mChannelKey, channel)
+                                .putString(mChannelResponseKey,
+                                    Base64.encodeToString(selectResponse, Base64.DEFAULT)).apply();
+                        mChannelOpened = true;
+
+                        RequestBuilder builder =
+                                getRequestBuilderWithOpenedChannel(requestProvider,
+                                        closeChannelImmediately, resultCallback, handler);
+                        if (builder == null) {
+                            return;
+                        }
+
+                        sendCommand(builder.getCommands(), 0 /* index */,
+                                closeChannelImmediately, resultCallback, handler);
+                    }
+                },
+                handler);
     }
 
     /**
@@ -207,6 +265,7 @@ public class ApduSender {
     private void sendCommand(
             List<ApduCommand> commands,
             int index,
+            boolean closeChannelImmediately,
             ApduSenderResultCallback resultCallback,
             Handler handler) {
         ApduCommand command = commands.get(index);
@@ -221,9 +280,21 @@ public class ApduSender {
                             public void onResult(IccIoResult fullResponse) {
                                 logv("Full APDU response: " + fullResponse);
                                 int status = (fullResponse.sw1 << 8) | fullResponse.sw2;
-                                if (status != STATUS_NO_ERROR && fullResponse.sw1 != SW1_NO_ERROR) {
-                                    closeAndReturn(command.channel, null /* response */,
-                                            new ApduException(status), resultCallback, handler);
+                                if (status != STATUS_NO_ERROR
+                                        && fullResponse.sw1 != SW1_NO_ERROR) {
+                                    if (status == STATUS_CHANNEL_CLOSED) {
+                                        // Channel is closed by EUICC e.g. REFRESH.
+                                        tearDownPreferences();
+                                        mChannelOpened = false;
+                                        // TODO: add retry
+                                    }
+                                    returnRespnseOrException(
+                                            command.channel,
+                                            closeChannelImmediately,
+                                            null /* response */,
+                                            new ApduException(status),
+                                            resultCallback,
+                                            handler);
                                     return;
                                 }
 
@@ -233,11 +304,17 @@ public class ApduSender {
                                                 fullResponse);
                                 if (continueSendCommand) {
                                     // Sends the next command
-                                    sendCommand(commands, index + 1, resultCallback, handler);
+                                    sendCommand(commands, index + 1,
+                                            closeChannelImmediately, resultCallback, handler);
                                 } else {
                                     // Returns the result of the last command
-                                    closeAndReturn(command.channel, fullResponse.payload,
-                                            null /* exception */, resultCallback, handler);
+                                    returnRespnseOrException(
+                                            command.channel,
+                                            closeChannelImmediately,
+                                            fullResponse.payload,
+                                            null /* exception */,
+                                            resultCallback,
+                                            handler);
                                 }
                             }
                         }, handler);
@@ -286,6 +363,41 @@ public class ApduSender {
                 }, handler);
     }
 
+    private void tearDownPreferences() {
+        PreferenceManager.getDefaultSharedPreferences(mContext)
+                .edit()
+                .remove(mChannelKey)
+                .remove(mChannelResponseKey)
+                .apply();
+    }
+
+    /**
+     * Fires the {@code resultCallback} to return a response or exception. Also
+     * closes the open logical channel if {@code closeChannelImmediately} is {@code true}.
+     */
+    private void returnRespnseOrException(
+            int channel,
+            boolean closeChannelImmediately,
+            @Nullable byte[] response,
+            @Nullable Throwable exception,
+            ApduSenderResultCallback resultCallback,
+            Handler handler) {
+        if (closeChannelImmediately) {
+            closeAndReturn(
+                    channel,
+                    response,
+                    exception,
+                    resultCallback,
+                    handler);
+        } else {
+            releaseChannelLockAndReturn(
+                    response,
+                    exception,
+                    resultCallback,
+                    handler);
+        }
+    }
+
     /**
      * Closes the opened logical channel.
      *
@@ -303,16 +415,9 @@ public class ApduSender {
         mCloseChannel.invoke(channel, new AsyncResultCallback<Boolean>() {
             @Override
             public void onResult(Boolean aBoolean) {
-                synchronized (mChannelLock) {
-                    if (mAid.equals(ISD_R_AID)) {
-                      PreferenceManager.getDefaultSharedPreferences(mContext)
-                             .edit().remove(mChannelKey).apply();
-                      PreferenceManager.getDefaultSharedPreferences(mContext)
-                             .edit().remove(mChannelResponseKey).apply();
-                    }
-                    mChannelOpened = false;
-                    mChannelLock.notify();
-                }
+                tearDownPreferences();
+                mChannelOpened = false;
+                releaseChannelLock();
 
                 if (exception == null) {
                     resultCallback.onResult(response);
@@ -324,37 +429,109 @@ public class ApduSender {
     }
 
     /**
-     * Cleanup the existing opened channel which was remainined opened earlier due
-     * to failure or crash.
+     * Cleanup the existing opened channel which remained opened earlier due
+     * to:
+     *
+     * <p> 1) onging EuiccSession. This will be called by {@link EuiccSession#endSession()}
+     * from non-main-thread. Or,
+     *
+     * <p> 2) telephony crash. This will be called by constructor from main-thread.
      */
-    private void closeExistingChannelIfExists() {
-        if (mCloseChannel != null) {
-            int channelId = PreferenceManager.getDefaultSharedPreferences(mContext)
-                .getInt(mChannelKey, IccOpenLogicalChannelResponse.INVALID_CHANNEL);
-            if (channelId != IccOpenLogicalChannelResponse.INVALID_CHANNEL) {
-                logv("Trying to clean up the opened channel : " +  channelId);
-                synchronized (mChannelLock) {
-                    mChannelOpened = true;
-                    mChannelLock.notify();
-                }
-                mCloseChannel.invoke(channelId, new AsyncResultCallback<Boolean>() {
-                    @Override
-                    public void onResult(Boolean isSuccess) {
-                        if (isSuccess) {
-                          logv("Channel closed successfully: " +  channelId);
-                          PreferenceManager.getDefaultSharedPreferences(mContext)
-                                 .edit().remove(mChannelResponseKey).apply();
-                          PreferenceManager.getDefaultSharedPreferences(mContext)
-                                 .edit().remove(mChannelKey).apply();
-                       }
-
-                       synchronized (mChannelLock) {
-                           mChannelOpened = false;
-                           mChannelLock.notify();
-                      }
-                    }
-                }, new Handler());
-            }
+    public void closeAnyOpenChannel() {
+        if (!acquireChannelLock()) {
+            // This cannot happen for case 2) when called by constructor
+            loge("[closeAnyOpenChannel] failed to acquire channel lock");
+            return;
         }
+        int channelId = PreferenceManager.getDefaultSharedPreferences(mContext)
+                .getInt(mChannelKey, IccOpenLogicalChannelResponse.INVALID_CHANNEL);
+        if (channelId == IccOpenLogicalChannelResponse.INVALID_CHANNEL) {
+            releaseChannelLock();
+            return;
+        }
+        logv("[closeAnyOpenChannel] closing the open channel : " +  channelId);
+        mCloseChannel.invoke(channelId, new AsyncResultCallback<Boolean>() {
+            @Override
+            public void onResult(Boolean isSuccess) {
+                if (isSuccess) {
+                    logv("[closeAnyOpenChannel] Channel closed successfully: " + channelId);
+                    tearDownPreferences();
+                }
+                // Even if CloseChannel failed, pretend that the channel is closed.
+                // So next send() will try open the channel again. If the channel is
+                // indeed still open, we use the channelId saved in sharedPref.
+                mChannelOpened = false;
+                releaseChannelLock();
+            }
+        }, mHandler);
+    }
+
+    // releases channel and callback
+    private void releaseChannelLockAndReturn(
+            @Nullable byte[] response,
+            @Nullable Throwable exception,
+            ApduSenderResultCallback resultCallback,
+            Handler handler) {
+        handler.post(
+                () -> {
+                    releaseChannelLock();
+                    if (exception == null) {
+                        resultCallback.onResult(response);
+                    } else {
+                        resultCallback.onException(exception);
+                    }
+                });
+    }
+
+    private void releaseChannelLock() {
+        synchronized (mChannelInUseLock) {
+            logd("Channel lock released.");
+            mChannelInUse = false;
+            mChannelInUseLock.notify();
+        }
+    }
+
+    /**
+     * Acquires channel lock and returns {@code true} if successful.
+     *
+     * <p>It fails and returns {@code false} when:
+     * <ul>
+     *   <li>Called from main thread, and mChannelInUse=true, fails immediately.
+     *   <li>Called from non main thread, and mChannelInUse=true after 2 seconds waiting, fails.
+     * </ul>
+     */
+    private boolean acquireChannelLock() {
+        synchronized (mChannelInUseLock) {
+            if (mChannelInUse) {
+                if (!Looper.getMainLooper().equals(Looper.myLooper())) {
+                    logd("Logical channel is in use. Wait.");
+                    try {
+                        mChannelInUseLock.wait(WAIT_TIME_MS);
+                    } catch (InterruptedException e) {
+                        // nothing to do
+                    }
+                    if (mChannelInUse) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            mChannelInUse = true;
+            logd("Channel lock acquired.");
+            return true;
+        }
+    }
+
+    private void logv(String msg) {
+        Rlog.v(mLogTag, msg);
+    }
+
+    private void logd(String msg) {
+        Rlog.d(mLogTag, msg);
+    }
+
+    private void loge(String msg) {
+        Rlog.e(mLogTag, msg);
     }
 }

@@ -1124,12 +1124,13 @@ public abstract class DocumentsProvider extends ContentProvider {
         }
 
         final Uri documentUri = extraUri;
-        final String authority = documentUri.getAuthority();
+        final String authorityWithoutUserId = getAuthorityWithoutUserId(documentUri.getAuthority());
         final String documentId = DocumentsContract.getDocumentId(documentUri);
 
-        if (!mAuthority.equals(authority)) {
+        if (!mAuthority.equals(authorityWithoutUserId)) {
             throw new SecurityException(
-                    "Requested authority " + authority + " doesn't match provider " + mAuthority);
+                    "Requested authority " + authorityWithoutUserId + " doesn't match provider "
+                            + mAuthority);
         }
 
         if (METHOD_IS_CHILD_DOCUMENT.equals(method)) {

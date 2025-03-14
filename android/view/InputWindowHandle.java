@@ -57,7 +57,7 @@ public final class InputWindowHandle {
             InputConfig.NO_INPUT_CHANNEL,
             InputConfig.NOT_FOCUSABLE,
             InputConfig.NOT_TOUCHABLE,
-            InputConfig.PREVENT_SPLITTING,
+            InputConfig.DEPRECATED_PREVENT_SPLITTING,
             InputConfig.DUPLICATE_TOUCH_TO_WALLPAPER,
             InputConfig.IS_WALLPAPER,
             InputConfig.PAUSE_DISPATCHING,
@@ -259,6 +259,15 @@ public final class InputWindowHandle {
     public void setTouchableRegionCrop(@Nullable SurfaceControl bounds) {
         touchableRegionSurfaceControl = new WeakReference<>(bounds);
     }
+
+    /**
+     * Resize the window touchable region.
+     * @param rect new touchable region rectangle.
+     */
+    public void setTouchableRegion(Rect rect) {
+        touchableRegion.set(rect);
+    }
+
 
     public void setWindowToken(IBinder iwindow) {
         windowToken = iwindow;

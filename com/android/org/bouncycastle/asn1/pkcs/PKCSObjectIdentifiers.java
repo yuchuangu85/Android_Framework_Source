@@ -79,10 +79,12 @@ public interface PKCSObjectIdentifiers
     ASN1ObjectIdentifier    pbeWithSHA1AndDES_CBC   = pkcs_5.branch("10");
     /** PKCS#5: 1.2.840.113549.1.5.11 */
     ASN1ObjectIdentifier    pbeWithSHA1AndRC2_CBC   = pkcs_5.branch("11");
-    /** PKCS#5: 1.2.840.113549.1.5.13 */
-    ASN1ObjectIdentifier    id_PBES2                = pkcs_5.branch("13");
     /** PKCS#5: 1.2.840.113549.1.5.12 */
     ASN1ObjectIdentifier    id_PBKDF2               = pkcs_5.branch("12");
+    /** PKCS#5: 1.2.840.113549.1.5.13 */
+    ASN1ObjectIdentifier    id_PBES2                = pkcs_5.branch("13");
+    /** PKCS#5: 1.2.840.113549.1.5.14 */
+    ASN1ObjectIdentifier    id_PBMAC1               = pkcs_5.branch("14");
 
     //
     // encryptionAlgorithm OBJECT IDENTIFIER ::= {
@@ -138,6 +140,10 @@ public interface PKCSObjectIdentifiers
     ASN1ObjectIdentifier    id_hmacWithSHA384      = digestAlgorithm.branch("10").intern();
     /**  1.2.840.113549.2.11 */
     ASN1ObjectIdentifier    id_hmacWithSHA512      = digestAlgorithm.branch("11").intern();
+    /**  1.2.840.113549.2.12 */
+    ASN1ObjectIdentifier    id_hmacWithSHA512_224  = digestAlgorithm.branch("12").intern();
+    /**  1.2.840.113549.2.13 */
+    ASN1ObjectIdentifier    id_hmacWithSHA512_256  = digestAlgorithm.branch("13").intern();
 
     //
     // pkcs-7 OBJECT IDENTIFIER ::= {
@@ -192,6 +198,8 @@ public interface PKCSObjectIdentifiers
     ASN1ObjectIdentifier    pkcs_9_at_smimeCapabilities  = pkcs_9.branch("15").intern();
     /** PKCS#9: 1.2.840.113549.1.9.16 */
     ASN1ObjectIdentifier    id_smime                     = pkcs_9.branch("16").intern();
+    /** PKCS#9: 1.2.840.113549.1.9.16.2.46 */
+    ASN1ObjectIdentifier    pkcs_9_at_binarySigningTime  = pkcs_9.branch("16.2.46").intern();
 
     /** PKCS#9: 1.2.840.113549.1.9.20 */
     ASN1ObjectIdentifier    pkcs_9_at_friendlyName  = pkcs_9.branch("20").intern();
@@ -250,8 +258,20 @@ public interface PKCSObjectIdentifiers
 
     /** S/MIME: Algorithm Identifiers ; 1.2.840.113549.1.9.16.3 */
     ASN1ObjectIdentifier id_alg                  = id_smime.branch("3");
+
+    /** PKCS#9: 1.2.840.113549.1.9.16.3.5 */
+    ASN1ObjectIdentifier    id_alg_ESDH             = id_alg.branch("5");
+    /** PKCS#9: 1.2.840.113549.1.9.16.3.6 */
+    ASN1ObjectIdentifier    id_alg_CMS3DESwrap      = id_alg.branch("6");
+    /** PKCS#9: 1.2.840.113549.1.9.16.3.7 */
+    ASN1ObjectIdentifier    id_alg_CMSRC2wrap       = id_alg.branch("7");
+    /** PKCS#9: 1.2.840.113549.1.9.16.3.8 */
+    ASN1ObjectIdentifier id_alg_zlibCompress        = id_alg.branch("8");
     /** PKCS#9: 1.2.840.113549.1.9.16.3.9 */
-    ASN1ObjectIdentifier id_alg_PWRI_KEK         = id_alg.branch("9");
+    ASN1ObjectIdentifier id_alg_PWRI_KEK            = id_alg.branch("9");
+    /** PKCS#9: 1.2.840.113549.1.9.16.3.10 */
+    ASN1ObjectIdentifier    id_alg_SSDH             = id_alg.branch("10");
+
     /**
      * <pre>
      * -- RSA-KEM Key Transport Algorithm  RFC 5990
@@ -469,14 +489,5 @@ public interface PKCSObjectIdentifiers
      * @deprecated use pbeWithSHAAnd40BitRC2_CBC
      */
     ASN1ObjectIdentifier    pbewithSHAAnd40BitRC2_CBC = pkcs_12PbeIds.branch("6");
-
-    /** PKCS#9: 1.2.840.113549.1.9.16.3.6 */
-    ASN1ObjectIdentifier    id_alg_CMS3DESwrap = new ASN1ObjectIdentifier("1.2.840.113549.1.9.16.3.6");
-    /** PKCS#9: 1.2.840.113549.1.9.16.3.7 */
-    ASN1ObjectIdentifier    id_alg_CMSRC2wrap  = new ASN1ObjectIdentifier("1.2.840.113549.1.9.16.3.7");
-    /** PKCS#9: 1.2.840.113549.1.9.16.3.5 */
-    ASN1ObjectIdentifier    id_alg_ESDH  = new ASN1ObjectIdentifier("1.2.840.113549.1.9.16.3.5");
-    /** PKCS#9: 1.2.840.113549.1.9.16.3.10 */
-    ASN1ObjectIdentifier    id_alg_SSDH  = new ASN1ObjectIdentifier("1.2.840.113549.1.9.16.3.10");
 }
 

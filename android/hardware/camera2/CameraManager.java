@@ -19,6 +19,7 @@ package android.hardware.camera2;
 import static android.companion.virtual.VirtualDeviceParams.DEVICE_POLICY_DEFAULT;
 import static android.companion.virtual.VirtualDeviceParams.POLICY_TYPE_CAMERA;
 import static android.content.Context.DEVICE_ID_DEFAULT;
+import static android.content.Context.DEVICE_ID_INVALID;
 
 import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
@@ -29,12 +30,15 @@ import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
 import android.app.ActivityManager;
+import android.app.CameraCompatTaskInfo;
 import android.app.TaskInfo;
 import android.app.compat.CompatChanges;
 import android.companion.virtual.VirtualDeviceManager;
 import android.compat.annotation.ChangeId;
 import android.compat.annotation.EnabledSince;
 import android.compat.annotation.Overridable;
+import android.content.AttributionSource;
+import android.content.AttributionSourceState;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Point;
@@ -55,16 +59,20 @@ import android.hardware.camera2.utils.ConcurrentCameraIdCombination;
 import android.hardware.camera2.utils.ExceptionUtils;
 import android.hardware.devicestate.DeviceState;
 import android.hardware.devicestate.DeviceStateManager;
+import android.hardware.devicestate.feature.flags.FeatureFlags;
+import android.hardware.devicestate.feature.flags.FeatureFlagsImpl;
 import android.hardware.display.DisplayManager;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.ServiceSpecificException;
 import android.os.SystemProperties;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Log;
@@ -76,6 +84,7 @@ import com.android.internal.camera.flags.Flags;
 import com.android.internal.util.ArrayUtils;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -106,6 +115,7 @@ public final class CameraManager {
     private final boolean DEBUG = false;
 
     private static final int USE_CALLING_UID = -1;
+    private static final int USE_CALLING_PID = -1;
 
     @SuppressWarnings("unused")
     private static final int API_VERSION_1 = 1;
@@ -176,7 +186,7 @@ public final class CameraManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(com.android.window.flags.Flags.FLAG_CAMERA_COMPAT_FOR_FREEFORM)
+    @FlaggedApi(com.android.window.flags.Flags.FLAG_ENABLE_CAMERA_COMPAT_FOR_DESKTOP_WINDOWING)
     public static final int ROTATION_OVERRIDE_NONE = ICameraService.ROTATION_OVERRIDE_NONE;
 
     /**
@@ -186,7 +196,7 @@ public final class CameraManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(com.android.window.flags.Flags.FLAG_CAMERA_COMPAT_FOR_FREEFORM)
+    @FlaggedApi(com.android.window.flags.Flags.FLAG_ENABLE_CAMERA_COMPAT_FOR_DESKTOP_WINDOWING)
     public static final int ROTATION_OVERRIDE_OVERRIDE_TO_PORTRAIT =
             ICameraService.ROTATION_OVERRIDE_OVERRIDE_TO_PORTRAIT;
 
@@ -196,7 +206,7 @@ public final class CameraManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(com.android.window.flags.Flags.FLAG_CAMERA_COMPAT_FOR_FREEFORM)
+    @FlaggedApi(com.android.window.flags.Flags.FLAG_ENABLE_CAMERA_COMPAT_FOR_DESKTOP_WINDOWING)
     public static final int ROTATION_OVERRIDE_ROTATION_ONLY =
             ICameraService.ROTATION_OVERRIDE_ROTATION_ONLY;
 
@@ -245,14 +255,22 @@ public final class CameraManager {
         private ArrayList<WeakReference<DeviceStateListener>> mDeviceStateListeners =
                 new ArrayList<>();
         private boolean mFoldedDeviceState;
+        private final FeatureFlags mDeviceStateManagerFlags;
 
         public FoldStateListener(Context context) {
             mFoldedDeviceStates = context.getResources().getIntArray(
                     com.android.internal.R.array.config_foldedDeviceStates);
+            mDeviceStateManagerFlags = new FeatureFlagsImpl();
         }
 
-        private synchronized void handleStateChange(int state) {
-            boolean folded = ArrayUtils.contains(mFoldedDeviceStates, state);
+        private synchronized void handleStateChange(DeviceState state) {
+            final boolean folded;
+            if (mDeviceStateManagerFlags.deviceStatePropertyMigration()) {
+                folded = state.hasProperty(
+                        DeviceState.PROPERTY_FOLDABLE_DISPLAY_CONFIGURATION_OUTER_PRIMARY);
+            } else {
+                folded = ArrayUtils.contains(mFoldedDeviceStates, state.getIdentifier());
+            }
 
             mFoldedDeviceState = folded;
             Iterator<WeakReference<DeviceStateListener>> it = mDeviceStateListeners.iterator();
@@ -274,10 +292,8 @@ public final class CameraManager {
 
         @SuppressWarnings("FlaggedApi")
         @Override
-        public void onDeviceStateChanged(DeviceState state) {
-            // Suppressing the FlaggedAPI warning as this specific API isn't new, just moved to
-            // system API which requires it to be flagged.
-            handleStateChange(state.getIdentifier());
+        public void onDeviceStateChanged(@NonNull DeviceState state) {
+            handleStateChange(state);
         }
     }
 
@@ -418,9 +434,12 @@ public final class CameraManager {
     public boolean isConcurrentSessionConfigurationSupported(
             @NonNull Map<String, SessionConfiguration> cameraIdAndSessionConfig)
             throws CameraAccessException {
-        return CameraManagerGlobal.get().isConcurrentSessionConfigurationSupported(
-                cameraIdAndSessionConfig, mContext.getApplicationInfo().targetSdkVersion,
-                mContext.getDeviceId(), getDevicePolicyFromContext(mContext));
+        return CameraManagerGlobal.get()
+                .isConcurrentSessionConfigurationSupported(
+                        cameraIdAndSessionConfig,
+                        mContext.getApplicationInfo().targetSdkVersion,
+                        getClientAttribution(),
+                        getDevicePolicyFromContext(mContext));
     }
 
     /**
@@ -573,15 +592,16 @@ public final class CameraManager {
 
     /** @hide */
     public int getDevicePolicyFromContext(@NonNull Context context) {
-        if (context.getDeviceId() == DEVICE_ID_DEFAULT
-                || !android.companion.virtual.flags.Flags.virtualCamera()) {
+        if (context.getDeviceId() == DEVICE_ID_DEFAULT) {
             return DEVICE_POLICY_DEFAULT;
         }
 
         if (mVirtualDeviceManager == null) {
             mVirtualDeviceManager = context.getSystemService(VirtualDeviceManager.class);
         }
-        return mVirtualDeviceManager.getDevicePolicy(context.getDeviceId(), POLICY_TYPE_CAMERA);
+        return mVirtualDeviceManager == null
+                ? DEVICE_POLICY_DEFAULT
+                : mVirtualDeviceManager.getDevicePolicy(context.getDeviceId(), POLICY_TYPE_CAMERA);
     }
 
     // TODO(b/147726300): Investigate how to support foldables/multi-display devices.
@@ -658,11 +678,14 @@ public final class CameraManager {
         }
         try {
             for (String physicalCameraId : physicalCameraIds) {
+                AttributionSourceState clientAttribution = getClientAttribution(DEVICE_ID_DEFAULT,
+                        /* useContextAttributionSource= */ false);
                 CameraMetadataNative physicalCameraInfo =
-                        cameraService.getCameraCharacteristics(physicalCameraId,
+                        cameraService.getCameraCharacteristics(
+                                physicalCameraId,
                                 mContext.getApplicationInfo().targetSdkVersion,
                                 /*rotationOverride*/ ICameraService.ROTATION_OVERRIDE_NONE,
-                                DEVICE_ID_DEFAULT,
+                                clientAttribution,
                                 DEVICE_POLICY_DEFAULT);
                 StreamConfiguration[] configs = physicalCameraInfo.get(
                         CameraCharacteristics.
@@ -754,9 +777,13 @@ public final class CameraManager {
                         "Camera service is currently unavailable");
             }
             try {
-                CameraMetadataNative info = cameraService.getCameraCharacteristics(cameraId,
-                        mContext.getApplicationInfo().targetSdkVersion, rotationOverride,
-                        mContext.getDeviceId(), getDevicePolicyFromContext(mContext));
+                CameraMetadataNative info =
+                        cameraService.getCameraCharacteristics(
+                                cameraId,
+                                mContext.getApplicationInfo().targetSdkVersion,
+                                rotationOverride,
+                                getClientAttribution(),
+                                getDevicePolicyFromContext(mContext));
                 characteristics = prepareCameraCharacteristics(cameraId, info, cameraService);
             } catch (ServiceSpecificException e) {
                 throw ExceptionUtils.throwAsPublicException(e);
@@ -795,7 +822,7 @@ public final class CameraManager {
             }
 
             boolean hasConcurrentStreams =
-                    CameraManagerGlobal.get().cameraIdHasConcurrentStreamsLocked(cameraId,
+                    CameraManagerGlobal.get().cameraIdHasConcurrentStreams(cameraId,
                             mContext.getDeviceId(), getDevicePolicyFromContext(mContext));
             metadata.setHasMandatoryConcurrentStreams(hasConcurrentStreams);
 
@@ -949,15 +976,109 @@ public final class CameraManager {
     }
 
     /**
+     * Checks if a camera device can be opened in a shared mode for a given {@code cameraId}.
+     * If this method returns false for a {@code cameraId}, calling {@link #openSharedCamera}
+     * for that {@code cameraId} will throw an {@link UnsupportedOperationException}.
+     *
+     * @param cameraId The unique identifier of the camera device for which sharing support is
+     *                 being queried. This identifier must be present in
+     *                 {@link #getCameraIdList()}.
+     *
+     * @return {@code true} if camera can be opened in shared mode
+     *                      for the provided {@code cameraId}; {@code false} otherwise.
+     *
+     * @throws IllegalArgumentException If {@code cameraId} is null, or if {@code cameraId} does not
+     *                                  match any device in {@link #getCameraIdList()}.
+     * @throws CameraAccessException    if the camera device has been disconnected.
+     *
+     * @see #getCameraIdList()
+     * @hide
+     */
+    @FlaggedApi(Flags.FLAG_CAMERA_MULTI_CLIENT)
+    @SystemApi
+    public boolean isCameraDeviceSharingSupported(@NonNull String cameraId)
+            throws CameraAccessException {
+        if (cameraId == null) {
+            throw new IllegalArgumentException("Camera ID was null");
+        }
+
+        if (CameraManagerGlobal.sCameraServiceDisabled
+                || !Arrays.asList(CameraManagerGlobal.get().getCameraIdList(mContext.getDeviceId(),
+                getDevicePolicyFromContext(mContext))).contains(cameraId)) {
+            throw new IllegalArgumentException(
+                    "Camera ID '" + cameraId + "' not available on device.");
+        }
+
+        CameraCharacteristics chars = getCameraCharacteristics(cameraId);
+        long[] sharedOutputConfiguration =
+                chars.get(CameraCharacteristics.SHARED_SESSION_OUTPUT_CONFIGURATIONS);
+        return (sharedOutputConfiguration != null);
+    }
+
+    /**
+     * Retrieves the AttributionSourceState to pass to the CameraService.
+     *
+     * @param deviceIdOverride An override of the AttributionSource's deviceId, if not equal to
+     *   DEVICE_ID_INVALID
+     * @param useContextAttributionSource Whether to return the full attribution source provided by
+     *   the Context.
+     *
+     * @hide
+     */
+    public AttributionSourceState getClientAttribution(int deviceIdOverride,
+            boolean useContextAttributionSource) {
+        AttributionSource contextAttributionSource = mContext.getAttributionSource();
+        if (deviceIdOverride != DEVICE_ID_INVALID) {
+            contextAttributionSource = contextAttributionSource.withDeviceId(deviceIdOverride);
+        }
+        AttributionSourceState contextAttributionSourceState =
+                contextAttributionSource.asState();
+
+        if (Flags.dataDeliveryPermissionChecks() && useContextAttributionSource) {
+            return contextAttributionSourceState;
+        } else {
+            AttributionSourceState clientAttribution =
+                    new AttributionSourceState();
+            clientAttribution.uid = USE_CALLING_UID;
+            clientAttribution.pid = USE_CALLING_PID;
+            clientAttribution.deviceId = contextAttributionSourceState.deviceId;
+            clientAttribution.packageName = mContext.getOpPackageName();
+            clientAttribution.attributionTag = mContext.getAttributionTag();
+            clientAttribution.next = new AttributionSourceState[0];
+            return clientAttribution;
+        }
+    }
+
+    /**
+     * Retrieves the AttributionSourceState to pass to the CameraService.
+     *
+     * @param useContextAttributionSource Whether to return the full attribution source provided by
+     *   the Context.
+     *
+     * @hide
+     */
+    public AttributionSourceState getClientAttribution(boolean useContextAttributionSource) {
+        return getClientAttribution(DEVICE_ID_INVALID, useContextAttributionSource);
+    }
+
+    /**
+     * Retrieves the AttributionSourceState to pass to the CameraService.
+     *
+     * @hide
+     */
+    public AttributionSourceState getClientAttribution() {
+        return getClientAttribution(DEVICE_ID_INVALID, /* useContextAttributionSource= */ false);
+    }
+
+    /**
      * Helper for opening a connection to a camera with the given ID.
      *
      * @param cameraId The unique identifier of the camera device to open
      * @param callback The callback for the camera. Must not be null.
      * @param executor The executor to invoke the callback with. Must not be null.
-     * @param uid      The UID of the application actually opening the camera.
-     *                 Must be USE_CALLING_UID unless the caller is a service
-     *                 that is trusted to open the device on behalf of an
-     *                 application and to forward the real UID.
+     * @param oomScoreOffset The minimum oom score that cameraservice must see for this client.
+     * @param rotationOverride The type of rotation override.
+     * @param sharedMode Parameter specifying if the camera should be opened in shared mode.
      *
      * @throws CameraAccessException if the camera is disabled by device policy,
      * too many camera devices are already open, or the cameraId does not match
@@ -972,8 +1093,9 @@ public final class CameraManager {
      * @see android.app.admin.DevicePolicyManager#setCameraDisabled
      */
     private CameraDevice openCameraDeviceUserAsync(String cameraId,
-            CameraDevice.StateCallback callback, Executor executor, final int uid,
-            final int oomScoreOffset, int rotationOverride) throws CameraAccessException {
+            CameraDevice.StateCallback callback, Executor executor,
+            final int oomScoreOffset, int rotationOverride, boolean sharedMode)
+            throws CameraAccessException {
         CameraCharacteristics characteristics = getCameraCharacteristics(cameraId);
         CameraDevice device = null;
         synchronized (mLock) {
@@ -992,7 +1114,7 @@ public final class CameraManager {
                         characteristics,
                         this,
                         mContext.getApplicationInfo().targetSdkVersion,
-                        mContext, cameraDeviceSetup);
+                        mContext, cameraDeviceSetup, sharedMode);
             ICameraDeviceCallbacks callbacks = deviceImpl.getCallbacks();
 
             try {
@@ -1003,11 +1125,17 @@ public final class CameraManager {
                         "Camera service is currently unavailable");
                 }
 
-                cameraUser = cameraService.connectDevice(callbacks, cameraId,
-                    mContext.getOpPackageName(), mContext.getAttributionTag(), uid,
-                    oomScoreOffset, mContext.getApplicationInfo().targetSdkVersion,
-                        rotationOverride, mContext.getDeviceId(),
-                        getDevicePolicyFromContext(mContext));
+                AttributionSourceState clientAttribution =
+                        getClientAttribution(/* useContextAttributionSource= */ true);
+                cameraUser =
+                        cameraService.connectDevice(
+                                callbacks,
+                                cameraId,
+                                oomScoreOffset,
+                                mContext.getApplicationInfo().targetSdkVersion,
+                                rotationOverride,
+                                clientAttribution,
+                                getDevicePolicyFromContext(mContext), sharedMode);
             } catch (ServiceSpecificException e) {
                 if (e.errorCode == ICameraService.ERROR_DEPRECATED_HAL) {
                     throw new AssertionError("Should've gone down the shim path");
@@ -1133,8 +1261,9 @@ public final class CameraManager {
     public void openCamera(@NonNull String cameraId,
             @NonNull final CameraDevice.StateCallback callback, @Nullable Handler handler)
             throws CameraAccessException {
-        openCameraForUid(cameraId, callback, CameraDeviceImpl.checkAndWrapHandler(handler),
-                USE_CALLING_UID);
+
+        openCameraImpl(cameraId, callback, CameraDeviceImpl.checkAndWrapHandler(handler),
+                /*oomScoreOffset*/0, getRotationOverride(mContext), /*sharedMode*/false);
     }
 
     /**
@@ -1170,11 +1299,11 @@ public final class CameraManager {
     public void openCamera(@NonNull String cameraId, boolean overrideToPortrait,
             @Nullable Handler handler,
             @NonNull final CameraDevice.StateCallback callback) throws CameraAccessException {
-        openCameraForUid(cameraId, callback, CameraDeviceImpl.checkAndWrapHandler(handler),
-                         USE_CALLING_UID, /*oomScoreOffset*/0,
+        openCameraImpl(cameraId, callback, CameraDeviceImpl.checkAndWrapHandler(handler),
+                         /*oomScoreOffset*/0,
                          overrideToPortrait
                                  ? ICameraService.ROTATION_OVERRIDE_OVERRIDE_TO_PORTRAIT
-                                 : ICameraService.ROTATION_OVERRIDE_NONE);
+                                 : ICameraService.ROTATION_OVERRIDE_NONE, /*sharedMode*/false);
     }
 
     /**
@@ -1219,8 +1348,62 @@ public final class CameraManager {
         if (executor == null) {
             throw new IllegalArgumentException("executor was null");
         }
-        openCameraForUid(cameraId, callback, executor, USE_CALLING_UID);
+        openCameraImpl(cameraId, callback, executor, /*oomScoreOffset*/0,
+                getRotationOverride(mContext), /*sharedMode*/false);
     }
+
+    /**
+     * Opens a shared connection to a camera with the given ID.
+     *
+     * <p>The behavior of this method matches that of
+     * {@link #openCamera(String, Executor, StateCallback)}, except that it opens the camera in
+     * shared mode where more than one client can access the camera at the same time.</p>
+     *
+     * @param cameraId The unique identifier of the camera device to open.
+     * @param executor The executor which will be used when invoking the callback.
+     * @param callback The callback which is invoked once the camera is opened
+     *
+     * @throws CameraAccessException if the camera is disabled by device policy, or is being used
+     *                               by a higher-priority client in non-shared mode or the device
+     *                               has reached its maximal resource and cannot open this camera
+     *                               device.
+     *
+     * @throws IllegalArgumentException if cameraId, the callback or the executor was null,
+     *                                  or the cameraId does not match any currently or previously
+     *                                  available camera device.
+     *
+     * @throws SecurityException if the application does not have permission to
+     *                           access the camera
+     *
+     * @throws UnsupportedOperationException if {@link #isCameraDeviceSharingSupported} returns
+     *                                       false for the given {@code cameraId}.
+     *
+     * @see #getCameraIdList
+     * @see android.app.admin.DevicePolicyManager#setCameraDisabled
+     *
+     * @hide
+     */
+    @SystemApi
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.SYSTEM_CAMERA,
+            android.Manifest.permission.CAMERA,
+    })
+    @FlaggedApi(Flags.FLAG_CAMERA_MULTI_CLIENT)
+    public void openSharedCamera(@NonNull String cameraId,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull final CameraDevice.StateCallback callback)
+            throws CameraAccessException {
+        if (executor == null) {
+            throw new IllegalArgumentException("executor was null");
+        }
+        if (!isCameraDeviceSharingSupported(cameraId)) {
+            throw new UnsupportedOperationException(
+                    "CameraDevice sharing is not supported for Camera ID: " + cameraId);
+        }
+        openCameraImpl(cameraId, callback, executor, /*oomScoreOffset*/0,
+                getRotationOverride(mContext), /*sharedMode*/true);
+    }
+
 
     /**
      * Open a connection to a camera with the given ID. Also specify what oom score must be offset
@@ -1287,33 +1470,36 @@ public final class CameraManager {
             throw new IllegalArgumentException(
                     "oomScoreOffset < 0, cannot increase priority of camera client");
         }
-        openCameraForUid(cameraId, callback, executor, USE_CALLING_UID, oomScoreOffset,
-                getRotationOverride(mContext));
+        openCameraImpl(cameraId, callback, executor, oomScoreOffset,
+                getRotationOverride(mContext), /*sharedMode*/false);
     }
 
     /**
-     * Open a connection to a camera with the given ID, on behalf of another application
-     * specified by clientUid. Also specify the minimum oom score and process state the application
-     * should have, as seen by the cameraserver.
+     * Open a connection to a camera with the given ID, on behalf of another application.
      *
-     * <p>The behavior of this method matches that of {@link #openCamera}, except that it allows
-     * the caller to specify the UID to use for permission/etc verification. This can only be
-     * done by services trusted by the camera subsystem to act on behalf of applications and
-     * to forward the real UID.</p>
-     *
-     * @param clientUid
-     *             The UID of the application on whose behalf the camera is being opened.
-     *             Must be USE_CALLING_UID unless the caller is a trusted service.
+     * @param cameraId
+     *             The unique identifier of the camera device to open
+     * @param callback
+     *             The callback which is invoked once the camera is opened
+     * @param executor
+     *             The executor which will be used when invoking the callback.
      * @param oomScoreOffset
      *             The minimum oom score that cameraservice must see for this client.
      * @param rotationOverride
      *             The type of rotation override (none, override_to_portrait, rotation_only)
      *             that should be followed for this camera id connection
+     * @param sharedMode
+     *             Parameter specifying if the camera should be opened in shared mode.
+     *
+     * @throws CameraAccessException if the camera is disabled by device policy,
+     * has been disconnected, or is being used by a higher-priority camera API client in
+     * non shared mode.
+     *
      * @hide
      */
-    public void openCameraForUid(@NonNull String cameraId,
+    public void openCameraImpl(@NonNull String cameraId,
             @NonNull final CameraDevice.StateCallback callback, @NonNull Executor executor,
-            int clientUid, int oomScoreOffset, int rotationOverride)
+            int oomScoreOffset, int rotationOverride, boolean sharedMode)
             throws CameraAccessException {
 
         if (cameraId == null) {
@@ -1325,30 +1511,8 @@ public final class CameraManager {
             throw new IllegalArgumentException("No cameras available on device");
         }
 
-        openCameraDeviceUserAsync(cameraId, callback, executor, clientUid, oomScoreOffset,
-                rotationOverride);
-    }
-
-    /**
-     * Open a connection to a camera with the given ID, on behalf of another application
-     * specified by clientUid.
-     *
-     * <p>The behavior of this method matches that of {@link #openCamera}, except that it allows
-     * the caller to specify the UID to use for permission/etc verification. This can only be
-     * done by services trusted by the camera subsystem to act on behalf of applications and
-     * to forward the real UID.</p>
-     *
-     * @param clientUid
-     *             The UID of the application on whose behalf the camera is being opened.
-     *             Must be USE_CALLING_UID unless the caller is a trusted service.
-     *
-     * @hide
-     */
-    public void openCameraForUid(@NonNull String cameraId,
-            @NonNull final CameraDevice.StateCallback callback, @NonNull Executor executor,
-            int clientUid) throws CameraAccessException {
-        openCameraForUid(cameraId, callback, executor, clientUid, /*oomScoreOffset*/0,
-                getRotationOverride(mContext));
+        openCameraDeviceUserAsync(cameraId, callback, executor, oomScoreOffset,
+                rotationOverride, sharedMode);
     }
 
     /**
@@ -1395,8 +1559,12 @@ public final class CameraManager {
         if (CameraManagerGlobal.sCameraServiceDisabled) {
             throw new IllegalArgumentException("No cameras available on device");
         }
-        CameraManagerGlobal.get().setTorchMode(cameraId, enabled, mContext.getDeviceId(),
-                getDevicePolicyFromContext(mContext));
+        CameraManagerGlobal.get()
+                .setTorchMode(
+                        cameraId,
+                        enabled,
+                        getClientAttribution(),
+                        getDevicePolicyFromContext(mContext));
     }
 
     /**
@@ -1459,8 +1627,12 @@ public final class CameraManager {
         if (CameraManagerGlobal.sCameraServiceDisabled) {
             throw new IllegalArgumentException("No camera available on device");
         }
-        CameraManagerGlobal.get().turnOnTorchWithStrengthLevel(cameraId, torchStrength,
-                mContext.getDeviceId(), getDevicePolicyFromContext(mContext));
+        CameraManagerGlobal.get()
+                .turnOnTorchWithStrengthLevel(
+                        cameraId,
+                        torchStrength,
+                        getClientAttribution(),
+                        getDevicePolicyFromContext(mContext));
     }
 
     /**
@@ -1486,8 +1658,11 @@ public final class CameraManager {
         if (CameraManagerGlobal.sCameraServiceDisabled) {
             throw new IllegalArgumentException("No camera available on device.");
         }
-        return CameraManagerGlobal.get().getTorchStrengthLevel(cameraId, mContext.getDeviceId(),
-                getDevicePolicyFromContext(mContext));
+        return CameraManagerGlobal.get()
+                .getTorchStrengthLevel(
+                        cameraId,
+                        getClientAttribution(),
+                        getDevicePolicyFromContext(mContext));
     }
 
     /**
@@ -1510,7 +1685,7 @@ public final class CameraManager {
      */
     public static int getRotationOverride(@Nullable Context context,
             @Nullable PackageManager packageManager, @Nullable String packageName) {
-        if (com.android.window.flags.Flags.cameraCompatForFreeform()) {
+        if (com.android.window.flags.Flags.enableCameraCompatForDesktopWindowing()) {
             return getRotationOverrideInternal(context, packageManager, packageName);
         } else {
             return shouldOverrideToPortrait(packageManager, packageName)
@@ -1522,7 +1697,7 @@ public final class CameraManager {
     /**
      * @hide
      */
-    @FlaggedApi(com.android.window.flags.Flags.FLAG_CAMERA_COMPAT_FOR_FREEFORM)
+    @FlaggedApi(com.android.window.flags.Flags.FLAG_ENABLE_CAMERA_COMPAT_FOR_DESKTOP_WINDOWING)
     @TestApi
     public static int getRotationOverrideInternal(@Nullable Context context,
             @Nullable PackageManager packageManager, @Nullable String packageName) {
@@ -1530,17 +1705,21 @@ public final class CameraManager {
             return ICameraService.ROTATION_OVERRIDE_NONE;
         }
 
-        if (context != null) {
-            final ActivityManager activityManager =
-                    context.getSystemService(ActivityManager.class);
-            for (ActivityManager.AppTask appTask : activityManager.getAppTasks()) {
-                final TaskInfo taskInfo = appTask.getTaskInfo();
-                if (taskInfo.appCompatTaskInfo.cameraCompatTaskInfo.freeformCameraCompatMode
-                        != 0
-                        && taskInfo.topActivity != null
-                        && taskInfo.topActivity.getPackageName().equals(packageName)) {
-                    // WindowManager has requested rotation override.
-                    return ICameraService.ROTATION_OVERRIDE_ROTATION_ONLY;
+        // Isolated process does not have access to ActivityTaskManager service, which is used
+        // indirectly in `ActivityManager.getAppTasks()`.
+        if (context != null && !Process.isIsolated()) {
+            final ActivityManager activityManager = context.getSystemService(ActivityManager.class);
+            if (activityManager != null) {
+                for (ActivityManager.AppTask appTask : activityManager.getAppTasks()) {
+                    final TaskInfo taskInfo = appTask.getTaskInfo();
+                    final int freeformCameraCompatMode = taskInfo.appCompatTaskInfo
+                            .cameraCompatTaskInfo.freeformCameraCompatMode;
+                    if (freeformCameraCompatMode != 0
+                            && taskInfo.topActivity != null
+                            && taskInfo.topActivity.getPackageName().equals(packageName)) {
+                        // WindowManager has requested rotation override.
+                        return getRotationOverrideForCompatFreeform(freeformCameraCompatMode);
+                    }
                 }
             }
         }
@@ -1560,6 +1739,19 @@ public final class CameraManager {
         return CompatChanges.isChangeEnabled(OVERRIDE_CAMERA_LANDSCAPE_TO_PORTRAIT)
                 ? ICameraService.ROTATION_OVERRIDE_OVERRIDE_TO_PORTRAIT
                 : ICameraService.ROTATION_OVERRIDE_NONE;
+    }
+
+    private static int getRotationOverrideForCompatFreeform(
+            @CameraCompatTaskInfo.FreeformCameraCompatMode int freeformCameraCompatMode) {
+        // Only rotate-and-crop if the app and device orientations do not match.
+        if (freeformCameraCompatMode
+                == CameraCompatTaskInfo.CAMERA_COMPAT_FREEFORM_LANDSCAPE_DEVICE_IN_PORTRAIT
+                || freeformCameraCompatMode
+                    == CameraCompatTaskInfo.CAMERA_COMPAT_FREEFORM_PORTRAIT_DEVICE_IN_LANDSCAPE) {
+            return ICameraService.ROTATION_OVERRIDE_ROTATION_ONLY;
+        } else {
+            return ICameraService.ROTATION_OVERRIDE_NONE;
+        }
     }
 
     /**
@@ -2091,6 +2283,12 @@ public final class CameraManager {
 
         private final Set<Set<DeviceCameraInfo>> mConcurrentCameraIdCombinations = new ArraySet<>();
 
+        // Diagnostic messages for ArrayIndexOutOfBoundsException in extractCameraIdListLocked
+        // b/367649718
+        private static final int DEVICE_STATUS_ARRAY_SIZE = 10;
+        private final ArrayDeque<String> mDeviceStatusHistory =
+                new ArrayDeque<>(DEVICE_STATUS_ARRAY_SIZE);
+
         // Registered availability callbacks and their executors
         private final ArrayMap<AvailabilityCallback, Executor> mCallbackMap = new ArrayMap<>();
 
@@ -2208,6 +2406,10 @@ public final class CameraManager {
             }
 
             try {
+                addDeviceStatusHistoryLocked(TextUtils.formatSimple(
+                        "connectCameraServiceLocked(E): tid(%d): mDeviceStatus size %d",
+                        Thread.currentThread().getId(), mDeviceStatus.size()));
+
                 CameraStatus[] cameraStatuses = cameraService.addListener(this);
                 for (CameraStatus cameraStatus : cameraStatuses) {
                     DeviceCameraInfo info = new DeviceCameraInfo(cameraStatus.cameraId,
@@ -2230,6 +2432,10 @@ public final class CameraManager {
                     }
                 }
                 mCameraService = cameraService;
+
+                addDeviceStatusHistoryLocked(TextUtils.formatSimple(
+                        "connectCameraServiceLocked(X): tid(%d): mDeviceStatus size %d",
+                        Thread.currentThread().getId(), mDeviceStatus.size()));
             } catch (ServiceSpecificException e) {
                 // Unexpected failure
                 throw new IllegalStateException("Failed to register a camera service listener", e);
@@ -2283,18 +2489,28 @@ public final class CameraManager {
         }
 
         private String[] extractCameraIdListLocked(int deviceId, int devicePolicy) {
-            List<String> cameraIds = new ArrayList<>();
-            for (int i = 0; i < mDeviceStatus.size(); i++) {
-                int status = mDeviceStatus.valueAt(i);
-                DeviceCameraInfo info = mDeviceStatus.keyAt(i);
-                if (status == ICameraServiceListener.STATUS_NOT_PRESENT
-                        || status == ICameraServiceListener.STATUS_ENUMERATING
-                        || shouldHideCamera(deviceId, devicePolicy, info)) {
-                    continue;
+            addDeviceStatusHistoryLocked(TextUtils.formatSimple(
+                    "extractCameraIdListLocked(E): tid(%d): mDeviceStatus size %d",
+                    Thread.currentThread().getId(), mDeviceStatus.size()));
+            try {
+                List<String> cameraIds = new ArrayList<>();
+                for (int i = 0; i < mDeviceStatus.size(); i++) {
+                    int status = mDeviceStatus.valueAt(i);
+                    DeviceCameraInfo info = mDeviceStatus.keyAt(i);
+                    if (status == ICameraServiceListener.STATUS_NOT_PRESENT
+                            || status == ICameraServiceListener.STATUS_ENUMERATING
+                            || shouldHideCamera(deviceId, devicePolicy, info)) {
+                        continue;
+                    }
+                    cameraIds.add(info.mCameraId);
                 }
-                cameraIds.add(info.mCameraId);
+                return cameraIds.toArray(new String[0]);
+            }  catch (ArrayIndexOutOfBoundsException e) {
+                String message = e.getMessage();
+                String messageWithHistory = message + ": {"
+                        + String.join(" -> ", mDeviceStatusHistory) + "}";
+                throw new ArrayIndexOutOfBoundsException(messageWithHistory);
             }
-            return cameraIds.toArray(new String[0]);
         }
 
         private Set<Set<String>> extractConcurrentCameraIdListLocked(int deviceId,
@@ -2362,11 +2578,6 @@ public final class CameraManager {
 
         private boolean shouldHideCamera(int currentDeviceId, int devicePolicy,
                 DeviceCameraInfo info) {
-            if (!android.companion.virtualdevice.flags.Flags.cameraDeviceAwareness()) {
-                // Don't hide any cameras if the device-awareness feature flag is disabled.
-                return false;
-            }
-
             if (devicePolicy == DEVICE_POLICY_DEFAULT && info.mDeviceId == DEVICE_ID_DEFAULT) {
                 // Don't hide default-device cameras for a default-policy virtual device.
                 return false;
@@ -2416,12 +2627,20 @@ public final class CameraManager {
                 }
                 @Override
                 public void onCameraClosed(String id, int deviceId) {
+                }
+                @Override
+                public void onCameraOpenedInSharedMode(String id, String clientPackageId,
+                        int deviceId, boolean primaryClient) {
                 }};
 
             String[] cameraIds;
             synchronized (mLock) {
                 connectCameraServiceLocked();
                 try {
+                    addDeviceStatusHistoryLocked(TextUtils.formatSimple(
+                            "getCameraIdListNoLazy(E): tid(%d): mDeviceStatus size %d",
+                            Thread.currentThread().getId(), mDeviceStatus.size()));
+
                     // The purpose of the addListener, removeListener pair here is to get a fresh
                     // list of camera ids from cameraserver. We do this since for in test processes,
                     // changes can happen w.r.t non-changeable permissions (eg: SYSTEM_CAMERA
@@ -2455,6 +2674,9 @@ public final class CameraManager {
                         onStatusChangedLocked(ICameraServiceListener.STATUS_NOT_PRESENT, info);
                         mTorchStatus.remove(info);
                     }
+                    addDeviceStatusHistoryLocked(TextUtils.formatSimple(
+                            "getCameraIdListNoLazy(X): tid(%d): mDeviceStatus size %d",
+                            Thread.currentThread().getId(), mDeviceStatus.size()));
                 } catch (ServiceSpecificException e) {
                     // Unexpected failure
                     throw new IllegalStateException("Failed to register a camera service listener",
@@ -2497,7 +2719,9 @@ public final class CameraManager {
 
         public boolean isConcurrentSessionConfigurationSupported(
                 @NonNull Map<String, SessionConfiguration> cameraIdsAndSessionConfigurations,
-                int targetSdkVersion, int deviceId, int devicePolicy)
+                int targetSdkVersion,
+                AttributionSourceState clientAttribution,
+                int devicePolicy)
                 throws CameraAccessException {
             if (cameraIdsAndSessionConfigurations == null) {
                 throw new IllegalArgumentException("cameraIdsAndSessionConfigurations was null");
@@ -2515,9 +2739,12 @@ public final class CameraManager {
                 for (Set<DeviceCameraInfo> combination : mConcurrentCameraIdCombinations) {
                     Set<DeviceCameraInfo> infos = new ArraySet<>();
                     for (String cameraId : cameraIdsAndSessionConfigurations.keySet()) {
-                        infos.add(new DeviceCameraInfo(cameraId,
-                                devicePolicy == DEVICE_POLICY_DEFAULT
-                                        ? DEVICE_ID_DEFAULT : deviceId));
+                        infos.add(
+                                new DeviceCameraInfo(
+                                        cameraId,
+                                        devicePolicy == DEVICE_POLICY_DEFAULT
+                                                ? DEVICE_ID_DEFAULT
+                                                : clientAttribution.deviceId));
                     }
                     if (combination.containsAll(infos)) {
                         subsetFound = true;
@@ -2539,7 +2766,7 @@ public final class CameraManager {
                 }
                 try {
                     return mCameraService.isConcurrentSessionConfigurationSupported(
-                            cameraIdsAndConfigs, targetSdkVersion, deviceId, devicePolicy);
+                            cameraIdsAndConfigs, targetSdkVersion, clientAttribution, devicePolicy);
                 } catch (ServiceSpecificException e) {
                     throw ExceptionUtils.throwAsPublicException(e);
                 } catch (RemoteException e) {
@@ -2558,27 +2785,33 @@ public final class CameraManager {
          * @return Whether the camera device was found in the set of combinations returned by
          *         getConcurrentCameraIds
          */
-        public boolean cameraIdHasConcurrentStreamsLocked(String cameraId, int deviceId,
+        public boolean cameraIdHasConcurrentStreams(String cameraId, int deviceId,
                 int devicePolicy) {
-            DeviceCameraInfo info = new DeviceCameraInfo(cameraId,
-                    devicePolicy == DEVICE_POLICY_DEFAULT ? DEVICE_ID_DEFAULT : deviceId);
-            if (!mDeviceStatus.containsKey(info)) {
-                // physical camera ids aren't advertised in concurrent camera id combinations.
-                if (DEBUG) {
-                    Log.v(TAG, " physical camera id " + cameraId + " is hidden." +
-                            " Available logical camera ids : " + mDeviceStatus);
+            synchronized (mLock) {
+                DeviceCameraInfo info = new DeviceCameraInfo(cameraId,
+                        devicePolicy == DEVICE_POLICY_DEFAULT ? DEVICE_ID_DEFAULT : deviceId);
+                if (!mDeviceStatus.containsKey(info)) {
+                    // physical camera ids aren't advertised in concurrent camera id combinations.
+                    if (DEBUG) {
+                        Log.v(TAG, " physical camera id " + cameraId + " is hidden."
+                                + " Available logical camera ids : " + mDeviceStatus);
+                    }
+                    return false;
+                }
+                for (Set<DeviceCameraInfo> comb : mConcurrentCameraIdCombinations) {
+                    if (comb.contains(info)) {
+                        return true;
+                    }
                 }
                 return false;
             }
-            for (Set<DeviceCameraInfo> comb : mConcurrentCameraIdCombinations) {
-                if (comb.contains(info)) {
-                    return true;
-                }
-            }
-            return false;
         }
 
-        public void setTorchMode(String cameraId, boolean enabled, int deviceId, int devicePolicy)
+        public void setTorchMode(
+                String cameraId,
+                boolean enabled,
+                AttributionSourceState clientAttribution,
+                int devicePolicy)
                 throws CameraAccessException {
             synchronized (mLock) {
                 if (cameraId == null) {
@@ -2592,8 +2825,8 @@ public final class CameraManager {
                 }
 
                 try {
-                    cameraService.setTorchMode(cameraId, enabled, mTorchClientBinder, deviceId,
-                            devicePolicy);
+                    cameraService.setTorchMode(
+                            cameraId, enabled, mTorchClientBinder, clientAttribution, devicePolicy);
                 } catch(ServiceSpecificException e) {
                     throw ExceptionUtils.throwAsPublicException(e);
                 } catch (RemoteException e) {
@@ -2603,7 +2836,10 @@ public final class CameraManager {
             }
         }
 
-        public void turnOnTorchWithStrengthLevel(String cameraId, int torchStrength, int deviceId,
+        public void turnOnTorchWithStrengthLevel(
+                String cameraId,
+                int torchStrength,
+                AttributionSourceState clientAttribution,
                 int devicePolicy)
                 throws CameraAccessException {
             synchronized (mLock) {
@@ -2618,8 +2854,12 @@ public final class CameraManager {
                 }
 
                 try {
-                    cameraService.turnOnTorchWithStrengthLevel(cameraId, torchStrength,
-                            mTorchClientBinder, deviceId, devicePolicy);
+                    cameraService.turnOnTorchWithStrengthLevel(
+                            cameraId,
+                            torchStrength,
+                            mTorchClientBinder,
+                            clientAttribution,
+                            devicePolicy);
                 } catch(ServiceSpecificException e) {
                     throw ExceptionUtils.throwAsPublicException(e);
                 } catch (RemoteException e) {
@@ -2629,7 +2869,8 @@ public final class CameraManager {
             }
         }
 
-        public int getTorchStrengthLevel(String cameraId, int deviceId, int devicePolicy)
+        public int getTorchStrengthLevel(
+                String cameraId, AttributionSourceState clientAttribution, int devicePolicy)
                 throws CameraAccessException {
             int torchStrength;
             synchronized (mLock) {
@@ -2644,8 +2885,9 @@ public final class CameraManager {
                 }
 
                 try {
-                    torchStrength = cameraService.getTorchStrengthLevel(cameraId, deviceId,
-                            devicePolicy);
+                    torchStrength =
+                            cameraService.getTorchStrengthLevel(
+                                    cameraId, clientAttribution, devicePolicy);
                 } catch(ServiceSpecificException e) {
                     throw ExceptionUtils.throwAsPublicException(e);
                 } catch (RemoteException e) {
@@ -3123,7 +3365,13 @@ public final class CameraManager {
         public void onStatusChanged(int status, String cameraId, int deviceId)
                 throws RemoteException {
             synchronized(mLock) {
+                addDeviceStatusHistoryLocked(
+                        TextUtils.formatSimple("onStatusChanged(E): tid(%d): mDeviceStatus size %d",
+                                Thread.currentThread().getId(), mDeviceStatus.size()));
                 onStatusChangedLocked(status, new DeviceCameraInfo(cameraId, deviceId));
+                addDeviceStatusHistoryLocked(
+                        TextUtils.formatSimple("onStatusChanged(X): tid(%d): mDeviceStatus size %d",
+                                Thread.currentThread().getId(), mDeviceStatus.size()));
             }
         }
 
@@ -3164,6 +3412,11 @@ public final class CameraManager {
                     postSingleAccessPriorityChangeUpdate(callback, executor);
                 }
             }
+        }
+
+        @Override
+        public void onCameraOpenedInSharedMode(String cameraId, String clientPackageId,
+                int deviceId, boolean primaryClient) {
         }
 
         @Override
@@ -3266,6 +3519,10 @@ public final class CameraManager {
          */
         public void binderDied() {
             synchronized(mLock) {
+                addDeviceStatusHistoryLocked(
+                        TextUtils.formatSimple("binderDied(E): tid(%d): mDeviceStatus size %d",
+                                Thread.currentThread().getId(), mDeviceStatus.size()));
+
                 // Only do this once per service death
                 if (mCameraService == null) return;
 
@@ -3294,6 +3551,10 @@ public final class CameraManager {
                 mConcurrentCameraIdCombinations.clear();
 
                 scheduleCameraServiceReconnectionLocked();
+
+                addDeviceStatusHistoryLocked(
+                        TextUtils.formatSimple("binderDied(X): tid(%d): mDeviceStatus size %d",
+                                Thread.currentThread().getId(), mDeviceStatus.size()));
             }
         }
 
@@ -3323,5 +3584,13 @@ public final class CameraManager {
                 return Objects.hash(mCameraId, mDeviceId);
             }
         }
+
+        private void addDeviceStatusHistoryLocked(String log) {
+            if (mDeviceStatusHistory.size() == DEVICE_STATUS_ARRAY_SIZE) {
+                mDeviceStatusHistory.removeFirst();
+            }
+            mDeviceStatusHistory.addLast(log);
+        }
+
     } // CameraManagerGlobal
 } // CameraManager

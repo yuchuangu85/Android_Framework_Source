@@ -30,6 +30,7 @@ import android.net.Uri;
 import android.os.AsyncResult;
 import android.os.Handler;
 import android.os.Message;
+import android.os.UserHandle;
 import android.provider.Telephony;
 import android.service.carrier.CarrierIdentifier;
 import android.telephony.CarrierConfigManager;
@@ -41,6 +42,7 @@ import android.util.LocalLog;
 import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.CarrierIdMatchStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
@@ -112,6 +114,9 @@ public class CarrierResolver extends Handler {
     private final LocalLog mCarrierIdLocalLog = new LocalLog(16);
     private final TelephonyManager mTelephonyMgr;
 
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
+
     private final ContentObserver mContentObserver = new ContentObserver(this) {
         @Override
         public void onChange(boolean selfChange, Uri uri) {
@@ -172,9 +177,10 @@ public class CarrierResolver extends Handler {
         }
     };
 
-    public CarrierResolver(Phone phone) {
+    public CarrierResolver(Phone phone, @NonNull FeatureFlags flags) {
         logd("Creating CarrierResolver[" + phone.getPhoneId() + "]");
         mContext = phone.getContext();
+        mFeatureFlags = flags;
         mPhone = phone;
         mTelephonyMgr = TelephonyManager.from(mContext);
 
@@ -500,7 +506,11 @@ public class CarrierResolver extends Handler {
             intent.putExtra(TelephonyManager.EXTRA_SPECIFIC_CARRIER_ID, mSpecificCarrierId);
             intent.putExtra(TelephonyManager.EXTRA_SPECIFIC_CARRIER_NAME, mSpecificCarrierName);
             intent.putExtra(TelephonyManager.EXTRA_SUBSCRIPTION_ID, mPhone.getSubId());
-            mContext.sendBroadcast(intent);
+            if (mFeatureFlags.hsumBroadcast()) {
+                mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+            } else {
+                mContext.sendBroadcast(intent);
+            }
 
             // notify content observers for specific carrier id change event.
             ContentValues cv = new ContentValues();
@@ -535,7 +545,11 @@ public class CarrierResolver extends Handler {
             intent.putExtra(TelephonyManager.EXTRA_CARRIER_ID, mCarrierId);
             intent.putExtra(TelephonyManager.EXTRA_CARRIER_NAME, mCarrierName);
             intent.putExtra(TelephonyManager.EXTRA_SUBSCRIPTION_ID, mPhone.getSubId());
-            mContext.sendBroadcast(intent);
+            if (mFeatureFlags.hsumBroadcast()) {
+                mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+            } else {
+                mContext.sendBroadcast(intent);
+            }
 
             // notify content observers for carrier id change event
             ContentValues cv = new ContentValues();

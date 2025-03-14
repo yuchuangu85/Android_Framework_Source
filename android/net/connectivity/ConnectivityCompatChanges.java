@@ -118,8 +118,33 @@ public final class ConnectivityCompatChanges {
      * @hide
      */
     @ChangeId
-    @EnabledAfter(targetSdkVersion = 35)  // TODO: change to VANILLA_ICE_CREAM.
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public static final long NETWORK_BLOCKED_WITHOUT_INTERNET_PERMISSION = 333340911L;
+
+    /**
+     * Enable caching for TrafficStats#get* APIs.
+     *
+     * Apps targeting Android V or later or running on Android V or later may take up to several
+     * seconds to see the updated results.
+     * Apps targeting lower android SDKs do not see cached result for backward compatibility,
+     * results of TrafficStats#get* APIs are reflecting network statistics immediately.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    public static final long ENABLE_TRAFFICSTATS_RATE_LIMIT_CACHE = 74210811L;
+
+    /**
+     * Restrict local network access.
+     *
+     * Apps targeting a release after V will require permissions to access the local network.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.CUR_DEVELOPMENT)
+    public static final long RESTRICT_LOCAL_NETWORK = 365139289L;
 
     private ConnectivityCompatChanges() {
     }

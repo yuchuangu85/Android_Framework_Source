@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
@@ -161,14 +163,8 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
     @Override
     public void writeToParcel(Parcel out, int flags) {
         out.writeBoolean(mIsPublicBroadcast);
-        out.writeString(mBroadcastName);
-        if (mBroadcastCode != null) {
-            out.writeInt(mBroadcastCode.length);
-            out.writeByteArray(mBroadcastCode);
-        } else {
-            // -1 indicates missing broadcast code
-            out.writeInt(-1);
-        }
+        BluetoothUtils.writeStringToParcel(out, mBroadcastName);
+        out.writeByteArray(mBroadcastCode);
         out.writeTypedObject(mPublicBroadcastMetadata, 0);
         out.writeTypedList(mSubgroupSettings);
     }
@@ -185,14 +181,7 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
                     Builder builder = new Builder();
                     builder.setPublicBroadcast(in.readBoolean());
                     builder.setBroadcastName(in.readString());
-                    final int codeLen = in.readInt();
-                    byte[] broadcastCode = null;
-                    if (codeLen != -1) {
-                        broadcastCode = new byte[codeLen];
-                        if (codeLen >= 0) {
-                            in.readByteArray(broadcastCode);
-                        }
-                    }
+                    byte[] broadcastCode = in.createByteArray();
                     builder.setBroadcastCode(broadcastCode);
                     builder.setPublicBroadcastMetadata(
                             in.readTypedObject(BluetoothLeAudioContentMetadata.CREATOR));
@@ -339,7 +328,7 @@ public final class BluetoothLeBroadcastSettings implements Parcelable {
         @NonNull
         public Builder addSubgroupSettings(
                 @NonNull BluetoothLeBroadcastSubgroupSettings subgroupSettings) {
-            Objects.requireNonNull(subgroupSettings, "subgroupSettings cannot be null");
+            requireNonNull(subgroupSettings);
             mSubgroupSettings.add(subgroupSettings);
             return this;
         }

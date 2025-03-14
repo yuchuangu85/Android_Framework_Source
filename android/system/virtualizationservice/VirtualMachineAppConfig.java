@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/VirtualMachineAppConfig.java.d -o out/soong/.intermediates/packages/modules/Virtualization/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/virtualizationservice/aidl packages/modules/Virtualization/virtualizationservice/aidl/android/system/virtualizationservice/VirtualMachineAppConfig.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationcommon_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen/android/system/virtualizationservice/VirtualMachineAppConfig.java.d -o out/soong/.intermediates/packages/modules/Virtualization/android/virtualizationservice/aidl/android.system.virtualizationservice-java-source/gen -Npackages/modules/Virtualization/android/virtualizationservice/aidl packages/modules/Virtualization/android/virtualizationservice/aidl/android/system/virtualizationservice/VirtualMachineAppConfig.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.system.virtualizationservice;
 /** Configuration for running an App in a VM */
@@ -43,8 +47,8 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
    * the value in microdroid.json, if any, or the crosvm default.
    */
   public int memoryMib = 0;
-  /** The vCPU topology that will be generated for the VM. Default to 1 vCPU. */
-  public byte cpuTopology = android.system.virtualizationservice.CpuTopology.ONE_CPU;
+  /** The vCPU options that will be generated for the VM. */
+  public android.system.virtualizationservice.CpuOptions cpuOptions;
   /** Configuration parameters guarded by android.permission.USE_CUSTOM_VIRTUAL_MACHINE */
   public android.system.virtualizationservice.VirtualMachineAppConfig.CustomConfig customConfig;
   /**
@@ -54,6 +58,8 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
    *  https://docs.kernel.org/admin-guide/mm/transhuge.html
    */
   public boolean hugePages = false;
+  /** Enable boost UClamp for less variance during testing/benchmarking */
+  public boolean boostUclamp = false;
   public static final android.os.Parcelable.Creator<VirtualMachineAppConfig> CREATOR = new android.os.Parcelable.Creator<VirtualMachineAppConfig>() {
     @Override
     public VirtualMachineAppConfig createFromParcel(android.os.Parcel _aidl_source) {
@@ -82,9 +88,10 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
     _aidl_parcel.writeByte(debugLevel);
     _aidl_parcel.writeBoolean(protectedVm);
     _aidl_parcel.writeInt(memoryMib);
-    _aidl_parcel.writeByte(cpuTopology);
+    _aidl_parcel.writeTypedObject(cpuOptions, _aidl_flag);
     _aidl_parcel.writeTypedObject(customConfig, _aidl_flag);
     _aidl_parcel.writeBoolean(hugePages);
+    _aidl_parcel.writeBoolean(boostUclamp);
     int _aidl_end_pos = _aidl_parcel.dataPosition();
     _aidl_parcel.setDataPosition(_aidl_start_pos);
     _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -121,11 +128,13 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       memoryMib = _aidl_parcel.readInt();
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
-      cpuTopology = _aidl_parcel.readByte();
+      cpuOptions = _aidl_parcel.readTypedObject(android.system.virtualizationservice.CpuOptions.CREATOR);
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       customConfig = _aidl_parcel.readTypedObject(android.system.virtualizationservice.VirtualMachineAppConfig.CustomConfig.CREATOR);
       if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
       hugePages = _aidl_parcel.readBoolean();
+      if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+      boostUclamp = _aidl_parcel.readBoolean();
     } finally {
       if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
         throw new android.os.BadParcelableException("Overflow in the size of parcelable");
@@ -142,6 +151,7 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
     _mask |= describeContents(instanceImage);
     _mask |= describeContents(encryptedStorageImage);
     _mask |= describeContents(payload);
+    _mask |= describeContents(cpuOptions);
     _mask |= describeContents(customConfig);
     return _mask;
   }
@@ -339,6 +349,12 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
      * should rarely need to be set false.
      */
     public boolean wantUpdatable = true;
+    /** Whether the VM should have network feature. */
+    public boolean networkSupported = false;
+    /** Additional parameters to pass to the VM's kernel cmdline. */
+    public java.lang.String[] extraKernelCmdlineParams;
+    /** List of tee services this VM wants to access */
+    public java.lang.String[] teeServices;
     public static final android.os.Parcelable.Creator<CustomConfig> CREATOR = new android.os.Parcelable.Creator<CustomConfig>() {
       @Override
       public CustomConfig createFromParcel(android.os.Parcel _aidl_source) {
@@ -360,6 +376,9 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
       _aidl_parcel.writeTypedObject(vendorImage, _aidl_flag);
       _aidl_parcel.writeStringArray(devices);
       _aidl_parcel.writeBoolean(wantUpdatable);
+      _aidl_parcel.writeBoolean(networkSupported);
+      _aidl_parcel.writeStringArray(extraKernelCmdlineParams);
+      _aidl_parcel.writeStringArray(teeServices);
       int _aidl_end_pos = _aidl_parcel.dataPosition();
       _aidl_parcel.setDataPosition(_aidl_start_pos);
       _aidl_parcel.writeInt(_aidl_end_pos - _aidl_start_pos);
@@ -381,6 +400,12 @@ public class VirtualMachineAppConfig implements android.os.Parcelable
         devices = _aidl_parcel.createStringArray();
         if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
         wantUpdatable = _aidl_parcel.readBoolean();
+        if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+        networkSupported = _aidl_parcel.readBoolean();
+        if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+        extraKernelCmdlineParams = _aidl_parcel.createStringArray();
+        if (_aidl_parcel.dataPosition() - _aidl_start_pos >= _aidl_parcelable_size) return;
+        teeServices = _aidl_parcel.createStringArray();
       } finally {
         if (_aidl_start_pos > (Integer.MAX_VALUE - _aidl_parcelable_size)) {
           throw new android.os.BadParcelableException("Overflow in the size of parcelable");

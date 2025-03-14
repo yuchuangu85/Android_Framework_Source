@@ -26,6 +26,16 @@ import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSIO
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_DURATION__CALL_DURATION_LESS_THAN_THIRTY_MINUTES;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_DURATION__CALL_DURATION_MORE_THAN_ONE_HOUR;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_DURATION__CALL_DURATION_UNKNOWN;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_ACTIVE;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_ALERTING;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DIALING;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DISCONNECTED;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DISCONNECTING;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_HOLDING;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_IDLE;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_INCOMING;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_WAITING;
+import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_UNKNOWN;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__DIRECTION__CALL_DIRECTION_MO;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__DIRECTION__CALL_DIRECTION_MT;
 import static com.android.internal.telephony.TelephonyStatsLog.VOICE_CALL_SESSION__MAIN_CODEC_QUALITY__CODEC_QUALITY_FULLBAND;
@@ -41,16 +51,19 @@ import android.annotation.Nullable;
 import android.content.Context;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
+import android.os.PersistableBundle;
 import android.os.SystemClock;
 import android.telecom.VideoProfile;
 import android.telecom.VideoProfile.VideoState;
 import android.telephony.Annotation.NetworkType;
 import android.telephony.AnomalyReporter;
+import android.telephony.CarrierConfigManager;
 import android.telephony.DisconnectCause;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyManager;
+import android.telephony.TelephonyManager.CallComposerStatus;
 import android.telephony.data.ApnSetting;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.ImsStreamMediaProfile;
@@ -168,10 +181,8 @@ public class VoiceCallSessionStats {
     private final UiccController mUiccController = UiccController.getInstance();
     private final DeviceStateHelper mDeviceStateHelper =
             PhoneFactory.getMetricsCollector().getDeviceStateHelper();
-
     private final VonrHelper mVonrHelper =
             PhoneFactory.getMetricsCollector().getVonrHelper();
-
     private final SatelliteController mSatelliteController;
 
     public VoiceCallSessionStats(int phoneId, Phone phone, @NonNull FeatureFlags featureFlags) {
@@ -467,9 +478,7 @@ public class VoiceCallSessionStats {
         @VideoState int videoState = conn.getVideoState();
         VoiceCallSession proto = new VoiceCallSession();
 
-        if (mFlags.vonrEnabledMetric()) {
-            mVonrHelper.updateVonrEnabledState();
-        }
+        mVonrHelper.updateVonrEnabledState();
 
         proto.bearerAtStart = bearer;
         proto.bearerAtEnd = bearer;
@@ -539,6 +548,7 @@ public class VoiceCallSessionStats {
 
         // Compute time it took to fail setup (except for MT calls that have never been picked up)
         if (proto.setupFailed && proto.setupBeginMillis != 0L && proto.setupDurationMillis == 0) {
+            proto.preciseCallStateOnSetup = convertCallStateEnumToInt(Call.State.DISCONNECTED);
             proto.setupDurationMillis = (int) (getTimeMillis() - proto.setupBeginMillis);
         }
 
@@ -570,9 +580,11 @@ public class VoiceCallSessionStats {
         // Set device fold state
         proto.foldState = mDeviceStateHelper.getFoldState();
 
-        if (mFlags.vonrEnabledMetric()) {
-            proto.vonrEnabled = mVonrHelper.getVonrEnabled(mPhone.getSubId());
-        }
+        proto.vonrEnabled = mVonrHelper.getVonrEnabled(mPhone.getSubId());
+
+        proto.supportsBusinessCallComposer = isBusinessCallSupported();
+        // 0 is defined as UNKNOWN in Enum
+        proto.callComposerStatus = getCallComposerStatusForPhone() + 1;
 
         proto.isNtn = mSatelliteController != null
                 ? mSatelliteController.isInSatelliteModeForCarrierRoaming(mPhone) : false;
@@ -627,6 +639,7 @@ public class VoiceCallSessionStats {
 
     private void checkCallSetup(Connection conn, VoiceCallSession proto) {
         if (proto.setupBeginMillis != 0L && isSetupFinished(conn.getCall())) {
+            proto.preciseCallStateOnSetup = convertCallStateEnumToInt(conn.getState());
             proto.setupDurationMillis = (int) (getTimeMillis() - proto.setupBeginMillis);
             proto.setupBeginMillis = 0L;
         }
@@ -947,6 +960,36 @@ public class VoiceCallSessionStats {
         return false;
     }
 
+    private @CallComposerStatus int getCallComposerStatusForPhone() {
+        TelephonyManager telephonyManager = mPhone.getContext()
+                .getSystemService(TelephonyManager.class);
+        if (telephonyManager == null) {
+            return TelephonyManager.CALL_COMPOSER_STATUS_OFF;
+        }
+        telephonyManager = telephonyManager.createForSubscriptionId(mPhone.getSubId());
+        return telephonyManager.getCallComposerStatus();
+    }
+
+    private boolean isBusinessCallSupported() {
+        CarrierConfigManager carrierConfigManager = (CarrierConfigManager)
+                mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
+        if (carrierConfigManager == null) {
+            return false;
+        }
+        int subId = mPhone.getSubId();
+        PersistableBundle b = null;
+        try {
+            b = carrierConfigManager.getConfigForSubId(subId,
+                    CarrierConfigManager.KEY_SUPPORTS_BUSINESS_CALL_COMPOSER_BOOL);
+        } catch (RuntimeException e) {
+            loge("CarrierConfigLoader is not available.");
+        }
+        if (b == null || b.isEmpty()) {
+            return false;
+        }
+        return b.getBoolean(CarrierConfigManager.KEY_SUPPORTS_BUSINESS_CALL_COMPOSER_BOOL);
+    }
+
     @VisibleForTesting
     protected long getTimeMillis() {
         return SystemClock.elapsedRealtime();
@@ -1055,6 +1098,31 @@ public class VoiceCallSessionStats {
             default:
                 // All other states are considered as not in handover
                 proto.handoverInProgress = false;
+        }
+    }
+
+    private int convertCallStateEnumToInt(Call.State state) {
+        switch (state) {
+            case IDLE:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_IDLE;
+            case ACTIVE:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_ACTIVE;
+            case HOLDING:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_HOLDING;
+            case DIALING:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DIALING;
+            case ALERTING:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_ALERTING;
+            case INCOMING:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_INCOMING;
+            case WAITING:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_WAITING;
+            case DISCONNECTED:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DISCONNECTED;
+            case DISCONNECTING:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_DISCONNECTING;
+            default:
+                return VOICE_CALL_SESSION__CALL_STATE_ON_SETUP__CALL_STATE_UNKNOWN;
         }
     }
 }

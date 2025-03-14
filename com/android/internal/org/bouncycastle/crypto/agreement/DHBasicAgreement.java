@@ -5,6 +5,7 @@ import java.math.BigInteger;
 
 import com.android.internal.org.bouncycastle.crypto.BasicAgreement;
 import com.android.internal.org.bouncycastle.crypto.CipherParameters;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicesRegistrar;
 import com.android.internal.org.bouncycastle.crypto.params.AsymmetricKeyParameter;
 import com.android.internal.org.bouncycastle.crypto.params.DHParameters;
 import com.android.internal.org.bouncycastle.crypto.params.DHPrivateKeyParameters;
@@ -49,6 +50,8 @@ public class DHBasicAgreement
 
         this.key = (DHPrivateKeyParameters)kParam;
         this.dhParams = key.getParameters();
+
+        CryptoServicesRegistrar.checkConstraints(Utils.getDefaultProperties("DHB", key));
     }
 
     public int getFieldSize()

@@ -94,7 +94,6 @@ public class PersonNameFormatter {
 
         /**
          * The default name length for the locale.  For most locales, this is the same as MEDIUM.
-         * @hide draft / provisional / internal are hidden on Android
          */
         DEFAULT
     }
@@ -142,7 +141,6 @@ public class PersonNameFormatter {
         /**
          * The default formality for the locale.  For most locales, this is the same as FORMAL, but for English,
          * this is the same as INFORMAL.
-         * @hide draft / provisional / internal are hidden on Android
          */
         DEFAULT
     }
@@ -167,14 +165,12 @@ public class PersonNameFormatter {
         /**
          * Forces the formatter to format the name in given-first order.  If the name itself specifies
          * a display order, this overrides it.
-         * @hide draft / provisional / internal are hidden on Android
          */
         FORCE_GIVEN_FIRST,
 
         /**
          * Forces the formatter to format the name in surname-first order.  If the name itself specifies
          * a display order, this overrides it.
-         * @hide draft / provisional / internal are hidden on Android
          */
         FORCE_SURNAME_FIRST,
     }

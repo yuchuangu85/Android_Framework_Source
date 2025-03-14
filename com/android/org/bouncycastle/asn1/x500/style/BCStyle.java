@@ -293,9 +293,9 @@ public class BCStyle
         defaultLookUp = copyHashTable(DefaultLookUp);
     }
 
-    protected ASN1Encodable encodeStringValue(ASN1ObjectIdentifier oid,
-    		String value) {
-    	if (oid.equals(EmailAddress) || oid.equals(DC))
+    protected ASN1Encodable encodeStringValue(ASN1ObjectIdentifier oid, String value)
+    {
+        if (oid.equals(EmailAddress) || oid.equals(DC))
         {
             return new DERIA5String(value);
         }
@@ -303,18 +303,18 @@ public class BCStyle
         {
             return new ASN1GeneralizedTime(value);
         }
-        else if (oid.equals(C) || oid.equals(SN) || oid.equals(DN_QUALIFIER)
+        else if (oid.equals(C) || oid.equals(SERIALNUMBER) || oid.equals(DN_QUALIFIER)
             || oid.equals(TELEPHONE_NUMBER))
         {
             return new DERPrintableString(value);
         }
-    	
-    	return super.encodeStringValue(oid, value);
+        
+        return super.encodeStringValue(oid, value);
     }
 
     public String oidToDisplayName(ASN1ObjectIdentifier oid)
     {
-        return (String)DefaultSymbols.get(oid);
+        return (String)defaultSymbols.get(oid);
     }
 
     public String[] oidToAttrNames(ASN1ObjectIdentifier oid)

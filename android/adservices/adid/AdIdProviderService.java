@@ -18,6 +18,7 @@ package android.adservices.adid;
 
 import static android.adservices.common.AdServicesStatusUtils.STATUS_SUCCESS;
 
+import android.adservices.AdServicesFrameworkHelper;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
@@ -74,7 +75,8 @@ public abstract class AdIdProviderService extends Service {
 
                         resultCallback.onResult(adIdInternal);
                     } catch (Throwable e) {
-                        resultCallback.onError(e.getMessage());
+                        resultCallback.onError(
+                                AdServicesFrameworkHelper.getExceptionStackTraceString(e));
                     }
                 }
             };

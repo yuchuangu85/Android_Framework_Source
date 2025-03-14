@@ -130,13 +130,15 @@ public class CarrierSignalAgent extends Handler {
         CarrierConfigManager carrierConfigManager = mPhone.getContext().getSystemService(
                 CarrierConfigManager.class);
         loadCarrierConfig();
-        carrierConfigManager.registerCarrierConfigChangeListener(
-                mPhone.getContext().getMainExecutor(),
-                (slotIndex, subId, carrierId, specificCarrierId) -> {
-                    if (slotIndex == mPhone.getPhoneId()) {
-                        loadCarrierConfig();
-                    }
-                });
+        if (carrierConfigManager != null) {
+            carrierConfigManager.registerCarrierConfigChangeListener(
+                    mPhone.getContext().getMainExecutor(),
+                    (slotIndex, subId, carrierId, specificCarrierId) -> {
+                        if (slotIndex == mPhone.getPhoneId()) {
+                            loadCarrierConfig();
+                        }
+                    });
+        }
         mPhone.getCarrierActionAgent().registerForCarrierAction(
                 CarrierActionAgent.CARRIER_ACTION_REPORT_DEFAULT_NETWORK_STATUS, this,
                 EVENT_REGISTER_DEFAULT_NETWORK_AVAIL, null, false);

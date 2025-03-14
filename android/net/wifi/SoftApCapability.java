@@ -16,6 +16,7 @@
 
 package android.net.wifi;
 
+import android.annotation.FlaggedApi;
 import android.annotation.LongDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -24,6 +25,10 @@ import android.net.MacAddress;
 import android.net.wifi.SoftApConfiguration.BandType;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import androidx.annotation.Keep;
+
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -142,6 +147,14 @@ public final class SoftApCapability implements Parcelable {
      */
     public static final long SOFTAP_FEATURE_WPA3_OWE = 1 << 11;
 
+    /*
+     * Support for multiple link operation on a single multiple link device.
+     * Flag when {@code R.Integer.config_wifiSoftApMaxNumberMLDSupported} is configured
+     * to non zero value and chip report MLO SoftAP is supported.
+     */
+    @FlaggedApi(Flags.FLAG_MLO_SAP)
+    public static final long SOFTAP_FEATURE_MLO = 1 << 12;
+
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
     @LongDef(flag = true, prefix = { "SOFTAP_FEATURE_" }, value = {
@@ -157,6 +170,7 @@ public final class SoftApCapability implements Parcelable {
             SOFTAP_FEATURE_BAND_60G_SUPPORTED,
             SOFTAP_FEATURE_WPA3_OWE_TRANSITION,
             SOFTAP_FEATURE_WPA3_OWE,
+            SOFTAP_FEATURE_MLO,
     })
     public @interface HotspotFeatures {}
 
@@ -259,6 +273,7 @@ public final class SoftApCapability implements Parcelable {
      * @throws IllegalArgumentException when band type is invalid.
      * @hide
      */
+    @Keep
     public boolean setSupportedChannelList(@BandType int band,
             @Nullable int[] supportedChannelList) {
         if (supportedChannelList == null)  return false;

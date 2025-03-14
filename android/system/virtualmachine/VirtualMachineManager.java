@@ -18,7 +18,6 @@ package android.system.virtualmachine;
 
 import static java.util.Objects.requireNonNull;
 
-import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -36,7 +35,6 @@ import android.system.virtualizationservice.IVirtualizationService;
 import android.util.ArrayMap;
 
 import com.android.internal.annotations.GuardedBy;
-import com.android.system.virtualmachine.flags.Flags;
 
 import java.io.File;
 import java.lang.annotation.Retention;
@@ -89,10 +87,10 @@ public class VirtualMachineManager {
      * @hide
      */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = "CAPABILITY_", flag = true, value = {
-            CAPABILITY_PROTECTED_VM,
-            CAPABILITY_NON_PROTECTED_VM
-    })
+    @IntDef(
+            prefix = "CAPABILITY_",
+            flag = true,
+            value = {CAPABILITY_PROTECTED_VM, CAPABILITY_NON_PROTECTED_VM})
     public @interface Capability {}
 
     /**
@@ -123,6 +121,7 @@ public class VirtualMachineManager {
                 FEATURE_DICE_CHANGES,
                 FEATURE_LLPVM_CHANGES,
                 FEATURE_MULTI_TENANT,
+                FEATURE_NETWORK,
                 FEATURE_REMOTE_ATTESTATION,
                 FEATURE_VENDOR_MODULES,
             })
@@ -134,7 +133,6 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     public static final String FEATURE_DICE_CHANGES = IVirtualizationService.FEATURE_DICE_CHANGES;
 
     /**
@@ -143,8 +141,14 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     public static final String FEATURE_MULTI_TENANT = IVirtualizationService.FEATURE_MULTI_TENANT;
+
+    /**
+     * Feature to allow network features in VM.
+     *
+     * @hide
+     */
+    @TestApi public static final String FEATURE_NETWORK = IVirtualizationService.FEATURE_NETWORK;
 
     /**
      * Feature to allow remote attestation in Microdroid.
@@ -152,7 +156,6 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     public static final String FEATURE_REMOTE_ATTESTATION =
             IVirtualizationService.FEATURE_REMOTE_ATTESTATION;
 
@@ -162,7 +165,6 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     public static final String FEATURE_VENDOR_MODULES =
             IVirtualizationService.FEATURE_VENDOR_MODULES;
 
@@ -172,7 +174,6 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     public static final String FEATURE_LLPVM_CHANGES = IVirtualizationService.FEATURE_LLPVM_CHANGES;
 
     /**
@@ -363,10 +364,6 @@ public class VirtualMachineManager {
     private static final List<String> SUPPORTED_OS_LIST_FROM_CFG =
             extractSupportedOSListFromConfig();
 
-    private boolean isVendorModuleEnabled() {
-        return VirtualizationService.nativeIsVendorModulesFlagEnabled();
-    }
-
     private static List<String> extractSupportedOSListFromConfig() {
         List<String> supportedOsList = new ArrayList<>();
         File directory = new File("/apex/com.android.virt/etc");
@@ -389,10 +386,9 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     @NonNull
     public List<String> getSupportedOSList() throws VirtualMachineException {
-        if (isVendorModuleEnabled()) {
+        if (BuildFlags.VENDOR_MODULES_ENABLED) {
             return SUPPORTED_OS_LIST_FROM_CFG;
         } else {
             return Arrays.asList("microdroid");
@@ -405,7 +401,6 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     @RequiresPermission(VirtualMachine.MANAGE_VIRTUAL_MACHINE_PERMISSION)
     public boolean isFeatureEnabled(@Features String featureName) throws VirtualMachineException {
         synchronized (sCreateLock) {
@@ -425,7 +420,6 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     @RequiresPermission(VirtualMachine.MANAGE_VIRTUAL_MACHINE_PERMISSION)
     public boolean isRemoteAttestationSupported() throws VirtualMachineException {
         synchronized (sCreateLock) {
@@ -446,7 +440,6 @@ public class VirtualMachineManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     @RequiresPermission(VirtualMachine.MANAGE_VIRTUAL_MACHINE_PERMISSION)
     public boolean isUpdatableVmSupported() throws VirtualMachineException {
         synchronized (sCreateLock) {

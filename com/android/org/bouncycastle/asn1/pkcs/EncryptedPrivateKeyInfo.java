@@ -11,6 +11,7 @@ import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.DEROctetString;
 import com.android.org.bouncycastle.asn1.DERSequence;
 import com.android.org.bouncycastle.asn1.x509.AlgorithmIdentifier;
+import com.android.org.bouncycastle.util.Arrays;
 
 /**
  * @hide This class is not part of the Android public SDK API
@@ -35,7 +36,7 @@ public class EncryptedPrivateKeyInfo
         byte[]              encoding)
     {
         this.algId = algId;
-        this.data = new DEROctetString(encoding);
+        this.data = new DEROctetString(Arrays.clone(encoding));
     }
 
     public static EncryptedPrivateKeyInfo getInstance(
@@ -60,7 +61,7 @@ public class EncryptedPrivateKeyInfo
 
     public byte[] getEncryptedData()
     {
-        return data.getOctets();
+        return Arrays.clone(data.getOctets());
     }
 
     /**

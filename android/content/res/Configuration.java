@@ -58,6 +58,7 @@ import android.os.Build;
 import android.os.LocaleList;
 import android.os.Parcel;
 import android.os.Parcelable;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.Slog;
@@ -89,6 +90,7 @@ import java.util.Locale;
  * with {@link android.app.Activity#getResources}:</p>
  * <pre>Configuration config = getResources().getConfiguration();</pre>
  */
+@RavenwoodKeepWholeClass
 public final class Configuration implements Parcelable, Comparable<Configuration> {
     /** @hide */
     public static final Configuration EMPTY = new Configuration();
@@ -806,7 +808,7 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      *
      * <aside class="note"><b>Note:</b> If the app targets
      * {@link android.os.Build.VERSION_CODES#VANILLA_ICE_CREAM}
-     * or after, The width measurement reflects the window size without excluding insets.
+     * or after, the width measurement reflects the window size without excluding insets.
      * Otherwise, the measurement excludes window insets even when the app is displayed edge to edge
      * using {@link android.view.Window#setDecorFitsSystemWindows(boolean)
      * Window#setDecorFitsSystemWindows(boolean)}.</aside>
@@ -2356,8 +2358,13 @@ public final class Configuration implements Parcelable, Comparable<Configuration
      * @param locales The locale list. If null, an empty LocaleList will be assigned.
      */
     public void setLocales(@Nullable LocaleList locales) {
+        LocaleList oldList = mLocaleList;
         mLocaleList = locales == null ? LocaleList.getEmptyLocaleList() : locales;
         locale = mLocaleList.get(0);
+        if (!mLocaleList.equals(oldList)) {
+            Slog.v(TAG, "Updating configuration, locales updated from " + oldList
+                    + " to " + mLocaleList);
+        }
         setLayoutDirection(locale);
     }
 

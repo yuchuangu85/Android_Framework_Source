@@ -16,10 +16,18 @@
 
 package android.app;
 
+import static android.app.TaskInfo.PROPERTY_VALUE_UNSET;
+
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.graphics.Rect;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 
 /**
  * Stores App Compat information about a particular Task.
@@ -27,79 +35,105 @@ import android.os.Parcelable;
  */
 public class AppCompatTaskInfo implements Parcelable {
     /**
-     * Whether the direct top activity is eligible for letterbox education.
+     * If {@link #isLetterboxDoubleTapEnabled} it contains the current letterbox vertical position
+     * or {@link TaskInfo#PROPERTY_VALUE_UNSET} otherwise.
      */
-    public boolean topActivityEligibleForLetterboxEducation;
+    public int topActivityLetterboxVerticalPosition = PROPERTY_VALUE_UNSET;
 
     /**
-     * Whether the letterbox education is enabled
+     * If {@link #isLetterboxDoubleTapEnabled} it contains the current letterbox vertical position
+     * or {@link TaskInfo#PROPERTY_VALUE_UNSET} otherwise.
      */
-    public boolean isLetterboxEducationEnabled;
+    public int topActivityLetterboxHorizontalPosition = PROPERTY_VALUE_UNSET;
 
     /**
-     * Whether the direct top activity is in size compat mode on foreground.
+     * If {@link #isLetterboxDoubleTapEnabled} it contains the current width of the letterboxed
+     * activity or {@link TaskInfo#PROPERTY_VALUE_UNSET} otherwise.
      */
-    public boolean topActivityInSizeCompat;
+    public int topActivityLetterboxWidth = PROPERTY_VALUE_UNSET;
 
     /**
-     * Whether the double tap is enabled.
+     * If {@link #isLetterboxDoubleTapEnabled} it contains the current height of the letterboxed
+     * activity or {@link TaskInfo#PROPERTY_VALUE_UNSET} otherwise.
      */
-    public boolean isLetterboxDoubleTapEnabled;
+    public int topActivityLetterboxHeight = PROPERTY_VALUE_UNSET;
 
     /**
-     * Whether the user aspect ratio settings button is enabled.
+     * Contains the app bounds of the top activity or size compat mode
+     * bounds when in size compat mode. If null, contains bounds.
      */
-    public boolean topActivityEligibleForUserAspectRatioButton;
+    @NonNull
+    public final Rect topActivityAppBounds = new Rect();
 
     /**
-     * Whether the user has forced the activity to be fullscreen through the user aspect ratio
-     * settings.
+     * Contains the top activity bounds when the activity is letterboxed.
+     * It's {@code null} if there's no top activity in the task or it's not letterboxed.
      */
-    public boolean isUserFullscreenOverrideEnabled;
-
-    /**
-     * Whether the system has forced the activity to be fullscreen
-     */
-    public boolean isSystemFullscreenOverrideEnabled;
-
-    /**
-     * Hint about the letterbox state of the top activity.
-     */
-    public boolean topActivityBoundsLetterboxed;
-
-    /**
-     * Whether the update comes from a letterbox double-tap action from the user or not.
-     */
-    public boolean isFromLetterboxDoubleTap;
-
-    /**
-     * If {@link isLetterboxDoubleTapEnabled} it contains the current letterbox vertical position or
-     * {@link TaskInfo.PROPERTY_VALUE_UNSET} otherwise.
-     */
-    public int topActivityLetterboxVerticalPosition;
-
-    /**
-     * If {@link isLetterboxDoubleTapEnabled} it contains the current letterbox vertical position or
-     * {@link TaskInfo.PROPERTY_VALUE_UNSET} otherwise.
-     */
-    public int topActivityLetterboxHorizontalPosition;
-
-    /**
-     * If {@link isLetterboxDoubleTapEnabled} it contains the current width of the letterboxed
-     * activity or {@link TaskInfo.PROPERTY_VALUE_UNSET} otherwise.
-     */
-    public int topActivityLetterboxWidth;
-
-    /**
-     * If {@link isLetterboxDoubleTapEnabled} it contains the current height of the letterboxed
-     * activity or {@link TaskInfo.PROPERTY_VALUE_UNSET} otherwise.
-     */
-    public int topActivityLetterboxHeight;
+    // TODO(b/379824541) Remove duplicate information.
+    @Nullable
+    public Rect topActivityLetterboxBounds;
 
     /**
      * Stores camera-related app compat information about a particular Task.
      */
     public CameraCompatTaskInfo cameraCompatTaskInfo = CameraCompatTaskInfo.create();
+
+    /** Constant indicating no top activity flag has been set. */
+    private static final int FLAG_UNDEFINED = 0x0;
+    /** Constant base value for top activity flag. */
+    private static final int FLAG_BASE = 0x1;
+    /** Top activity flag for whether letterbox education is enabled. */
+    private static final int FLAG_LETTERBOX_EDU_ENABLED = FLAG_BASE;
+    /** Top activity flag for whether activity is eligible for letterbox education. */
+    private static final int FLAG_ELIGIBLE_FOR_LETTERBOX_EDU = FLAG_BASE << 1;
+    /** Top activity flag for whether activity bounds are letterboxed. */
+    private static final int FLAG_LETTERBOXED = FLAG_BASE << 2;
+    /** Top activity flag for whether activity is in size compat mode. */
+    private static final int FLAG_IN_SIZE_COMPAT = FLAG_BASE << 3;
+    /** Top activity flag for whether letterbox double tap is enabled. */
+    private static final int FLAG_LETTERBOX_DOUBLE_TAP_ENABLED = FLAG_BASE << 4;
+    /** Top activity flag for whether the update comes from a letterbox double tap action. */
+    private static final int FLAG_IS_FROM_LETTERBOX_DOUBLE_TAP = FLAG_BASE << 5;
+    /** Top activity flag for whether activity is eligible for user aspect ratio button. */
+    private static final int FLAG_ELIGIBLE_FOR_USER_ASPECT_RATIO_BUTTON = FLAG_BASE << 6;
+    /** Top activity flag for whether has activity has been overridden to fullscreen by system. */
+    private static final int FLAG_FULLSCREEN_OVERRIDE_SYSTEM = FLAG_BASE << 7;
+    /** Top activity flag for whether has activity has been overridden to fullscreen by user. */
+    private static final int FLAG_FULLSCREEN_OVERRIDE_USER = FLAG_BASE << 8;
+    /** Top activity flag for whether min aspect ratio of the activity has been overridden.*/
+    public static final int FLAG_HAS_MIN_ASPECT_RATIO_OVERRIDE = FLAG_BASE << 9;
+
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(flag = true, value = {
+            FLAG_UNDEFINED,
+            FLAG_LETTERBOX_EDU_ENABLED,
+            FLAG_ELIGIBLE_FOR_LETTERBOX_EDU,
+            FLAG_LETTERBOXED,
+            FLAG_IN_SIZE_COMPAT,
+            FLAG_LETTERBOX_DOUBLE_TAP_ENABLED,
+            FLAG_IS_FROM_LETTERBOX_DOUBLE_TAP,
+            FLAG_ELIGIBLE_FOR_USER_ASPECT_RATIO_BUTTON,
+            FLAG_FULLSCREEN_OVERRIDE_SYSTEM,
+            FLAG_FULLSCREEN_OVERRIDE_USER,
+            FLAG_HAS_MIN_ASPECT_RATIO_OVERRIDE
+    })
+    public @interface TopActivityFlag {}
+
+    /**
+     * A combination of {@link TopActivityFlag}s that have been enabled through
+     * {@link #setTopActivityFlag}.
+     */
+    @TopActivityFlag
+    private int mTopActivityFlags;
+
+    @TopActivityFlag
+    private static final int FLAGS_ORGANIZER_INTERESTED = FLAG_IS_FROM_LETTERBOX_DOUBLE_TAP
+            | FLAG_ELIGIBLE_FOR_USER_ASPECT_RATIO_BUTTON | FLAG_FULLSCREEN_OVERRIDE_SYSTEM
+            | FLAG_FULLSCREEN_OVERRIDE_USER | FLAG_HAS_MIN_ASPECT_RATIO_OVERRIDE;
+
+    @TopActivityFlag
+    private static final int FLAGS_COMPAT_UI_INTERESTED = FLAGS_ORGANIZER_INTERESTED
+            | FLAG_IN_SIZE_COMPAT | FLAG_ELIGIBLE_FOR_LETTERBOX_EDU | FLAG_LETTERBOX_EDU_ENABLED;
 
     private AppCompatTaskInfo() {
         // Do nothing
@@ -133,40 +167,188 @@ public class AppCompatTaskInfo implements Parcelable {
             };
 
     /**
-     * @return {@value true} if the task has some compat ui.
+     * @return {@code true} if the task has some compat ui.
      */
     public boolean hasCompatUI() {
-        return cameraCompatTaskInfo.hasCameraCompatUI() || topActivityInSizeCompat
-                || topActivityEligibleForLetterboxEducation
-                || isLetterboxDoubleTapEnabled
-                || topActivityEligibleForUserAspectRatioButton;
+        return isTopActivityInSizeCompat() || eligibleForLetterboxEducation()
+                || isLetterboxDoubleTapEnabled() || eligibleForUserAspectRatioButton();
     }
 
     /**
-     * @return {@value true} if top activity is pillarboxed.
+     * @return {@code true} if the top activity bounds are letterboxed with width <= height.
      */
-    public boolean isTopActivityPillarboxed() {
-        return topActivityLetterboxWidth < topActivityLetterboxHeight;
+    public boolean isTopActivityPillarboxShaped() {
+        return isTopActivityLetterboxed()
+                && topActivityLetterboxWidth <= topActivityLetterboxHeight;
     }
 
     /**
-     * @return  {@code true} if the app compat parameters that are important for task organizers
+     * @return {@code true} if the letterbox education is enabled.
+     */
+    public boolean isLetterboxEducationEnabled() {
+        return isTopActivityFlagEnabled(FLAG_LETTERBOX_EDU_ENABLED);
+    }
+
+    /**
+     * Sets the top activity flag for whether letterbox education is enabled.
+     */
+    public void setLetterboxEducationEnabled(boolean enable) {
+        setTopActivityFlag(FLAG_LETTERBOX_EDU_ENABLED, enable);
+    }
+
+    /**
+     * @return {@code true} if the direct top activity is eligible for letterbox education.
+     */
+    public boolean eligibleForLetterboxEducation() {
+        return isTopActivityFlagEnabled(FLAG_ELIGIBLE_FOR_LETTERBOX_EDU);
+    }
+
+    /**
+     * Sets the top activity flag to be eligible for letterbox education.
+     */
+    public void setEligibleForLetterboxEducation(boolean enable) {
+        setTopActivityFlag(FLAG_ELIGIBLE_FOR_LETTERBOX_EDU, enable);
+    }
+
+    /**
+     * @return {@code true} if the direct top activity is eligible for the user aspect ratio
+     * settings button.
+     */
+    public boolean eligibleForUserAspectRatioButton() {
+        return isTopActivityFlagEnabled(FLAG_ELIGIBLE_FOR_USER_ASPECT_RATIO_BUTTON);
+    }
+
+    /**
+     * Sets the top activity flag to be eligible for the user aspect ratio settings button.
+     */
+    public void setEligibleForUserAspectRatioButton(boolean enable) {
+        setTopActivityFlag(FLAG_ELIGIBLE_FOR_USER_ASPECT_RATIO_BUTTON, enable);
+    }
+
+    /**
+     * @return {@code true} if double tap to reposition letterboxed app is enabled.
+     */
+    public boolean isLetterboxDoubleTapEnabled() {
+        return isTopActivityFlagEnabled(FLAG_LETTERBOX_DOUBLE_TAP_ENABLED);
+    }
+
+    /**
+     * Sets the top activity flag to enable double tap to reposition letterboxed app.
+     */
+    public void setLetterboxDoubleTapEnabled(boolean enable) {
+        setTopActivityFlag(FLAG_LETTERBOX_DOUBLE_TAP_ENABLED, enable);
+    }
+
+    /**
+     * @return {@code true} if the update comes from a letterbox double-tap action from the user.
+     */
+    public boolean isFromLetterboxDoubleTap() {
+        return isTopActivityFlagEnabled(FLAG_IS_FROM_LETTERBOX_DOUBLE_TAP);
+    }
+
+    /**
+     * Sets the top activity flag for whether the update comes from a letterbox double-tap action
+     * from the user.
+     */
+    public void setIsFromLetterboxDoubleTap(boolean enable) {
+        setTopActivityFlag(FLAG_IS_FROM_LETTERBOX_DOUBLE_TAP, enable);
+    }
+
+    /**
+     * @return {@code true} if the user has forced the activity to be fullscreen through the
+     * user aspect ratio settings.
+     */
+    public boolean isUserFullscreenOverrideEnabled() {
+        return isTopActivityFlagEnabled(FLAG_FULLSCREEN_OVERRIDE_USER);
+    }
+
+    /**
+     * Sets the top activity flag for whether the user has forced the activity to be fullscreen
+     * through the user aspect ratio settings.
+     */
+    public void setUserFullscreenOverrideEnabled(boolean enable) {
+        setTopActivityFlag(FLAG_FULLSCREEN_OVERRIDE_USER, enable);
+    }
+
+    /**
+     * @return {@code true} if the system has forced the activity to be fullscreen.
+     */
+    public boolean isSystemFullscreenOverrideEnabled() {
+        return isTopActivityFlagEnabled(FLAG_FULLSCREEN_OVERRIDE_SYSTEM);
+    }
+
+    /**
+     * Sets the top activity flag for whether the system has forced the activity to be fullscreen.
+     */
+    public void setSystemFullscreenOverrideEnabled(boolean enable) {
+        setTopActivityFlag(FLAG_FULLSCREEN_OVERRIDE_SYSTEM, enable);
+    }
+
+    /**
+     * @return {@code true} if the direct top activity is in size compat mode on foreground.
+     */
+    public boolean isTopActivityInSizeCompat() {
+        return isTopActivityFlagEnabled(FLAG_IN_SIZE_COMPAT);
+    }
+
+    /**
+     * Sets the top activity flag for whether the direct top activity is in size compat mode
+     * on foreground.
+     */
+    public void setTopActivityInSizeCompat(boolean enable) {
+        setTopActivityFlag(FLAG_IN_SIZE_COMPAT, enable);
+    }
+
+    /**
+     * @return {@code true} if the top activity bounds are letterboxed.
+     */
+    public boolean isTopActivityLetterboxed() {
+        return isTopActivityFlagEnabled(FLAG_LETTERBOXED);
+    }
+
+    /**
+     * Sets the top activity flag for whether the top activity bounds are letterboxed.
+     */
+    public void setTopActivityLetterboxed(boolean enable) {
+        setTopActivityFlag(FLAG_LETTERBOXED, enable);
+    }
+
+    /**
+     * @return {@code true} if the top activity's min aspect ratio has been overridden.
+     */
+    public boolean hasMinAspectRatioOverride() {
+        return isTopActivityFlagEnabled(FLAG_HAS_MIN_ASPECT_RATIO_OVERRIDE);
+    }
+
+    /**
+     * Sets the top activity flag for whether the min aspect ratio of the activity has been
+     * overridden.
+     */
+    public void setHasMinAspectRatioOverride(boolean enable) {
+        setTopActivityFlag(FLAG_HAS_MIN_ASPECT_RATIO_OVERRIDE, enable);
+    }
+
+    /** Clear all top activity flags and set to false. */
+    public void clearTopActivityFlags() {
+        mTopActivityFlags = FLAG_UNDEFINED;
+    }
+
+    /**
+     * @return {@code true} if the app compat parameters that are important for task organizers
      * are equal.
      */
     public boolean equalsForTaskOrganizer(@Nullable AppCompatTaskInfo that) {
         if (that == null) {
             return false;
         }
-        return isFromLetterboxDoubleTap == that.isFromLetterboxDoubleTap
-                && topActivityEligibleForUserAspectRatioButton
-                    == that.topActivityEligibleForUserAspectRatioButton
+        return (mTopActivityFlags & FLAGS_ORGANIZER_INTERESTED)
+                    == (that.mTopActivityFlags & FLAGS_ORGANIZER_INTERESTED)
                 && topActivityLetterboxVerticalPosition == that.topActivityLetterboxVerticalPosition
                 && topActivityLetterboxWidth == that.topActivityLetterboxWidth
                 && topActivityLetterboxHeight == that.topActivityLetterboxHeight
+                && topActivityAppBounds.equals(that.topActivityAppBounds)
                 && topActivityLetterboxHorizontalPosition
                     == that.topActivityLetterboxHorizontalPosition
-                && isUserFullscreenOverrideEnabled == that.isUserFullscreenOverrideEnabled
-                && isSystemFullscreenOverrideEnabled == that.isSystemFullscreenOverrideEnabled
                 && cameraCompatTaskInfo.equalsForTaskOrganizer(that.cameraCompatTaskInfo);
     }
 
@@ -177,20 +359,14 @@ public class AppCompatTaskInfo implements Parcelable {
         if (that == null) {
             return false;
         }
-        return topActivityInSizeCompat == that.topActivityInSizeCompat
-                && isFromLetterboxDoubleTap == that.isFromLetterboxDoubleTap
-                && topActivityEligibleForUserAspectRatioButton
-                    == that.topActivityEligibleForUserAspectRatioButton
-                && topActivityEligibleForLetterboxEducation
-                    == that.topActivityEligibleForLetterboxEducation
-                && isLetterboxEducationEnabled == that.isLetterboxEducationEnabled
+        return (mTopActivityFlags & FLAGS_COMPAT_UI_INTERESTED)
+                    == (that.mTopActivityFlags & FLAGS_COMPAT_UI_INTERESTED)
                 && topActivityLetterboxVerticalPosition == that.topActivityLetterboxVerticalPosition
                 && topActivityLetterboxHorizontalPosition
                     == that.topActivityLetterboxHorizontalPosition
                 && topActivityLetterboxWidth == that.topActivityLetterboxWidth
                 && topActivityLetterboxHeight == that.topActivityLetterboxHeight
-                && isUserFullscreenOverrideEnabled == that.isUserFullscreenOverrideEnabled
-                && isSystemFullscreenOverrideEnabled == that.isSystemFullscreenOverrideEnabled
+                && topActivityAppBounds.equals(that.topActivityAppBounds)
                 && cameraCompatTaskInfo.equalsForCompatUi(that.cameraCompatTaskInfo);
     }
 
@@ -198,19 +374,13 @@ public class AppCompatTaskInfo implements Parcelable {
      * Reads the AppCompatTaskInfo from a parcel.
      */
     void readFromParcel(Parcel source) {
-        isLetterboxEducationEnabled = source.readBoolean();
-        topActivityInSizeCompat = source.readBoolean();
-        topActivityEligibleForLetterboxEducation = source.readBoolean();
-        isLetterboxDoubleTapEnabled = source.readBoolean();
-        topActivityEligibleForUserAspectRatioButton = source.readBoolean();
-        topActivityBoundsLetterboxed = source.readBoolean();
-        isFromLetterboxDoubleTap = source.readBoolean();
+        mTopActivityFlags = source.readInt();
         topActivityLetterboxVerticalPosition = source.readInt();
         topActivityLetterboxHorizontalPosition = source.readInt();
         topActivityLetterboxWidth = source.readInt();
         topActivityLetterboxHeight = source.readInt();
-        isUserFullscreenOverrideEnabled = source.readBoolean();
-        isSystemFullscreenOverrideEnabled = source.readBoolean();
+        topActivityAppBounds.set(Objects.requireNonNull(source.readTypedObject(Rect.CREATOR)));
+        topActivityLetterboxBounds = source.readTypedObject(Rect.CREATOR);
         cameraCompatTaskInfo = source.readTypedObject(CameraCompatTaskInfo.CREATOR);
     }
 
@@ -219,41 +389,44 @@ public class AppCompatTaskInfo implements Parcelable {
      */
     @Override
     public void writeToParcel(Parcel dest, int flags) {
-        dest.writeBoolean(isLetterboxEducationEnabled);
-        dest.writeBoolean(topActivityInSizeCompat);
-        dest.writeBoolean(topActivityEligibleForLetterboxEducation);
-        dest.writeBoolean(isLetterboxDoubleTapEnabled);
-        dest.writeBoolean(topActivityEligibleForUserAspectRatioButton);
-        dest.writeBoolean(topActivityBoundsLetterboxed);
-        dest.writeBoolean(isFromLetterboxDoubleTap);
+        dest.writeInt(mTopActivityFlags);
         dest.writeInt(topActivityLetterboxVerticalPosition);
         dest.writeInt(topActivityLetterboxHorizontalPosition);
         dest.writeInt(topActivityLetterboxWidth);
         dest.writeInt(topActivityLetterboxHeight);
-        dest.writeBoolean(isUserFullscreenOverrideEnabled);
-        dest.writeBoolean(isSystemFullscreenOverrideEnabled);
+        dest.writeTypedObject(topActivityAppBounds, flags);
+        dest.writeTypedObject(topActivityLetterboxBounds, flags);
         dest.writeTypedObject(cameraCompatTaskInfo, flags);
     }
 
     @Override
     public String toString() {
-        return "AppCompatTaskInfo { topActivityInSizeCompat=" + topActivityInSizeCompat
-                + " topActivityEligibleForLetterboxEducation= "
-                + topActivityEligibleForLetterboxEducation
-                + "isLetterboxEducationEnabled= " + isLetterboxEducationEnabled
-                + " isLetterboxDoubleTapEnabled= " + isLetterboxDoubleTapEnabled
-                + " topActivityEligibleForUserAspectRatioButton= "
-                + topActivityEligibleForUserAspectRatioButton
-                + " topActivityBoundsLetterboxed= " + topActivityBoundsLetterboxed
-                + " isFromLetterboxDoubleTap= " + isFromLetterboxDoubleTap
+        return "AppCompatTaskInfo { topActivityInSizeCompat=" + isTopActivityInSizeCompat()
+                + " eligibleForLetterboxEducation= " + eligibleForLetterboxEducation()
+                + " isLetterboxEducationEnabled= " + isLetterboxEducationEnabled()
+                + " isLetterboxDoubleTapEnabled= " + isLetterboxDoubleTapEnabled()
+                + " eligibleForUserAspectRatioButton= " + eligibleForUserAspectRatioButton()
+                + " topActivityBoundsLetterboxed= " + isTopActivityLetterboxed()
+                + " isFromLetterboxDoubleTap= " + isFromLetterboxDoubleTap()
                 + " topActivityLetterboxVerticalPosition= " + topActivityLetterboxVerticalPosition
                 + " topActivityLetterboxHorizontalPosition= "
                 + topActivityLetterboxHorizontalPosition
                 + " topActivityLetterboxWidth=" + topActivityLetterboxWidth
                 + " topActivityLetterboxHeight=" + topActivityLetterboxHeight
-                + " isUserFullscreenOverrideEnabled=" + isUserFullscreenOverrideEnabled
-                + " isSystemFullscreenOverrideEnabled=" + isSystemFullscreenOverrideEnabled
+                + " topActivityAppBounds=" + topActivityAppBounds
+                + " isUserFullscreenOverrideEnabled=" + isUserFullscreenOverrideEnabled()
+                + " isSystemFullscreenOverrideEnabled=" + isSystemFullscreenOverrideEnabled()
+                + " hasMinAspectRatioOverride=" + hasMinAspectRatioOverride()
+                + " topActivityLetterboxBounds=" + topActivityLetterboxBounds
                 + " cameraCompatTaskInfo=" + cameraCompatTaskInfo.toString()
                 + "}";
+    }
+
+    private void setTopActivityFlag(@TopActivityFlag int flag, boolean enable) {
+        mTopActivityFlags = enable ? (mTopActivityFlags | flag) : (mTopActivityFlags & ~flag);
+    }
+
+    private boolean isTopActivityFlagEnabled(@TopActivityFlag int flag) {
+        return (mTopActivityFlags & flag) == flag;
     }
 }

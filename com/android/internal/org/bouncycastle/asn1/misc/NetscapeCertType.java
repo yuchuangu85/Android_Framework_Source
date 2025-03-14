@@ -1,6 +1,7 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.asn1.misc;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.DERBitString;
 
 /**
@@ -44,13 +45,18 @@ public class NetscapeCertType
     }
 
     public NetscapeCertType(
-        DERBitString usage)
+        ASN1BitString usage)
     {
         super(usage.getBytes(), usage.getPadBits());
     }
 
+    public boolean hasUsages(int usages)
+    {
+        return (intValue() & usages) == usages;
+    }
+
     public String toString()
     {
-        return "NetscapeCertType: 0x" + Integer.toHexString(data[0] & 0xff);
+        return "NetscapeCertType: 0x" + Integer.toHexString(intValue());
     }
 }

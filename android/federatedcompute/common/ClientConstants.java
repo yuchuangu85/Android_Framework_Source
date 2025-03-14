@@ -59,7 +59,17 @@ public final class ClientConstants {
     public static final String RESULT_HANDLING_SERVICE_ACTION =
             "android.federatedcompute.COMPUTATION_RESULT";
 
-    public static final String ODP_APEX_KEYWORD = "ondevicepersonalization";
+    // ODP mainline signed apex name
+    public static final String ODP_MAINLINE_SIGNED_APEX_NAME =
+            "com.google.android.ondevicepersonalization";
+
+    // ODP AOSP built apex name
+    public static final String ODP_AOSP_BUILT_APEX_NAME =
+            "com.android.ondevicepersonalization";
+
+    // ODP apex keyword to capture all other variations of ODP binary (go, other form factors)
+    public static final String ODP_APEX_KEYWORD =
+            "ondevicepersonalization";
 
     private ClientConstants() {}
 }

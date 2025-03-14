@@ -26,15 +26,20 @@
 package java.lang;
 
 import dalvik.annotation.optimization.NeverInline;
+
+import jdk.internal.math.DoubleToDecimal;
+import jdk.internal.math.FloatToDecimal;
 import jdk.internal.math.FloatingDecimal;
+
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Spliterator;
 import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
 
 import static java.lang.String.COMPACT_STRINGS;
-import static java.lang.String.UTF16;
-import static java.lang.String.LATIN1;
+import static java.lang.String.CODER_UTF16;
+import static java.lang.String.CODER_LATIN1;
 import static java.lang.String.checkIndex;
 import static java.lang.String.checkOffset;
 
@@ -86,10 +91,10 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
     AbstractStringBuilder(int capacity) {
         if (COMPACT_STRINGS) {
             value = new byte[capacity];
-            coder = LATIN1;
+            coder = CODER_LATIN1;
         } else {
             value = StringUTF16.newBytesFor(capacity);
-            coder = UTF16;
+            coder = CODER_UTF16;
         }
     }
 
@@ -233,7 +238,7 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
         byte[] buf = StringUTF16.newBytesFor(value.length);
         StringLatin1.inflate(value, 0, buf, 0, count);
         this.value = buf;
-        this.coder = UTF16;
+        this.coder = CODER_UTF16;
     }
 
     /**
@@ -825,7 +830,13 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
      * @return  a reference to this object.
      */
     public AbstractStringBuilder append(float f) {
-        FloatingDecimal.appendTo(f,this);
+        // Android-changed: imported from Java 21.
+        // FloatingDecimal.appendTo(f,this);
+        try {
+            FloatToDecimal.appendTo(f, this);
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
         return this;
     }
 
@@ -842,7 +853,13 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
      * @return  a reference to this object.
      */
     public AbstractStringBuilder append(double d) {
-        FloatingDecimal.appendTo(d,this);
+        // Android-changed: imported from Java 21.
+        // FloatingDecimal.appendTo(d,this);
+        try {
+            DoubleToDecimal.appendTo(d, this);
+        } catch (IOException e) {
+            throw new AssertionError(e);
+        }
         return this;
     }
 
@@ -1512,7 +1529,7 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
         int count = this.count;
         int coder = this.coder;
         int n = count - 1;
-        if (COMPACT_STRINGS && coder == LATIN1) {
+        if (COMPACT_STRINGS && coder == CODER_LATIN1) {
             for (int j = (n-1) >> 1; j >= 0; j--) {
                 int k = n - j;
                 byte cj = val[j];
@@ -1554,7 +1571,7 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
                     byte[] val = this.value;
                     int count = this.count;
                     byte coder = this.coder;
-                    return coder == LATIN1
+                    return coder == CODER_LATIN1
                            ? new StringLatin1.CharsSpliterator(val, 0, count, 0)
                            : new StringUTF16.CharsSpliterator(val, 0, count, 0);
                 },
@@ -1578,7 +1595,7 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
                     byte[] val = this.value;
                     int count = this.count;
                     byte coder = this.coder;
-                    return coder == LATIN1
+                    return coder == CODER_LATIN1
                            ? new StringLatin1.CharsSpliterator(val, 0, count, 0)
                            : new StringUTF16.CodePointsSpliterator(val, 0, count, 0);
                 },
@@ -1613,20 +1630,24 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
         if (String.COMPACT_STRINGS) {
             this.value = StringUTF16.compress(value, off, len);
             if (this.value != null) {
-                this.coder = LATIN1;
+                this.coder = CODER_LATIN1;
                 return;
             }
         }
-        this.coder = UTF16;
+        this.coder = CODER_UTF16;
         this.value = StringUTF16.toBytes(value, off, len);
     }
 
+    /**
+     * Be careful the behavior difference from {@link String#coder()}. See
+     * {@link String#CODER_LATIN1} for details.
+     */
     final byte getCoder() {
-        return COMPACT_STRINGS ? coder : UTF16;
+        return COMPACT_STRINGS ? coder : CODER_UTF16;
     }
 
     final boolean isLatin1() {
-        return COMPACT_STRINGS && coder == LATIN1;
+        return COMPACT_STRINGS && coder == CODER_LATIN1;
     }
 
     private final void putCharsAt(int index, char[] s, int off, int end) {
@@ -1669,7 +1690,7 @@ abstract class AbstractStringBuilder implements Appendable, CharSequence {
         if (getCoder() != str.coder()) {
             inflate();
         }
-        str.getBytes(value, index, coder);
+        str.fillBytes(value, index, coder);
     }
 
     private final void appendChars(char[] s, int off, int end) {

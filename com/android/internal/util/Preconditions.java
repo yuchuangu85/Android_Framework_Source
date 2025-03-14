@@ -730,12 +730,12 @@ public class Preconditions {
                 throw new IllegalArgumentException(valueName + "[" + i + "] must not be NaN");
             } else if (v < lower) {
                 throw new IllegalArgumentException(
-                        String.format("%s[%d] is out of range of [%f, %f] (too low)",
-                                valueName, i, lower, upper));
+                        String.format("%s[%d]: %f is out of range of [%f, %f] (too low)",
+                                valueName, i, v, lower, upper));
             } else if (v > upper) {
                 throw new IllegalArgumentException(
-                        String.format("%s[%d] is out of range of [%f, %f] (too high)",
-                                valueName, i, lower, upper));
+                        String.format("%s[%d]: %f is out of range of [%f, %f] (too high)",
+                                valueName, i, v, lower, upper));
             }
         }
 
@@ -764,12 +764,12 @@ public class Preconditions {
 
             if (v < lower) {
                 throw new IllegalArgumentException(
-                        String.format("%s[%d] is out of range of [%d, %d] (too low)",
-                                valueName, i, lower, upper));
+                        String.format("%s[%d]: %d is out of range of [%d, %d] (too low)",
+                                valueName, v, i, lower, upper));
             } else if (v > upper) {
                 throw new IllegalArgumentException(
-                        String.format("%s[%d] is out of range of [%d, %d] (too high)",
-                                valueName, i, lower, upper));
+                        String.format("%s[%d]: %d is out of range of [%d, %d] (too high)",
+                                valueName, v, i, lower, upper));
             }
         }
 

@@ -21,10 +21,12 @@ import android.annotation.FloatRange;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.annotation.TestApi;
 import android.app.Activity;
 import android.compat.annotation.ChangeId;
 import android.compat.annotation.Disabled;
+import android.compat.annotation.EnabledAfter;
 import android.compat.annotation.EnabledSince;
 import android.compat.annotation.Overridable;
 import android.compat.annotation.UnsupportedAppUsage;
@@ -451,6 +453,13 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
      * Value of {@link #colorMode} indicating that the activity should use a
      * high dynamic range if the presentation display supports it.
      *
+     * <p>Note: This does not impact SurfaceViews or SurfaceControls, as those have their own
+     * independent HDR support.</p>
+     *
+     * <p><b>Important:</b> Although this value was added in API 26, it is strongly recommended
+     * to avoid using it until API 34 which is when HDR support for the UI toolkit was officially
+     * added.</p>
+     *
      * @see android.R.attr#colorMode
      */
     public static final int COLOR_MODE_HDR = 2;
@@ -617,7 +626,7 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
      */
     public static final int FLAG_ENABLE_VR_MODE = 0x8000;
     /**
-     * Bit in {@link #flags} indicating if the activity can be displayed on a remote device.
+     * Bit in {@link #flags} indicating if the activity can be displayed on a virtual display.
      * Corresponds to {@link android.R.attr#canDisplayOnRemoteDevices}
      * @hide
      */
@@ -941,6 +950,8 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
             CONFIG_COLOR_MODE,
             CONFIG_FONT_SCALE,
             CONFIG_GRAMMATICAL_GENDER,
+            CONFIG_ASSETS_PATHS,
+            CONFIG_RESOURCES_UNUSED,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface Config {}
@@ -1060,8 +1071,8 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
      * can itself handle asset path changes.  Set from the {@link android.R.attr#configChanges}
      * attribute. This is not a core resource configuration, but a higher-level value, so its
      * constant starts at the high bits.
-     * @hide We do not want apps handling this yet, but we do need some kind of bit for diffs.
      */
+    @FlaggedApi(android.content.res.Flags.FLAG_HANDLE_ALL_CONFIG_CHANGES)
     public static final int CONFIG_ASSETS_PATHS = 0x80000000;
     /**
      * Bit in {@link #configChanges} that indicates that the activity
@@ -1087,6 +1098,30 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
      * constant starts at the high bits.
      */
     public static final int CONFIG_FONT_WEIGHT_ADJUSTMENT = 0x10000000;
+
+    /**
+     * <p>This is probably not the constant you want, the resources compiler supports a less
+     * dangerous version of it, 'allKnown', that only suppresses all currently existing
+     * configuration change restarts depending on your target SDK rather than whatever the latest
+     * SDK supports, allowing the application to work with resources on future Platform versions.
+     *
+     * <p>Bit in {@link #configChanges} that indicates that the activity doesn't use Android
+     * Resources at all and doesn't need to be restarted on any configuration changes. This bit
+     * disables all restarts for configuration dimensions available in the current target SDK as
+     * well as dimensions introduced in future SDKs. Use it only if the activity doesn't need
+     * anything from its resources, and doesn't depend on any libraries that may provide resources
+     * and need to respond to configuration changes. When set,
+     * {@link Activity#onConfigurationChanged(Configuration)} will be called instead of a restart,
+     * and it’s up to the implementation to ensure that no stale resource values remain loaded
+     * anywhere in the code.
+     *
+     * <p>This overrides all other bits, and this is recommended to be used individually.
+     *
+     * <p>This is not a core resource configuration, but a higher-level value, so its constant
+     * starts at the high bits.
+     */
+    @FlaggedApi(android.content.res.Flags.FLAG_HANDLE_ALL_CONFIG_CHANGES)
+    public static final int CONFIG_RESOURCES_UNUSED = 0x8000000;
 
     /** @hide
      * Unfortunately the constants for config changes in native code are
@@ -1176,6 +1211,18 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface SizeChangesSupportMode {}
+
+    /**
+     * This change id makes the restriction of fixed orientation, aspect ratio, and resizability
+     * of the app to be ignored, which means making the app fill the given available area.
+     * @hide
+     */
+    @ChangeId
+    @Overridable
+    @TestApi
+    @SuppressLint("UnflaggedApi") // @TestApi without associated public API.
+    @EnabledAfter(targetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    public static final long UNIVERSAL_RESIZABLE_BY_DEFAULT = 357141415L; // buganizer id
 
     /**
      * This change id enables compat policy that ignores app requested orientation in
@@ -1280,23 +1327,23 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
             264301586L; // buganizer id
 
     /**
-     * Excludes the packages the override is applied to from the camera compatibility treatment
-     * in free-form windowing mode for fixed-orientation apps.
+     * Includes the packages the override is applied to in the camera compatibility treatment in
+     * free-form windowing mode for fixed-orientation apps.
      *
      * <p>In free-form windowing mode, the compatibility treatment emulates running on a portrait
      * device by letterboxing the app window and changing the camera characteristics to what apps
      * commonly expect in a portrait device: 90 and 270 degree sensor rotation for back and front
      * cameras, respectively, and setting display rotation to 0.
      *
-     * <p>Use this flag to disable the compatibility treatment for apps that do not respond well to
-     * the treatment.
+     * <p>Use this flag to enable the compatibility treatment for apps in which camera doesn't work
+     * well in freeform windowing.
      *
      * @hide
      */
     @ChangeId
     @Overridable
     @Disabled
-    public static final long OVERRIDE_CAMERA_COMPAT_DISABLE_FREEFORM_WINDOWING_TREATMENT =
+    public static final long OVERRIDE_CAMERA_COMPAT_ENABLE_FREEFORM_WINDOWING_TREATMENT =
             314961188L;
 
     /**
@@ -1331,6 +1378,7 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
      * This change id is the gatekeeper for all treatments that force a given min aspect ratio.
      * Enabling this change will allow the following min aspect ratio treatments to be applied:
      * <ul>
+     *  <li>OVERRIDE_MIN_ASPECT_RATIO_SMALL
      *  <li>OVERRIDE_MIN_ASPECT_RATIO_MEDIUM
      *  <li>OVERRIDE_MIN_ASPECT_RATIO_LARGE
      * </ul>
@@ -1370,6 +1418,22 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
     @Overridable
     @TestApi
     public static final long OVERRIDE_MIN_ASPECT_RATIO_PORTRAIT_ONLY = 203647190L; // buganizer id
+
+    /**
+     * This change id sets the activity's min aspect ratio to a small value as defined by
+     * OVERRIDE_MIN_ASPECT_RATIO_SMALL_VALUE.
+     *
+     * This treatment only takes effect if OVERRIDE_MIN_ASPECT_RATIO is also enabled.
+     * @hide
+     */
+    @ChangeId
+    @Overridable
+    @Disabled
+    // TODO(b/349060719): Add CTS tests.
+    public static final long OVERRIDE_MIN_ASPECT_RATIO_SMALL = 349045028L; // buganizer id
+
+    /** @hide Small override aspect ratio, currently 4:3.  */
+    public static final float OVERRIDE_MIN_ASPECT_RATIO_SMALL_VALUE = 4 / 3f;
 
     /**
      * This change id sets the activity's min aspect ratio to a medium value as defined by
@@ -1579,6 +1643,19 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
     public static final long OVERRIDE_ENABLE_INSETS_DECOUPLED_CONFIGURATION = 327313645L;
 
     /**
+     * When the override is enabled, the activity receives configuration coupled with caption bar
+     * insets. Normally, caption bar insets are decoupled from configuration.
+     *
+     * <p>Override applies only if the activity targets SDK level 34 or earlier version.
+     *
+     * @hide
+     */
+    @ChangeId
+    @Overridable
+    @Disabled
+    public static final long OVERRIDE_EXCLUDE_CAPTION_INSETS_FROM_APP_BOUNDS = 388014743L;
+
+    /**
      * Optional set of a certificates identifying apps that are allowed to embed this activity. From
      * the "knownActivityEmbeddingCerts" attribute.
      */
@@ -1640,7 +1717,8 @@ public class ActivityInfo extends ComponentInfo implements Parcelable {
      * {@link #CONFIG_KEYBOARD}, {@link #CONFIG_NAVIGATION},
      * {@link #CONFIG_ORIENTATION}, {@link #CONFIG_SCREEN_LAYOUT},
      * {@link #CONFIG_DENSITY}, {@link #CONFIG_LAYOUT_DIRECTION},
-     * {@link #CONFIG_COLOR_MODE}, and {link #CONFIG_GRAMMATICAL_GENDER}.
+     * {@link #CONFIG_COLOR_MODE}, {@link #CONFIG_GRAMMATICAL_GENDER},
+     * {@link #CONFIG_ASSETS_PATHS}, and {@link #CONFIG_RESOURCES_UNUSED}.
      * Set from the {@link android.R.attr#configChanges} attribute.
      */
     public int configChanges;

@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.UserIdInt;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -27,6 +28,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.telephony.IBootstrapAuthenticationCallback;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
@@ -37,7 +39,9 @@ import android.text.TextUtils;
 import android.util.SparseArray;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.RcsStats;
+import com.android.internal.telephony.util.WorkerThread;
 import com.android.telephony.Rlog;
 
 import java.util.NoSuchElementException;
@@ -64,6 +68,8 @@ public class GbaManager {
     public static final int REQUEST_TIMEOUT_MS = 5000;
     private final RcsStats mRcsStats;
 
+    private final FeatureFlags mFeatureFlags;
+
     private final String mLogTag;
     private final Context mContext;
     private final int mSubId;
@@ -75,7 +81,8 @@ public class GbaManager {
     private Handler mHandler;
 
     private String mServicePackageName;
-    private String mServicePackageNameOverride;
+    @UserIdInt
+    private int mUserId = UserHandle.USER_SYSTEM;
     private int mReleaseTime;
     private int mRetryTimes = 0;
 
@@ -199,7 +206,7 @@ public class GbaManager {
 
     @VisibleForTesting
     public GbaManager(Context context, int subId, String servicePackageName, int releaseTime,
-            RcsStats rcsStats) {
+            RcsStats rcsStats, Looper looper, FeatureFlags featureFlags) {
         mContext = context;
         mSubId = subId;
         mLogTag = "GbaManager[" + subId + "]";
@@ -207,9 +214,15 @@ public class GbaManager {
         mServicePackageName = servicePackageName;
         mReleaseTime = releaseTime;
 
-        HandlerThread headlerThread = new HandlerThread(mLogTag);
-        headlerThread.start();
-        mHandler = new GbaManagerHandler(headlerThread.getLooper());
+        mFeatureFlags = featureFlags;
+
+        if (mFeatureFlags.threadShred()) {
+            mHandler = new GbaManagerHandler(looper);
+        } else {
+            HandlerThread headlerThread = new HandlerThread(mLogTag);
+            headlerThread.start();
+            mHandler = new GbaManagerHandler(headlerThread.getLooper());
+        }
 
         if (mReleaseTime < 0) {
             mHandler.sendEmptyMessage(EVENT_BIND_SERVICE);
@@ -221,9 +234,15 @@ public class GbaManager {
      * create a GbaManager instance for a sub
      */
     public static GbaManager make(Context context, int subId,
-            String servicePackageName, int releaseTime) {
-        GbaManager gm = new GbaManager(context, subId, servicePackageName, releaseTime,
-                RcsStats.getInstance());
+            String servicePackageName, int releaseTime, FeatureFlags featureFlags) {
+        GbaManager gm;
+        if (featureFlags.threadShred()) {
+            gm = new GbaManager(context, subId, servicePackageName, releaseTime,
+                    RcsStats.getInstance(), WorkerThread.get().getLooper(), featureFlags);
+        } else {
+            gm = new GbaManager(context, subId, servicePackageName, releaseTime,
+                    RcsStats.getInstance(), null, featureFlags);
+        }
         synchronized (sGbaManagers) {
             sGbaManagers.put(subId, gm);
         }
@@ -426,8 +445,9 @@ public class GbaManager {
         try {
             logv("Trying to bind " + servicePackage);
             mServiceConnection = new GbaServiceConnection();
-            if (!mContext.bindService(intent, mServiceConnection,
-                    Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE)) {
+            if (!mContext.bindServiceAsUser(intent, mServiceConnection,
+                    Context.BIND_AUTO_CREATE | Context.BIND_FOREGROUND_SERVICE,
+                    UserHandle.of(mUserId))) {
                 logd("Cannot bind to the service.");
                 retryBind();
                 return;
@@ -462,12 +482,13 @@ public class GbaManager {
     }
 
     /** override GBA service package name to be connected */
-    public boolean overrideServicePackage(String packageName) {
+    public boolean overrideServicePackage(String packageName, @UserIdInt int userId) {
         synchronized (this) {
-            if (!TextUtils.equals(mServicePackageName, packageName)) {
+            if (!TextUtils.equals(mServicePackageName, packageName) || userId != mUserId) {
                 logv("Service package name is changed from " + mServicePackageName
-                        + " to " + packageName);
+                        + " to " + packageName + ", user id from " + mUserId + " to " + userId);
                 mServicePackageName = packageName;
+                mUserId = userId;
                 if (!mHandler.hasMessages(EVENT_CONFIG_CHANGED)) {
                     mHandler.sendEmptyMessage(EVENT_CONFIG_CHANGED);
                 }
@@ -516,11 +537,15 @@ public class GbaManager {
     @VisibleForTesting
     public void destroy() {
         mHandler.removeCallbacksAndMessages(null);
-        mHandler.getLooper().quit();
+        if (!mFeatureFlags.threadShred()) {
+            mHandler.getLooper().quit();
+        }
         mRequestQueue.clear();
         mCallbacks.clear();
         unbindService();
-        sGbaManagers.remove(mSubId);
+        synchronized (sGbaManagers) {
+            sGbaManagers.remove(mSubId);
+        }
     }
 
     private void logv(String msg) {

@@ -177,7 +177,7 @@ public abstract class InputEventReceiver {
      *                 drag
      *                 if true, the window associated with this input channel has just lost drag
      */
-    public void onDragEvent(boolean isExiting, float x, float y) {
+    public void onDragEvent(boolean isExiting, float x, float y, int displayId) {
     }
 
     /**
@@ -290,9 +290,15 @@ public abstract class InputEventReceiver {
     @SuppressWarnings("unused")
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void dispatchInputEvent(int seq, InputEvent event) {
-        Trace.traceBegin(Trace.TRACE_TAG_INPUT, "dispatchInputEvent " + getShortDescription(event));
+        if (Trace.isTagEnabled(Trace.TRACE_TAG_INPUT)) {
+            // This 'if' block is an optimization - without it, 'getShortDescription' will be
+            // called unconditionally, which is expensive.
+            Trace.traceBegin(Trace.TRACE_TAG_INPUT,
+                    "dispatchInputEvent " + getShortDescription(event));
+        }
         mSeqMap.put(event.getSequenceNumber(), seq);
         onInputEvent(event);
+        // If tracing is not enabled, `traceEnd` is a no-op (so we don't need to guard it with 'if')
         Trace.traceEnd(Trace.TRACE_TAG_INPUT);
     }
 

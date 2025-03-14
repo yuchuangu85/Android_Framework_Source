@@ -21,7 +21,6 @@ import android.annotation.NonNull;
 import android.os.Parcelable;
 
 import com.android.ondevicepersonalization.internal.util.AnnotationValidations;
-import com.android.ondevicepersonalization.internal.util.ByteArrayParceledListSlice;
 import com.android.ondevicepersonalization.internal.util.DataClass;
 
 /**
@@ -47,8 +46,11 @@ public class InferenceInputParcel implements Parcelable {
      */
     private @IntRange(from = 1) int mCpuNumThread;
 
-    /** An array of input data. The inputs should be in the same order as inputs of the model. */
-    @NonNull private ByteArrayParceledListSlice mInputData;
+    /**
+     * The byte array holds input data. The inputs should be in the same order as inputs of the
+     * model.
+     */
+    @NonNull private byte[] mInputData;
 
     /**
      * The number of input examples. Adopter can set this field to run batching inference. The batch
@@ -75,7 +77,7 @@ public class InferenceInputParcel implements Parcelable {
                         .build(),
                 value.getParams().getDelegateType(),
                 value.getParams().getRecommendedNumThreads(),
-                ByteArrayParceledListSlice.create(value.getInputData()),
+                value.getData(),
                 value.getBatchSize(),
                 value.getParams().getModelType(),
                 new InferenceOutputParcel(value.getExpectedOutputStructure()));
@@ -106,8 +108,8 @@ public class InferenceInputParcel implements Parcelable {
      *     disable multithreading, which is equivalent to setting cpuNumThread to 1. If set to the
      *     value -1, the number of threads used will be implementation-defined and
      *     platform-dependent.
-     * @param inputData An array of input data. The inputs should be in the same order as inputs of
-     *     the model.
+     * @param inputData The byte array holds input data. The inputs should be in the same order as
+     *     inputs of the model.
      * @param batchSize The number of input examples. Adopter can set this field to run batching
      *     inference. The batch size is 1 by default.
      * @param expectedOutputStructure The empty InferenceOutput representing the expected output
@@ -119,7 +121,7 @@ public class InferenceInputParcel implements Parcelable {
             @NonNull ModelId modelId,
             @InferenceInput.Params.Delegate int delegate,
             @IntRange(from = 1) int cpuNumThread,
-            @NonNull ByteArrayParceledListSlice inputData,
+            @NonNull byte[] inputData,
             int batchSize,
             @InferenceInput.Params.ModelType int modelType,
             @NonNull InferenceOutputParcel expectedOutputStructure) {
@@ -165,9 +167,12 @@ public class InferenceInputParcel implements Parcelable {
         return mCpuNumThread;
     }
 
-    /** An array of input data. The inputs should be in the same order as inputs of the model. */
+    /**
+     * The byte array holds input data. The inputs should be in the same order as inputs of the
+     * model.
+     */
     @DataClass.Generated.Member
-    public @NonNull ByteArrayParceledListSlice getInputData() {
+    public @NonNull byte[] getInputData() {
         return mInputData;
     }
 
@@ -204,7 +209,7 @@ public class InferenceInputParcel implements Parcelable {
         dest.writeTypedObject(mModelId, flags);
         dest.writeInt(mDelegate);
         dest.writeInt(mCpuNumThread);
-        dest.writeTypedObject(mInputData, flags);
+        dest.writeByteArray(mInputData);
         dest.writeInt(mBatchSize);
         dest.writeInt(mModelType);
         dest.writeTypedObject(mExpectedOutputStructure, flags);
@@ -226,8 +231,7 @@ public class InferenceInputParcel implements Parcelable {
         ModelId modelId = (ModelId) in.readTypedObject(ModelId.CREATOR);
         int delegate = in.readInt();
         int cpuNumThread = in.readInt();
-        ByteArrayParceledListSlice inputData =
-                (ByteArrayParceledListSlice) in.readTypedObject(ByteArrayParceledListSlice.CREATOR);
+        byte[] inputData = in.createByteArray();
         int batchSize = in.readInt();
         int modelType = in.readInt();
         InferenceOutputParcel expectedOutputStructure =
@@ -265,12 +269,12 @@ public class InferenceInputParcel implements Parcelable {
             };
 
     @DataClass.Generated(
-            time = 1708579683131L,
+            time = 1730482564983L,
             codegenVersion = "1.0.23",
             sourceFile =
                     "packages/modules/OnDevicePersonalization/framework/java/android/adservices/ondevicepersonalization/InferenceInputParcel.java",
             inputSignatures =
-                    "private @android.annotation.NonNull android.adservices.ondevicepersonalization.ModelId mModelId\nprivate @android.adservices.ondevicepersonalization.InferenceInput.Params.Delegate int mDelegate\nprivate @android.annotation.IntRange int mCpuNumThread\nprivate @android.annotation.NonNull com.android.ondevicepersonalization.internal.util.ByteArrayParceledListSlice mInputData\nprivate  int mBatchSize\nprivate @android.adservices.ondevicepersonalization.InferenceInput.Params.ModelType int mModelType\nprivate @android.annotation.NonNull android.adservices.ondevicepersonalization.InferenceOutputParcel mExpectedOutputStructure\nclass InferenceInputParcel extends java.lang.Object implements [android.os.Parcelable]\n@com.android.ondevicepersonalization.internal.util.DataClass(genAidl=false, genBuilder=false)")
+                    "private @android.annotation.NonNull android.adservices.ondevicepersonalization.ModelId mModelId\nprivate @android.adservices.ondevicepersonalization.InferenceInput.Params.Delegate int mDelegate\nprivate @android.annotation.IntRange int mCpuNumThread\nprivate @android.annotation.NonNull byte[] mInputData\nprivate  int mBatchSize\nprivate @android.adservices.ondevicepersonalization.InferenceInput.Params.ModelType int mModelType\nprivate @android.annotation.NonNull android.adservices.ondevicepersonalization.InferenceOutputParcel mExpectedOutputStructure\nclass InferenceInputParcel extends java.lang.Object implements [android.os.Parcelable]\n@com.android.ondevicepersonalization.internal.util.DataClass(genAidl=false, genBuilder=false)")
     @Deprecated
     private void __metadata() {}
 

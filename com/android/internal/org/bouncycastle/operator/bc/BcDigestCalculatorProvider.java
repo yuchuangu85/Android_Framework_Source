@@ -44,7 +44,7 @@ public class BcDigestCalculatorProvider
         };
     }
 
-    private class DigestOutputStream
+    private static class DigestOutputStream
         extends OutputStream
     {
         private Digest dig;

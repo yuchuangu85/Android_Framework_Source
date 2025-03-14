@@ -38,6 +38,12 @@ package java.util.concurrent;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
+import android.compat.annotation.ChangeId;
+import android.compat.annotation.EnabledAfter;
+import android.compat.Compatibility;
+
+import dalvik.annotation.compat.VersionCodes;
+
 import java.util.AbstractQueue;
 import java.util.Arrays;
 import java.util.Collection;
@@ -136,6 +142,28 @@ import java.util.concurrent.locks.ReentrantLock;
 public class ScheduledThreadPoolExecutor
         extends ThreadPoolExecutor
         implements ScheduledExecutorService {
+
+    /**
+     * For fixed rate tasks, prevent multiple tasks from running back-to-back to
+     * account for missed periods.
+     * On Android, it's often the case that app processes will miss multiple
+     * scheduled periods because the CPU often enters suspended states, or
+     * because app processes may be moved to the Cached Apps Freezer.
+     * This flag prevents apps from thrashing upon exiting suspend or frozen
+     * states to needlessly "catch up" to lost time.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledAfter(targetSdkVersion = VersionCodes.VANILLA_ICE_CREAM)
+    public static final long STPE_SKIP_MULTIPLE_MISSED_PERIODIC_TASKS = 288912692L;
+
+    /** @hide */
+    public static boolean skipMultipleMissedPeriodicTasks() {
+        return Compatibility.isChangeEnabled(
+            STPE_SKIP_MULTIPLE_MISSED_PERIODIC_TASKS)
+            || com.android.libcore.Flags.scheduleAtFixedRateNewBehavior();
+    }
 
     /*
      * This class specializes ThreadPoolExecutor implementation by
@@ -279,12 +307,25 @@ public class ScheduledThreadPoolExecutor
         /**
          * Sets the next time to run for a periodic task.
          */
+        // Android-changed: b/288912692 relax scheduling on missed fixed rate
+        // tasks.
         private void setNextRunTime() {
             long p = period;
-            if (p > 0)
+            if (p > 0) {
+                // Schedule for one period past the last start
                 time += p;
-            else
+                if (skipMultipleMissedPeriodicTasks()) {
+                    final long now = System.nanoTime();
+                    // If next schedule is in the past
+                    if (time < now - period) {
+                        // Schedule for last missed period, so we don't attempt
+                        // to catch up the rate to multiple missed tasks.
+                        time = now - ((now - time + p) % p);
+                    }
+                }
+            } else {
                 time = triggerTime(-p);
+            }
         }
 
         public boolean cancel(boolean mayInterruptIfRunning) {
@@ -587,6 +628,7 @@ public class ScheduledThreadPoolExecutor
         return t;
     }
 
+    // Android-changed: document go/scheduleAtFixedRate-behavior-change
     /**
      * Submits a periodic action that becomes enabled first after the
      * given initial delay, and subsequently with the given period;
@@ -612,9 +654,15 @@ public class ScheduledThreadPoolExecutor
      * {@link Future#isDone isDone()} on the returned future will
      * return {@code true}.
      *
-     * <p>If any execution of this task takes longer than its period, then
-     * subsequent executions may start late, but will not concurrently
+     * <p>Since API level 31: If the app is frozen by the Android cached apps
+     * freezer before the fixed rate task is done or canceled, the task may run
+     * many times immediately when the app unfreezes, just as if a single
+     * execution of the command had taken the duration of the frozen period to
      * execute.
+     *
+     * <p>Since API level 36: If any execution of this task takes longer than
+     * its period, then the subsequent execution will be scheduled for the most
+     * recent missed period.
      *
      * @throws RejectedExecutionException {@inheritDoc}
      * @throws NullPointerException       {@inheritDoc}

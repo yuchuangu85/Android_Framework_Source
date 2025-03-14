@@ -178,6 +178,7 @@ public class LinkBandwidthEstimator extends Handler {
     private long mRxBytesDeltaAcc;
 
     private ModemActivityInfo mLastModemActivityInfo = null;
+    private final TelephonyCallback mTelephonyCallback = new TelephonyCallbackImpl();
     private int mSignalStrengthDbm;
     private int mSignalLevel;
     private int mDataRat = TelephonyManager.NETWORK_TYPE_UNKNOWN;
@@ -315,8 +316,7 @@ public class LinkBandwidthEstimator extends Handler {
         if (cm != null) {
             cm.registerDefaultNetworkCallback(mDefaultNetworkCallback, this);
         }
-        mTelephonyManager.registerTelephonyCallback(new HandlerExecutor(this),
-                new TelephonyCallbackImpl());
+        mTelephonyManager.registerTelephonyCallback(new HandlerExecutor(this), mTelephonyCallback);
         mPlaceholderNetwork = new NetworkBandwidth(UNKNOWN_PLMN);
         initAvgBwPerRatTable();
         registerNrStateFrequencyChange();

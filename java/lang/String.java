@@ -183,29 +183,8 @@ public final class String
      * For methods with several possible implementation paths, when String
      * compaction is disabled, only one code path is taken.
      *
-     * The instance field value is generally opaque to optimizing JIT
-     * compilers. Therefore, in performance-sensitive place, an explicit
-     * check of the static boolean {@code COMPACT_STRINGS} is done first
-     * before checking the {@code coder} field since the static boolean
-     * {@code COMPACT_STRINGS} would be constant folded away by an
-     * optimizing JIT compiler. The idioms for these cases are as follows.
+     * Android note: The value is always true since the introduction of this internal constant.
      *
-     * For code such as:
-     *
-     *    if (coder == LATIN1) { ... }
-     *
-     * can be written more optimally as
-     *
-     *    if (coder() == LATIN1) { ... }
-     *
-     * or:
-     *
-     *    if (COMPACT_STRINGS && coder == LATIN1) { ... }
-     *
-     * An optimizing JIT compiler can fold the above conditional as:
-     *
-     *    COMPACT_STRINGS == true  => if (coder == LATIN1) { ... }
-     *    COMPACT_STRINGS == false => if (false)           { ... }
      */
     // Android-changed: Inline the constant on ART.
     static final boolean COMPACT_STRINGS = true;
@@ -214,8 +193,35 @@ public final class String
     /** @hide */
     public static final String EMPTY = "";
 
-    @Native static final byte LATIN1 = 0;
-    @Native static final byte UTF16  = 1;
+    // BEGIN Android-changed: Rename the constants which has different definitions on Android.
+    // @Native static final byte LATIN1 = 0;
+    // @Native static final byte UTF16  = 1;
+    /**
+     * The constant id representing the internal encoding scheme Latin-1 used in {@link String} and
+     * {@link AbstractStringBuilder}.
+     *
+     * However, ART only uses this Latin-1 encoding to compress {@link String} when all characters
+     * are 0x01 - 0x7f, due to detection of ASCII string in Modified-UTF8 in ART. When it contains
+     * any characters of 0x00, 0x80 - 0xff, and \u0100 - \uffff, ART is assumed to use  UTF-16,
+     * or other Unicode-compatible encoding scheme internally. Note that
+     * {@link AbstractStringBuilder} avoids inflating to UTF-16 when it contains only 0x00 - 0xff.
+     *
+     * In contrast, {@link String} in the upstream uses Latin-1 encoding when all characters
+     * contains only 0x00 - 0xff, when {@link #COMPACT_STRINGS} is enabled.
+     *
+     * WARNING: Do not assume that a {@String} instance using {@link #CODER_UTF16} encoding
+     * must contain at least one character {@code \u0100} - {@code \uffff}. This isn't true on
+     * Android, and may cause bugs, e.g. http://b/356007654, when importing upstream codes.
+     * This constant is renamed from {@code LATIN1} to {@code CODER_LATIN1} to require a manual
+     * change and review of any usages of this constant.
+     */
+    @Native static final byte CODER_LATIN1 = 0;
+
+    /**
+     * @see #CODER_LATIN1
+     */
+    @Native static final byte CODER_UTF16 = 1;
+    // END Android-changed: Rename the constants which has different definitions on Android.
 
     /**
      * Class String is special cased within the Serialization Stream Protocol.
@@ -2241,15 +2247,17 @@ public final class String
             return -1;
         }
         if (srcCoder == tgtCoder) {
-            return srcCoder == LATIN1
+            return srcCoder == CODER_LATIN1
                 // Android-changed: libcore doesn't store String as Latin1 or UTF16 byte[] field.
                 // ? StringLatin1.indexOf(src, srcCount, tgt, tgtCount, fromIndex)
                 // : StringUTF16.indexOf(src, srcCount, tgt, tgtCount, fromIndex);
                 ? StringLatin1.indexOf(src, srcCount, tgtStr, tgtCount, fromIndex)
                 : StringUTF16.indexOf(src, srcCount, tgtStr, tgtCount, fromIndex);
         }
-        if (srcCoder == LATIN1) {    //  && tgtCoder == UTF16
-            return -1;
+        if (srcCoder == CODER_LATIN1) {    //  && tgtCoder == UTF16
+            // Android-changed: Latin1 AbstractStringBuilder has a larger range than Latin1 String.
+            // return -1;
+            return StringLatin1.indexOfUTF16(src, srcCount, tgtStr, tgtCount, fromIndex);
         }
         // srcCoder == UTF16 && tgtCoder == LATIN1) {
         // return StringUTF16.indexOfLatin1(src, srcCount, tgt, tgtCount, fromIndex);
@@ -2389,15 +2397,17 @@ public final class String
             return fromIndex;
         }
         if (srcCoder == tgtCoder) {
-            return srcCoder == LATIN1
+            return srcCoder == CODER_LATIN1
                 // Android-changed: libcore doesn't store String as Latin1 or UTF16 byte[] field.
                 // ? StringLatin1.lastIndexOf(src, srcCount, tgt, tgtCount, fromIndex)
                 // : StringUTF16.lastIndexOf(src, srcCount, tgt, tgtCount, fromIndex);
                 ? StringLatin1.lastIndexOf(src, srcCount, tgtStr, tgtCount, fromIndex)
                 : StringUTF16.lastIndexOf(src, srcCount, tgtStr, tgtCount, fromIndex);
         }
-        if (srcCoder == LATIN1) {    // && tgtCoder == UTF16
-            return -1;
+        if (srcCoder == CODER_LATIN1) {    // && tgtCoder == UTF16
+            // Android-changed: Latin1 AbstractStringBuilder has a larger range than Latin1 String.
+            // return -1;
+            return StringLatin1.lastIndexOfUTF16(src, srcCount, tgtStr, tgtCount, fromIndex);
         }
         // srcCoder == UTF16 && tgtCoder == LATIN1
         // return StringUTF16.lastIndexOfLatin1(src, srcCount, tgt, tgtCount, fromIndex);
@@ -4357,33 +4367,40 @@ public final class String
      * Invoker guarantees: dst is in UTF16 (inflate itself for asb), if two
      * coders are different, and dst is big enough (range check)
      *
+     * Android-note: Please always inflate the byte buffer {@code dst} if
+     * {@code coder != str.coder()}, or the string contains only
+     * {@code \u0000} - (@code \u00ff} characters. The later check is a rather expensive
+     * operation because ART doesn't keep tracking it in a String instance.
+     *
+     * {@link #coder()} returns {@link #CODER_UTF16}
+     * if it contains any {@code \u0080} - {@code \u00ff} characters. See {@link #CODER_LATIN1}.
+     *
      * @param dstBegin  the char index, not offset of byte[]
      * @param coder     the coder of dst[]
      */
+    // BEGIN Android-changed: libcore doesn't store String as Latin1 or UTF16 byte[] field.
+    /*
     void getBytes(byte dst[], int dstBegin, byte coder) {
-        // Android-changed: libcore doesn't store String as Latin1 or UTF16 byte[] field.
-        /*
         if (coder() == coder) {
             System.arraycopy(value, 0, dst, dstBegin << coder, value.length);
         } else {    // this.coder == LATIN && coder == UTF16
             StringLatin1.inflate(value, 0, dst, dstBegin, value.length);
         }
-        */
+    }
+    */
+    void fillBytes(byte dst[], int dstBegin, byte coder) {
         // We do bound check here before the native calls, because the upstream implementation does
         // the bound check in System.arraycopy and StringLatin1.inflate or throws an exception.
-        if (coder == UTF16) {
+        if (coder == CODER_UTF16) {
             int fromIndex = dstBegin << 1;
             checkBoundsOffCount(fromIndex, length() << 1, dst.length);
             fillBytesUTF16(dst, fromIndex);
         } else {
-            if (coder() != LATIN1) {
-                // Do not concat String in the error message.
-                throw new StringIndexOutOfBoundsException("Expect Latin-1 coder.");
-            }
             checkBoundsOffCount(dstBegin, length(), dst.length);
             fillBytesLatin1(dst, dstBegin);
         }
     }
+    // END Android-changed: libcore doesn't store String as Latin1 or UTF16 byte[] field.
 
     // BEGIN Android-added: Implement fillBytes*() method natively.
 
@@ -4414,16 +4431,18 @@ public final class String
     }
 
     /**
-     * Android note: It returns UTF16 if the string has any 0x00 char.
+     * Android note: It returns UTF16 if the string has any 0x00 char and 0x80 - 0xff.
      * See the difference between {@link StringLatin1#canEncode(int)} and
      * art::mirror::String::IsASCII(uint16_t) in string.h.
+     *
+     * @see #CODER_LATIN1
      */
     byte coder() {
         // Android-changed: ART stores the flag in the count field.
         // return COMPACT_STRINGS ? coder : UTF16;
         // We assume that STRING_COMPRESSION_ENABLED is enabled here.
         // The flag has been true for 6+ years.
-        return COMPACT_STRINGS ? ((byte) (count & 1)) : UTF16;
+        return COMPACT_STRINGS ? ((byte) (count & 1)) : CODER_UTF16;
     }
 
     /*
@@ -4476,11 +4495,11 @@ public final class String
      */
     static String valueOfCodePoint(int codePoint) {
         if (COMPACT_STRINGS && StringLatin1.canEncode(codePoint)) {
-            return new String(StringLatin1.toBytes((char)codePoint), LATIN1);
+            return new String(StringLatin1.toBytes((char)codePoint), CODER_LATIN1);
         } else if (Character.isBmpCodePoint(codePoint)) {
-            return new String(StringUTF16.toBytes((char)codePoint), UTF16);
+            return new String(StringUTF16.toBytes((char)codePoint), CODER_UTF16);
         } else if (Character.isSupplementaryCodePoint(codePoint)) {
-            return new String(StringUTF16.toBytesSupplementary(codePoint), UTF16);
+            return new String(StringUTF16.toBytesSupplementary(codePoint), CODER_UTF16);
         }
 
         throw new IllegalArgumentException(

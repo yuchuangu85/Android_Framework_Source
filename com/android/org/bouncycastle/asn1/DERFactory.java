@@ -3,10 +3,10 @@ package com.android.org.bouncycastle.asn1;
 
 class DERFactory
 {
-    static final ASN1Sequence EMPTY_SEQUENCE = new DERSequence();
-    static final ASN1Set EMPTY_SET = new DERSet();
+    static final DERSequence EMPTY_SEQUENCE = new DERSequence();
+    static final DERSet EMPTY_SET = new DERSet();
 
-    static ASN1Sequence createSequence(ASN1EncodableVector v)
+    static DERSequence createSequence(ASN1EncodableVector v)
     {
         if (v.size() < 1)
         {
@@ -16,7 +16,7 @@ class DERFactory
         return new DERSequence(v);
     }
 
-    static ASN1Set createSet(ASN1EncodableVector v)
+    static DERSet createSet(ASN1EncodableVector v)
     {
         if (v.size() < 1)
         {

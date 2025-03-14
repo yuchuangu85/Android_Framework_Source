@@ -23,6 +23,7 @@ import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.List;
 
 /**
  * Network constants used by the network stack.
@@ -100,6 +101,15 @@ public final class NetworkStackConstants {
     public static final int IPV4_ADDR_LEN = 4;
     public static final int IPV4_FLAG_MF = 0x2000;
     public static final int IPV4_FLAG_DF = 0x4000;
+    public static final int IPV4_PROTOCOL_IGMP = 2;
+    public static final int IPV4_IGMP_MIN_SIZE = 8;
+    public static final int IPV4_IGMP_GROUP_RECORD_SIZE = 8;
+    public static final int IPV4_IGMP_TYPE_V1_REPORT = 0x12;
+    public static final int IPV4_IGMP_TYPE_V2_JOIN_REPORT = 0x16;
+    public static final int IPV4_IGMP_TYPE_V2_LEAVE_REPORT = 0x17;
+    public static final int IPV4_IGMP_TYPE_V3_REPORT = 0x22;
+    public static final int IPV4_OPTION_TYPE_ROUTER_ALERT = 0x94;
+    public static final int IPV4_OPTION_LEN_ROUTER_ALERT = 4;
     // getSockOpt() for v4 MTU
     public static final int IP_MTU = 14;
     public static final Inet4Address IPV4_ADDR_ALL = makeInet4Address(
@@ -111,6 +121,8 @@ public final class NetworkStackConstants {
             (byte) 0, (byte) 0, (byte) 0, (byte) 0,
             (byte) 0, (byte) 0, (byte) 0, (byte) 0,
             (byte) 0, (byte) 0, (byte) 0, (byte) 0 });
+    public static final Inet4Address IPV4_ADDR_ALL_HOST_MULTICAST =
+            (Inet4Address) InetAddresses.parseNumericAddress("224.0.0.1");
 
     /**
      * CLAT constants
@@ -129,7 +141,9 @@ public final class NetworkStackConstants {
     public static final int IPV6_PROTOCOL_OFFSET = 6;
     public static final int IPV6_SRC_ADDR_OFFSET = 8;
     public static final int IPV6_DST_ADDR_OFFSET = 24;
+    public static final int IPV6_FRAGMENT_ID_OFFSET = 4;
     public static final int IPV6_MIN_MTU = 1280;
+    public static final int IPV6_FRAGMENT_ID_LEN = 4;
     public static final int IPV6_FRAGMENT_HEADER_LEN = 8;
     public static final int RFC7421_PREFIX_LENGTH = 64;
     // getSockOpt() for v6 MTU
@@ -140,6 +154,9 @@ public final class NetworkStackConstants {
             (Inet6Address) InetAddresses.parseNumericAddress("ff02::2");
     public static final Inet6Address IPV6_ADDR_ALL_HOSTS_MULTICAST =
             (Inet6Address) InetAddresses.parseNumericAddress("ff02::3");
+    public static final Inet6Address IPV6_ADDR_NODE_LOCAL_ALL_NODES_MULTICAST =
+             (Inet6Address) InetAddresses.parseNumericAddress("ff01::1");
+    public static final int IPPROTO_FRAGMENT = 44;
 
     /**
      * ICMP constants.
@@ -180,6 +197,7 @@ public final class NetworkStackConstants {
     public static final int ICMPV6_NS_HEADER_LEN = 24;
     public static final int ICMPV6_NA_HEADER_LEN = 24;
     public static final int ICMPV6_ND_OPTION_TLLA_LEN = 8;
+    public static final int ICMPV6_ND_OPTION_SLLA_LEN = 8;
 
     public static final int NEIGHBOR_ADVERTISEMENT_FLAG_ROUTER    = 1 << 31;
     public static final int NEIGHBOR_ADVERTISEMENT_FLAG_SOLICITED = 1 << 30;
@@ -255,6 +273,18 @@ public final class NetworkStackConstants {
     public static final short DNS_OVER_TLS_PORT = 853;
 
     /**
+     * Dns query type constants.
+     *
+     * See also:
+     *    - https://datatracker.ietf.org/doc/html/rfc1035#section-3.2.2
+     */
+    public static final int TYPE_A = 1;
+    public static final int TYPE_PTR = 12;
+    public static final int TYPE_TXT = 16;
+    public static final int TYPE_AAAA = 28;
+    public static final int TYPE_SRV = 33;
+
+    /**
      * IEEE802.11 standard constants.
      *
      * See also:
@@ -311,6 +341,26 @@ public final class NetworkStackConstants {
      * following test runs.
      */
     public static final String TEST_URL_EXPIRATION_TIME = "test_url_expiration_time";
+
+    /**
+     * List of IpPrefix that are local network prefixes.
+     */
+    public static final List<IpPrefix> IPV4_LOCAL_PREFIXES = List.of(
+            new IpPrefix("169.254.0.0/16"), // Link Local
+            new IpPrefix("100.64.0.0/10"),  // CGNAT
+            new IpPrefix("10.0.0.0/8"),     // RFC1918
+            new IpPrefix("172.16.0.0/12"),  // RFC1918
+            new IpPrefix("192.168.0.0/16")  // RFC1918
+    );
+
+    /**
+     * List of IpPrefix that are multicast and broadcast prefixes.
+     */
+    public static final List<IpPrefix> MULTICAST_AND_BROADCAST_PREFIXES = List.of(
+            new IpPrefix("224.0.0.0/4"),               // Multicast
+            new IpPrefix("ff00::/8"),                  // Multicast
+            new IpPrefix("255.255.255.255/32")         // Broadcast
+    );
 
     // TODO: Move to Inet4AddressUtils
     // See aosp/1455936: NetworkStackConstants can't depend on it as it causes jarjar-related issues

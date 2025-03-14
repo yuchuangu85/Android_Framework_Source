@@ -20,12 +20,12 @@ import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
-import android.app.appsearch.flags.Flags;
 import android.app.appsearch.safeparcel.AbstractSafeParcelable;
 import android.app.appsearch.safeparcel.SafeParcelable;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.android.appsearch.flags.Flags;
 import com.android.internal.util.Preconditions;
 
 import java.lang.annotation.Retention;
@@ -112,12 +112,12 @@ import java.util.Objects;
  * nested {@link SearchSpec}, as in {@link SearchResult#getRankingSignal}.
  */
 @SafeParcelable.Class(creator = "JoinSpecCreator")
-@SuppressWarnings("HiddenSuperclass")
+// TODO(b/384721898): Switch to JSpecify annotations
+@SuppressWarnings({"HiddenSuperclass", "JSpecifyNullness"})
 public final class JoinSpec extends AbstractSafeParcelable {
     /** Creator class for {@link JoinSpec}. */
     @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
-    @NonNull
-    public static final Parcelable.Creator<JoinSpec> CREATOR = new JoinSpecCreator();
+    public static final @NonNull Parcelable.Creator<JoinSpec> CREATOR = new JoinSpecCreator();
 
     @Field(id = 1, getter = "getNestedQuery")
     private final String mNestedQuery;
@@ -202,8 +202,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
     }
 
     /** Returns the query to run on the joined documents. */
-    @NonNull
-    public String getNestedQuery() {
+    public @NonNull String getNestedQuery() {
         return mNestedQuery;
     }
 
@@ -215,8 +214,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
      * @return the property expression to match in the child documents.
      * @see Builder
      */
-    @NonNull
-    public String getChildPropertyExpression() {
+    public @NonNull String getChildPropertyExpression() {
         return mChildPropertyExpression;
     }
 
@@ -235,8 +233,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
      * with all default values. This will match every document, as the nested search query will be
      * "" and no schema will be filtered out.
      */
-    @NonNull
-    public SearchSpec getNestedSearchSpec() {
+    public @NonNull SearchSpec getNestedSearchSpec() {
         return mNestedSearchSpec;
     }
 
@@ -267,7 +264,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
 
         private String mNestedQuery = "";
         private SearchSpec mNestedSearchSpec = EMPTY_SEARCH_SPEC;
-        private final String mChildPropertyExpression;
+        private String mChildPropertyExpression;
         private int mMaxJoinedResultCount = DEFAULT_MAX_JOINED_RESULT_COUNT;
 
         @AggregationScoringStrategy
@@ -276,7 +273,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
         /**
          * Create a specification for the joining operation in search.
          *
-         * <p>The child property expressions Specifies how to join documents. Documents with a child
+         * <p>The child property expression specifies how to join documents. Documents with a child
          * property expression equal to the qualified id of the parent will be retrieved.
          *
          * <p>Property expressions differ from {@link PropertyPath} as property expressions may
@@ -301,7 +298,8 @@ public final class JoinSpec extends AbstractSafeParcelable {
             mChildPropertyExpression = childPropertyExpression;
         }
 
-        /** @hide */
+        /** Creates a new {@link Builder} from the given {@link JoinSpec}. */
+        @FlaggedApi(Flags.FLAG_ENABLE_ADDITIONAL_BUILDER_COPY_CONSTRUCTORS)
         public Builder(@NonNull JoinSpec joinSpec) {
             Objects.requireNonNull(joinSpec);
             mNestedQuery = joinSpec.getNestedQuery();
@@ -309,6 +307,32 @@ public final class JoinSpec extends AbstractSafeParcelable {
             mChildPropertyExpression = joinSpec.getChildPropertyExpression();
             mMaxJoinedResultCount = joinSpec.getMaxJoinedResultCount();
             mAggregationScoringStrategy = joinSpec.getAggregationScoringStrategy();
+        }
+
+        /**
+         * Sets the child property expression.
+         *
+         * <p>The child property expression specifies how to join documents. Documents with a child
+         * property expression equal to the qualified id of the parent will be retrieved.
+         *
+         * <p>Property expressions differ from {@link PropertyPath} as property expressions may
+         * refer to document properties or nested document properties such as "person.business.id"
+         * as well as a property expression. Currently the only property expression is
+         * "this.qualifiedId()". {@link PropertyPath} objects may only reference document properties
+         * and nested document properties.
+         *
+         * <p>In order to join a child document to a parent document, the child document must
+         * contain the parent's qualified id at the property expression specified by this method.
+         *
+         * @param childPropertyExpression the property to match in the child documents.
+         */
+        @FlaggedApi(Flags.FLAG_ENABLE_ADDITIONAL_BUILDER_COPY_CONSTRUCTORS)
+        @CanIgnoreReturnValue
+        public @NonNull Builder setChildPropertyExpression(
+                @NonNull String childPropertyExpression) {
+            Objects.requireNonNull(childPropertyExpression);
+            mChildPropertyExpression = childPropertyExpression;
+            return this;
         }
 
         /**
@@ -332,14 +356,12 @@ public final class JoinSpec extends AbstractSafeParcelable {
         @SuppressWarnings("MissingGetterMatchingBuilder")
         // See getNestedQuery & getNestedSearchSpec
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setNestedSearch(
+        public @NonNull Builder setNestedSearch(
                 @NonNull String nestedQuery, @NonNull SearchSpec nestedSearchSpec) {
             Objects.requireNonNull(nestedQuery);
             Objects.requireNonNull(nestedSearchSpec);
             mNestedQuery = nestedQuery;
             mNestedSearchSpec = nestedSearchSpec;
-
             return this;
         }
 
@@ -353,8 +375,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
          * a parent will factor into the score.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setMaxJoinedResultCount(int maxJoinedResultCount) {
+        public @NonNull Builder setMaxJoinedResultCount(int maxJoinedResultCount) {
             mMaxJoinedResultCount = maxJoinedResultCount;
             return this;
         }
@@ -369,8 +390,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
          * @see SearchSpec#RANKING_STRATEGY_JOIN_AGGREGATE_SCORE
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder setAggregationScoringStrategy(
+        public @NonNull Builder setAggregationScoringStrategy(
                 @AggregationScoringStrategy int aggregationScoringStrategy) {
             Preconditions.checkArgumentInRange(
                     aggregationScoringStrategy,
@@ -382,8 +402,7 @@ public final class JoinSpec extends AbstractSafeParcelable {
         }
 
         /** Constructs a new {@link JoinSpec} from the contents of this builder. */
-        @NonNull
-        public JoinSpec build() {
+        public @NonNull JoinSpec build() {
             return new JoinSpec(
                     mNestedQuery,
                     mNestedSearchSpec,

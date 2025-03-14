@@ -440,8 +440,8 @@ import java.util.Objects;
  * @since 9
  */
 public abstract class VarHandle {
-    // Android-added: Using sun.misc.Unsafe for fence implementation.
-    private static final sun.misc.Unsafe UNSAFE = sun.misc.Unsafe.getUnsafe();
+    // Android-added: Using jdk.internal.misc.Unsafe for fence implementation.
+    private static final jdk.internal.misc.Unsafe UNSAFE = jdk.internal.misc.Unsafe.getUnsafe();
 
     // BEGIN Android-removed: No VarForm in Android implementation.
     /*
@@ -2238,10 +2238,16 @@ public abstract class VarHandle {
     // END Android-added: package private constructors.
 
     // BEGIN Android-added: helper state for VarHandle properties.
+    /*
+     * Shift values belows are ordinals of AccessMode enum values. They are inlined to break
+     * initialization cycle: Enum uses ClassValue, which uses AtomicInteger class, which is
+     * implemented on top of VarHandles.
+     * See VarHandleTest.
+     */
 
     /** BitMask of access modes that do not change the memory referenced by a VarHandle.
      * An example being a read of a variable with volatile ordering effects. */
-    private final static int READ_ACCESS_MODES_BIT_MASK;
+    private final static int READ_ACCESS_MODES_BIT_MASK = 1 << 0 | 1 << 2 | 1 << 4 | 1 << 6;
 
     /** BitMask of access modes that write to the memory referenced by
      * a VarHandle.  This does not include any compare and update
@@ -2249,65 +2255,52 @@ public abstract class VarHandle {
      * example being a write to variable with release ordering
      * effects.
      */
-    private final static int WRITE_ACCESS_MODES_BIT_MASK;
+    private final static int WRITE_ACCESS_MODES_BIT_MASK = 1 << 1 | 1 << 3 | 1 << 5 | 1 << 7;
 
     /** BitMask of access modes that are applicable to types
      * supporting for atomic updates.  This includes access modes that
      * both read and write a variable such as compare-and-set.
      */
-    private final static int ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK;
+    private final static int ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
+        1 << 8  |
+        1 << 9  |
+        1 << 10 |
+        1 << 11 |
+        1 << 12 |
+        1 << 13 |
+        1 << 14 |
+        1 << 15 |
+        1 << 16 |
+        1 << 17 |
+        1 << 18;
 
     /** BitMask of access modes that are applicable to types
      * supporting numeric atomic update operations. */
-    private final static int NUMERIC_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK;
+    private final static int NUMERIC_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
+        1 << 19 |
+        1 << 20 |
+        1 << 21;
 
     /** BitMask of access modes that are applicable to types
      * supporting bitwise atomic update operations. */
-    private final static int BITWISE_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK;
+    private final static int BITWISE_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
+        1 << 22 |
+        1 << 23 |
+        1 << 24 |
+        1 << 25 |
+        1 << 26 |
+        1 << 27 |
+        1 << 28 |
+        1 << 29 |
+        1 << 30;
 
     /** BitMask of all access modes. */
-    private final static int ALL_MODES_BIT_MASK;
-
-    static {
-        // Check we're not about to overflow the storage of the
-        // bitmasks here and in the accessModesBitMask field.
-        if (AccessMode.values().length > Integer.SIZE) {
-            throw new InternalError("accessModes overflow");
-        }
-
-        // Access modes bit mask declarations and initialization order
-        // follows the presentation order in JEP193.
-        READ_ACCESS_MODES_BIT_MASK = accessTypesToBitMask(EnumSet.of(AccessType.GET));
-
-        WRITE_ACCESS_MODES_BIT_MASK = accessTypesToBitMask(EnumSet.of(AccessType.SET));
-
-        ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
-                accessTypesToBitMask(EnumSet.of(AccessType.COMPARE_AND_EXCHANGE,
-                                                AccessType.COMPARE_AND_SET,
-                                                AccessType.GET_AND_UPDATE));
-
-        NUMERIC_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
-                accessTypesToBitMask(EnumSet.of(AccessType.GET_AND_UPDATE_NUMERIC));
-
-        BITWISE_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK =
-                accessTypesToBitMask(EnumSet.of(AccessType.GET_AND_UPDATE_BITWISE));
-
-        ALL_MODES_BIT_MASK = (READ_ACCESS_MODES_BIT_MASK |
-                              WRITE_ACCESS_MODES_BIT_MASK |
-                              ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK |
-                              NUMERIC_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK |
-                              BITWISE_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK);
-    }
-
-    static int accessTypesToBitMask(final EnumSet<AccessType> accessTypes) {
-        int m = 0;
-        for (AccessMode accessMode : AccessMode.values()) {
-            if (accessTypes.contains(accessMode.at)) {
-                m |= 1 << accessMode.ordinal();
-            }
-        }
-        return m;
-    }
+    private final static int ALL_MODES_BIT_MASK =
+            READ_ACCESS_MODES_BIT_MASK |
+            WRITE_ACCESS_MODES_BIT_MASK |
+            ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK |
+            NUMERIC_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK |
+            BITWISE_ATOMIC_UPDATE_ACCESS_MODES_BIT_MASK;
 
     static int alignedAccessModesBitMask(Class<?> varType, boolean isFinal) {
         // For aligned accesses, the supported access modes are described in:

@@ -43,6 +43,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.ParcelUuid;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
 import android.telephony.CarrierConfigManager;
@@ -247,27 +248,29 @@ public class MultiSimSettingController extends Handler {
 
         CarrierConfigManager ccm = mContext.getSystemService(CarrierConfigManager.class);
         // Listener callback is executed on handler thread to directly handle config change
-        ccm.registerCarrierConfigChangeListener(this::post,
-                (slotIndex, subId, carrierId, specificCarrierId) ->
-                        onCarrierConfigChanged(slotIndex, subId));
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(this::post,
+                    (slotIndex, subId, carrierId, specificCarrierId) ->
+                            onCarrierConfigChanged(slotIndex, subId));
+        }
 
         mConvertedPsimSubId = getConvertedPsimSubscriptionId();
     }
 
     private boolean hasCalling() {
-        if (!mFeatureFlags.minimalTelephonyCdmCheck()) return true;
+        if (!TelephonyCapabilities.minimalTelephonyCdmCheck(mFeatureFlags)) return true;
         return mContext.getPackageManager().hasSystemFeature(
                 PackageManager.FEATURE_TELEPHONY_CALLING);
     }
 
     private boolean hasData() {
-        if (!mFeatureFlags.minimalTelephonyCdmCheck()) return true;
+        if (!TelephonyCapabilities.minimalTelephonyCdmCheck(mFeatureFlags)) return true;
         return mContext.getPackageManager().hasSystemFeature(
                 PackageManager.FEATURE_TELEPHONY_DATA);
     }
 
     private boolean hasMessaging() {
-        if (!mFeatureFlags.minimalTelephonyCdmCheck()) return true;
+        if (!TelephonyCapabilities.minimalTelephonyCdmCheck(mFeatureFlags)) return true;
         return mContext.getPackageManager().hasSystemFeature(
                 PackageManager.FEATURE_TELEPHONY_MESSAGING);
     }
@@ -510,8 +513,8 @@ public class MultiSimSettingController extends Handler {
         SatelliteController satelliteController = SatelliteController.getInstance();
         boolean isSatelliteEnabledOrBeingEnabled = false;
         if (satelliteController != null) {
-            isSatelliteEnabledOrBeingEnabled = satelliteController.isSatelliteEnabled()
-                    || satelliteController.isSatelliteBeingEnabled();
+            isSatelliteEnabledOrBeingEnabled =
+                    satelliteController.isSatelliteEnabledOrBeingEnabled();
         }
 
         if (DBG) {
@@ -640,20 +643,35 @@ public class MultiSimSettingController extends Handler {
         if (DBG) log("updateDefaultValues: change: " + change);
         if (change == PRIMARY_SUB_NO_CHANGE) return;
 
-        // If there's only one primary subscription active, we trigger PREFERRED_PICK_DIALOG
+        // If there's only one primary subscription active, we trigger mobile data
         // dialog if and only if there were multiple primary SIM cards and one is removed.
         // Otherwise, if user just inserted their first SIM, or there's one primary and one
         // opportunistic subscription active (activeSubInfos.size() > 1), we automatically
         // set the primary to be default SIM and return.
-        if (mPrimarySubList.size() == 1 && (change != PRIMARY_SUB_REMOVED
-                || mActiveModemCount == 1)) {
+        boolean conditionForOnePrimarySim =
+                mFeatureFlags.resetPrimarySimDefaultValues() ? mPrimarySubList.size() == 1
+                        : mPrimarySubList.size() == 1
+                        && (change != PRIMARY_SUB_REMOVED || mActiveModemCount == 1);
+        if (conditionForOnePrimarySim) {
             int subId = mPrimarySubList.get(0);
             if (DBG) log("updateDefaultValues: to only primary sub " + subId);
             if (hasData()) mSubscriptionManagerService.setDefaultDataSubId(subId);
             if (hasCalling()) mSubscriptionManagerService.setDefaultVoiceSubId(subId);
             if (hasMessaging()) mSubscriptionManagerService.setDefaultSmsSubId(subId);
             if (!mSubscriptionManagerService.isEsimBootStrapProvisioningActivated()) {
-                sendDefaultSubConfirmedNotification(subId);
+                // Determines the appropriate notification type
+                // Preconditions:
+                // - There is only one active primary subscription.
+                // - The eSIM bootstrap is NOT activated.
+                // Behavior:
+                // - If the primary subscription is not deactivated OR the device is in single SIM
+                //   mode, send a notification to dismiss the SIM dialog.
+                // - Otherwise, send a notification to trigger the preferred SIM/data pick dialog.
+                @TelephonyManager.DefaultSubscriptionSelectType
+                int type = (change != PRIMARY_SUB_REMOVED || mActiveModemCount == 1)
+                        ? EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_DISMISS
+                        : EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_ALL;
+                sendDefaultSubConfirmedNotification(type, subId);
             }
             return;
         }
@@ -765,17 +783,21 @@ public class MultiSimSettingController extends Handler {
         }
     }
 
-    private void sendDefaultSubConfirmedNotification(int defaultSubId) {
+    private void sendDefaultSubConfirmedNotification(
+            @TelephonyManager.DefaultSubscriptionSelectType int type, int defaultSubId) {
         Intent intent = new Intent();
         intent.setAction(ACTION_PRIMARY_SUBSCRIPTION_LIST_CHANGED);
         intent.setClassName("com.android.settings",
                 "com.android.settings.sim.SimSelectNotification");
 
-        intent.putExtra(EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE,
-                EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE_DISMISS);
+        intent.putExtra(EXTRA_DEFAULT_SUBSCRIPTION_SELECT_TYPE, type);
         intent.putExtra(EXTRA_SUBSCRIPTION_ID, defaultSubId);
 
-        mContext.sendBroadcast(intent);
+        if (mFeatureFlags.hsumBroadcast()) {
+            mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+        } else {
+            mContext.sendBroadcast(intent);
+        }
     }
 
     private void sendSubChangeNotificationIfNeeded(int change, boolean dataSelected,
@@ -813,7 +835,11 @@ public class MultiSimSettingController extends Handler {
             if (simCombinationParams.mWarningType == EXTRA_SIM_COMBINATION_WARNING_TYPE_DUAL_CDMA) {
                 intent.putExtra(EXTRA_SIM_COMBINATION_NAMES, simCombinationParams.mSimNames);
             }
-            mContext.sendBroadcast(intent);
+            if (mFeatureFlags.hsumBroadcast()) {
+                mContext.sendBroadcastAsUser(intent, UserHandle.ALL);
+            } else {
+                mContext.sendBroadcast(intent);
+            }
         }
     }
 

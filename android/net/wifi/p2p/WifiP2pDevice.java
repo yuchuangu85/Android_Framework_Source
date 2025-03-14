@@ -25,6 +25,7 @@ import android.net.MacAddress;
 import android.net.wifi.OuiKeyedData;
 import android.net.wifi.ParcelUtil;
 import android.net.wifi.ScanResult;
+import android.net.wifi.util.Environment;
 import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -214,6 +215,11 @@ public class WifiP2pDevice implements Parcelable {
         }
         return mVendorData;
     }
+    /**
+     * The bitmask of supported {@code PAIRING_BOOTSTRAPPING_METHOD_*} methods used to enable
+     * the pairing bootstrapping between bootstrapping initiator and a bootstrapping responder.
+     */
+    private int mPairingBootstrappingMethods;
 
     public WifiP2pDevice() {
     }
@@ -467,6 +473,110 @@ public class WifiP2pDevice implements Parcelable {
         mIpAddress = ipAddress;
     }
 
+    /**
+     * Returns true if opportunistic bootstrapping method is supported.
+     * Defined in Wi-Fi Alliance Wi-Fi Direct R2 Specification Table 10 - Bootstrapping Methods.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isOpportunisticBootstrappingMethodSupported() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return (mPairingBootstrappingMethods & WifiP2pPairingBootstrappingConfig
+                .PAIRING_BOOTSTRAPPING_METHOD_OPPORTUNISTIC) != 0;
+    }
+
+    /**
+     * Returns true if pin-code display bootstrapping method is supported.
+     * Defined in Wi-Fi Alliance Wi-Fi Direct R2 Specification Table 10 - Bootstrapping Methods.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isPinCodeDisplayBootstrappingMethodSupported() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return (mPairingBootstrappingMethods & WifiP2pPairingBootstrappingConfig
+                .PAIRING_BOOTSTRAPPING_METHOD_DISPLAY_PINCODE) != 0;
+    }
+
+    /**
+     * Returns true if passphrase display bootstrapping method is supported.
+     * Defined in Wi-Fi Alliance Wi-Fi Direct R2 Specification Table 10 - Bootstrapping Methods.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isPassphraseDisplayBootstrappingMethodSupported() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return (mPairingBootstrappingMethods & WifiP2pPairingBootstrappingConfig
+                .PAIRING_BOOTSTRAPPING_METHOD_DISPLAY_PASSPHRASE) != 0;
+    }
+
+    /**
+     * Returns true if pin-code keypad bootstrapping method is supported.
+     * Defined in Wi-Fi Alliance Wi-Fi Direct R2 Specification Table 10 - Bootstrapping Methods.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isPinCodeKeypadBootstrappingMethodSupported() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return (mPairingBootstrappingMethods & WifiP2pPairingBootstrappingConfig
+                .PAIRING_BOOTSTRAPPING_METHOD_KEYPAD_PINCODE) != 0;
+    }
+
+    /**
+     * Returns true if passphrase keypad bootstrapping method is supported.
+     * Defined in Wi-Fi Alliance Wi-Fi Direct R2 Specification Table 10 - Bootstrapping Methods.
+     */
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isPassphraseKeypadBootstrappingMethodSupported() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return (mPairingBootstrappingMethods & WifiP2pPairingBootstrappingConfig
+                .PAIRING_BOOTSTRAPPING_METHOD_KEYPAD_PASSPHRASE) != 0;
+    }
+
+    /**
+     * Get the supported pairing bootstrapping methods for framework internal usage.
+     * @hide
+     */
+    public int getPairingBootStrappingMethods() {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        return mPairingBootstrappingMethods;
+    }
+
+    /**
+     * Set the supported pairing bootstrapping methods.
+     *
+     * @param methods Bitmask of supported
+     * {@code WifiP2pPairingBootstrappingConfig.PAIRING_BOOTSTRAPPING_METHOD_*}
+     * @hide
+     */
+    public void setPairingBootStrappingMethods(
+            @WifiP2pPairingBootstrappingConfig.PairingBootstrappingMethod int methods) {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        mPairingBootstrappingMethods = methods;
+    }
+
+    /**
+     * Store the Device Identity Resolution (DIR) Info received in USD frame for framework
+     * internal usage.
+     * @hide
+     */
+    @Nullable
+    public WifiP2pDirInfo dirInfo;
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
@@ -502,6 +612,7 @@ public class WifiP2pDevice implements Parcelable {
         sbuf.append("\n wfdInfo: ").append(wfdInfo);
         sbuf.append("\n vendorElements: ").append(mVendorElements);
         sbuf.append("\n vendorData: ").append(mVendorData);
+        sbuf.append("\n Pairing Bootstrapping Methods: ").append(mPairingBootstrappingMethods);
         return sbuf.toString();
     }
 
@@ -531,6 +642,7 @@ public class WifiP2pDevice implements Parcelable {
                 mVendorElements = new ArrayList<>(source.mVendorElements);
             }
             mVendorData = new ArrayList<>(source.mVendorData);
+            mPairingBootstrappingMethods = source.mPairingBootstrappingMethods;
         }
     }
 
@@ -560,6 +672,7 @@ public class WifiP2pDevice implements Parcelable {
         }
         dest.writeTypedList(mVendorElements);
         dest.writeList(mVendorData);
+        dest.writeInt(mPairingBootstrappingMethods);
     }
 
     /** Implement the Parcelable interface */
@@ -567,31 +680,33 @@ public class WifiP2pDevice implements Parcelable {
         new Creator<WifiP2pDevice>() {
             @Override
             public WifiP2pDevice createFromParcel(Parcel in) {
-                WifiP2pDevice device = new WifiP2pDevice();
-                device.deviceName = in.readString();
-                device.deviceAddress = in.readString();
-                device.mInterfaceMacAddress = in.readParcelable(MacAddress.class.getClassLoader());
-                if (in.readByte() == 1) {
-                    try {
-                        device.mIpAddress = InetAddress.getByAddress(in.createByteArray());
-                    } catch (UnknownHostException e) {
-                        e.printStackTrace();
-                        return new WifiP2pDevice();
+                    WifiP2pDevice device = new WifiP2pDevice();
+                    device.deviceName = in.readString();
+                    device.deviceAddress = in.readString();
+                    device.mInterfaceMacAddress =
+                        in.readParcelable(MacAddress.class.getClassLoader());
+                    if (in.readByte() == 1) {
+                        try {
+                            device.mIpAddress = InetAddress.getByAddress(in.createByteArray());
+                        } catch (UnknownHostException e) {
+                            e.printStackTrace();
+                            return new WifiP2pDevice();
+                        }
                     }
-                }
-                device.primaryDeviceType = in.readString();
-                device.secondaryDeviceType = in.readString();
-                device.wpsConfigMethodsSupported = in.readInt();
-                device.deviceCapability = in.readInt();
-                device.groupCapability = in.readInt();
-                device.status = in.readInt();
-                if (in.readInt() == 1) {
-                    device.wfdInfo = WifiP2pWfdInfo.CREATOR.createFromParcel(in);
-                }
-                device.mVendorElements = in.createTypedArrayList(
-                        ScanResult.InformationElement.CREATOR);
-                device.mVendorData = ParcelUtil.readOuiKeyedDataList(in);
-                return device;
+                    device.primaryDeviceType = in.readString();
+                    device.secondaryDeviceType = in.readString();
+                    device.wpsConfigMethodsSupported = in.readInt();
+                    device.deviceCapability = in.readInt();
+                    device.groupCapability = in.readInt();
+                    device.status = in.readInt();
+                    if (in.readInt() == 1) {
+                        device.wfdInfo = WifiP2pWfdInfo.CREATOR.createFromParcel(in);
+                    }
+                    device.mVendorElements = in.createTypedArrayList(
+                            ScanResult.InformationElement.CREATOR);
+                    device.mVendorData = ParcelUtil.readOuiKeyedDataList(in);
+                    device.mPairingBootstrappingMethods = in.readInt();
+                    return device;
             }
 
             @Override

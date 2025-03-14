@@ -42,12 +42,24 @@ import java.lang.annotation.RetentionPolicy;
  * StatsLog provides an API for developers to send events to statsd. The events can be used to
  * define custom metrics inside statsd.
  */
+// TODO(b/375040589) Can't use ravenwood annotations on public mainline APIs?
+// for now we use the policy text file instead.
+//@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class StatsLog {
 
     // Load JNI library
     static {
+        loadNativeLibrary();
+    }
+
+    @android.ravenwood.annotation.RavenwoodReplace
+    private static void loadNativeLibrary() {
         System.loadLibrary("stats_jni");
     }
+
+    private static void loadNativeLibrary$ravenwood() {
+    }
+
     private static final String TAG = "StatsLog";
     private static final boolean DEBUG = false;
     private static final int EXPERIMENT_IDS_FIELD_ID = 1;
@@ -452,7 +464,13 @@ public final class StatsLog {
      * @param size      The number of bytes from the buffer to write.
      * @param atomId    The id of the atom to which the event belongs.
      */
+
+    @android.ravenwood.annotation.RavenwoodReplace
     private static native void writeImpl(@NonNull byte[] buffer, int size, int atomId);
+
+    private static void writeImpl$ravenwood(@NonNull byte[] buffer, int size, int atomId) {
+        // No actual logging on Ravenwood (for now).
+    }
 
     /**
      * Write an event to stats log using the raw format encapsulated in StatsEvent.

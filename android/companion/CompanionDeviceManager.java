@@ -20,6 +20,8 @@ import static android.Manifest.permission.REQUEST_COMPANION_PROFILE_APP_STREAMIN
 import static android.Manifest.permission.REQUEST_COMPANION_PROFILE_AUTOMOTIVE_PROJECTION;
 import static android.Manifest.permission.REQUEST_COMPANION_PROFILE_COMPUTER;
 import static android.Manifest.permission.REQUEST_COMPANION_PROFILE_WATCH;
+import static android.graphics.drawable.Icon.TYPE_URI;
+import static android.graphics.drawable.Icon.TYPE_URI_ADAPTIVE_BITMAP;
 
 import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
@@ -48,6 +50,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.net.MacAddress;
 import android.os.Binder;
 import android.os.Handler;
@@ -102,6 +109,7 @@ import java.util.function.Consumer;
 @RequiresFeature(PackageManager.FEATURE_COMPANION_DEVICE_SETUP)
 public final class CompanionDeviceManager {
     private static final String TAG = "CDM_CompanionDeviceManager";
+    private static final int ICON_TARGET_SIZE = 24;
 
     /** @hide */
     @IntDef(prefix = {"RESULT_"}, value = {
@@ -119,31 +127,40 @@ public final class CompanionDeviceManager {
      * is created successfully.
      */
     public static final int RESULT_OK = -1;
-
+    //TODO(b/331459560) Need to update the java doc after API cut for W.
     /**
      * The result code to propagate back to the user activity, indicates if the association dialog
      * is implicitly cancelled.
      * E.g. phone is locked, switch to another app or press outside the dialog.
      */
     public static final int RESULT_CANCELED = 0;
-
+    //TODO(b/331459560) Need to update the java doc after API cut for W.
     /**
      * The result code to propagate back to the user activity, indicates the association dialog
      * is explicitly declined by the users.
      */
     public static final int RESULT_USER_REJECTED = 1;
-
+    //TODO(b/331459560) Need to update the java doc after API cut for W.
     /**
      * The result code to propagate back to the user activity, indicates the association
      * dialog is dismissed if there's no device found after 20 seconds.
      */
     public static final int RESULT_DISCOVERY_TIMEOUT = 2;
-
+    //TODO(b/331459560) Need to update the java doc after API cut for W.
     /**
      * The result code to propagate back to the user activity, indicates the internal error
      * in CompanionDeviceManager.
      */
     public static final int RESULT_INTERNAL_ERROR = 3;
+
+    /**
+     * The result code to propagate back to the user activity and
+     * {@link Callback#onFailure(int, CharSequence)}, indicates app is not allow to create the
+     * association due to the security issue.
+     * E.g. There are missing necessary permissions when creating association.
+     */
+    @FlaggedApi(Flags.FLAG_ASSOCIATION_FAILURE_CODE)
+    public static final int RESULT_SECURITY_ERROR = 4;
 
     /**
      * Requesting applications will receive the String in {@link Callback#onFailure} if the
@@ -260,11 +277,22 @@ public final class CompanionDeviceManager {
      */
     public static final int MESSAGE_ONEWAY_TO_WEARABLE = 0x43847987; // +TOW
 
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "TRANSPORT_FLAG_" }, value = {
+            TRANSPORT_FLAG_EXTEND_PATCH_DIFF,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface TransportFlags {}
+
     /**
-     * The length limit of Association tag.
+     * A security flag that allows transports to be attached to devices that may be more vulnerable
+     * due to infrequent updates. Can only be used for associations with
+     * {@link AssociationRequest#DEVICE_PROFILE_WEARABLE_SENSING} device profile.
+     *
      * @hide
      */
-    private static final int ASSOCIATION_TAG_LENGTH_LIMIT = 1024;
+    public static final int TRANSPORT_FLAG_EXTEND_PATCH_DIFF = 1;
 
     /**
      * Callback for applications to receive updates about and the outcome of
@@ -374,6 +402,19 @@ public final class CompanionDeviceManager {
          * @param error error message.
          */
         public abstract void onFailure(@Nullable CharSequence error);
+
+        /**
+         * Invoked if the association could not be created.
+         *
+         * Please note that both {@link #onFailure(CharSequence error)} and this
+         * API will be called if the association could not be created.
+         *
+         * @param errorCode indicate the particular error code why the association
+         *                  could not be created.
+         * @param error error message.
+         */
+        @FlaggedApi(Flags.FLAG_ASSOCIATION_FAILURE_CODE)
+        public void onFailure(@ResultCode int errorCode, @Nullable CharSequence error) {}
     }
 
     private final ICompanionDeviceManager mService;
@@ -448,6 +489,13 @@ public final class CompanionDeviceManager {
         Objects.requireNonNull(callback, "Callback cannot be null");
         handler = Handler.mainIfNull(handler);
 
+        if (Flags.associationDeviceIcon()) {
+            final Icon deviceIcon = request.getDeviceIcon();
+            if (deviceIcon != null) {
+                request.setDeviceIcon(scaleIcon(deviceIcon, mContext));
+            }
+        }
+
         try {
             mService.associate(request, new AssociationRequestCallbackProxy(handler, callback),
                     mContext.getOpPackageName(), mContext.getUserId());
@@ -511,6 +559,13 @@ public final class CompanionDeviceManager {
         Objects.requireNonNull(request, "Request cannot be null");
         Objects.requireNonNull(executor, "Executor cannot be null");
         Objects.requireNonNull(callback, "Callback cannot be null");
+
+        if (Flags.associationDeviceIcon()) {
+            final Icon deviceIcon = request.getDeviceIcon();
+            if (deviceIcon != null) {
+                request.setDeviceIcon(scaleIcon(deviceIcon, mContext));
+            }
+        }
 
         try {
             mService.associate(request, new AssociationRequestCallbackProxy(executor, callback),
@@ -1149,7 +1204,38 @@ public final class CompanionDeviceManager {
         }
     }
 
-    // TODO(b/315163162) Add @Deprecated keyword after 24Q2 cut.
+    /**
+     * Remove bonding between this device and an associated companion device.
+     *
+     * <p>This is an asynchronous call, it will return immediately. Register for {@link
+     * BluetoothDevice#ACTION_BOND_STATE_CHANGED} intents to be notified when the bond removal
+     * process completes, and its result.
+     *
+     * <p>This API should be used to remove a bluetooth bond that was created either
+     * by using {@link BluetoothDevice#createBond(int)} or by a direct user action.
+     * The association must already exist with this device before calling this method, but
+     * this may be done retroactively to remove a bond that was created outside of the
+     * CompanionDeviceManager.
+     *
+     * @param associationId an already-associated companion device to remove bond from
+     * @return false on immediate error, true if bond removal process will begin
+     */
+    @FlaggedApi(Flags.FLAG_UNPAIR_ASSOCIATED_DEVICE)
+    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    public boolean removeBond(int associationId) {
+        if (mService == null) {
+            Log.w(TAG, "CompanionDeviceManager service is not available.");
+            return false;
+        }
+
+        try {
+            return mService.removeBond(associationId, mContext.getOpPackageName(),
+                    mContext.getUserId());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
     /**
      * Register to receive callbacks whenever the associated device comes in and out of range.
      *
@@ -1181,7 +1267,12 @@ public final class CompanionDeviceManager {
      *
      * @throws DeviceNotAssociatedException if the given device was not previously associated
      * with this app.
+     *
+     * @deprecated use {@link #startObservingDevicePresence(ObservingDevicePresenceRequest)}
+     * instead.
      */
+    @FlaggedApi(Flags.FLAG_DEVICE_PRESENCE)
+    @Deprecated
     @RequiresPermission(android.Manifest.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE)
     public void startObservingDevicePresence(@NonNull String deviceAddress)
             throws DeviceNotAssociatedException {
@@ -1208,7 +1299,7 @@ public final class CompanionDeviceManager {
                             callingUid, callingPid);
         }
     }
-    // TODO(b/315163162) Add @Deprecated keyword after 24Q2 cut.
+
     /**
      * Unregister for receiving callbacks whenever the associated device comes in and out of range.
      *
@@ -1225,7 +1316,12 @@ public final class CompanionDeviceManager {
      *
      * @throws DeviceNotAssociatedException if the given device was not previously associated
      * with this app.
+     *
+     * @deprecated use {@link #stopObservingDevicePresence(ObservingDevicePresenceRequest)}
+     * instead.
      */
+    @FlaggedApi(Flags.FLAG_DEVICE_PRESENCE)
+    @Deprecated
     @RequiresPermission(android.Manifest.permission.REQUEST_OBSERVE_COMPANION_DEVICE_PRESENCE)
     public void stopObservingDevicePresence(@NonNull String deviceAddress)
             throws DeviceNotAssociatedException {
@@ -1373,7 +1469,52 @@ public final class CompanionDeviceManager {
             }
 
             try {
-                final Transport transport = new Transport(associationId, in, out);
+                final Transport transport = new Transport(associationId, in, out, 0);
+                mTransports.put(associationId, transport);
+                transport.start();
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to attach transport", e);
+            }
+        }
+    }
+
+    /**
+     * Attach a bidirectional communication stream to be used as a transport channel for
+     * transporting system data between associated devices. Flags can be provided to further
+     * customize the behavior of the transport.
+     *
+     * @param associationId id of the associated device.
+     * @param in Already connected stream of data incoming from remote
+     *           associated device.
+     * @param out Already connected stream of data outgoing to remote associated
+     *            device.
+     * @param flags Flags to customize transport behavior.
+     * @throws DeviceNotAssociatedException Thrown if the associationId was not previously
+     * associated with this app.
+     *
+     * @see #buildPermissionTransferUserConsentIntent(int)
+     * @see #startSystemDataTransfer(int, Executor, OutcomeReceiver)
+     * @see #detachSystemDataTransport(int)
+     *
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.DELIVER_COMPANION_MESSAGES)
+    public void attachSystemDataTransport(int associationId,
+            @NonNull InputStream in,
+            @NonNull OutputStream out,
+            @TransportFlags int flags) throws DeviceNotAssociatedException {
+        if (mService == null) {
+            Log.w(TAG, "CompanionDeviceManager service is not available.");
+            return;
+        }
+
+        synchronized (mTransports) {
+            if (mTransports.contains(associationId)) {
+                detachSystemDataTransport(associationId);
+            }
+
+            try {
+                final Transport transport = new Transport(associationId, in, out, flags);
                 mTransports.put(associationId, transport);
                 transport.start();
             } catch (IOException e) {
@@ -1691,57 +1832,25 @@ public final class CompanionDeviceManager {
     }
 
     /**
-     * Sets the {@link AssociationInfo#getTag() tag} for this association.
+     * Sets the {@link DeviceId deviceId} for this association.
      *
-     * <p>The length of the tag must be at most 1024 characters to save disk space.
-     *
-     * <p>This allows to store useful information about the associated devices.
+     * <p>This device id helps the system uniquely identify your device for efficient device
+     * management and prevents duplicate entries.
      *
      * @param associationId The unique {@link AssociationInfo#getId ID} assigned to the Association
-     *                          of the companion device recorded by CompanionDeviceManager
-     * @param tag the tag of this association
+     *                          of the companion device recorded by CompanionDeviceManager.
+     * @param deviceId to be used as device identifier to represent the associated device.
      */
     @FlaggedApi(Flags.FLAG_ASSOCIATION_TAG)
     @UserHandleAware
-    public void setAssociationTag(int associationId, @NonNull String tag) {
-        if (mService == null) {
-            Log.w(TAG, "CompanionDeviceManager service is not available.");
-            return;
-        }
-
-        Objects.requireNonNull(tag, "tag cannot be null");
-
-        if (tag.length() > ASSOCIATION_TAG_LENGTH_LIMIT) {
-            throw new IllegalArgumentException("Length of the tag must be at most"
-                    + ASSOCIATION_TAG_LENGTH_LIMIT + " characters");
-        }
-
-        try {
-            mService.setAssociationTag(associationId, tag);
-        } catch (RemoteException e) {
-            throw e.rethrowFromSystemServer();
-        }
-    }
-
-    /**
-     * Clears the {@link AssociationInfo#getTag() tag} for this association.
-     *
-     * <p>The tag will be set to null for this association when calling this API.
-     *
-     * @param associationId The unique {@link AssociationInfo#getId ID} assigned to the Association
-     *                          of the companion device recorded by CompanionDeviceManager
-     * @see CompanionDeviceManager#setAssociationTag(int, String)
-     */
-    @FlaggedApi(Flags.FLAG_ASSOCIATION_TAG)
-    @UserHandleAware
-    public void clearAssociationTag(int associationId) {
+    public void setDeviceId(int associationId, @Nullable DeviceId deviceId) {
         if (mService == null) {
             Log.w(TAG, "CompanionDeviceManager service is not available.");
             return;
         }
 
         try {
-            mService.clearAssociationTag(associationId);
+            mService.setDeviceId(associationId, deviceId);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }
@@ -1777,7 +1886,11 @@ public final class CompanionDeviceManager {
         }
 
         @Override
-        public void onFailure(CharSequence error) throws RemoteException {
+        public void onFailure(@ResultCode int errorCode, @Nullable CharSequence error) {
+            if (Flags.associationFailureCode()) {
+                execute(mCallback::onFailure, errorCode, error);
+            }
+
             execute(mCallback::onFailure, error);
         }
 
@@ -1786,6 +1899,12 @@ public final class CompanionDeviceManager {
                 mExecutor.execute(() -> callback.accept(arg));
             } else if (mHandler != null) {
                 mHandler.post(() -> callback.accept(arg));
+            }
+        }
+
+        private <T, U> void execute(BiConsumer<T, U> callback, T arg1, U arg2) {
+            if (mExecutor != null) {
+                mExecutor.execute(() -> callback.accept(arg1, arg2));
             }
         }
     }
@@ -1874,16 +1993,22 @@ public final class CompanionDeviceManager {
         private final int mAssociationId;
         private final InputStream mRemoteIn;
         private final OutputStream mRemoteOut;
+        private final int mFlags;
 
         private InputStream mLocalIn;
         private OutputStream mLocalOut;
 
         private volatile boolean mStopped;
 
-        public Transport(int associationId, InputStream remoteIn, OutputStream remoteOut) {
+        Transport(int associationId, InputStream remoteIn, OutputStream remoteOut) {
+            this(associationId, remoteIn, remoteOut, 0);
+        }
+
+        Transport(int associationId, InputStream remoteIn, OutputStream remoteOut, int flags) {
             mAssociationId = associationId;
             mRemoteIn = remoteIn;
             mRemoteOut = remoteOut;
+            mFlags = flags;
         }
 
         public void start() throws IOException {
@@ -1900,7 +2025,7 @@ public final class CompanionDeviceManager {
 
             try {
                 mService.attachSystemDataTransport(mContext.getOpPackageName(),
-                        mContext.getUserId(), mAssociationId, remoteFd);
+                        mContext.getUserId(), mAssociationId, remoteFd, mFlags);
             } catch (RemoteException e) {
                 throw new IOException("Failed to configure transport", e);
             }
@@ -1961,5 +2086,28 @@ public final class CompanionDeviceManager {
                 out.flush();
             }
         }
+    }
+
+    private Icon scaleIcon(Icon icon, Context context) {
+        if (icon == null) return null;
+        if (icon.getType() == TYPE_URI_ADAPTIVE_BITMAP || icon.getType() == TYPE_URI) {
+            throw new IllegalArgumentException("The URI based Icon is not supported.");
+        }
+
+        Bitmap bitmap;
+        Drawable drawable = icon.loadDrawable(context);
+        if (drawable instanceof BitmapDrawable) {
+            bitmap = Bitmap.createScaledBitmap(
+                    ((BitmapDrawable) drawable).getBitmap(), ICON_TARGET_SIZE, ICON_TARGET_SIZE,
+                    false);
+        } else {
+            bitmap = Bitmap.createBitmap(context.getResources().getDisplayMetrics(),
+                    ICON_TARGET_SIZE, ICON_TARGET_SIZE, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            drawable.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+            drawable.draw(canvas);
+        }
+
+        return Icon.createWithBitmap(bitmap);
     }
 }

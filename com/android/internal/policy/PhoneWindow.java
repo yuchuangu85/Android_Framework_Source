@@ -184,6 +184,14 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     private static final long ENFORCE_EDGE_TO_EDGE = 309578419;
 
     /**
+     * Disable opting out the edge-to-edge enforcement.
+     * {@link Build.VERSION_CODES#BAKLAVA} or above.
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = Build.VERSION_CODES.BAKLAVA)
+    private static final long DISABLE_OPT_OUT_EDGE_TO_EDGE = 377864165;
+
+    /**
      * Override the layout in display cutout mode behavior. This will only apply if the edge to edge
      * is not enforced.
      */
@@ -418,6 +426,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             mElevation = preservedWindow.getElevation();
             mLoadElevation = false;
             mForceDecorInstall = true;
+            mDecorFitsSystemWindows = preservedWindow.decorFitsSystemWindows();
             setSystemBarAppearance(preservedWindow.getSystemBarAppearance());
             // If we're preserving window, carry over the app token from the preserved
             // window, as we'll be skipping the addView in handleResumeActivity(), and
@@ -427,6 +436,9 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             if (viewRoot != null) {
                 // Clear the old callbacks and attach to the new window.
                 viewRoot.getOnBackInvokedDispatcher().clear();
+                if (Flags.clearSystemVibrator()) {
+                    viewRoot.clearSystemVibrator();
+                }
                 onViewRootImplSet(viewRoot);
             }
         }
@@ -449,13 +461,42 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
      */
     public static boolean isEdgeToEdgeEnforced(ApplicationInfo info, boolean local,
             TypedArray windowStyle) {
-        return !windowStyle.getBoolean(R.styleable.Window_windowOptOutEdgeToEdgeEnforcement, false)
+        return !isOptingOutEdgeToEdgeEnforcement(info, local, windowStyle)
                 && (info.targetSdkVersion >= ENFORCE_EDGE_TO_EDGE_SDK_VERSION
                         || (Flags.enforceEdgeToEdge() && (local
                                 // Calling this doesn't require a permission.
                                 ? CompatChanges.isChangeEnabled(ENFORCE_EDGE_TO_EDGE)
                                 // Calling this requires permissions.
                                 : info.isChangeEnabled(ENFORCE_EDGE_TO_EDGE))));
+    }
+
+    /**
+     * This is similar to {@link #isOptingOutEdgeToEdgeEnforcement} but the caller needs to check
+     * whether the app declares style to opt out.
+     */
+    public static boolean isOptOutEdgeToEdgeEnabled(ApplicationInfo info, boolean local) {
+        final boolean disabled = Flags.disableOptOutEdgeToEdge()
+                && (local
+                        // Calling this doesn't require a permission.
+                        ? CompatChanges.isChangeEnabled(DISABLE_OPT_OUT_EDGE_TO_EDGE)
+                        // Calling this requires permissions.
+                        : info.isChangeEnabled(DISABLE_OPT_OUT_EDGE_TO_EDGE));
+        return !disabled;
+    }
+
+    /**
+     * Returns whether the given application is opting out edge-to-edge enforcement.
+     *
+     * @param info The application to query.
+     * @param local Whether this is called from the process of the given application.
+     * @param windowStyle The style of the window.
+     * @return {@code true} if the edge-to-edge enforcement is opting out. Otherwise, {@code false}.
+     */
+    public static boolean isOptingOutEdgeToEdgeEnforcement(ApplicationInfo info, boolean local,
+            TypedArray windowStyle) {
+        return isOptOutEdgeToEdgeEnabled(info, local) && windowStyle.getBoolean(
+                R.styleable.Window_windowOptOutEdgeToEdgeEnforcement, false /* default */);
+
     }
 
     @Override
@@ -537,8 +578,13 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
         mContentParent.requestApplyInsets();
         final Callback cb = getCallback();
-        if (cb != null && !isDestroyed()) {
-            cb.onContentChanged();
+        if (!isDestroyed()) {
+            if (cb != null) {
+                cb.onContentChanged();
+            }
+            if (mDecorContentParent != null) {
+                mDecorContentParent.notifyContentChanged();
+            }
         }
         mContentParentExplicitlySet = true;
     }
@@ -568,8 +614,13 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         }
         mContentParent.requestApplyInsets();
         final Callback cb = getCallback();
-        if (cb != null && !isDestroyed()) {
-            cb.onContentChanged();
+        if (!isDestroyed()) {
+            if (cb != null) {
+                cb.onContentChanged();
+            }
+            if (mDecorContentParent != null) {
+                mDecorContentParent.notifyContentChanged();
+            }
         }
         mContentParentExplicitlySet = true;
     }
@@ -586,8 +637,13 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
         mContentParent.addView(view, params);
         mContentParent.requestApplyInsets();
         final Callback cb = getCallback();
-        if (cb != null && !isDestroyed()) {
-            cb.onContentChanged();
+        if (!isDestroyed()) {
+            if (cb != null) {
+                cb.onContentChanged();
+            }
+            if (mDecorContentParent != null) {
+                mDecorContentParent.notifyContentChanged();
+            }
         }
     }
 
@@ -2470,6 +2526,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
 
         TypedArray a = getWindowStyle();
         WindowManager.LayoutParams params = getAttributes();
+        ApplicationInfo appInfo = getContext().getApplicationInfo();
 
         if (false) {
             System.out.println("From style:");
@@ -2481,22 +2538,30 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             System.out.println(s);
         }
 
-        mEdgeToEdgeEnforced = isEdgeToEdgeEnforced(
-                getContext().getApplicationInfo(), true /* local */, a);
+        mEdgeToEdgeEnforced = isEdgeToEdgeEnforced(appInfo, true /* local */, a);
         if (mEdgeToEdgeEnforced) {
             getAttributes().privateFlags |= PRIVATE_FLAG_EDGE_TO_EDGE_ENFORCED;
             mDecorFitsSystemWindows = false;
+            mStatusBarColor = Color.TRANSPARENT;
+            mNavigationBarDividerColor = Color.TRANSPARENT;
+            // mNavigationBarColor is not reset here because it might be used to draw the scrim.
         }
         if (CompatChanges.isChangeEnabled(OVERRIDE_LAYOUT_IN_DISPLAY_CUTOUT_MODE)
-                && !a.getBoolean(R.styleable.Window_windowOptOutEdgeToEdgeEnforcement,
-                false /* defValue */)) {
+                && !isOptingOutEdgeToEdgeEnforcement(appInfo, true /* local */, a)) {
             getAttributes().privateFlags |= PRIVATE_FLAG_OVERRIDE_LAYOUT_IN_DISPLAY_CUTOUT_MODE;
         }
 
         mIsFloating = a.getBoolean(R.styleable.Window_windowIsFloating, false);
+
+        // For floating windows that are *allowed* to fill the screen (like Wear) content
+        // should still be wrapped if they're not explicitly requested as fullscreen.
+        final boolean isFloatingAndFullscreen = mIsFloating
+                && mAllowFloatingWindowsFillScreen
+                && a.getBoolean(R.styleable.Window_windowFullscreen, false);
+
         int flagsToUpdate = (FLAG_LAYOUT_IN_SCREEN|FLAG_LAYOUT_INSET_DECOR)
                 & (~getForcedWindowFlags());
-        if (mIsFloating && !mAllowFloatingWindowsFillScreen) {
+        if (mIsFloating && !isFloatingAndFullscreen) {
             setLayout(WRAP_CONTENT, WRAP_CONTENT);
             setFlags(0, flagsToUpdate);
         } else {
@@ -3307,6 +3372,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
             Bundle args = new Bundle();
             args.putInt(Intent.EXTRA_ASSIST_INPUT_DEVICE_ID, event.getDeviceId());
             args.putLong(Intent.EXTRA_TIME, event.getEventTime());
+            args.putBoolean(Intent.EXTRA_ASSIST_INPUT_HINT_KEYBOARD, true);
             ((SearchManager) getContext().getSystemService(Context.SEARCH_SERVICE))
                     .launchAssist(args);
             return true;
@@ -4054,9 +4120,7 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
     }
 
     @Override
-    public void setResizingCaptionDrawable(Drawable drawable) {
-        mDecor.setUserCaptionBackgroundDrawable(drawable);
-    }
+    public void setResizingCaptionDrawable(Drawable drawable) {}
 
     @Override
     public void setDecorCaptionShade(int decorCaptionShade) {

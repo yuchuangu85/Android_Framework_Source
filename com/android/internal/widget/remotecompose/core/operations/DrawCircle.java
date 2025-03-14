@@ -15,75 +15,103 @@
  */
 package com.android.internal.widget.remotecompose.core.operations;
 
-import com.android.internal.widget.remotecompose.core.CompanionOperation;
+import android.annotation.NonNull;
+
 import com.android.internal.widget.remotecompose.core.Operation;
 import com.android.internal.widget.remotecompose.core.Operations;
 import com.android.internal.widget.remotecompose.core.PaintContext;
-import com.android.internal.widget.remotecompose.core.PaintOperation;
 import com.android.internal.widget.remotecompose.core.WireBuffer;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentationBuilder;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentedOperation;
+import com.android.internal.widget.remotecompose.core.serialize.MapSerializer;
 
 import java.util.List;
 
-public class DrawCircle extends PaintOperation {
-    public static final Companion COMPANION = new Companion();
-    float mCenterX;
-    float mCenterY;
-    float mRadius;
+public class DrawCircle extends DrawBase3 {
+    private static final int OP_CODE = Operations.DRAW_CIRCLE;
+    private static final String CLASS_NAME = "DrawCircle";
 
-    public DrawCircle(float centerX, float centerY, float radius) {
-        mCenterX = centerX;
-        mCenterY = centerY;
-        mRadius = radius;
+    /**
+     * Read this operation and add it to the list of operations
+     *
+     * @param buffer the buffer to read
+     * @param operations the list of operations that will be added to
+     */
+    public static void read(@NonNull WireBuffer buffer, @NonNull List<Operation> operations) {
+        Maker m = DrawCircle::new;
+        read(m, buffer, operations);
+    }
+
+    /**
+     * The OP_CODE for this command
+     *
+     * @return the opcode
+     */
+    public static int id() {
+        return OP_CODE;
+    }
+
+    /**
+     * The name of the class
+     *
+     * @return the name
+     */
+    @NonNull
+    public static String name() {
+        return CLASS_NAME;
+    }
+
+    /**
+     * Populate the documentation with a description of this operation
+     *
+     * @param doc to append the description to.
+     */
+    public static void documentation(@NonNull DocumentationBuilder doc) {
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+                .description("Draw a Circle")
+                .field(
+                        DocumentedOperation.FLOAT,
+                        "centerX",
+                        "The x-coordinate of the center of the circle to be drawn")
+                .field(
+                        DocumentedOperation.FLOAT,
+                        "centerY",
+                        "The y-coordinate of the center of the circle to be drawn")
+                .field(DocumentedOperation.FLOAT, "radius", "The radius of the circle to be drawn");
     }
 
     @Override
-    public void write(WireBuffer buffer) {
-        COMPANION.apply(buffer, mCenterX,
-                mCenterY,
-                mRadius);
+    protected void write(@NonNull WireBuffer buffer, float v1, float v2, float v3) {
+        apply(buffer, v1, v2, v3);
+    }
+
+    public DrawCircle(float left, float top, float right) {
+        super(left, top, right);
+        mName = CLASS_NAME;
     }
 
     @Override
-    public String toString() {
-        return "";
+    public void paint(@NonNull PaintContext context) {
+        context.drawCircle(mV1, mV2, mV3);
     }
 
-    public static class Companion implements CompanionOperation {
-        private Companion() {
-        }
-
-        @Override
-        public void read(WireBuffer buffer, List<Operation> operations) {
-            float centerX = buffer.readFloat();
-            float centerY = buffer.readFloat();
-            float radius = buffer.readFloat();
-
-            DrawCircle op = new DrawCircle(centerX, centerY, radius);
-            operations.add(op);
-        }
-
-        @Override
-        public String name() {
-            return "";
-        }
-
-        @Override
-        public int id() {
-            return 0;
-        }
-
-        public void apply(WireBuffer buffer, float centerX, float centerY, float radius) {
-            buffer.start(Operations.DRAW_CIRCLE);
-            buffer.writeFloat(centerX);
-            buffer.writeFloat(centerY);
-            buffer.writeFloat(radius);
-        }
+    /**
+     * Writes out the operation to the buffer
+     *
+     * @param buffer
+     * @param x1
+     * @param y1
+     * @param x2
+     */
+    public static void apply(@NonNull WireBuffer buffer, float x1, float y1, float x2) {
+        buffer.start(OP_CODE);
+        buffer.writeFloat(x1);
+        buffer.writeFloat(y1);
+        buffer.writeFloat(x2);
     }
 
     @Override
-    public void paint(PaintContext context) {
-        context.drawCircle(mCenterX,
-                mCenterY,
-                mRadius);
+    public void serialize(MapSerializer serializer) {
+        serialize(serializer, "cx", "cy", "radius").add("type", CLASS_NAME);
     }
 }

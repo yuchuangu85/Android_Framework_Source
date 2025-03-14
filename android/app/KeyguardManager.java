@@ -18,6 +18,7 @@ package android.app;
 
 import android.Manifest;
 import android.annotation.CallbackExecutor;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -52,7 +53,9 @@ import android.view.IOnKeyguardExitResult;
 import android.view.IWindowManager;
 import android.view.WindowManagerGlobal;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.policy.IDeviceLockedStateListener;
 import com.android.internal.policy.IKeyguardDismissCallback;
 import com.android.internal.policy.IKeyguardLockedStateListener;
 import com.android.internal.util.Preconditions;
@@ -67,7 +70,6 @@ import com.android.internal.widget.VerifyCredentialResponse;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.nio.charset.Charset;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
@@ -203,6 +205,15 @@ public class KeyguardManager {
     public static final String EXTRA_DISALLOW_BIOMETRICS_IF_POLICY_EXISTS = "check_dpm";
 
     /**
+     * When switching to a secure user, system server will expect a callback when the UI has
+     * completed the switch.
+     *
+     * @hide
+     */
+    public static final String LOCK_ON_USER_SWITCH_CALLBACK = "onSwitchCallback";
+
+
+    /**
      *
      * Password lock type, see {@link #setLock}
      *
@@ -252,6 +263,26 @@ public class KeyguardManager {
             };
     private final ArrayMap<KeyguardLockedStateListener, Executor>
             mKeyguardLockedStateListeners = new ArrayMap<>();
+
+    private final IDeviceLockedStateListener mIDeviceLockedStateListener =
+            new IDeviceLockedStateListener.Stub() {
+                @Override
+                public void onDeviceLockedStateChanged(boolean isDeviceLocked) {
+                    if (!Flags.deviceUnlockListener()) {
+                        return;
+                    }
+                    synchronized (mDeviceLockedStateListeners) {
+                        mDeviceLockedStateListeners.forEach((listener, executor) -> {
+                            executor.execute(
+                                    () -> listener.onDeviceLockedStateChanged(isDeviceLocked));
+                        });
+                    }
+                }
+            };
+
+    @GuardedBy("mDeviceLockedStateListeners")
+    private final ArrayMap<DeviceLockedStateListener, Executor>
+            mDeviceLockedStateListeners = new ArrayMap<>();
 
     /**
      * Get an intent to prompt the user to confirm credentials (pin, pattern, password or biometrics
@@ -1041,7 +1072,7 @@ public class KeyguardManager {
             Log.e(TAG, "Save lock exception", e);
             success = false;
         } finally {
-            Arrays.fill(password, (byte) 0);
+            LockPatternUtils.zeroize(password);
         }
         return success;
     }
@@ -1367,6 +1398,79 @@ public class KeyguardManager {
                 mWM.removeKeyguardLockedStateListener(mIKeyguardLockedStateListener);
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
+            }
+        }
+    }
+
+
+    /**
+     * Listener for device locked state changes.
+     */
+    @FunctionalInterface
+    @FlaggedApi(Flags.FLAG_DEVICE_UNLOCK_LISTENER)
+    public interface DeviceLockedStateListener {
+        /**
+         * Callback function that executes when the device locked state changes.
+         */
+        void onDeviceLockedStateChanged(boolean isDeviceLocked);
+    }
+
+
+    /**
+     * Registers a listener to execute when the device locked state changes.
+     *
+     * @param executor The {@link Executor} where the {@code listener} will be invoked
+     * @param listener The listener to add to receive device locked state changes.
+     *
+     * @see #isDeviceLocked()
+     * @see #removeDeviceLockedStateListener(DeviceLockedStateListener)
+     */
+    @RequiresPermission(Manifest.permission.SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE)
+    @FlaggedApi(Flags.FLAG_DEVICE_UNLOCK_LISTENER)
+    public void addDeviceLockedStateListener(@NonNull @CallbackExecutor Executor executor,
+            @NonNull DeviceLockedStateListener listener) {
+        if (!Flags.deviceUnlockListener()) {
+            return;
+        }
+
+        synchronized (mDeviceLockedStateListeners) {
+            mDeviceLockedStateListeners.put(listener, executor);
+            if (mDeviceLockedStateListeners.size() > 1) {
+                return;
+            }
+            try {
+                mTrustManager.registerDeviceLockedStateListener(mIDeviceLockedStateListener,
+                        mContext.getDeviceId());
+            } catch (RemoteException re) {
+                Log.d(TAG, "TrustManager service died", re);
+            }
+        }
+    }
+
+    /**
+     * Unregisters a listener that executes when the device locked state changes.
+     *
+     * @param listener The listener to remove.
+     *
+     * @see #isDeviceLocked()
+     * @see #addDeviceLockedStateListener(Executor, DeviceLockedStateListener)
+     */
+    @RequiresPermission(Manifest.permission.SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE)
+    @FlaggedApi(Flags.FLAG_DEVICE_UNLOCK_LISTENER)
+    public void removeDeviceLockedStateListener(@NonNull DeviceLockedStateListener listener) {
+        if (!Flags.deviceUnlockListener()) {
+            return;
+        }
+
+        synchronized (mDeviceLockedStateListeners) {
+            mDeviceLockedStateListeners.remove(listener);
+            if (!mDeviceLockedStateListeners.isEmpty()) {
+                return;
+            }
+            try {
+                mTrustManager.unregisterDeviceLockedStateListener(mIDeviceLockedStateListener);
+            } catch (RemoteException re) {
+                Log.d(TAG, "TrustManager service died", re);
             }
         }
     }

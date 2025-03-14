@@ -58,6 +58,17 @@ public final class Strings
         return new String(chars, 0, len);
     }
 
+    public static String fromUTF8ByteArray(byte[] bytes, int off, int length)
+    {
+        char[] chars = new char[length];
+        int len = UTF8.transcodeToUTF16(bytes, off, length, chars);
+        if (len < 0)
+        {
+            throw new IllegalArgumentException("Invalid UTF-8 input");
+        }
+        return new String(chars, 0, len);
+    }
+
     public static byte[] toUTF8ByteArray(String string)
     {
         return toUTF8ByteArray(string.toCharArray());
@@ -227,6 +238,37 @@ public final class Strings
             buf[off + i] = (byte)c;
         }
         return count;
+    }
+
+    /**
+     * Constant time string comparison.
+     *
+     * @param a a string.
+     * @param b another string to compare to a.
+     *
+     * @return true if a and b represent the same string, false otherwise.
+     */
+    public static boolean constantTimeAreEqual(String a, String b)
+    {
+        boolean isEqual = a.length() == b.length();
+        int     len = a.length();
+
+        if (isEqual)
+        {
+            for (int i = 0; i != len; i++)
+            {
+                isEqual &= (a.charAt(i) == b.charAt(i));
+            }
+        }
+        else
+        {
+            for (int i = 0; i != len; i++)
+            {
+                isEqual &= (a.charAt(i) == ' ');
+            }
+        }
+
+        return isEqual;
     }
 
     /**

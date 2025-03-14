@@ -128,15 +128,18 @@ public abstract class RemoteViewsService extends Service {
         /**
          * @hide
          */
-        default RemoteViews.RemoteCollectionItems getRemoteCollectionItems(int capSize) {
+        default RemoteViews.RemoteCollectionItems getRemoteCollectionItems(int capSize,
+                int capBitmapSize) {
             RemoteViews.RemoteCollectionItems items = new RemoteViews.RemoteCollectionItems
                     .Builder().build();
             Parcel capSizeTestParcel = Parcel.obtain();
-            capSizeTestParcel.allowSquashing();
+            // restore allowSquashing to reduce the noise in error messages
+            boolean prevAllowSquashing = capSizeTestParcel.allowSquashing();
 
             try {
                 RemoteViews.RemoteCollectionItems.Builder itemsBuilder =
                         new RemoteViews.RemoteCollectionItems.Builder();
+                RemoteViews.BitmapCache testBitmapCache = null;
                 onDataSetChanged();
 
                 itemsBuilder.setHasStableIds(hasStableIds());
@@ -149,11 +152,21 @@ public abstract class RemoteViewsService extends Service {
                     if (capSizeTestParcel.dataSize() > capSize) {
                         break;
                     }
+                    if (testBitmapCache == null) {
+                        testBitmapCache = new RemoteViews.BitmapCache(currentView.getBitmapCache());
+                    } else {
+                        testBitmapCache.mergeWithCache(currentView.getBitmapCache());
+                    }
+                    if (testBitmapCache.getBitmapMemory() >= capBitmapSize) {
+                        break;
+                    }
+
                     itemsBuilder.addItem(currentItemId, currentView);
                 }
 
                 items = itemsBuilder.build();
             } finally {
+                capSizeTestParcel.restoreAllowSquashing(prevAllowSquashing);
                 // Recycle the parcel
                 capSizeTestParcel.recycle();
             }
@@ -264,11 +277,12 @@ public abstract class RemoteViewsService extends Service {
         }
 
         @Override
-        public RemoteViews.RemoteCollectionItems getRemoteCollectionItems(int capSize) {
+        public RemoteViews.RemoteCollectionItems getRemoteCollectionItems(int capSize,
+                int capBitmapSize) {
             RemoteViews.RemoteCollectionItems items = new RemoteViews.RemoteCollectionItems
                     .Builder().build();
             try {
-                items = mFactory.getRemoteCollectionItems(capSize);
+                items = mFactory.getRemoteCollectionItems(capSize, capBitmapSize);
             } catch (Exception ex) {
                 Thread t = Thread.currentThread();
                 Thread.getDefaultUncaughtExceptionHandler().uncaughtException(t, ex);

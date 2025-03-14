@@ -116,6 +116,31 @@ public class WifiRttManager {
     @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
     public static final String CHARACTERISTICS_KEY_BOOLEAN_NTB_INITIATOR = "key_ntb_initiator";
 
+    /**
+     * Bundle key to access if device supports secure HE-LTF (High Efficiency Long Training Field).
+     * Secure HE-LTF is a critical security enhancement in the IEEE 802.11az standard that aims to
+     * protect ranging measurements from spoofing and manipulation.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public static final String CHARACTERISTICS_KEY_BOOLEAN_SECURE_HE_LTF_SUPPORTED =
+            "key_secure_he_ltf_supported";
+
+    /**
+     * Bundle key to access if device supports ranging frame protection. IEEE 802.11az introduces
+     * Protected Management Frames for FTM (Fine Timing Measurement), adding a layer of encryption
+     * and integrity protection to these frames.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public static final String CHARACTERISTICS_KEY_BOOLEAN_RANGING_FRAME_PROTECTION_SUPPORTED =
+            "key_rnm_mfp_supported";
+
+    /**
+     * Bundle key to access the maximum supported secure HE-LTF protocol version.
+     */
+    @FlaggedApi(Flags.FLAG_SECURE_RANGING)
+    public static final String CHARACTERISTICS_KEY_INT_MAX_SUPPORTED_SECURE_HE_LTF_PROTO_VERSION =
+            "key_max_supported_secure_he_ltf_proto_ver";
+
     /** @hide */
     @StringDef(prefix = { "CHARACTERISTICS_KEY_"}, value = {
             CHARACTERISTICS_KEY_BOOLEAN_ONE_SIDED_RTT,
@@ -123,6 +148,9 @@ public class WifiRttManager {
             CHARACTERISTICS_KEY_BOOLEAN_LCR,
             CHARACTERISTICS_KEY_BOOLEAN_STA_RESPONDER,
             CHARACTERISTICS_KEY_BOOLEAN_NTB_INITIATOR,
+            CHARACTERISTICS_KEY_BOOLEAN_SECURE_HE_LTF_SUPPORTED,
+            CHARACTERISTICS_KEY_BOOLEAN_RANGING_FRAME_PROTECTION_SUPPORTED,
+            CHARACTERISTICS_KEY_INT_MAX_SUPPORTED_SECURE_HE_LTF_PROTO_VERSION
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface RttCharacteristicsKey {}

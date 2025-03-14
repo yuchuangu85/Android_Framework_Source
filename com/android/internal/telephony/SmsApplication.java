@@ -47,8 +47,6 @@ import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.util.SparseArray;
 
-import com.android.internal.annotations.VisibleForTesting;
-
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -528,7 +526,7 @@ public final class SmsApplication {
                 // current SMS app will already be the preferred activity - but checking whether or
                 // not this is true is just as expensive as reconfiguring the preferred activity so
                 // we just reconfigure every time.
-                defaultSmsAppChanged(context);
+                grantPermissionsToSystemApps(context);
             }
         }
         if (DEBUG_MULTIUSER) {
@@ -538,13 +536,19 @@ public final class SmsApplication {
     }
 
     private static String getDefaultSmsPackage(Context context, int userId) {
-        return context.getSystemService(RoleManager.class).getSmsRoleHolder(userId);
+        // RoleManager might be null in unit tests running older mockito versions that do not
+        // support mocking final classes.
+        RoleManager roleManager = context.getSystemService(RoleManager.class);
+        if (roleManager == null) {
+            return "";
+        }
+        return roleManager.getSmsRoleHolder(userId);
     }
 
     /**
-     * Grants various permissions and appops on sms app change
+     * Grants various permissions and appops, e.g. on sms app change
      */
-    private static void defaultSmsAppChanged(Context context) {
+    public static void grantPermissionsToSystemApps(Context context) {
         PackageManager packageManager = context.getPackageManager();
         AppOpsManager appOps = context.getSystemService(AppOpsManager.class);
 
@@ -680,7 +684,7 @@ public final class SmsApplication {
                 return;
             }
 
-            defaultSmsAppChanged(context);
+            grantPermissionsToSystemApps(context);
         }
     }
 

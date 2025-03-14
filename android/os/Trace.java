@@ -164,8 +164,6 @@ public final class Trace {
     private static native void nativeInstant(long tag, String name);
     @FastNative
     private static native void nativeInstantForTrack(long tag, String trackName, String name);
-    @FastNative
-    private static native void nativeRegisterWithPerfetto();
 
     private Trace() {
     }
@@ -520,8 +518,20 @@ public final class Trace {
      * @param counterValue The counter value.
      */
     public static void setCounter(@NonNull String counterName, long counterValue) {
-        if (isTagEnabled(TRACE_TAG_APP)) {
-            nativeTraceCounter(TRACE_TAG_APP, counterName, counterValue);
+        setCounter(TRACE_TAG_APP, counterName, counterValue);
+    }
+
+    /**
+     * Writes trace message to indicate the value of a given counter under a given trace tag.
+     *
+     * @param traceTag The trace tag.
+     * @param counterName The counter name to appear in the trace.
+     * @param counterValue The counter value.
+     * @hide
+     */
+    public static void setCounter(long traceTag, @NonNull String counterName, long counterValue) {
+        if (isTagEnabled(traceTag)) {
+            nativeTraceCounter(traceTag, counterName, counterValue);
         }
     }
 
@@ -533,6 +543,7 @@ public final class Trace {
      * @hide
      */
     public static void registerWithPerfetto() {
-        nativeRegisterWithPerfetto();
+        PerfettoTrace.register(false /* isBackendInProcess */);
+        PerfettoTrace.registerCategories();
     }
 }

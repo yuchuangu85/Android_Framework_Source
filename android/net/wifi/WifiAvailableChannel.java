@@ -15,11 +15,14 @@
  */
 package android.net.wifi;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -124,9 +127,23 @@ public final class WifiAvailableChannel implements Parcelable {
      */
     private @OpMode int mOpModes;
 
+    /**
+     * Wifi channel bandwidth.
+     */
+    private @WifiAnnotations.ChannelWidth int mChannelWidth;
+
     public WifiAvailableChannel(int freq, @OpMode int opModes) {
+        this(freq, opModes, ScanResult.CHANNEL_WIDTH_20MHZ);
+    }
+
+    /**
+     * @hide
+     */
+    public WifiAvailableChannel(int freq, @OpMode int opModes,
+            @WifiAnnotations.ChannelWidth int channelWidth) {
         mFrequency = freq;
         mOpModes = opModes;
+        mChannelWidth = channelWidth;
     }
 
     private WifiAvailableChannel(@NonNull Parcel in) {
@@ -136,6 +153,7 @@ public final class WifiAvailableChannel implements Parcelable {
     private void readFromParcel(@NonNull Parcel in) {
         mFrequency = in.readInt();
         mOpModes = in.readInt();
+        mChannelWidth = in.readInt();
     }
 
     /**
@@ -164,6 +182,20 @@ public final class WifiAvailableChannel implements Parcelable {
                 | FILTER_CELLULAR_COEXISTENCE;
     }
 
+    /**
+     * Get the channel bandwidth, which indicates the amount of frequency spectrum allocated for
+     * data transmission within a channel.
+     *
+     * @return the bandwidth representation of the Wi-Fi channel from
+     * {@link ScanResult#CHANNEL_WIDTH_20MHZ}, {@link ScanResult#CHANNEL_WIDTH_40MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_80MHZ}, {@link ScanResult#CHANNEL_WIDTH_160MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_80MHZ_PLUS_MHZ} or {@link ScanResult#CHANNEL_WIDTH_320MHZ}.
+     */
+    @FlaggedApi(Flags.FLAG_GET_CHANNEL_WIDTH_API)
+    public @WifiAnnotations.ChannelWidth int getChannelWidth() {
+        return mChannelWidth;
+    }
+
     @Override
     public int describeContents() {
         return 0;
@@ -175,12 +207,13 @@ public final class WifiAvailableChannel implements Parcelable {
         if (o == null || getClass() != o.getClass()) return false;
         WifiAvailableChannel that = (WifiAvailableChannel) o;
         return mFrequency == that.mFrequency
-                && mOpModes == that.mOpModes;
+                && mOpModes == that.mOpModes
+                && mChannelWidth == that.mChannelWidth;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mFrequency, mOpModes);
+        return Objects.hash(mFrequency, mOpModes, mChannelWidth);
     }
 
     @Override
@@ -188,6 +221,8 @@ public final class WifiAvailableChannel implements Parcelable {
         StringBuilder sbuf = new StringBuilder();
         sbuf.append("mFrequency = ")
             .append(mFrequency)
+            .append(", mChannelWidth = ")
+            .append(mChannelWidth)
             .append(", mOpModes = ")
             .append(String.format("%x", mOpModes));
         return sbuf.toString();
@@ -197,6 +232,7 @@ public final class WifiAvailableChannel implements Parcelable {
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeInt(mFrequency);
         dest.writeInt(mOpModes);
+        dest.writeInt(mChannelWidth);
     }
 
     public static final @android.annotation.NonNull Creator<WifiAvailableChannel> CREATOR =

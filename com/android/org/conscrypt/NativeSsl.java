@@ -29,11 +29,10 @@ import static com.android.org.conscrypt.NativeConstants.SSL_VERIFY_PEER;
 import com.android.org.conscrypt.NativeCrypto.SSLHandshakeCallbacks;
 import com.android.org.conscrypt.SSLParametersImpl.AliasChooser;
 import com.android.org.conscrypt.SSLParametersImpl.PSKCallbacks;
+
 import java.io.FileDescriptor;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.net.SocketException;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.PrivateKey;
@@ -45,6 +44,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
 import javax.crypto.SecretKey;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
@@ -134,7 +134,7 @@ final class NativeSsl {
         if (label == null) {
             throw new NullPointerException("Label is null");
         }
-        byte[] labelBytes = label.getBytes(Charset.forName("US-ASCII"));
+        byte[] labelBytes = label.getBytes(StandardCharsets.US_ASCII);
         return NativeCrypto.SSL_export_keying_material(ssl, this, labelBytes, context, length);
     }
 
@@ -142,8 +142,8 @@ final class NativeSsl {
         return NativeCrypto.SSL_get_signed_cert_timestamp_list(ssl, this);
     }
 
-    /**
-     * @see NativeCrypto.SSLHandshakeCallbacks#clientPSKKeyRequested(String, byte[], byte[])
+    /*
+     * See NativeCrypto.SSLHandshakeCallbacks#clientPSKKeyRequested(String, byte[], byte[]).
      */
     @SuppressWarnings("deprecation") // PSKKeyManager is deprecated, but in our own package
     int clientPSKKeyRequested(String identityHint, byte[] identityBytesOut, byte[] key) {
@@ -161,11 +161,7 @@ final class NativeSsl {
         } else if (identity.isEmpty()) {
             identityBytes = EmptyArray.BYTE;
         } else {
-            try {
-                identityBytes = identity.getBytes("UTF-8");
-            } catch (UnsupportedEncodingException e) {
-                throw new RuntimeException("UTF-8 encoding not supported", e);
-            }
+            identityBytes = identity.getBytes(StandardCharsets.UTF_8);
         }
         if (identityBytes.length + 1 > identityBytesOut.length) {
             // Insufficient space in the output buffer
@@ -188,8 +184,8 @@ final class NativeSsl {
         return secretKeyBytes.length;
     }
 
-    /**
-     * @see NativeCrypto.SSLHandshakeCallbacks#serverPSKKeyRequested(String, String, byte[])
+    /*
+     * See NativeCrypto.SSLHandshakeCallbacks#serverPSKKeyRequested(String, String, byte[]).
      */
     @SuppressWarnings("deprecation") // PSKKeyManager is deprecated, but in our own package
     int serverPSKKeyRequested(String identityHint, String identity, byte[] key) {
@@ -309,13 +305,17 @@ final class NativeSsl {
 
         if (parameters.getEnabledProtocols().length == 0 && parameters.isEnabledProtocolsFiltered) {
             throw new SSLHandshakeException("No enabled protocols; "
+                    + NativeCrypto.OBSOLETE_PROTOCOL_SSLV3 + ", "
                     + NativeCrypto.DEPRECATED_PROTOCOL_TLSV1
                     + " and " + NativeCrypto.DEPRECATED_PROTOCOL_TLSV1_1
                     + " are no longer supported and were filtered from the list");
         }
         NativeCrypto.setEnabledProtocols(ssl, this, parameters.enabledProtocols);
-        NativeCrypto.setEnabledCipherSuites(
+        // We can use default cipher suites for SPAKE.
+        if (!parameters.isSpake()) {
+            NativeCrypto.setEnabledCipherSuites(
                 ssl, this, parameters.enabledCipherSuites, parameters.enabledProtocols);
+        }
 
         if (parameters.applicationProtocols.length > 0) {
             NativeCrypto.setApplicationProtocols(ssl, this, isClient(), parameters.applicationProtocols);
@@ -355,7 +355,9 @@ final class NativeSsl {
         // with TLSv1 and SSLv3).
         NativeCrypto.SSL_set_mode(ssl, this, SSL_MODE_CBC_RECORD_SPLITTING);
 
-        setCertificateValidation();
+        if (!parameters.isSpake()) {
+            setCertificateValidation();
+        }
         setTlsChannelId(channelIdPrivateKey);
     }
 
@@ -638,8 +640,8 @@ final class NativeSsl {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
-    protected final void finalize() throws Throwable {
+    @SuppressWarnings("Finalize")
+    protected void finalize() throws Throwable {
         try {
             close();
         } finally {

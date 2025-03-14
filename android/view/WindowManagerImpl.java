@@ -85,7 +85,7 @@ import java.util.function.IntConsumer;
  * @see WindowManagerGlobal
  * @hide
  */
-public final class WindowManagerImpl implements WindowManager {
+public class WindowManagerImpl implements WindowManager {
     private static final String TAG = "WindowManager";
 
     @UnsupportedAppUsage
@@ -231,6 +231,16 @@ public final class WindowManagerImpl implements WindowManager {
         try {
             WindowManagerGlobal.getWindowManagerService()
                     .requestAppKeyboardShortcuts(resultReceiver, deviceId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    @Override
+    public KeyboardShortcutGroup getApplicationLaunchKeyboardShortcuts(int deviceId) {
+        try {
+            return WindowManagerGlobal.getWindowManagerService()
+                    .getApplicationLaunchKeyboardShortcuts(deviceId);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();
         }

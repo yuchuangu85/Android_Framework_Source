@@ -373,12 +373,19 @@ public abstract class DateFormat extends Format {
                       DontCareFieldPosition.INSTANCE).toString();
     }
 
+    // Android-changed: Added a warning of deserialization.
     /**
      * Parses text from the beginning of the given string to produce a date.
      * The method may not use the entire text of the given string.
      * <p>
      * See the {@link #parse(String, ParsePosition)} method for more information
      * on date parsing.
+     *
+     * <p> <b>WARNING:</b> Don't use this method to deserialize a date. The underlying localized
+     * date/time format and parsing behaviors can change across Android versions as common usage
+     * in the locale changes. Consider using <code>long</code> type for storing a timestamp or
+     * {@link java.time.format.DateTimeFormatter#ISO_INSTANT} for deserializing the ISO-8601
+     * instant format.</p>
      *
      * @param source A {@code String} whose beginning should be parsed.
      * @return A {@code Date} parsed from the string.
@@ -395,6 +402,7 @@ public abstract class DateFormat extends Format {
         return result;
     }
 
+    // Android-changed: Added a warning of deserialization.
     /**
      * Parse a date/time string according to the given parse position.  For
      * example, a time text {@code "07/10/96 4:5 PM, PDT"} will be parsed into a {@code Date}
@@ -404,6 +412,12 @@ public abstract class DateFormat extends Format {
      * by this object's format method but can still be parsed as a date, then
      * the parse succeeds.  Clients may insist on strict adherence to the
      * format by calling {@link #setLenient(boolean) setLenient(false)}.
+     *
+     * <p> <b>WARNING:</b> Don't use this method to deserialize a date. The underlying localized
+     * date/time format and parsing behaviors can change across Android versions as common usage
+     * in the locale changes. Consider using <code>long</code> type for storing a timestamp or
+     * {@link java.time.format.DateTimeFormatter#ISO_INSTANT} for deserializing the ISO-8601
+     * instant format.</p>
      *
      * <p>This parsing operation uses the {@link #calendar} to produce
      * a {@code Date}. As a result, the {@code calendar}'s date-time

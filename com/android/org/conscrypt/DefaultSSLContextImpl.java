@@ -73,14 +73,8 @@ public class DefaultSSLContextImpl extends OpenSSLContextImpl {
         char[] pwd = (keystorepwd == null) ? null : keystorepwd.toCharArray();
 
         KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
-        InputStream is = null;
-        try {
-            is = new BufferedInputStream(new FileInputStream(keystore));
+        try (InputStream is = new BufferedInputStream(new FileInputStream(keystore))) {
             ks.load(is, pwd);
-        } finally {
-            if (is != null) {
-                is.close();
-            }
         }
 
         String kmfAlg = KeyManagerFactory.getDefaultAlgorithm();
@@ -106,14 +100,8 @@ public class DefaultSSLContextImpl extends OpenSSLContextImpl {
 
         // TODO Defaults: jssecacerts; cacerts
         KeyStore ks = KeyStore.getInstance(KeyStore.getDefaultType());
-        InputStream is = null;
-        try {
-            is = new BufferedInputStream(new FileInputStream(keystore));
+        try (InputStream is = new BufferedInputStream(new FileInputStream(keystore))) {
             ks.load(is, pwd);
-        } finally {
-            if (is != null) {
-                is.close();
-            }
         }
         String tmfAlg = TrustManagerFactory.getDefaultAlgorithm();
         TrustManagerFactory tmf = TrustManagerFactory.getInstance(tmfAlg);

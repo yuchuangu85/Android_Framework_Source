@@ -15,24 +15,43 @@
  */
 package com.android.internal.widget.remotecompose.core;
 
+import android.annotation.NonNull;
+
 /**
- * PaintOperation interface, used for operations aimed at painting
- * (while any operation _can_ paint, this make it a little more explicit)
+ * PaintOperation interface, used for operations aimed at painting (while any operation _can_ paint,
+ * this make it a little more explicit)
  */
-public abstract class PaintOperation implements Operation {
+public abstract class PaintOperation extends Operation {
 
     @Override
-    public void apply(RemoteContext context) {
-        if (context.getMode() == RemoteContext.ContextMode.PAINT
-                && context.getPaintContext() != null) {
-            paint((PaintContext) context.getPaintContext());
+    public void apply(@NonNull RemoteContext context) {
+        if (context.getMode() == RemoteContext.ContextMode.PAINT) {
+            PaintContext paintContext = context.getPaintContext();
+            if (paintContext != null) {
+                paint(paintContext);
+            }
         }
     }
 
+    @NonNull
     @Override
-    public String deepToString(String indent) {
+    public String deepToString(@NonNull String indent) {
         return indent + toString();
     }
 
-    public abstract void paint(PaintContext context);
+    /**
+     * Paint the operation in the context
+     *
+     * @param context painting context
+     */
+    public abstract void paint(@NonNull PaintContext context);
+
+    /**
+     * Will return true if the operation is similar enough to the current one, in the context of an
+     * animated transition.
+     */
+    public boolean suitableForTransition(@NonNull Operation op) {
+        // by default expects the op to not be suitable
+        return false;
+    }
 }

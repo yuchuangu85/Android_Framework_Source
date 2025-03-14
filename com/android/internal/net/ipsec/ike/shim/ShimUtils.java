@@ -20,6 +20,7 @@ import android.content.Context;
 import android.net.Network;
 import android.net.SocketKeepalive;
 import android.net.ipsec.ike.exceptions.IkeException;
+import android.os.Build;
 
 import com.android.internal.net.ipsec.ike.net.IkeConnectionController;
 import com.android.modules.utils.build.SdkLevel;
@@ -38,8 +39,8 @@ public abstract class ShimUtils {
     private static final ShimUtils INSTANCE;
 
     static {
-        if (SdkLevel.isAtLeastV()) {
-            INSTANCE = new ShimUtilsMinV();
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            INSTANCE = new ShimUtilsMinW();
         } else if (SdkLevel.isAtLeastU()) {
             INSTANCE = new ShimUtilsU();
         } else if (SdkLevel.isAtLeastT()) {
@@ -92,4 +93,7 @@ public abstract class ShimUtils {
 
     /** Returns if the device supports kernel migration without encap socket changes. */
     public abstract boolean supportsSameSocketKernelMigration(Context context);
+
+    /** Returns if supports suspend on network loss. */
+    public abstract boolean suspendOnNetworkLossEnabled();
 }

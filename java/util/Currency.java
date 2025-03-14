@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2014 The Android Open Source Project
- * Copyright (c) 2000, 2021, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2000, 2023, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -60,6 +60,7 @@ import libcore.icu.ICU;
  * with {@code Currency} or monetary values as it provides better handling of floating
  * point numbers and their operations.
  *
+ * @spec http://www.iso.org/iso/home/standards/currency_codes.htm ISO - ISO 4217 - Currency codes
  * @see java.math.BigDecimal
  * @since 1.4
  */
@@ -173,6 +174,11 @@ public final class Currency implements Serializable {
     private static final int VALID_FORMAT_VERSION = 3;
 
     static {
+        initStatic();
+    }
+
+    @SuppressWarnings("removal")
+    private static void initStatic() {
         AccessController.doPrivileged(new PrivilegedAction<>() {
             @Override
             public Void run() {
@@ -240,7 +246,7 @@ public final class Currency implements Serializable {
 
     /**
      * Constructs a {@code Currency} instance. The constructor is private
-     * so that we can insure that there's never more than one instance for a
+     * so that we can ensure that there's never more than one instance for a
      * given currency.
      */
     // BEGIN Android-changed: Use ICU.
@@ -334,7 +340,7 @@ public final class Currency implements Serializable {
      * of the respective countries.
      * <p>
      * If the specified {@code locale} contains "cu"
-     * <a href="./Locale.html#def_locale_extension">Unicode extensions</a>,
+     * {@linkplain Locale##def_locale_extension Unicode extensions},
      * the instance returned from this method reflects
      * the values specified with those extensions.
      * <p>

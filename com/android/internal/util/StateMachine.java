@@ -810,14 +810,15 @@ public class StateMachine {
                 if (mDbg) mSm.log("handleMessage: E msg.what=" + msg.what);
 
                 // Save the current message
-                mMsg = msg;
-
+                /* Copy the "msg" to "mMsg" as "msg" will be recycled */
+                mMsg = obtainMessage();
+                mMsg.copyFrom(msg);
                 // State that processed the message
                 State msgProcessedState = null;
-                if (mIsConstructionCompleted || (mMsg.what == SM_QUIT_CMD)) {
+                if (mIsConstructionCompleted || (msg.what == SM_QUIT_CMD)) {
                     // Normal path
                     msgProcessedState = processMsg(msg);
-                } else if (mMsg.what == SM_INIT_CMD && mMsg.obj == mSmHandlerObj) {
+                } else if (msg.what == SM_INIT_CMD && msg.obj == mSmHandlerObj) {
                     // Initial one time path.
                     mIsConstructionCompleted = true;
                     invokeEnterMethods(0);
@@ -853,17 +854,17 @@ public class StateMachine {
              * and we won't log special messages SM_INIT_CMD or SM_QUIT_CMD which
              * always set msg.obj to the handler.
              */
-            boolean recordLogMsg = mSm.recordLogRec(mMsg) && (msg.obj != mSmHandlerObj);
+            boolean recordLogMsg = mSm.recordLogRec(msg) && (msg.obj != mSmHandlerObj);
 
             if (mLogRecords.logOnlyTransitions()) {
                 // Record only if there is a transition
                 if (mDestState != null) {
-                    mLogRecords.add(mSm, mMsg, mSm.getLogRecString(mMsg), msgProcessedState,
+                    mLogRecords.add(mSm, msg, mSm.getLogRecString(msg), msgProcessedState,
                             orgState, mDestState);
                 }
             } else if (recordLogMsg) {
                 // Record message
-                mLogRecords.add(mSm, mMsg, mSm.getLogRecString(mMsg), msgProcessedState, orgState,
+                mLogRecords.add(mSm, msg, mSm.getLogRecString(msg), msgProcessedState, orgState,
                         mDestState);
             }
 

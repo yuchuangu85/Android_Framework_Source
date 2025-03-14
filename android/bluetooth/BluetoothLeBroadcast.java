@@ -16,10 +16,16 @@
 
 package android.bluetooth;
 
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+import static android.Manifest.permission.BLUETOOTH_PRIVILEGED;
+
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.CallbackExecutor;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.RequiresNoPermission;
 import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
@@ -37,7 +43,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.Executor;
 
 /**
@@ -52,6 +57,7 @@ import java.util.concurrent.Executor;
 @SystemApi
 public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfile {
     private static final String TAG = "BluetoothLeBroadcast";
+
     private static final boolean DBG = true;
     private static final boolean VDBG = false;
 
@@ -310,12 +316,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @Override
-    @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresNoPermission
     public int getConnectionState(@NonNull BluetoothDevice device) {
         throw new UnsupportedOperationException("LE Audio Broadcasts are not connection-oriented.");
     }
@@ -326,12 +327,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @Override
-    @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresNoPermission
     @NonNull
     public List<BluetoothDevice> getDevicesMatchingConnectionStates(@NonNull int[] states) {
         throw new UnsupportedOperationException("LE Audio Broadcasts are not connection-oriented.");
@@ -343,12 +339,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @Override
-    @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresNoPermission
     public @NonNull List<BluetoothDevice> getConnectedDevices() {
         throw new UnsupportedOperationException("LE Audio Broadcasts are not connection-oriented.");
     }
@@ -358,8 +349,8 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      *
      * <p>Repeated registration of the same <var>callback</var> object after the first call to this
      * method will result with IllegalArgumentException being thrown, even when the
-     * <var>executor</var> is different. API caller would have to call {@link
-     * #unregisterCallback(Callback)} with the same callback object before registering it again.
+     * <var>executor</var> is different. API caller must call {@link #unregisterCallback(Callback)}
+     * with the same callback object before registering it again.
      *
      * @param executor an {@link Executor} to execute given callback
      * @param callback user implementation of the {@link Callback}
@@ -369,15 +360,11 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void registerCallback(
             @NonNull @CallbackExecutor Executor executor, @NonNull Callback callback) {
-        Objects.requireNonNull(executor, "executor cannot be null");
-        Objects.requireNonNull(callback, "callback cannot be null");
+        requireNonNull(executor);
+        requireNonNull(callback);
 
         if (DBG) log("registerCallback");
 
@@ -397,7 +384,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
                         service.registerLeBroadcastCallback(mCallback, mAttributionSource);
                     }
                 } catch (RemoteException e) {
-                    throw e.rethrowAsRuntimeException();
+                    Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
                 }
             }
 
@@ -415,7 +402,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * <p>The same {@link Callback} object used when calling {@link #registerCallback(Executor,
      * Callback)} must be used.
      *
-     * <p>Callbacks are automatically unregistered when application process goes away
+     * <p>Callbacks are automatically unregistered when the application process goes away
      *
      * @param callback user implementation of the {@link Callback}
      * @throws NullPointerException when callback is null or IllegalArgumentException when no
@@ -424,13 +411,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void unregisterCallback(@NonNull Callback callback) {
-        Objects.requireNonNull(callback, "callback cannot be null");
+        requireNonNull(callback);
 
         if (DBG) log("unregisterCallback");
 
@@ -447,10 +430,8 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
                 if (service != null) {
                     service.unregisterLeBroadcastCallback(mCallback, mAttributionSource);
                 }
-            } catch (IllegalStateException e) {
+            } catch (RemoteException | IllegalStateException e) {
                 Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
-            } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
             }
         }
     }
@@ -496,15 +477,11 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void startBroadcast(
             @NonNull BluetoothLeAudioContentMetadata contentMetadata,
             @Nullable byte[] broadcastCode) {
-        Objects.requireNonNull(contentMetadata, "contentMetadata cannot be null");
+        requireNonNull(contentMetadata);
         if (mCallbackExecutorMap.isEmpty()) {
             throw new IllegalStateException("No callback was ever registered");
         }
@@ -520,7 +497,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
                         buildBroadcastSettingsFromMetadata(contentMetadata, broadcastCode),
                         mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
     }
@@ -534,13 +511,10 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @SystemApi
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void startBroadcast(@NonNull BluetoothLeBroadcastSettings broadcastSettings) {
-        Objects.requireNonNull(broadcastSettings, "broadcastSettings cannot be null");
+        requireNonNull(broadcastSettings);
         if (mCallbackExecutorMap.isEmpty()) {
             throw new IllegalStateException("No callback was ever registered");
         }
@@ -554,7 +528,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             try {
                 service.startBroadcast(broadcastSettings, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
     }
@@ -574,14 +548,10 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void updateBroadcast(
             int broadcastId, @NonNull BluetoothLeAudioContentMetadata contentMetadata) {
-        Objects.requireNonNull(contentMetadata, "contentMetadata cannot be null");
+        requireNonNull(contentMetadata);
         if (mCallbackExecutorMap.isEmpty()) {
             throw new IllegalStateException("No callback was ever registered");
         }
@@ -598,7 +568,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
                         buildBroadcastSettingsFromMetadata(contentMetadata, null),
                         mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
     }
@@ -617,14 +587,11 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @SystemApi
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresBluetoothConnectPermission
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void updateBroadcast(
             int broadcastId, @NonNull BluetoothLeBroadcastSettings broadcastSettings) {
-        Objects.requireNonNull(broadcastSettings, "broadcastSettings cannot be null");
+        requireNonNull(broadcastSettings);
         if (mCallbackExecutorMap.isEmpty()) {
             throw new IllegalStateException("No callback was ever registered");
         }
@@ -638,7 +605,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             try {
                 service.updateBroadcast(broadcastId, broadcastSettings, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
     }
@@ -656,11 +623,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public void stopBroadcast(int broadcastId) {
         if (mCallbackExecutorMap.isEmpty()) {
             throw new IllegalStateException("No callback was ever registered");
@@ -675,7 +638,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             try {
                 service.stopBroadcast(broadcastId, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
     }
@@ -690,11 +653,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public boolean isPlaying(int broadcastId) {
         final IBluetoothLeAudio service = getService();
         if (service == null) {
@@ -704,7 +663,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             try {
                 return service.isPlaying(broadcastId, mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return false;
@@ -719,11 +678,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      */
     @SystemApi
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(
-            allOf = {
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.BLUETOOTH_PRIVILEGED,
-            })
+    @RequiresPermission(allOf = {BLUETOOTH_CONNECT, BLUETOOTH_PRIVILEGED})
     public @NonNull List<BluetoothLeBroadcastMetadata> getAllBroadcastMetadata() {
         final IBluetoothLeAudio service = getService();
         if (service == null) {
@@ -733,7 +688,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             try {
                 return service.getAllBroadcastMetadata(mAttributionSource);
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return Collections.emptyList();
@@ -746,7 +701,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresPermission(BLUETOOTH_PRIVILEGED)
     public int getMaximumNumberOfBroadcasts() {
         final IBluetoothLeAudio service = getService();
         if (service == null) {
@@ -754,9 +709,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                return service.getMaximumNumberOfBroadcasts(mAttributionSource);
+                return service.getMaximumNumberOfBroadcasts();
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return 1;
@@ -769,7 +724,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresPermission(BLUETOOTH_PRIVILEGED)
     public int getMaximumStreamsPerBroadcast() {
         final IBluetoothLeAudio service = getService();
         if (service == null) {
@@ -777,9 +732,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                return service.getMaximumStreamsPerBroadcast(mAttributionSource);
+                return service.getMaximumStreamsPerBroadcast();
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return 1;
@@ -795,7 +750,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
      * @hide
      */
     @SystemApi
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
+    @RequiresPermission(BLUETOOTH_PRIVILEGED)
     public int getMaximumSubgroupsPerBroadcast() {
         final IBluetoothLeAudio service = getService();
         if (service == null) {
@@ -803,9 +758,9 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
             if (DBG) log(Log.getStackTraceString(new Throwable()));
         } else if (isEnabled()) {
             try {
-                return service.getMaximumSubgroupsPerBroadcast(mAttributionSource);
+                return service.getMaximumSubgroupsPerBroadcast();
             } catch (RemoteException e) {
-                throw e.rethrowAsRuntimeException();
+                Log.e(TAG, e.toString() + "\n" + Log.getStackTraceString(new Throwable()));
             }
         }
         return 1;
@@ -845,6 +800,8 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
 
     /** @hide */
     @Override
+    @SuppressLint("AndroidFrameworkRequiresPermission") // Unexposed re-entrant callback
+    @RequiresNoPermission
     public void onServiceConnected(IBinder service) {
         mService = IBluetoothLeAudio.Stub.asInterface(service);
         // re-register the service-to-app callback
@@ -867,6 +824,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public void onServiceDisconnected() {
         mService = null;
     }
@@ -877,6 +835,7 @@ public final class BluetoothLeBroadcast implements AutoCloseable, BluetoothProfi
 
     /** @hide */
     @Override
+    @RequiresNoPermission
     public BluetoothAdapter getAdapter() {
         return mAdapter;
     }

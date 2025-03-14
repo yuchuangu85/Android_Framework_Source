@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 5 --hash d111735ed2b89b6c32443aac9b162b1afbbea3f2 -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/common/fmq/aidl/android.hardware.common.fmq_interface/1/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common_interface/2/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V5-java-source/gen/android/hardware/power/IPowerHintSession.java.d -o out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V5-java-source/gen -Nhardware/interfaces/power/aidl/aidl_api/android.hardware.power/5 hardware/interfaces/power/aidl/aidl_api/android.hardware.power/5/android/hardware/power/IPowerHintSession.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 6 --hash 13171cf98a48de298baf85167633376ea3db4ea0 -t --stability vintf --min_sdk_version platform_apis -pout/soong/.intermediates/hardware/interfaces/common/fmq/aidl/android.hardware.common.fmq_interface/1/preprocessed.aidl -pout/soong/.intermediates/hardware/interfaces/common/aidl/android.hardware.common_interface/2/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V6-java-source/gen/android/hardware/power/IPowerHintSession.java.d -o out/soong/.intermediates/hardware/interfaces/power/aidl/android.hardware.power-V6-java-source/gen -Nhardware/interfaces/power/aidl/aidl_api/android.hardware.power/6 hardware/interfaces/power/aidl/aidl_api/android.hardware.power/6/android/hardware/power/IPowerHintSession.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.power;
 public interface IPowerHintSession extends android.os.IInterface
@@ -11,8 +15,8 @@ public interface IPowerHintSession extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 5;
-  public static final String HASH = "d111735ed2b89b6c32443aac9b162b1afbbea3f2";
+  public static final int VERSION = 6;
+  public static final String HASH = "13171cf98a48de298baf85167633376ea3db4ea0";
   /** Default implementation for IPowerHintSession. */
   public static class Default implements android.hardware.power.IPowerHintSession
   {
@@ -60,7 +64,7 @@ public interface IPowerHintSession extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.power.IPowerHintSession
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {

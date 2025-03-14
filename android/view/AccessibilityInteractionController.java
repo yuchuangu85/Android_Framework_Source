@@ -50,6 +50,7 @@ import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.accessibility.AccessibilityRequestPreparer;
 import android.view.accessibility.Flags;
 import android.view.accessibility.IAccessibilityInteractionConnectionCallback;
+import android.view.accessibility.IWindowSurfaceInfoCallback;
 import android.window.ScreenCapture;
 
 import com.android.internal.R;
@@ -628,6 +629,25 @@ public final class AccessibilityInteractionController {
             }
         } catch (RemoteException re) {
             /* ignore - the other side will time out */
+        }
+    }
+
+    /**
+     * Provide info for taking a screenshot of this app window.
+     */
+    public void getWindowSurfaceInfoClientThread(IWindowSurfaceInfoCallback callback) {
+        Message message = PooledLambda.obtainMessage(
+                AccessibilityInteractionController::getWindowSurfaceInfoUiThread,
+                this, callback);
+        mHandler.sendMessage(message);
+    }
+
+    private void getWindowSurfaceInfoUiThread(IWindowSurfaceInfoCallback callback) {
+        try {
+            callback.provideWindowSurfaceInfo(mViewRootImpl.getWindowFlags(), Process.myUid(),
+                    mViewRootImpl.getSurfaceControl());
+        } catch (RemoteException re) {
+            // ignore - the other side will time out
         }
     }
 

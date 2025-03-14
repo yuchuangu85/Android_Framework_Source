@@ -47,7 +47,7 @@ public class LocaleUtils {
     public static Locale getLocaleFromMcc(Context context, int mcc, String simLanguage) {
         boolean hasSimLanguage = !TextUtils.isEmpty(simLanguage);
         String language = hasSimLanguage ? simLanguage : defaultLanguageForMcc(mcc);
-        String country = MccTable.countryCodeForMcc(mcc);
+        String country = MccTable.countryCodeForMcc(String.valueOf(mcc));
 
         Rlog.d(LOG_TAG, "getLocaleFromMcc(" + language + ", " + country + ", " + mcc);
         final Locale locale = getLocaleForLanguageCountry(context, language, country);
@@ -155,13 +155,12 @@ public class LocaleUtils {
      * Returns null if unavailable.
      */
     public static String defaultLanguageForMcc(int mcc) {
-        MccTable.MccEntry entry = MccTable.entryForMcc(mcc);
-        if (entry == null) {
+        String country = MccTable.countryCodeForMcc(String.valueOf(mcc));
+
+        if (country.isEmpty()) {
             Rlog.d(LOG_TAG, "defaultLanguageForMcc(" + mcc + "): no country for mcc");
             return null;
         }
-
-        final String country = entry.mIso;
 
         // Choose English as the default language for India.
         if ("in".equals(country)) {

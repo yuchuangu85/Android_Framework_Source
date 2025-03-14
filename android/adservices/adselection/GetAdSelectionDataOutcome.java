@@ -24,6 +24,7 @@ import android.annotation.Nullable;
 
 import androidx.annotation.NonNull;
 
+import com.android.adservices.flags.Flags;
 import com.android.internal.util.Preconditions;
 
 import java.util.Arrays;
@@ -49,8 +50,7 @@ public final class GetAdSelectionDataOutcome {
     }
 
     /** Returns the id that uniquely identifies this GetAdSelectionData payload. */
-    @FlaggedApi(
-            "com.android.adservices.flags.fledge_auction_server_get_ad_selection_data_id_enabled")
+    @FlaggedApi(Flags.FLAG_FLEDGE_AUCTION_SERVER_GET_AD_SELECTION_DATA_ID_ENABLED)
     public long getAdSelectionDataId() {
         return mAdSelectionId;
     }

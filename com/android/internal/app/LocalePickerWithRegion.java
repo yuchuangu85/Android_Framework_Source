@@ -23,6 +23,7 @@ import android.content.Context;
 import android.os.Bundle;
 import android.os.LocaleList;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -33,7 +34,6 @@ import android.widget.SearchView;
 
 import com.android.internal.R;
 
-import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
@@ -43,7 +43,10 @@ import java.util.Set;
  * <p>It shows suggestions at the top, then the rest of the locales.
  * Allows the user to search for locales using both their native name and their name in the
  * default locale.</p>
+ *
+ * @deprecated use SettingLib's widget instead of customized UIs.
  */
+@Deprecated
 public class LocalePickerWithRegion extends ListFragment implements SearchView.OnQueryTextListener {
     private static final String TAG = LocalePickerWithRegion.class.getSimpleName();
     private static final String PARENT_FRAGMENT_NAME = "localeListEditor";
@@ -74,21 +77,7 @@ public class LocalePickerWithRegion extends ListFragment implements SearchView.O
          * @param locale    the locale picked.
          */
         void onLocaleSelected(LocaleStore.LocaleInfo locale);
-    }
-
-    /**
-     * The interface which provides the locale list.
-     */
-    interface LocaleCollectorBase {
-        /** Gets the ignored locale list. */
-        HashSet<String> getIgnoredLocaleList(boolean translatedOnly);
-
-        /** Gets the supported locale list. */
-        Set<LocaleStore.LocaleInfo> getSupportedLocaleList(LocaleStore.LocaleInfo parent,
-                boolean translatedOnly, boolean isForCountryMode);
-
-        /** Indicates if the class work for specific package. */
-        boolean hasSpecificPackageName();
+        default void onParentLocaleSelected(LocaleStore.LocaleInfo locale) {}
     }
 
     private static LocalePickerWithRegion createNumberingSystemPicker(
@@ -264,6 +253,11 @@ public class LocalePickerWithRegion extends ListFragment implements SearchView.O
     public void onListItemClick(ListView parent, View v, int position, long id) {
         final LocaleStore.LocaleInfo locale =
                 (LocaleStore.LocaleInfo) parent.getAdapter().getItem(position);
+         if (locale == null) {
+            Log.d(TAG, "Can not get the locale.");
+            return;
+        }
+
         // Special case for resetting the app locale to equal the system locale.
         boolean isSystemLocale = locale.isSystemLocale();
         boolean isRegionLocale = locale.getParent() != null;
@@ -278,8 +272,9 @@ public class LocalePickerWithRegion extends ListFragment implements SearchView.O
                 || mIsNumberingSystem) {
             if (mListener != null) {
                 mListener.onLocaleSelected(locale);
+            } else {
+                returnToParentFrame();
             }
-            returnToParentFrame();
         } else {
             LocalePickerWithRegion selector;
             if (mayHaveDifferentNumberingSystem) {
@@ -292,7 +287,7 @@ public class LocalePickerWithRegion extends ListFragment implements SearchView.O
                         mListener, locale, mTranslatedOnly /* translate only */,
                         mOnActionExpandListener, this.mLocalePickerCollector);
             }
-
+            mListener.onParentLocaleSelected(locale);
             if (selector != null) {
                 getFragmentManager().beginTransaction()
                         .setTransition(FragmentTransaction.TRANSIT_FRAGMENT_OPEN)

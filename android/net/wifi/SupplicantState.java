@@ -19,6 +19,8 @@ package android.net.wifi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import androidx.annotation.Keep;
+
 /**
  * From <code>defs.h</code> in <code>wpa_supplicant</code>.
  * <p/>
@@ -195,6 +197,7 @@ public enum SupplicantState implements Parcelable {
     }
 
     /** @hide */
+    @Keep
     public static boolean isConnecting(SupplicantState state) {
         switch(state) {
             case AUTHENTICATING:

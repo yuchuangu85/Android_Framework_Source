@@ -1258,6 +1258,69 @@ public final class Unsafe {
     }
 
     /**
+     * Reports the location of a given static field, in conjunction with {@link
+     * #staticFieldBase}.
+     * <p>Do not expect to perform any sort of arithmetic on this offset;
+     * it is just a cookie which is passed to the unsafe heap memory accessors.
+     *
+     * <p>Any given field will always have the same offset, and no two distinct
+     * fields of the same class will ever have the same offset.
+     *
+     * <p>As of 1.4.1, offsets for fields are represented as long values,
+     * although the Sun JVM does not use the most significant 32 bits.
+     * It is hard to imagine a JVM technology which needs more than
+     * a few bits to encode an offset within a non-array object,
+     * However, for consistency with other methods in this class,
+     * this method reports its result as a long value.
+     * @see #getInt(Object, long)
+     * @hide
+     */
+    public long staticFieldOffset(Field f) {
+        // BEGIN Android-changed: Implemented differently on Android.
+        if (!Modifier.isStatic(f.getModifiers())) {
+            throw new IllegalArgumentException("valid for static fields only");
+        }
+        return f.getOffset();
+        /*
+        if (f == null) {
+            throw new NullPointerException();
+        }
+
+        return staticFieldOffset0(f);
+         */
+        // END Android-changed: Implemented differently on Android.
+    }
+
+    /**
+     * Reports the location of a given static field, in conjunction with {@link
+     * #staticFieldOffset}.
+     * <p>Fetch the base "Object", if any, with which static fields of the
+     * given class can be accessed via methods like {@link #getInt(Object,
+     * long)}.  This value may be null.  This value may refer to an object
+     * which is a "cookie", not guaranteed to be a real Object, and it should
+     * not be used in any way except as argument to the get and put routines in
+     * this class.
+     *
+     * @hide
+     */
+    public Object staticFieldBase(Field f) {
+        // BEGIN Android-changed: Implemented differently on Android.
+        if (!Modifier.isStatic(f.getModifiers())) {
+            throw new IllegalArgumentException("valid for static fields only");
+        }
+        Class c = f.getDeclaringClass();
+        return c;
+        /*
+        if (f == null) {
+            throw new NullPointerException();
+        }
+
+        return staticFieldBase0(f);
+         */
+        // END Android-changed: Implemented differently on Android.
+    }
+
+    /**
      * Ensures the given class has been initialized. This is often
      * needed in conjunction with obtaining the static field base of a
      * class.
@@ -2199,13 +2262,18 @@ public final class Unsafe {
                                                   long expected,
                                                   long x);
 
-    // BEGIN Android-removed: Not used in Android.
-    /*
+    /**
+     * @hide
+     */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public final native long compareAndExchangeLong(Object o, long offset,
                                                     long expected,
                                                     long x);
 
+    // BEGIN Android-removed: Not used in Android.
+    /*
     @IntrinsicCandidate
     public final long compareAndExchangeLongAcquire(Object o, long offset,
                                                            long expected,
@@ -2294,41 +2362,53 @@ public final class Unsafe {
     @IntrinsicCandidate
     public native void putIntVolatile(Object obj, long offset, int newValue);
 
-    // BEGIN Android-removed: Not used in Android.
-    /*
-    /** Volatile version of {@link #getBoolean(Object, long)}  * /
+    /** Volatile version of {@link #getBoolean(Object, long)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native boolean getBooleanVolatile(Object o, long offset);
 
-    /** Volatile version of {@link #putBoolean(Object, long, boolean)}  * /
+    /** Volatile version of {@link #putBoolean(Object, long, boolean)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native void    putBooleanVolatile(Object o, long offset, boolean x);
 
-    /** Volatile version of {@link #getByte(Object, long)}  * /
+    /** Volatile version of {@link #getByte(Object, long)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native byte    getByteVolatile(Object o, long offset);
 
-    /** Volatile version of {@link #putByte(Object, long, byte)}  * /
+    /** Volatile version of {@link #putByte(Object, long, byte)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native void    putByteVolatile(Object o, long offset, byte x);
 
-    /** Volatile version of {@link #getShort(Object, long)}  * /
+    /** Volatile version of {@link #getShort(Object, long)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native short   getShortVolatile(Object o, long offset);
 
-    /** Volatile version of {@link #putShort(Object, long, short)}  * /
+    /** Volatile version of {@link #putShort(Object, long, short)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native void    putShortVolatile(Object o, long offset, short x);
 
-    /** Volatile version of {@link #getChar(Object, long)}  * /
+    /** Volatile version of {@link #getChar(Object, long)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native char    getCharVolatile(Object o, long offset);
 
-    /** Volatile version of {@link #putChar(Object, long, char)}  * /
+    /** Volatile version of {@link #putChar(Object, long, char)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native void    putCharVolatile(Object o, long offset, char x);
-     */
-    // END Android-removed: Not used in Android.
 
     /**
      * Gets a {@code long} field from the given object,
@@ -2356,26 +2436,29 @@ public final class Unsafe {
     @IntrinsicCandidate
     public native void putLongVolatile(Object obj, long offset, long newValue);
 
-    // BEGIN Android-removed: Not used in Android.
-    /*
-    /** Volatile version of {@link #getFloat(Object, long)}  * /
+    /** Volatile version of {@link #getFloat(Object, long)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native float   getFloatVolatile(Object o, long offset);
 
-    /** Volatile version of {@link #putFloat(Object, long, float)}  * /
+    /** Volatile version of {@link #putFloat(Object, long, float)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native void    putFloatVolatile(Object o, long offset, float x);
 
-    /** Volatile version of {@link #getDouble(Object, long)}  * /
+    /** Volatile version of {@link #getDouble(Object, long)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native double  getDoubleVolatile(Object o, long offset);
 
-    /** Volatile version of {@link #putDouble(Object, long, double)}  * /
+    /** Volatile version of {@link #putDouble(Object, long, double)}  */
+    // Android-added: FastNative annotation.
+    @FastNative
     @IntrinsicCandidate
     public native void    putDoubleVolatile(Object o, long offset, double x);
-     */
-    // END Android-removed: Not used in Android.
-
 
     /** Acquire version of {@link #getReferenceVolatile(Object, long)} */
     @IntrinsicCandidate

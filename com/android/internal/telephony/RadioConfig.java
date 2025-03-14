@@ -466,7 +466,7 @@ public class RadioConfig extends Handler {
         RILRequest rr = obtainRequest(RIL_REQUEST_SET_PREFERRED_DATA_MODEM,
                 result, mDefaultWorkSource);
         if (DBG) {
-            logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest));
+            logd(rr.serialString() + "> " + RILUtils.requestToString(rr.mRequest) + " " + modemId);
         }
         try {
             proxy.setPreferredDataModem(rr.mSerial, modemId);

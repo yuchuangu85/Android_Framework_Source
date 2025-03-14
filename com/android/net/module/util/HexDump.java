@@ -202,7 +202,7 @@ public class HexDump {
         if (c >= 'A' && c <= 'F') return (c - 'A' + 10);
         if (c >= 'a' && c <= 'f') return (c - 'a' + 10);
 
-        throw new RuntimeException("Invalid hex char '" + c + "'");
+        throw new IllegalArgumentException("Invalid hex char '" + c + "'");
     }
 
     /**

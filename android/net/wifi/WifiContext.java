@@ -26,6 +26,7 @@ import android.content.pm.ResolveInfo;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.net.wifi.util.Environment;
+import android.net.wifi.util.WifiResourceCache;
 import android.os.UserHandle;
 import android.util.Log;
 import android.util.SparseArray;
@@ -63,9 +64,11 @@ public class WifiContext extends ContextWrapper {
     private Context mResourcesApkContext;
     private SparseArray<WifiStringResourceWrapper> mWifiStringResourceWrapperSparseArray =
             new SparseArray<>();
+    private WifiResourceCache mWifiResourceCache;
 
     public WifiContext(@NonNull Context contextBase) {
         super(contextBase);
+        mWifiResourceCache = new WifiResourceCache(this);
     }
 
     /** Get the package name of ServiceWifiResources.apk */
@@ -196,6 +199,10 @@ public class WifiContext extends ContextWrapper {
         return mWifiThemeFromApk;
     }
 
+    public WifiResourceCache getResourceCache() {
+        return mWifiResourceCache;
+    }
+
     /** Get the package name that service-wifi runs under. */
     public String getServiceWifiPackageName() {
         return SERVICE_WIFI_PACKAGE_NAME;
@@ -211,6 +218,7 @@ public class WifiContext extends ContextWrapper {
         mWifiThemeFromApk = null;
         mResourcesApkContext = null;
         mWifiStringResourceWrapperSparseArray.clear();
+        mWifiResourceCache.reset();
     }
 
     /**

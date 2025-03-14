@@ -24,7 +24,6 @@ import android.app.appsearch.ParcelableUtil;
 import android.app.appsearch.safeparcel.AbstractSafeParcelable;
 import android.app.appsearch.safeparcel.GenericDocumentParcel;
 import android.app.appsearch.safeparcel.SafeParcelable;
-import android.app.appsearch.util.BundleUtil;
 import android.os.Bundle;
 import android.os.Parcel;
 import android.os.Parcelable;
@@ -40,9 +39,11 @@ import java.util.Objects;
  * wraps an {@link AppSearchBatchResult} that has String keys and Parcelable values. It provides
  * parcelability of the whole structure.
  *
+ * @deprecated This class is deprecated, you should use {@link AppSearchBatchResultParcelV2}.
  * @param <ValueType> The type of result object for successful calls. Must be a parcelable type.
  * @hide
  */
+@Deprecated
 @SafeParcelable.Class(creator = "AppSearchBatchResultParcelCreator", creatorIsFinal = false)
 public final class AppSearchBatchResultParcel<ValueType> extends AbstractSafeParcelable {
 
@@ -63,7 +64,7 @@ public final class AppSearchBatchResultParcel<ValueType> extends AbstractSafePar
                             String key = Objects.requireNonNull(unmarshallParcel.readString());
                             AppSearchResultParcel appSearchResultParcel =
                                     AppSearchResultParcel.directlyReadFromParcel(unmarshallParcel);
-                            BundleUtil.putParcelable(appSearchResultParcel, inputBundle, key);
+                            inputBundle.putParcelable(key, appSearchResultParcel);
                         }
                         return new AppSearchBatchResultParcel(inputBundle);
                     } finally {
@@ -106,7 +107,7 @@ public final class AppSearchBatchResultParcel<ValueType> extends AbstractSafePar
             } else {
                 appSearchResultParcel = AppSearchResultParcel.fromFailedResult(entry.getValue());
             }
-            BundleUtil.putParcelable(appSearchResultParcel, appSearchResultBundle, entry.getKey());
+            appSearchResultBundle.putParcelable(entry.getKey(), appSearchResultParcel);
         }
         return new AppSearchBatchResultParcel<>(appSearchResultBundle);
     }
@@ -125,7 +126,7 @@ public final class AppSearchBatchResultParcel<ValueType> extends AbstractSafePar
             } else {
                 appSearchResultParcel = AppSearchResultParcel.fromFailedResult(entry.getValue());
             }
-            BundleUtil.putParcelable(appSearchResultParcel, appSearchResultBundle, entry.getKey());
+            appSearchResultBundle.putParcelable(entry.getKey(), appSearchResultParcel);
         }
         return new AppSearchBatchResultParcel<>(appSearchResultBundle);
     }
@@ -137,12 +138,11 @@ public final class AppSearchBatchResultParcel<ValueType> extends AbstractSafePar
             AppSearchBatchResult.Builder<String, ValueType> builder =
                     new AppSearchBatchResult.Builder<>();
             for (String key : mAppSearchResultBundle.keySet()) {
-                AppSearchResultParcel<ValueType> appSearchResultParcel =
-                        BundleUtil.getParcelable(
-                                mAppSearchResultBundle, key, AppSearchResultParcel.CREATOR);
-                if (appSearchResultParcel != null) {
-                    builder.setResult(key, appSearchResultParcel.getResult());
-                }
+                builder.setResult(
+                        key,
+                        mAppSearchResultBundle
+                                .getParcelable(key, AppSearchResultParcel.class)
+                                .getResult());
             }
             mResultCached = builder.build();
         }
@@ -160,13 +160,10 @@ public final class AppSearchBatchResultParcel<ValueType> extends AbstractSafePar
         Parcel data = Parcel.obtain();
         try {
             for (String key : mAppSearchResultBundle.keySet()) {
+                data.writeString(key);
                 AppSearchResultParcel<ValueType> appSearchResultParcel =
-                        BundleUtil.getParcelable(
-                                mAppSearchResultBundle, key, AppSearchResultParcel.CREATOR);
-                if (appSearchResultParcel != null) {
-                    data.writeString(key);
-                    AppSearchResultParcel.directlyWriteToParcel(appSearchResultParcel, data, flags);
-                }
+                        mAppSearchResultBundle.getParcelable(key, AppSearchResultParcel.class);
+                AppSearchResultParcel.directlyWriteToParcel(appSearchResultParcel, data, flags);
             }
             bytes = data.marshall();
         } finally {

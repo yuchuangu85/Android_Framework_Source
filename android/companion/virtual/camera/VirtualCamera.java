@@ -16,15 +16,12 @@
 
 package android.companion.virtual.camera;
 
-import android.annotation.FlaggedApi;
-import android.annotation.RequiresPermission;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
 import android.companion.virtual.IVirtualDevice;
 import android.companion.virtual.VirtualDeviceManager;
 import android.companion.virtual.VirtualDeviceParams;
-import android.companion.virtual.flags.Flags;
 import android.hardware.camera2.CameraDevice;
 import android.os.RemoteException;
 
@@ -52,7 +49,6 @@ import java.util.concurrent.Executor;
  * @hide
  */
 @SystemApi
-@FlaggedApi(Flags.FLAG_VIRTUAL_CAMERA)
 public final class VirtualCamera implements Closeable {
 
     private final IVirtualDevice mVirtualDevice;
@@ -94,7 +90,6 @@ public final class VirtualCamera implements Closeable {
     }
 
     @Override
-    @RequiresPermission(android.Manifest.permission.CREATE_VIRTUAL_DEVICE)
     public void close() {
         try {
             mVirtualDevice.unregisterVirtualCamera(mConfig);

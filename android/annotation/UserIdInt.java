@@ -17,6 +17,7 @@
 package android.annotation;
 
 import static java.lang.annotation.ElementType.FIELD;
+import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
 import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
@@ -31,6 +32,6 @@ import java.lang.annotation.Target;
  * @hide
  */
 @Retention(SOURCE)
-@Target({METHOD, PARAMETER, FIELD})
+@Target({METHOD, PARAMETER, FIELD, LOCAL_VARIABLE})
 public @interface UserIdInt {
 }

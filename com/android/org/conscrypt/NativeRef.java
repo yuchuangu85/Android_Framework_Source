@@ -28,7 +28,6 @@ abstract class NativeRef {
         if (address == 0) {
             throw new NullPointerException("address == 0");
         }
-
         this.address = address;
     }
 
@@ -43,11 +42,11 @@ abstract class NativeRef {
 
     @Override
     public int hashCode() {
-        return (int) (address ^ (address >>> 32));
+        return Long.hashCode(address);
     }
 
     @Override
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("Finalize")
     protected void finalize() throws Throwable {
         try {
             if (address != 0) {
@@ -56,6 +55,11 @@ abstract class NativeRef {
         } finally {
             super.finalize();
         }
+    }
+
+    // VisibleForTesting
+    public boolean isNull() {
+        return address == 0;
     }
 
     abstract void doFree(long context);

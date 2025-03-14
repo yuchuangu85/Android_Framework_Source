@@ -51,7 +51,7 @@ public class Base64
         int off,
         int length)
     {
-        int len = (length + 2) / 3 * 4;
+        int len = encoder.getEncodedLength(length);
         ByteArrayOutputStream bOut = new ByteArrayOutputStream(len);
 
         try

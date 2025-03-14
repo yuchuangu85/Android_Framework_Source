@@ -32,6 +32,9 @@ import android.util.Log;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * {@link ContextualSearchManager} is a system service to facilitate contextual search experience on
@@ -39,58 +42,76 @@ import java.lang.annotation.RetentionPolicy;
  * <p>
  * This class lets a caller start contextual search by calling {@link #startContextualSearch}
  * method.
- *
- * @hide
  */
-@SystemApi
-@FlaggedApi(Flags.FLAG_ENABLE_SERVICE)
+@FlaggedApi(Flags.FLAG_SELF_INVOCATION)
 public final class ContextualSearchManager {
 
     /**
      * Key to get the entrypoint from the extras of the activity launched by contextual search.
-     * Only supposed to be used with ACTON_LAUNCH_CONTEXTUAL_SEARCH.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
+     *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
+     * @hide
      */
+    @SystemApi
     public static final String EXTRA_ENTRYPOINT =
             "android.app.contextualsearch.extra.ENTRYPOINT";
 
     /**
      * Key to get the flag_secure value from the extras of the activity launched by contextual
      * search. The value will be true if flag_secure is found in any of the visible activities.
-     * Only supposed to be used with ACTON_LAUNCH_CONTEXTUAL_SEARCH.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
+     *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
+     * @hide
      */
+    @SystemApi
     public static final String EXTRA_FLAG_SECURE_FOUND =
             "android.app.contextualsearch.extra.FLAG_SECURE_FOUND";
 
     /**
      * Key to get the screenshot from the extras of the activity launched by contextual search.
-     * Only supposed to be used with ACTON_LAUNCH_CONTEXTUAL_SEARCH.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
+     *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
+     * @hide
      */
+    @SystemApi
     public static final String EXTRA_SCREENSHOT =
             "android.app.contextualsearch.extra.SCREENSHOT";
 
     /**
      * Key to check whether managed profile is visible from the extras of the activity launched by
      * contextual search. The value will be true if any one of the visible apps is managed.
-     * Only supposed to be used with ACTON_LAUNCH_CONTEXTUAL_SEARCH.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
+     *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
+     * @hide
      */
+    @SystemApi
     public static final String EXTRA_IS_MANAGED_PROFILE_VISIBLE =
             "android.app.contextualsearch.extra.IS_MANAGED_PROFILE_VISIBLE";
 
     /**
      * Key to get the list of visible packages from the extras of the activity launched by
      * contextual search.
-     * Only supposed to be used with ACTON_LAUNCH_CONTEXTUAL_SEARCH.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
+     *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
+     * @hide
      */
+    @SystemApi
     public static final String EXTRA_VISIBLE_PACKAGE_NAMES =
             "android.app.contextualsearch.extra.VISIBLE_PACKAGE_NAMES";
 
     /**
      * Key to get the time the user made the invocation request, based on
      * {@link SystemClock#uptimeMillis()}.
-     * Only supposed to be used with ACTON_LAUNCH_CONTEXTUAL_SEARCH.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
      *
      * TODO: un-hide in W
      *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
      * @hide
      */
     public static final String EXTRA_INVOCATION_TIME_MS =
@@ -99,35 +120,102 @@ public final class ContextualSearchManager {
     /**
      * Key to get the binder token from the extras of the activity launched by contextual search.
      * This token is needed to invoke {@link CallbackToken#getContextualSearchState} method.
-     * Only supposed to be used with ACTON_LAUNCH_CONTEXTUAL_SEARCH.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
+     *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
+     * @hide
      */
+    @SystemApi
     public static final String EXTRA_TOKEN = "android.app.contextualsearch.extra.TOKEN";
+
+    /**
+     * Key to check whether audio is playing when contextual search is invoked.
+     * Only supposed to be used with ACTION_LAUNCH_CONTEXTUAL_SEARCH.
+     *
+     * @see #ACTION_LAUNCH_CONTEXTUAL_SEARCH
+     *
+     * @hide
+     */
+    public static final String EXTRA_IS_AUDIO_PLAYING =
+            "android.app.contextualsearch.extra.IS_AUDIO_PLAYING";
+
     /**
      * Intent action for contextual search invocation. The app providing the contextual search
      * experience must add this intent filter action to the activity it wants to be launched.
      * <br>
      * <b>Note</b> This activity must not be exported.
+     *
+     * @hide
      */
+    @SystemApi
     public static final String ACTION_LAUNCH_CONTEXTUAL_SEARCH =
             "android.app.contextualsearch.action.LAUNCH_CONTEXTUAL_SEARCH";
 
-    /** Entrypoint to be used when a user long presses on the nav handle. */
+    /**
+     * System feature declaring that the device supports Contextual Search.
+     *
+     * @hide
+     */
+    public static final String FEATURE_CONTEXTUAL_SEARCH =
+            "com.google.android.feature.CONTEXTUAL_SEARCH";
+
+    /**
+     * Entrypoint to be used when a user long presses on the nav handle.
+     *
+     * @hide
+     */
+    @SystemApi
     public static final int ENTRYPOINT_LONG_PRESS_NAV_HANDLE = 1;
-    /** Entrypoint to be used when a user long presses on the home button. */
+
+    /** Entrypoint to be used when a user long presses on the home button.
+     *
+     * @hide
+     */
+    @SystemApi
     public static final int ENTRYPOINT_LONG_PRESS_HOME = 2;
-    /** Entrypoint to be used when a user long presses on the overview button. */
+
+    /** Entrypoint to be used when a user long presses on the overview button.
+     *
+     * @hide
+     */
+    @SystemApi
     public static final int ENTRYPOINT_LONG_PRESS_OVERVIEW = 3;
-    /** Entrypoint to be used when a user presses the action button in overview. */
+
+    /**
+     * Entrypoint to be used when a user presses the action button in overview.
+     *
+     * @hide
+     */
+    @SystemApi
     public static final int ENTRYPOINT_OVERVIEW_ACTION = 4;
-    /** Entrypoint to be used when a user presses the context menu button in overview. */
+
+    /**
+     * Entrypoint to be used when a user presses the context menu button in overview.
+     *
+     * @hide
+     */
+    @SystemApi
     public static final int ENTRYPOINT_OVERVIEW_MENU = 5;
-    /** Entrypoint to be used by system actions like TalkBack, Accessibility etc. */
+
+    /**
+     * Entrypoint to be used by system actions like TalkBack, Accessibility etc.
+     *
+     * @hide
+     */
+    @SystemApi
     public static final int ENTRYPOINT_SYSTEM_ACTION = 9;
-    /** Entrypoint to be used when a user long presses on the meta key. */
+
+    /**
+     * Entrypoint to be used when a user long presses on the meta key.
+     *
+     * @hide
+     */
+    @SystemApi
     public static final int ENTRYPOINT_LONG_PRESS_META = 10;
+
     /**
      * The {@link Entrypoint} annotation is used to standardize the entrypoints supported by
-     * {@link #startContextualSearch} method.
+     * {@link #startContextualSearch(int entrypoint)} method.
      *
      * @hide
      */
@@ -141,8 +229,18 @@ public final class ContextualSearchManager {
             ENTRYPOINT_LONG_PRESS_META
     })
     @Retention(RetentionPolicy.SOURCE)
-    public @interface Entrypoint {
-    }
+    public @interface Entrypoint {}
+
+    private static final Set<Integer> VALID_ENTRYPOINT_VALUES = new HashSet<>(Arrays.asList(
+            ENTRYPOINT_LONG_PRESS_NAV_HANDLE,
+            ENTRYPOINT_LONG_PRESS_HOME,
+            ENTRYPOINT_LONG_PRESS_OVERVIEW,
+            ENTRYPOINT_OVERVIEW_ACTION,
+            ENTRYPOINT_OVERVIEW_MENU,
+            ENTRYPOINT_SYSTEM_ACTION,
+            ENTRYPOINT_LONG_PRESS_META
+    ));
+
     private static final String TAG = ContextualSearchManager.class.getSimpleName();
     private static final boolean DEBUG = false;
 
@@ -156,7 +254,7 @@ public final class ContextualSearchManager {
     }
 
     /**
-     * Used to start contextual search.
+     * Used to start contextual search for a given system entrypoint.
      * <p>
      *     When {@link #startContextualSearch} is called, the system server does the following:
      *     <ul>
@@ -169,12 +267,36 @@ public final class ContextualSearchManager {
      * </p>
      *
      * @param entrypoint the invocation entrypoint
+     *
+     * @hide
      */
     @RequiresPermission(ACCESS_CONTEXTUAL_SEARCH)
+    @SystemApi
     public void startContextualSearch(@Entrypoint int entrypoint) {
+        if (!VALID_ENTRYPOINT_VALUES.contains(entrypoint)) {
+            throw new IllegalArgumentException("Invalid entrypoint: " + entrypoint);
+        }
         if (DEBUG) Log.d(TAG, "startContextualSearch for entrypoint: " + entrypoint);
         try {
             mService.startContextualSearch(entrypoint);
+        } catch (RemoteException e) {
+            if (DEBUG) Log.d(TAG, "Failed to startContextualSearch", e);
+            e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Used to start contextual search from within an app.
+     *
+     * <p>System apps should use the available System APIs rather than this method.
+     *
+     * @throws SecurityException if the caller does not have a foreground Activity.
+     */
+    @FlaggedApi(Flags.FLAG_SELF_INVOCATION)
+    public void startContextualSearch() {
+        if (DEBUG) Log.d(TAG, "startContextualSearch from app");
+        try {
+            mService.startContextualSearchForForegroundApp();
         } catch (RemoteException e) {
             if (DEBUG) Log.d(TAG, "Failed to startContextualSearch", e);
             e.rethrowFromSystemServer();

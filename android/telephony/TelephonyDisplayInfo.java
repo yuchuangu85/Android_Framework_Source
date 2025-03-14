@@ -94,6 +94,10 @@ public final class TelephonyDisplayInfo implements Parcelable {
 
     private final boolean mIsRoaming;
 
+    private final boolean mIsNtn;
+
+    private final boolean mIsSatelliteConstrainedData;
+
     /**
      * Constructor
      *
@@ -106,7 +110,7 @@ public final class TelephonyDisplayInfo implements Parcelable {
     @Deprecated
     public TelephonyDisplayInfo(@NetworkType int networkType,
             @OverrideNetworkType int overrideNetworkType) {
-        this(networkType, overrideNetworkType, false);
+        this(networkType, overrideNetworkType, false, false, false);
     }
 
     /**
@@ -118,12 +122,37 @@ public final class TelephonyDisplayInfo implements Parcelable {
      *
      * @hide
      */
+    @Deprecated
     public TelephonyDisplayInfo(@NetworkType int networkType,
             @OverrideNetworkType int overrideNetworkType,
             boolean isRoaming) {
         mNetworkType = networkType;
         mOverrideNetworkType = overrideNetworkType;
         mIsRoaming = isRoaming;
+        mIsNtn = false;
+        mIsSatelliteConstrainedData = false;
+    }
+
+    /**
+     * Constructor
+     *
+     * @param networkType Current packet-switching cellular network type
+     * @param overrideNetworkType The override network type
+     * @param isRoaming True if the device is roaming after override.
+     * @param isNtn True if the device is camped to non-terrestrial network.
+     * @param isSatelliteConstrainedData True if the device satellite internet is bandwidth
+     *        constrained.
+     *
+     * @hide
+     */
+    public TelephonyDisplayInfo(@NetworkType int networkType,
+            @OverrideNetworkType int overrideNetworkType,
+            boolean isRoaming, boolean isNtn, boolean isSatelliteConstrainedData) {
+        mNetworkType = networkType;
+        mOverrideNetworkType = overrideNetworkType;
+        mIsRoaming = isRoaming;
+        mIsNtn = isNtn;
+        mIsSatelliteConstrainedData = isSatelliteConstrainedData;
     }
 
     /** @hide */
@@ -131,6 +160,8 @@ public final class TelephonyDisplayInfo implements Parcelable {
         mNetworkType = p.readInt();
         mOverrideNetworkType = p.readInt();
         mIsRoaming = p.readBoolean();
+        mIsNtn = p.readBoolean();
+        mIsSatelliteConstrainedData = p.readBoolean();
     }
 
     /**
@@ -170,11 +201,34 @@ public final class TelephonyDisplayInfo implements Parcelable {
         return mIsRoaming;
     }
 
+    /**
+     * Get whether the satellite internet is with bandwidth constrained capability set.
+     *
+     * @return {@code true} if satellite internet is connected with bandwidth constrained
+     *         capability else {@code false}.
+     * @hide
+     */
+    public boolean isSatelliteConstrainedData() {
+        return mIsSatelliteConstrainedData;
+    }
+
+    /**
+     * Get whether the network is a non-terrestrial network.
+     *
+     * @return {@code true} if network is a non-terrestrial network else {@code false}.
+     * @hide
+     */
+    public boolean isNtn() {
+        return mIsNtn;
+    }
+
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeInt(mNetworkType);
         dest.writeInt(mOverrideNetworkType);
         dest.writeBoolean(mIsRoaming);
+        dest.writeBoolean(mIsNtn);
+        dest.writeBoolean(mIsSatelliteConstrainedData);
     }
 
     public static final @NonNull Parcelable.Creator<TelephonyDisplayInfo> CREATOR =
@@ -202,12 +256,15 @@ public final class TelephonyDisplayInfo implements Parcelable {
         TelephonyDisplayInfo that = (TelephonyDisplayInfo) o;
         return mNetworkType == that.mNetworkType
                 && mOverrideNetworkType == that.mOverrideNetworkType
-                && mIsRoaming == that.mIsRoaming;
+                && mIsRoaming == that.mIsRoaming
+                && mIsNtn == that.mIsNtn
+                && mIsSatelliteConstrainedData == that.mIsSatelliteConstrainedData;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mNetworkType, mOverrideNetworkType, mIsRoaming);
+        return Objects.hash(mNetworkType, mOverrideNetworkType, mIsRoaming, mIsNtn,
+                mIsSatelliteConstrainedData);
     }
 
     /**
@@ -233,6 +290,8 @@ public final class TelephonyDisplayInfo implements Parcelable {
     public String toString() {
         return "TelephonyDisplayInfo {network=" + TelephonyManager.getNetworkTypeName(mNetworkType)
                 + ", overrideNetwork=" + overrideNetworkTypeToString(mOverrideNetworkType)
-                + ", isRoaming=" + mIsRoaming + "}";
+                + ", isRoaming=" + mIsRoaming
+                + ", isNtn=" + mIsNtn
+                + ", isSatelliteConstrainedData=" + mIsSatelliteConstrainedData + "}";
     }
 }

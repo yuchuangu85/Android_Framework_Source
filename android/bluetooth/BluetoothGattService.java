@@ -98,8 +98,8 @@ public class BluetoothGattService implements Parcelable {
         mUuid = uuid;
         mInstanceId = 0;
         mServiceType = serviceType;
-        mCharacteristics = new ArrayList<BluetoothGattCharacteristic>();
-        mIncludedServices = new ArrayList<BluetoothGattService>();
+        mCharacteristics = new ArrayList<>();
+        mIncludedServices = new ArrayList<>();
     }
 
     /**
@@ -113,8 +113,8 @@ public class BluetoothGattService implements Parcelable {
         mUuid = uuid;
         mInstanceId = instanceId;
         mServiceType = serviceType;
-        mCharacteristics = new ArrayList<BluetoothGattCharacteristic>();
-        mIncludedServices = new ArrayList<BluetoothGattService>();
+        mCharacteristics = new ArrayList<>();
+        mIncludedServices = new ArrayList<>();
     }
 
     /**
@@ -127,8 +127,8 @@ public class BluetoothGattService implements Parcelable {
         mUuid = uuid;
         mInstanceId = instanceId;
         mServiceType = serviceType;
-        mCharacteristics = new ArrayList<BluetoothGattCharacteristic>();
-        mIncludedServices = new ArrayList<BluetoothGattService>();
+        mCharacteristics = new ArrayList<>();
+        mIncludedServices = new ArrayList<>();
     }
 
     /** @hide */
@@ -138,13 +138,13 @@ public class BluetoothGattService implements Parcelable {
 
     @Override
     public void writeToParcel(Parcel out, int flags) {
-        out.writeParcelable(new ParcelUuid(mUuid), 0);
+        (new ParcelUuid(mUuid)).writeToParcel(out, flags);
         out.writeInt(mInstanceId);
         out.writeInt(mServiceType);
         out.writeTypedList(mCharacteristics);
 
         ArrayList<BluetoothGattIncludedService> includedServices =
-                new ArrayList<BluetoothGattIncludedService>(mIncludedServices.size());
+                new ArrayList<>(mIncludedServices.size());
         for (BluetoothGattService s : mIncludedServices) {
             includedServices.add(
                     new BluetoothGattIncludedService(s.getUuid(), s.getInstanceId(), s.getType()));
@@ -164,31 +164,23 @@ public class BluetoothGattService implements Parcelable {
             };
 
     private BluetoothGattService(Parcel in) {
-        mUuid = ((ParcelUuid) in.readParcelable(null)).getUuid();
+        mUuid = ParcelUuid.CREATOR.createFromParcel(in).getUuid();
         mInstanceId = in.readInt();
         mServiceType = in.readInt();
 
-        mCharacteristics = new ArrayList<BluetoothGattCharacteristic>();
-
-        ArrayList<BluetoothGattCharacteristic> chrcs =
-                in.createTypedArrayList(BluetoothGattCharacteristic.CREATOR);
-        if (chrcs != null) {
-            for (BluetoothGattCharacteristic chrc : chrcs) {
-                chrc.setService(this);
-                mCharacteristics.add(chrc);
-            }
+        mCharacteristics = in.createTypedArrayList(BluetoothGattCharacteristic.CREATOR);
+        for (BluetoothGattCharacteristic chrc : mCharacteristics) {
+            chrc.setService(this);
         }
 
-        mIncludedServices = new ArrayList<BluetoothGattService>();
+        mIncludedServices = new ArrayList<>();
 
-        ArrayList<BluetoothGattIncludedService> inclSvcs =
+        List<BluetoothGattIncludedService> inclSvcs =
                 in.createTypedArrayList(BluetoothGattIncludedService.CREATOR);
-        if (chrcs != null) {
-            for (BluetoothGattIncludedService isvc : inclSvcs) {
-                mIncludedServices.add(
-                        new BluetoothGattService(
-                                null, isvc.getUuid(), isvc.getInstanceId(), isvc.getType()));
-            }
+        for (BluetoothGattIncludedService isvc : inclSvcs) {
+            mIncludedServices.add(
+                    new BluetoothGattService(
+                            null, isvc.getUuid(), isvc.getInstanceId(), isvc.getType()));
         }
     }
 

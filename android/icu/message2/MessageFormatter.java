@@ -145,6 +145,7 @@ import java.util.Map;
 public class MessageFormatter {
     private final Locale locale;
     private final String pattern;
+    private final ErrorHandlingBehavior errorHandlingBehavior;
     private final MFFunctionRegistry functionRegistry;
     private final MFDataModel.Message dataModel;
     private final MFDataModelFormatter modelFormatter;
@@ -152,6 +153,7 @@ public class MessageFormatter {
     private MessageFormatter(Builder builder) {
         this.locale = builder.locale;
         this.functionRegistry = builder.functionRegistry;
+        this.errorHandlingBehavior = builder.errorHandlingBehavior;
         if ((builder.pattern == null && builder.dataModel == null)
                 || (builder.pattern != null && builder.dataModel != null)) {
             throw new IllegalArgumentException(
@@ -173,7 +175,7 @@ public class MessageFormatter {
                         + "Error: " + pe.getMessage() + "\n");
             }
         }
-        modelFormatter = new MFDataModelFormatter(dataModel, locale, functionRegistry);
+        modelFormatter = new MFDataModelFormatter(dataModel, locale, errorHandlingBehavior, functionRegistry);
     }
 
     /**
@@ -201,6 +203,20 @@ public class MessageFormatter {
     @Deprecated
     public Locale getLocale() {
         return locale;
+    }
+
+    /**
+     * Get the {@link ErrorHandlingBehavior} to use when encountering errors in
+     * the current {@code MessageFormatter}.
+     *
+     * @return the error handling behavior.
+     *
+     * @deprecated This API is for technology preview only.
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    @Deprecated
+    public ErrorHandlingBehavior getErrorHandlingBehavior() {
+        return errorHandlingBehavior;
     }
 
     /**
@@ -274,6 +290,40 @@ public class MessageFormatter {
     }
 
     /**
+     * Determines how the formatting errors will be handled at runtime.
+     *
+     * <p>Parsing errors and data model errors always throw and will not be affected by this setting.<br>
+     * But resolution errors and formatting errors will either try to fallback (if possible) or throw,
+     * depending on this setting.</p>
+     *
+     * <p>Used in conjunction with the
+     * {@link MessageFormatter.Builder#setErrorHandlingBehavior(ErrorHandlingBehavior)} method.</p>
+     *
+     * @deprecated This API is for technology preview only.
+     * @hide Only a subset of ICU is exposed in Android
+     * @hide draft / provisional / internal are hidden on Android
+     */
+    @Deprecated
+    public static enum ErrorHandlingBehavior {
+        /**
+         * Suppress errors and return best-effort output.
+         *
+         * @deprecated This API is for technology preview only.
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        @Deprecated
+        BEST_EFFORT,
+        /**
+         * Signal all {@code MessageFormat} errors by throwing a {@link RuntimeException}.
+         *
+         * @deprecated This API is for technology preview only.
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        @Deprecated
+        STRICT
+    }
+
+    /**
      * A {@code Builder} used to build instances of {@link MessageFormatter}.
      *
      * @deprecated This API is for technology preview only.
@@ -284,6 +334,7 @@ public class MessageFormatter {
     public static class Builder {
         private Locale locale = Locale.getDefault(Locale.Category.FORMAT);
         private String pattern = null;
+        private ErrorHandlingBehavior errorHandlingBehavior = ErrorHandlingBehavior.BEST_EFFORT;
         private MFFunctionRegistry functionRegistry = MFFunctionRegistry.builder().build();
         private MFDataModel.Message dataModel = null;
 
@@ -319,6 +370,23 @@ public class MessageFormatter {
         public Builder setPattern(String pattern) {
             this.pattern = pattern;
             this.dataModel = null;
+            return this;
+        }
+
+        /**
+         * Sets the {@link ErrorHandlingBehavior} to use when encountering errors at formatting time.
+         *
+         * <p>The default value is {@code ErrorHandlingBehavior.BEST_EFFORT}, trying to fallback.</p>
+         *
+         * @param the error handling behavior to use.
+         * @return the builder, for fluent use.
+         *
+         * @deprecated This API is for technology preview only.
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        @Deprecated
+        public Builder setErrorHandlingBehavior(ErrorHandlingBehavior errorHandlingBehavior) {
+            this.errorHandlingBehavior = errorHandlingBehavior;
             return this;
         }
 

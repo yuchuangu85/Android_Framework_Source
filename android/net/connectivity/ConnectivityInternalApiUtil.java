@@ -18,15 +18,14 @@ package android.net.connectivity;
 
 import android.content.Context;
 import android.net.ConnectivityManager;
-import android.net.RoutingCoordinatorManager;
 import android.os.Build;
 import android.os.IBinder;
 
 import androidx.annotation.RequiresApi;
 
 /**
- * Utility providing limited access to module-internal APIs which are only available on Android T+,
- * as this class is only in the bootclasspath on T+ as part of framework-connectivity.
+ * Utility providing limited access to module-internal APIs which are only available on Android S+,
+ * as this class is only in the bootclasspath on S+ as part of framework-connectivity.
  *
  * R+ module components like Tethering cannot depend on all hidden symbols from
  * framework-connectivity. They only have access to stable API stubs where newer APIs can be
@@ -54,8 +53,8 @@ public class ConnectivityInternalApiUtil {
      * @return an instance of the coordinator manager
      */
     @RequiresApi(Build.VERSION_CODES.S)
-    public static RoutingCoordinatorManager getRoutingCoordinatorManager(Context ctx) {
+    public static IBinder getRoutingCoordinator(Context ctx) {
         final ConnectivityManager cm = ctx.getSystemService(ConnectivityManager.class);
-        return cm.getRoutingCoordinatorManager();
+        return cm.getRoutingCoordinatorService();
     }
 }

@@ -21,7 +21,6 @@ import static android.adservices.ondevicepersonalization.OnDevicePersonalization
 import android.adservices.ondevicepersonalization.aidl.IOnDevicePersonalizationManagingService;
 import android.adservices.ondevicepersonalization.aidl.IRegisterMeasurementEventCallback;
 import android.annotation.CallbackExecutor;
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.RequiresPermission;
 import android.annotation.SystemApi;
@@ -31,7 +30,6 @@ import android.os.Bundle;
 import android.os.OutcomeReceiver;
 import android.os.SystemClock;
 
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 import com.android.federatedcompute.internal.util.AbstractServiceBinder;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.ondevicepersonalization.internal.util.LoggerFactory;
@@ -45,7 +43,6 @@ import java.util.concurrent.Executor;
  * @hide
  */
 @SystemApi
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public class OnDevicePersonalizationSystemEventManager {
     /** @hide */
     public static final String ON_DEVICE_PERSONALIZATION_SYSTEM_EVENT_SERVICE =
@@ -56,6 +53,8 @@ public class OnDevicePersonalizationSystemEventManager {
             "com.android.ondevicepersonalization.services";
     private static final String ALT_ODP_MANAGING_SERVICE_PACKAGE_SUFFIX =
             "com.google.android.ondevicepersonalization.services";
+    private static final String TAG =
+            OnDevicePersonalizationSystemEventManager.class.getSimpleName();
     private static final LoggerFactory.Logger sLogger = LoggerFactory.getLogger();
 
     // TODO(b/301732670): Define a new service for this manager and bind to it.
@@ -106,9 +105,10 @@ public class OnDevicePersonalizationSystemEventManager {
         Objects.requireNonNull(receiver);
         long startTimeMillis = SystemClock.elapsedRealtime();
 
+        final IOnDevicePersonalizationManagingService service =
+                mServiceBinder.getService(executor);
+
         try {
-            final IOnDevicePersonalizationManagingService service =
-                    mServiceBinder.getService(executor);
             Bundle bundle = new Bundle();
             bundle.putParcelable(Constants.EXTRA_MEASUREMENT_WEB_TRIGGER_PARAMS,
                     new MeasurementWebTriggerEventParamsParcel(measurementWebTriggerEvent));
@@ -119,30 +119,82 @@ public class OnDevicePersonalizationSystemEventManager {
                     new CallerMetadata.Builder().setStartTimeMillis(startTimeMillis).build(),
                     new IRegisterMeasurementEventCallback.Stub() {
                         @Override
-                        public void onSuccess() {
+                        public void onSuccess(CalleeMetadata calleeMetadata) {
                             final long token = Binder.clearCallingIdentity();
                             try {
                                 executor.execute(() -> receiver.onResult(null));
                             } finally {
                                 Binder.restoreCallingIdentity(token);
+                                logApiCallStats(
+                                        service,
+                                        "",
+                                        Constants.API_NAME_NOTIFY_MEASUREMENT_EVENT,
+                                        SystemClock.elapsedRealtime() - startTimeMillis,
+                                        calleeMetadata.getServiceEntryTimeMillis() - startTimeMillis,
+                                        SystemClock.elapsedRealtime()
+                                                - calleeMetadata.getCallbackInvokeTimeMillis(),
+                                        Constants.STATUS_SUCCESS);
                             }
                         }
                         @Override
-                        public void onError(int errorCode) {
+                        public void onError(int errorCode, CalleeMetadata calleeMetadata) {
                             final long token = Binder.clearCallingIdentity();
                             try {
                                 executor.execute(() -> receiver.onError(
                                         new IllegalStateException("Error: " + errorCode)));
                             } finally {
                                 Binder.restoreCallingIdentity(token);
+                                logApiCallStats(
+                                        service,
+                                        "",
+                                        Constants.API_NAME_NOTIFY_MEASUREMENT_EVENT,
+                                        SystemClock.elapsedRealtime() - startTimeMillis,
+                                        calleeMetadata.getServiceEntryTimeMillis() - startTimeMillis,
+                                        SystemClock.elapsedRealtime()
+                                                - calleeMetadata.getCallbackInvokeTimeMillis(),
+                                        errorCode);
                             }
                         }
                     }
             );
         } catch (IllegalArgumentException | NullPointerException e) {
+            logApiCallStats(
+                    service,
+                    "",
+                    Constants.API_NAME_NOTIFY_MEASUREMENT_EVENT,
+                    SystemClock.elapsedRealtime() - startTimeMillis,
+                    0,
+                    0,
+                    Constants.STATUS_INTERNAL_ERROR);
             throw e;
         } catch (Exception e) {
+            logApiCallStats(
+                    service,
+                    "",
+                    Constants.API_NAME_NOTIFY_MEASUREMENT_EVENT,
+                    SystemClock.elapsedRealtime() - startTimeMillis,
+                    0,
+                    0,
+                    Constants.STATUS_INTERNAL_ERROR);
             receiver.onError(e);
+        }
+    }
+
+    private void logApiCallStats(
+            IOnDevicePersonalizationManagingService service,
+            String sdkPackageName,
+            int apiName,
+            long latencyMillis,
+            long rpcCallLatencyMillis,
+            long rpcReturnLatencyMillis,
+            int responseCode) {
+        try {
+            if (service != null) {
+                service.logApiCallStats(sdkPackageName, apiName, latencyMillis,
+                        rpcCallLatencyMillis, rpcReturnLatencyMillis, responseCode);
+            }
+        } catch (Exception e) {
+            sLogger.e(e, TAG + ": Error logging API call stats");
         }
     }
 }

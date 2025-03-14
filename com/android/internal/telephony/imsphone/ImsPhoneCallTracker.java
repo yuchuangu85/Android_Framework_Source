@@ -70,6 +70,7 @@ import android.os.Registrant;
 import android.os.RegistrantList;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.sysprop.TelephonyProperties;
@@ -1543,7 +1544,11 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         Intent intent = new Intent(intentAction);
         intent.putExtra(ImsManager.EXTRA_PHONE_ID, mPhone.getPhoneId());
         if (mPhone != null && mPhone.getContext() != null) {
-            mPhone.getContext().sendBroadcast(intent);
+            if (mFeatureFlags.hsumBroadcast()) {
+                mPhone.getContext().sendBroadcastAsUser(intent, UserHandle.ALL);
+            } else {
+                mPhone.getContext().sendBroadcast(intent);
+            }
         }
     }
 
@@ -1792,7 +1797,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                                 dialArgs.intentExtras);
                     }
                 };
-                EmergencyStateTracker.getInstance().exitEmergencyCallbackMode(onComplete);
+                EmergencyStateTracker.getInstance().exitEmergencyCallbackMode(onComplete,
+                        TelephonyManager.STOP_REASON_OUTGOING_NORMAL_CALL_INITIATED);
             } else {
                 try {
                     getEcbmInterface().exitEmergencyCallbackMode();
@@ -2878,6 +2884,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         ImsPhoneConnection conn = findConnection(imsCall);
         boolean rejectCall = false;
 
+        if (mFeatureFlags.preventHangupDuringCallMerge()) {
+            if (imsCall != null && imsCall.isCallSessionMergePending()) {
+                if (DBG) log("hangup call failed during call merge");
+
+                throw new CallStateException("can not hangup during call merge");
+            }
+        }
+
         String logResult = "(undefined)";
         if (call == mRingingCall) {
             logResult = "(ringing) hangup incoming";
@@ -3105,6 +3119,8 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             conn.maybeChangeRingbackState();
 
             maybeSetVideoCallProvider(conn, imsCall);
+            // Update IMS call status if the call attributes are changed - i.e. call network type.
+            mImsCallInfoTracker.updateImsCallStatus(conn);
             // IMS call profile might be changed while call state is maintained. In this case, it's
             // required to notify to CallAttributesListener.
             // Since call state is not changed, TelephonyRegistry will not notify to
@@ -3260,6 +3276,12 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         int cause = DisconnectCause.ERROR_UNSPECIFIED;
 
         int code = maybeRemapReasonCode(reasonInfo);
+
+        if (mFeatureFlags.remapDisconnectCauseSipRequestCancelled() &&
+                code == ImsReasonInfo.CODE_SIP_REQUEST_CANCELLED) {
+            return DisconnectCause.NORMAL;
+        }
+
         switch (code) {
             case ImsReasonInfo.CODE_SIP_ALTERNATE_EMERGENCY_CALL:
                 return DisconnectCause.IMS_SIP_ALTERNATE_EMERGENCY_CALL;
@@ -3553,8 +3575,10 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             if (DBG) log("onCallStartFailed reasonCode=" + reasonInfo.getCode());
 
             int eccCategory = EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED;
+            List<String> emergencyUrns = new ArrayList<>();
             if (imsCall != null && imsCall.getCallProfile() != null) {
                 eccCategory = imsCall.getCallProfile().getEmergencyServiceCategories();
+                emergencyUrns = imsCall.getCallProfile().getEmergencyUrns();
             }
 
             if (mHoldSwitchingState == HoldSwapState.HOLDING_TO_ANSWER_INCOMING) {
@@ -3581,13 +3605,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                 // Since onCallInitiating and onCallProgressing reset mPendingMO,
                 // we can't depend on mPendingMO.
                 if (conn != null) {
-                    logi("onCallStartFailed eccCategory=" + eccCategory);
+                    logi("onCallStartFailed eccCategory=" + eccCategory + ", emergencyUrns="
+                            + emergencyUrns);
                     int reason = reasonInfo.getCode();
                     int extraCode = reasonInfo.getExtraCode();
                     if ((reason == ImsReasonInfo.CODE_LOCAL_CALL_CS_RETRY_REQUIRED
                             && extraCode == ImsReasonInfo.EXTRA_CODE_CALL_RETRY_EMERGENCY)
                             || (reason == ImsReasonInfo.CODE_SIP_ALTERNATE_EMERGENCY_CALL)) {
-                        conn.setNonDetectableEmergencyCallInfo(eccCategory);
+                        conn.setNonDetectableEmergencyCallInfo(eccCategory, emergencyUrns);
                     }
                     conn.setImsReasonInfo(reasonInfo);
                     sendCallStartFailedDisconnect(imsCall, reasonInfo);
@@ -3765,11 +3790,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     && DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
                 if (conn != null) {
                     int eccCategory = EmergencyNumber.EMERGENCY_SERVICE_CATEGORY_UNSPECIFIED;
+                    List<String> emergencyUrns = new ArrayList<>();
                     if (imsCall != null && imsCall.getCallProfile() != null) {
                         eccCategory = imsCall.getCallProfile().getEmergencyServiceCategories();
+                        emergencyUrns = imsCall.getCallProfile().getEmergencyUrns();
                         logi("onCallTerminated eccCategory=" + eccCategory);
                     }
-                    conn.setNonDetectableEmergencyCallInfo(eccCategory);
+                    conn.setNonDetectableEmergencyCallInfo(eccCategory, emergencyUrns);
                 }
                 processCallStateChange(imsCall, ImsPhoneCall.State.DISCONNECTED, cause);
                 return;
@@ -4661,8 +4688,14 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
                     configChangedIntent.putExtra(ImsConfig.EXTRA_CHANGED_ITEM, item);
                     configChangedIntent.putExtra(ImsConfig.EXTRA_NEW_VALUE, value);
                     if (mPhone != null && mPhone.getContext() != null) {
-                        mPhone.getContext().sendBroadcast(configChangedIntent,
-                                Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+                        if (mFeatureFlags.hsumBroadcast()) {
+                            mPhone.getContext().sendBroadcastAsUser(configChangedIntent,
+                                    UserHandle.ALL,
+                                    Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+                        } else {
+                            mPhone.getContext().sendBroadcast(configChangedIntent,
+                                    Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+                        }
                     }
                 }
 
@@ -4946,7 +4979,7 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
             }
             case EVENT_SUPP_SERVICE_INDICATION: {
                 ar = (AsyncResult) msg.obj;
-                ImsPhoneMmiCode mmiCode = new ImsPhoneMmiCode(mPhone);
+                ImsPhoneMmiCode mmiCode = new ImsPhoneMmiCode(mPhone, mFeatureFlags);
                 try {
                     mmiCode.setIsSsInfo(true);
                     mmiCode.processImsSsData(ar);
@@ -6322,8 +6355,13 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
         configChangedIntent.putExtra(ImsConfig.EXTRA_CHANGED_ITEM, item);
         configChangedIntent.putExtra(ImsConfig.EXTRA_NEW_VALUE, value);
         if (mPhone != null && mPhone.getContext() != null) {
-            mPhone.getContext().sendBroadcast(
-                    configChangedIntent, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+            if (mFeatureFlags.hsumBroadcast()) {
+                mPhone.getContext().sendBroadcastAsUser(configChangedIntent, UserHandle.ALL,
+                        Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+            } else {
+                mPhone.getContext().sendBroadcast(
+                        configChangedIntent, Manifest.permission.READ_PRIVILEGED_PHONE_STATE);
+            }
         }
     }
 }

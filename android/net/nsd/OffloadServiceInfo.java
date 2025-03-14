@@ -26,6 +26,7 @@ import android.os.Build;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import com.android.net.flags.Flags;
 import com.android.net.module.util.HexDump;
 
 import java.util.Arrays;
@@ -40,7 +41,7 @@ import java.util.Objects;
  *
  * @hide
  */
-@FlaggedApi("com.android.net.flags.register_nsd_offload_engine_api")
+@FlaggedApi(Flags.FLAG_REGISTER_NSD_OFFLOAD_ENGINE_API)
 @SystemApi
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 public final class OffloadServiceInfo implements Parcelable {
@@ -281,7 +282,7 @@ public final class OffloadServiceInfo implements Parcelable {
         }
 
         /**
-         * Get the service type. (e.g. "_http._tcp.local" )
+         * Get the service type. (e.g. "_http._tcp" )
          */
         @NonNull
         public String getServiceType() {

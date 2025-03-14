@@ -16,11 +16,6 @@
 
 package android.health.connect.ratelimiter;
 
-import android.annotation.NonNull;
-
-import java.time.Instant;
-import java.util.Objects;
-
 /**
  * Object to store the last update time and remaining quota for quota buckets as used in {@link
  * RateLimiter}.
@@ -28,27 +23,24 @@ import java.util.Objects;
  * @hide
  */
 public final class Quota {
-    private Instant mLastUpdatedTime;
+    private long mLastUpdatedTimeMillis;
     private float mRemainingQuota;
 
-    public Quota(@NonNull Instant lastUpdatedTime, float remainingQuota) {
-        Objects.requireNonNull(lastUpdatedTime);
-
-        mLastUpdatedTime = lastUpdatedTime;
+    public Quota(long lastUpdatedTimeMillis, float remainingQuota) {
+        mLastUpdatedTimeMillis = lastUpdatedTimeMillis;
         mRemainingQuota = remainingQuota;
     }
 
-    @NonNull
-    public Instant getLastUpdatedTime() {
-        return mLastUpdatedTime;
+    public long getLastUpdatedTimeMillis() {
+        return mLastUpdatedTimeMillis;
     }
 
     public float getRemainingQuota() {
         return mRemainingQuota;
     }
 
-    public void setLastUpdatedTime(Instant lastUpdatedTime) {
-        mLastUpdatedTime = lastUpdatedTime;
+    public void setLastUpdatedTimeMillis(long lastUpdatedTimeMillis) {
+        mLastUpdatedTimeMillis = lastUpdatedTimeMillis;
     }
 
     public void setRemainingQuota(Float remainingQuota) {

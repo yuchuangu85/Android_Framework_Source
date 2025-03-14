@@ -16,6 +16,12 @@
 
 package android.app.appsearch;
 
+import android.util.ArraySet;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Set;
+
 /**
  * A class that encapsulates all feature constants that are accessible in AppSearch framework.
  *
@@ -25,16 +31,36 @@ package android.app.appsearch;
  * @see Features
  * @hide
  */
-public interface FeatureConstants {
+public final class FeatureConstants {
     /** Feature constants for {@link Features#NUMERIC_SEARCH}. */
-    String NUMERIC_SEARCH = "NUMERIC_SEARCH";
+    public static final String NUMERIC_SEARCH = "NUMERIC_SEARCH";
 
     /** Feature constants for {@link Features#VERBATIM_SEARCH}. */
-    String VERBATIM_SEARCH = "VERBATIM_SEARCH";
+    public static final String VERBATIM_SEARCH = "VERBATIM_SEARCH";
 
     /** Feature constants for {@link Features#LIST_FILTER_QUERY_LANGUAGE}. */
-    String LIST_FILTER_QUERY_LANGUAGE = "LIST_FILTER_QUERY_LANGUAGE";
+    public static final String LIST_FILTER_QUERY_LANGUAGE = "LIST_FILTER_QUERY_LANGUAGE";
 
     /** Feature constants for {@link Features#LIST_FILTER_HAS_PROPERTY_FUNCTION}. */
-    String LIST_FILTER_HAS_PROPERTY_FUNCTION = "LIST_FILTER_HAS_PROPERTY_FUNCTION";
+    public static final String LIST_FILTER_HAS_PROPERTY_FUNCTION =
+            "LIST_FILTER_HAS_PROPERTY_FUNCTION";
+
+    /** Feature constants for {@link Features#LIST_FILTER_MATCH_SCORE_EXPRESSION_FUNCTION}. */
+    public static final String LIST_FILTER_MATCH_SCORE_EXPRESSION_FUNCTION =
+            "LIST_FILTER_MATCH_SCORE_EXPRESSION_FUNCTION";
+
+    /** A feature constant for the "semanticSearch" function in {@link AppSearchSession#search}. */
+    public static final String EMBEDDING_SEARCH = "EMBEDDING_SEARCH";
+
+    /**
+     * A feature constant for the "getScorableProperty" function in {@link AppSearchSession#search}.
+     */
+    public static final String SCHEMA_SCORABLE_PROPERTY_CONFIG = "SCHEMA_SCORABLE_PROPERTY_CONFIG";
+
+    /** A set of scoring features. */
+    public static final Set<String> SCORABLE_FEATURE_SET =
+            Collections.unmodifiableSet(
+                    new ArraySet<>(Arrays.asList(SCHEMA_SCORABLE_PROPERTY_CONFIG)));
+
+    private FeatureConstants() {}
 }

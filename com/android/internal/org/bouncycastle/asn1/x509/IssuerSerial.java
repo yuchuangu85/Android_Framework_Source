@@ -3,13 +3,13 @@ package com.android.internal.org.bouncycastle.asn1.x509;
 
 import java.math.BigInteger;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.internal.org.bouncycastle.asn1.ASN1Integer;
 import com.android.internal.org.bouncycastle.asn1.ASN1Object;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.internal.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.internal.org.bouncycastle.asn1.ASN1TaggedObject;
-import com.android.internal.org.bouncycastle.asn1.DERBitString;
 import com.android.internal.org.bouncycastle.asn1.DERSequence;
 import com.android.internal.org.bouncycastle.asn1.x500.X500Name;
 
@@ -19,9 +19,9 @@ import com.android.internal.org.bouncycastle.asn1.x500.X500Name;
 public class IssuerSerial
     extends ASN1Object
 {
-    GeneralNames            issuer;
-    ASN1Integer              serial;
-    DERBitString            issuerUID;
+    GeneralNames  issuer;
+    ASN1Integer   serial;
+    ASN1BitString issuerUID;
 
     public static IssuerSerial getInstance(
             Object  obj)
@@ -59,7 +59,7 @@ public class IssuerSerial
 
         if (seq.size() == 3)
         {
-            issuerUID = DERBitString.getInstance(seq.getObjectAt(2));
+            issuerUID = ASN1BitString.getInstance(seq.getObjectAt(2));
         }
     }
 
@@ -95,7 +95,7 @@ public class IssuerSerial
         return serial;
     }
 
-    public DERBitString getIssuerUID()
+    public ASN1BitString getIssuerUID()
     {
         return issuerUID;
     }

@@ -25,7 +25,7 @@ import android.health.connect.ReadRecordsRequestUsingIds;
 import android.health.connect.TimeRangeFilterHelper;
 import android.health.connect.datatypes.DataOrigin;
 import android.health.connect.datatypes.RecordTypeIdentifier;
-import android.health.connect.internal.datatypes.utils.RecordMapper;
+import android.health.connect.internal.datatypes.utils.HealthConnectMappings;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -81,7 +81,7 @@ public class ReadRecordsRequestParcel implements Parcelable {
         mRecordIdFiltersParcel = new RecordIdFiltersParcel(request.getRecordIdFilters());
         mStartTime = DEFAULT_LONG;
         mEndTime = DEFAULT_LONG;
-        mRecordType = RecordMapper.getInstance().getRecordType(request.getRecordType());
+        mRecordType = HealthConnectMappings.getInstance().getRecordType(request.getRecordType());
         mPageSize = DEFAULT_INT;
         mLocalTimeFilter = false;
 
@@ -108,7 +108,7 @@ public class ReadRecordsRequestParcel implements Parcelable {
         }
 
         mLocalTimeFilter = TimeRangeFilterHelper.isLocalTimeFilter(request.getTimeRangeFilter());
-        mRecordType = RecordMapper.getInstance().getRecordType(request.getRecordType());
+        mRecordType = HealthConnectMappings.getInstance().getRecordType(request.getRecordType());
         mPageSize = request.getPageSize();
         mPageToken = request.getPageToken();
         mAscending = request.isAscending();

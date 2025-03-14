@@ -272,6 +272,18 @@ public class DirectByteBuffer extends MappedByteBuffer implements DirectBuffer {
         return this;
     }
 
+    @Override
+    public ByteBuffer get(int index, byte[] dst, int dstOffset, int length) {
+        if (!memoryRef.isAccessible) {
+            throw new IllegalStateException("buffer is inaccessible");
+        }
+        checkBounds(index, length, limit());
+        checkBounds(dstOffset, length, dst.length);
+        Memory.peekByteArray(ix(index),
+                dst, dstOffset, length);
+        return this;
+    }
+
     private ByteBuffer put(long a, byte x) {
         Memory.pokeByte(a, x);
         return this;

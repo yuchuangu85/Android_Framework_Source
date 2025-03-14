@@ -6,24 +6,29 @@ package org.chromium.base;
 
 import android.app.Activity;
 import android.content.ComponentCallbacks2;
+import android.os.Handler;
+import android.os.Looper;
 
 import org.jni_zero.CalledByNative;
 import org.jni_zero.NativeMethods;
 
+import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.memory.MemoryPressureCallback;
+import org.chromium.base.memory.SelfFreezeCallback;
 
 /**
- * This class is Java equivalent of base::MemoryPressureListener: it distributes pressure
- * signals to callbacks.
+ * This class is Java equivalent of base::MemoryPressureListener: it distributes signals to
+ * callbacks for memory pressure, pre-freeze, and self-freeze.
  *
- * The class also serves as an entry point to the native side - once native code is ready,
- * it adds native callback.
+ * <p>The class also serves as an entry point to the native side - once native code is ready, it
+ * adds native callback.
  *
- * notifyMemoryPressure() is called exclusively by MemoryPressureMonitor, which
- * monitors and throttles pressure signals.
+ * <p>notifyMemoryPressure() is called exclusively by MemoryPressureMonitor, which monitors and
+ * throttles pressure signals.
  *
- * NOTE: this class should only be used on UiThread as defined by ThreadUtils (which is
- *       Android main thread for Chrome, but can be some other thread for WebView).
+ * <p>NOTE: this class should only be used on UiThread as defined by ThreadUtils (which is Android
+ * main thread for Chrome, but can be some other thread for WebView), except for the self freeze
+ * calls, which are done on the launcher thread.
  */
 public class MemoryPressureListener {
     /**
@@ -53,6 +58,9 @@ public class MemoryPressureListener {
             "org.chromium.base.ACTION_TRIM_MEMORY_MODERATE";
 
     private static ObserverList<MemoryPressureCallback> sCallbacks;
+    // This is used only on the Launcher thread.
+    private static ObserverList<SelfFreezeCallback> sSelfFreezeCallbacks;
+    private static volatile Handler sSelfFreezeHandler;
 
     /** Called by the native side to add native callback. */
     @CalledByNative
@@ -72,9 +80,22 @@ public class MemoryPressureListener {
         sCallbacks.addObserver(callback);
     }
 
+    /** Adds a self freeze callback. This method is called only on the Launcher thread. */
+    public static void addSelfFreezeCallback(SelfFreezeCallback callback) {
+        if (sSelfFreezeCallbacks == null) sSelfFreezeCallbacks = new ObserverList<>();
+        sSelfFreezeCallbacks.addObserver(callback);
+
+        if (sSelfFreezeHandler == null) {
+            sSelfFreezeHandler = new Handler();
+            // We just added a single element, above.
+            assert sSelfFreezeCallbacks.size() == 1;
+        }
+        assert sSelfFreezeHandler.getLooper() == Looper.myLooper();
+    }
+
     /**
-     * Removes previously added memory pressure callback.
-     * This method should be called only on ThreadUtils.UiThread.
+     * Removes previously added memory pressure callback. This method should be called only on
+     * ThreadUtils.UiThread.
      */
     public static void removeCallback(MemoryPressureCallback callback) {
         ThreadUtils.assertOnUiThread();
@@ -82,13 +103,19 @@ public class MemoryPressureListener {
         sCallbacks.removeObserver(callback);
     }
 
+    public static void removeSelfFreezeCallback(SelfFreezeCallback callback) {
+        assert sSelfFreezeCallbacks != null;
+        assert sSelfFreezeHandler.getLooper() == Looper.myLooper();
+        sSelfFreezeCallbacks.removeObserver(callback);
+    }
+
     /**
-     * Distributes |pressure| to all callbacks.
-     * This method should be called only on ThreadUtils.UiThread.
+     * Distributes |pressure| to all callbacks. This method should be called only on
+     * ThreadUtils.UiThread.
      *
-     * This includes sending the notification to the native side, provided that addNativeCallback()
-     * has been called. It does not trigger all the clients listening directly to
-     * ComponentCallbacks2 notifications.
+     * <p>This includes sending the notification to the native side, provided that
+     * addNativeCallback() has been called. It does not trigger all the clients listening directly
+     * to ComponentCallbacks2 notifications.
      */
     public static void notifyMemoryPressure(@MemoryPressureLevel int pressure) {
         ThreadUtils.assertOnUiThread();
@@ -96,6 +123,33 @@ public class MemoryPressureListener {
         for (MemoryPressureCallback callback : sCallbacks) {
             callback.onPressure(pressure);
         }
+    }
+
+    public static void notifySelfFreeze() {
+        ThreadUtils.assertOnUiThread();
+        if (sSelfFreezeHandler != null) {
+            sSelfFreezeHandler.post(
+                    () -> {
+                        if (sSelfFreezeCallbacks == null) return;
+                        for (SelfFreezeCallback callback : sSelfFreezeCallbacks) {
+                            callback.onSelfFreeze();
+                        }
+                    });
+        }
+    }
+
+    public static void onPreFreeze() {
+        // We only need the library to be loaded, not the whole browser
+        // to be initialized because the native side would have no tasks
+        // to run in this case (they are registered at various points by
+        // callers elsewhere).
+        if (!LibraryLoader.getInstance().isInitialized()) return;
+        MemoryPressureListenerJni.get().onPreFreeze();
+    }
+
+    public static boolean isTrimMemoryBackgroundCritical() {
+        if (!LibraryLoader.getInstance().isInitialized()) return false;
+        return MemoryPressureListenerJni.get().isTrimMemoryBackgroundCritical();
     }
 
     /**
@@ -139,5 +193,9 @@ public class MemoryPressureListener {
     @NativeMethods
     interface Natives {
         void onMemoryPressure(@MemoryPressureLevel int pressure);
+
+        void onPreFreeze();
+
+        boolean isTrimMemoryBackgroundCritical();
     }
 }

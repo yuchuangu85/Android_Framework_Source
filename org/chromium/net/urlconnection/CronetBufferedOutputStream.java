@@ -4,23 +4,21 @@
 
 package org.chromium.net.urlconnection;
 
+import org.chromium.base.metrics.ScopedSysTraceEvent;
 import org.chromium.net.UploadDataProvider;
 import org.chromium.net.UploadDataSink;
-
-import androidx.annotation.VisibleForTesting;
 
 import java.io.IOException;
 import java.net.ProtocolException;
 import java.nio.ByteBuffer;
+import java.util.Objects;
 
 /**
- * An implementation of {@link java.io.OutputStream} that buffers entire request
- * body in memory. This is used when neither
- * {@link CronetHttpURLConnection#setFixedLengthStreamingMode}
- * nor {@link CronetHttpURLConnection#setChunkedStreamingMode} is set.
+ * An implementation of {@link java.io.OutputStream} that buffers entire request body in memory.
+ * This is used when neither {@link CronetHttpURLConnection#setFixedLengthStreamingMode} nor {@link
+ * CronetHttpURLConnection#setChunkedStreamingMode} is set.
  */
-@VisibleForTesting
-public final class CronetBufferedOutputStream extends CronetOutputStream {
+final class CronetBufferedOutputStream extends CronetOutputStream {
     // QUIC uses a read buffer of 14520 bytes, SPDY uses 2852 bytes, and normal
     // stream uses 16384 bytes. Therefore, use 16384 for now to avoid growing
     // the buffer too many times.
@@ -31,18 +29,18 @@ public final class CronetBufferedOutputStream extends CronetOutputStream {
     private final UploadDataProvider mUploadDataProvider = new UploadDataProviderImpl();
     // Internal buffer that is used to buffer the request body.
     private ByteBuffer mBuffer;
+    private boolean mConnectRequested;
     private boolean mConnected;
 
     /**
      * Package protected constructor.
+     *
      * @param connection The CronetHttpURLConnection object.
-     * @param contentLength The content length of the request body. It must not
-     *            be smaller than 0 or bigger than {@link Integer.MAX_VALUE}.
+     * @param contentLength The content length of the request body. It must not be smaller than 0 or
+     *     bigger than {@link Integer.MAX_VALUE}.
      */
     CronetBufferedOutputStream(final CronetHttpURLConnection connection, final long contentLength) {
-        if (connection == null) {
-            throw new NullPointerException("Argument connection cannot be null.");
-        }
+        Objects.requireNonNull(connection, "Argument connection cannot be null.");
 
         if (contentLength > Integer.MAX_VALUE) {
             throw new IllegalArgumentException(
@@ -59,14 +57,11 @@ public final class CronetBufferedOutputStream extends CronetOutputStream {
 
     /**
      * Package protected constructor used when content length is not known.
+     *
      * @param connection The CronetHttpURLConnection object.
      */
     CronetBufferedOutputStream(final CronetHttpURLConnection connection) {
-        if (connection == null) {
-            throw new NullPointerException();
-        }
-
-        mConnection = connection;
+        mConnection = Objects.requireNonNull(connection);
         mInitialContentLength = -1;
         // Buffering without knowing content-length.
         mBuffer = ByteBuffer.allocate(INITIAL_BUFFER_SIZE);
@@ -93,11 +88,6 @@ public final class CronetBufferedOutputStream extends CronetOutputStream {
             throw new ProtocolException(
                     "exceeded content-length limit of " + mInitialContentLength + " bytes");
         }
-        if (mConnected) {
-            throw new IllegalStateException(
-                    "Use setFixedLengthStreamingMode() or "
-                            + "setChunkedStreamingMode() for writing after connect");
-        }
         if (mInitialContentLength != -1) {
             // If mInitialContentLength is known, the buffer should not grow.
             return;
@@ -115,15 +105,36 @@ public final class CronetBufferedOutputStream extends CronetOutputStream {
 
     // Below are CronetOutputStream implementations:
 
-    /** Sets {@link #mConnected} to {@code true}. */
     @Override
-    void setConnected() throws IOException {
+    boolean connectRequested() throws IOException {
+        assert !mConnected;
+
+        if (!isClosed()) {
+            // Before we can send the request we need to know the size of the request body in order
+            // to populate the `Content-Length` buffer, so defer connection until the stream is
+            // closed.
+            mConnectRequested = true;
+            return false;
+        }
+
         mConnected = true;
         if (mBuffer.position() < mInitialContentLength) {
             throw new ProtocolException("Content received is less than Content-Length");
         }
         // Flip the buffer to prepare it for UploadDataProvider read calls.
         mBuffer.flip();
+        return true;
+    }
+
+    @Override
+    public void close() throws IOException {
+        super.close();
+        // Now we know the size of the request body, so we can send the request with the correct
+        // `Content-Length` header.
+        if (mConnectRequested) {
+            mConnection.connect();
+            mConnectRequested = false;
+        }
     }
 
     @Override
@@ -154,20 +165,28 @@ public final class CronetBufferedOutputStream extends CronetOutputStream {
 
         @Override
         public void read(UploadDataSink uploadDataSink, ByteBuffer byteBuffer) {
-            final int availableSpace = byteBuffer.remaining();
-            if (availableSpace < mBuffer.remaining()) {
-                byteBuffer.put(mBuffer.array(), mBuffer.position(), availableSpace);
-                mBuffer.position(mBuffer.position() + availableSpace);
-            } else {
-                byteBuffer.put(mBuffer);
+            try (var traceEvent =
+                    ScopedSysTraceEvent.scoped(
+                            "CronetBufferedOutputStream.UploadDataProviderImpl#read")) {
+                final int availableSpace = byteBuffer.remaining();
+                if (availableSpace < mBuffer.remaining()) {
+                    byteBuffer.put(mBuffer.array(), mBuffer.position(), availableSpace);
+                    mBuffer.position(mBuffer.position() + availableSpace);
+                } else {
+                    byteBuffer.put(mBuffer);
+                }
+                uploadDataSink.onReadSucceeded(false);
             }
-            uploadDataSink.onReadSucceeded(false);
         }
 
         @Override
         public void rewind(UploadDataSink uploadDataSink) {
-            mBuffer.position(0);
-            uploadDataSink.onRewindSucceeded();
+            try (var traceEvent =
+                    ScopedSysTraceEvent.scoped(
+                            "CronetBufferedOutputStream.UploadDataProviderImpl#rewind")) {
+                mBuffer.position(0);
+                uploadDataSink.onRewindSucceeded();
+            }
         }
     }
 }

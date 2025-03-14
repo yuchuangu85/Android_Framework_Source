@@ -16,10 +16,15 @@
 
 package android.net.wifi.aware;
 
+import static android.net.wifi.aware.Characteristics.WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_128;
+
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.os.Parcel;
 import android.os.Parcelable;
+
+import com.android.wifi.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -73,6 +78,11 @@ public final class AwarePairingConfig implements Parcelable {
      * Aware Pairing bootstrapping method NFC reader
      */
     public static final int PAIRING_BOOTSTRAPPING_NFC_READER = 1 << 8;
+    /**
+     * This is used for the boundary check and should be the max value of the bitmap + 1.
+     * @hide
+     */
+    public static final int PAIRING_BOOTSTRAPPING_MAX = 1 << 9;
 
 
     /** @hide */
@@ -96,6 +106,7 @@ public final class AwarePairingConfig implements Parcelable {
     private final boolean mPairingCache;
     private final boolean mPairingVerification;
     private final int mBootstrappingMethods;
+    private final int mCipherSuites;
 
     /**
      * Check if the NPK/NIK cache is support in the config
@@ -129,6 +140,29 @@ public final class AwarePairingConfig implements Parcelable {
         return mBootstrappingMethods;
     }
 
+    /**
+     * Get the supported cipher suites in this config.
+     */
+    @FlaggedApi(Flags.FLAG_AWARE_PAIRING)
+    @Characteristics.WifiAwarePairingCipherSuites
+    public int getSupportedCipherSuites() {
+        return mCipherSuites;
+    }
+
+    /**
+     * Verifies that the contents of the AwarePairingConfig are valid
+     * @hide
+     */
+    public boolean assertValid(Characteristics characteristics) {
+        if (mBootstrappingMethods < 0 || mBootstrappingMethods >= PAIRING_BOOTSTRAPPING_MAX) {
+            return false;
+        }
+        if ((characteristics.getSupportedPairingCipherSuites() & mCipherSuites) == 0) {
+            return false;
+        }
+        return true;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -136,21 +170,24 @@ public final class AwarePairingConfig implements Parcelable {
         AwarePairingConfig that = (AwarePairingConfig) o;
         return mPairingSetup == that.mPairingSetup && mPairingCache == that.mPairingCache
                 && mPairingVerification == that.mPairingVerification
-                && mBootstrappingMethods == that.mBootstrappingMethods;
+                && mBootstrappingMethods == that.mBootstrappingMethods
+                && mCipherSuites == that.mCipherSuites;
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(mPairingSetup, mPairingCache, mPairingVerification,
-                mBootstrappingMethods);
+                mBootstrappingMethods, mCipherSuites);
     }
 
     /** @hide */
-    public AwarePairingConfig(boolean setup, boolean cache, boolean verification, int method) {
+    public AwarePairingConfig(boolean setup, boolean cache, boolean verification, int method,
+            int cipherSuites) {
         mPairingSetup = setup;
         mPairingCache = cache;
         mPairingVerification = verification;
         mBootstrappingMethods = method;
+        mCipherSuites = cipherSuites;
     }
 
     /** @hide */
@@ -159,6 +196,7 @@ public final class AwarePairingConfig implements Parcelable {
         mPairingCache = in.readBoolean();
         mPairingVerification = in.readBoolean();
         mBootstrappingMethods = in.readInt();
+        mCipherSuites = in.readInt();
     }
 
     @Override
@@ -167,6 +205,7 @@ public final class AwarePairingConfig implements Parcelable {
         dest.writeBoolean(mPairingCache);
         dest.writeBoolean(mPairingVerification);
         dest.writeInt(mBootstrappingMethods);
+        dest.writeInt(mCipherSuites);
     }
 
     @Override
@@ -194,6 +233,7 @@ public final class AwarePairingConfig implements Parcelable {
         private boolean mPairingCache = false;
         private boolean mPairingVerification = false;
         private int mBootStrappingMethods = 0;
+        private int mCipherSuites = WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_128;
 
         /**
          * Set whether enable the Aware Pairing setup
@@ -238,13 +278,26 @@ public final class AwarePairingConfig implements Parcelable {
         }
 
         /**
+         * Set the supported cipher suites. If not set, default will be
+         * {@link Characteristics#WIFI_AWARE_CIPHER_SUITE_NCS_PK_PASN_128}
+         * @param cipherSuites cipher suites supported
+         * @return the current {@link Builder} builder, enabling chaining of builder methods.
+         */
+        @FlaggedApi(Flags.FLAG_AWARE_PAIRING)
+        @NonNull public Builder setSupportedCipherSuites(
+                @Characteristics.WifiAwarePairingCipherSuites int cipherSuites) {
+            mCipherSuites = cipherSuites;
+            return this;
+        }
+
+        /**
          * Build {@link AwarePairingConfig} given the current requests made on the
          * builder.
          */
         @NonNull
         public AwarePairingConfig build() {
             return new AwarePairingConfig(mPairingSetup, mPairingCache, mPairingVerification,
-                    mBootStrappingMethods);
+                    mBootStrappingMethods, mCipherSuites);
         }
     }
 }

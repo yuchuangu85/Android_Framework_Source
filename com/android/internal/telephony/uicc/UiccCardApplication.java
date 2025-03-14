@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.uicc;
 
+import android.annotation.NonNull;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
 import android.os.AsyncResult;
@@ -29,6 +30,7 @@ import android.util.IndentingPrintWriter;
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.PhoneConstants;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppState;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.AppType;
 import com.android.internal.telephony.uicc.IccCardApplicationStatus.PersoSubState;
@@ -105,11 +107,14 @@ public class UiccCardApplication {
     private RegistrantList mPinLockedRegistrants = new RegistrantList();
     private RegistrantList mNetworkLockedRegistrants = new RegistrantList();
 
-    public UiccCardApplication(UiccProfile uiccProfile,
-                        IccCardApplicationStatus as,
-                        Context c,
-                        CommandsInterface ci) {
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
+
+    public UiccCardApplication(@NonNull UiccProfile uiccProfile,
+            @NonNull IccCardApplicationStatus as, @NonNull Context c, @NonNull CommandsInterface ci,
+            @NonNull FeatureFlags flags) {
         if (DBG) log("Creating UiccApp: " + as);
+        mFeatureFlags = flags;
         mUiccProfile = uiccProfile;
         mAppState = as.app_state;
         mAppType = as.app_type;
@@ -208,7 +213,7 @@ public class UiccCardApplication {
         } else if (type == AppType.APPTYPE_RUIM || type == AppType.APPTYPE_CSIM){
             return new RuimRecords(this, c, ci);
         } else if (type == AppType.APPTYPE_ISIM) {
-            return new IsimUiccRecords(this, c, ci);
+            return new IsimUiccRecords(this, c, ci, mFeatureFlags);
         } else {
             // Unknown app type (maybe detection is still in progress)
             return null;

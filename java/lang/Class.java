@@ -249,21 +249,11 @@ public final class Class<T> implements java.io.Serializable,
      */
     private transient Object vtable;
 
-    /**
-     * Instance fields. These describe the layout of the contents of an Object. Note that only the
-     * fields directly declared by this class are listed in iFields; fields declared by a
-     * superclass are listed in the superclass's Class.iFields.
-     *
-     * All instance fields that refer to objects are guaranteed to be at the beginning of the field
-     * list.  {@link Class#numReferenceInstanceFields} specifies the number of reference fields.
-     */
-    private transient long iFields;
+    /** Declared fields. */
+    private transient long fields;
 
     /** All methods with this class as the base for virtual dispatch. */
     private transient long methods;
-
-    /** Static fields */
-    private transient long sFields;
 
     /** access flags; low 16 bits are defined by VM spec */
     private transient int accessFlags;

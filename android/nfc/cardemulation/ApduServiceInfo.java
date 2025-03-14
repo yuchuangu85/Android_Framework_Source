@@ -52,10 +52,12 @@ import org.xmlpull.v1.XmlPullParserException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
@@ -67,6 +69,34 @@ import java.util.regex.Pattern;
 @FlaggedApi(Flags.FLAG_ENABLE_NFC_MAINLINE)
 public final class ApduServiceInfo implements Parcelable {
     private static final String TAG = "ApduServiceInfo";
+
+    private static final Pattern PLPF_PATTERN =
+            Pattern.compile("[0-9A-Fa-f]{2,}[0-9A-Fa-f,\\?,\\*\\.]*");
+    private static final Pattern PLF_PATTERN =
+            Pattern.compile("[0-9A-Fa-f]{2,}");
+
+    /**
+     * Component level {@link android.content.pm.PackageManager.Property PackageManager
+     * .Property} for a system application to change its icon and label
+     * on the default applications page. This property should be added to an
+     * {@link HostApduService} declaration in the manifest.
+     *
+     * <p>For example:
+     * <pre>
+     * &lt;service
+     *     android:apduServiceBanner="@drawable/product_logo"
+     *     android:label="@string/service_label"&gt
+     *      &lt;property
+     *          android:name="android.content.PROPERTY_WALLET_ICON_AND_LABEL_HOLDER"
+     *          android:value="true"/&gt;
+     * &lt/service&gt;
+     * </pre>
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(android.permission.flags.Flags.FLAG_WALLET_ROLE_ICON_PROPERTY_ENABLED)
+    public static final String PROPERTY_WALLET_PREFERRED_BANNER_AND_LABEL =
+            "android.nfc.cardemulation.PROPERTY_WALLET_PREFERRED_BANNER_AND_LABEL";
 
     /**
      * The service that implements this
@@ -146,13 +176,36 @@ public final class ApduServiceInfo implements Parcelable {
     private boolean mShouldDefaultToObserveMode;
 
     /**
+     * Whether or not this service wants to share the same routing priority as the
+     * Wallet role owner.
+     */
+    private boolean mWantsRoleHolderPriority;
+
+    /**
+     * Constructor of {@link ApduServiceInfo}.
+     * @param info App component info
+     * @param onHost whether service is on host or not (secure element)
+     * @param description The description of service
+     * @param staticAidGroups static AID groups
+     * @param dynamicAidGroups dynamic AID groups
+     * @param requiresUnlock whether this service should only be started
+     *                       when the device is unlocked
+     * @param bannerResource The id of the service banner specified in XML
+     * @param uid The uid of the package the service belongs to
+     * @param settingsActivityName Settings Activity for this service
+     * @param offHost Off-host reader name
+     * @param staticOffHost Off-host reader name from manifest file
+     *
      * @hide
      */
     @UnsupportedAppUsage
-    public ApduServiceInfo(ResolveInfo info, boolean onHost, String description,
-            ArrayList<AidGroup> staticAidGroups, ArrayList<AidGroup> dynamicAidGroups,
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_NFC_APDU_SERVICE_INFO_CONSTRUCTOR)
+    public ApduServiceInfo(@NonNull ResolveInfo info, boolean onHost, @NonNull String description,
+            @NonNull List<AidGroup> staticAidGroups, @NonNull List<AidGroup> dynamicAidGroups,
             boolean requiresUnlock, int bannerResource, int uid,
-            String settingsActivityName, String offHost, String staticOffHost) {
+            @NonNull String settingsActivityName, @NonNull String offHost,
+            @NonNull String staticOffHost) {
         this(info, onHost, description, staticAidGroups, dynamicAidGroups,
                 requiresUnlock, bannerResource, uid, settingsActivityName,
                 offHost, staticOffHost, false);
@@ -162,7 +215,7 @@ public final class ApduServiceInfo implements Parcelable {
      * @hide
      */
     public ApduServiceInfo(ResolveInfo info, boolean onHost, String description,
-            ArrayList<AidGroup> staticAidGroups, ArrayList<AidGroup> dynamicAidGroups,
+            List<AidGroup> staticAidGroups, List<AidGroup> dynamicAidGroups,
             boolean requiresUnlock, int bannerResource, int uid,
             String settingsActivityName, String offHost, String staticOffHost,
             boolean isEnabled) {
@@ -181,7 +234,8 @@ public final class ApduServiceInfo implements Parcelable {
         this(info, onHost, description, staticAidGroups, dynamicAidGroups,
                 requiresUnlock, requiresScreenOn, bannerResource, uid,
                 settingsActivityName, offHost, staticOffHost, isEnabled,
-                new HashMap<String, Boolean>(), new HashMap<Pattern, Boolean>());
+                new HashMap<String, Boolean>(), new TreeMap<>(
+                        Comparator.comparing(Pattern::toString)));
     }
 
     /**
@@ -281,6 +335,12 @@ public final class ApduServiceInfo implements Parcelable {
                 mShouldDefaultToObserveMode = sa.getBoolean(
                         R.styleable.HostApduService_shouldDefaultToObserveMode,
                         false);
+                if (Flags.nfcAssociatedRoleServices()) {
+                    mWantsRoleHolderPriority = sa.getBoolean(
+                            R.styleable.HostApduService_wantsRoleHolderPriority,
+                            false
+                    );
+                }
                 sa.recycle();
             } else {
                 TypedArray sa = res.obtainAttributes(attrs,
@@ -301,7 +361,7 @@ public final class ApduServiceInfo implements Parcelable {
                 mOffHostName = sa.getString(
                         com.android.internal.R.styleable.OffHostApduService_secureElementName);
                 mShouldDefaultToObserveMode = sa.getBoolean(
-                        R.styleable.HostApduService_shouldDefaultToObserveMode,
+                        R.styleable.OffHostApduService_shouldDefaultToObserveMode,
                         false);
                 if (mOffHostName != null) {
                     if (mOffHostName.equals("eSE")) {
@@ -311,13 +371,20 @@ public final class ApduServiceInfo implements Parcelable {
                     }
                 }
                 mStaticOffHostName = mOffHostName;
+                if (Flags.nfcAssociatedRoleServices()) {
+                    mWantsRoleHolderPriority = sa.getBoolean(
+                            R.styleable.OffHostApduService_wantsRoleHolderPriority,
+                            false
+                    );
+                }
                 sa.recycle();
             }
 
             mStaticAidGroups = new HashMap<String, AidGroup>();
             mDynamicAidGroups = new HashMap<String, AidGroup>();
             mAutoTransact = new HashMap<String, Boolean>();
-            mAutoTransactPatterns = new HashMap<Pattern, Boolean>();
+            mAutoTransactPatterns = new TreeMap<Pattern, Boolean>(
+                    Comparator.comparing(Pattern::toString));
             mOnHost = onHost;
 
             final int depth = parser.getDepth();
@@ -410,9 +477,14 @@ public final class ApduServiceInfo implements Parcelable {
                     boolean autoTransact = a.getBoolean(
                             com.android.internal.R.styleable.PollingLoopFilter_autoTransact,
                             false);
-                    if (!mOnHost && !autoTransact) {
+                    boolean isValidFilter = PLF_PATTERN.matcher(plf).matches()
+                            && plf.length() % 2 == 0;
+                    if (!isValidFilter) {
                         Log.e(TAG, "Ignoring polling-loop-filter " + plf
-                                + " for offhost service that isn't autoTranact");
+                                + " it is not a valid filter");
+                    } else if (!mOnHost && !autoTransact) {
+                        Log.e(TAG, "Ignoring polling-loop-filter " + plf
+                                + " for offhost service that isn't autoTransact");
                     } else {
                         mAutoTransact.put(plf, autoTransact);
                     }
@@ -427,9 +499,13 @@ public final class ApduServiceInfo implements Parcelable {
                     boolean autoTransact = a.getBoolean(
                             com.android.internal.R.styleable.PollingLoopFilter_autoTransact,
                             false);
-                    if (!mOnHost && !autoTransact) {
-                        Log.e(TAG, "Ignoring polling-loop-filter " + plf
-                                + " for offhost service that isn't autoTranact");
+                    boolean isValidFilter = PLPF_PATTERN.matcher(plf).matches();
+                    if (!isValidFilter) {
+                        Log.e(TAG, "Ignoring polling-loop-pattern-filter " + plf
+                                + " it is not a valid pattern filter");
+                    } else if (!mOnHost && !autoTransact) {
+                        Log.e(TAG, "Ignoring polling-loop-pattern-filter " + plf
+                                + " for offhost service that isn't autoTransact");
                     } else {
                         mAutoTransactPatterns.put(Pattern.compile(plf), autoTransact);
                     }
@@ -510,8 +586,10 @@ public final class ApduServiceInfo implements Parcelable {
         if (mAutoTransact.getOrDefault(plf.toUpperCase(Locale.ROOT), false)) {
             return true;
         }
-        List<Pattern> patternMatches = mAutoTransactPatterns.keySet().stream()
-                .filter(p -> p.matcher(plf).matches()).toList();
+        boolean isPattern = plf.contains("?") || plf.contains("*");
+        List<Pattern> patternMatches = mAutoTransactPatterns.keySet().stream().filter(
+            p -> isPattern ? p.toString().equals(plf) : p.matcher(plf).matches()).toList();
+
         if (patternMatches == null || patternMatches.size() == 0) {
             return false;
         }
@@ -701,6 +779,17 @@ public final class ApduServiceInfo implements Parcelable {
     }
 
     /**
+     * Returns whether or not this service wants to share the Wallet role holder priority
+     * with other packages/services with the same signature.
+     *
+     * @return whether or not this service wants to share priority
+     */
+    @FlaggedApi(Flags.FLAG_NFC_ASSOCIATED_ROLE_SERVICES)
+    public boolean wantsRoleHolderPriority() {
+        return mWantsRoleHolderPriority;
+    }
+
+    /**
      * Returns description of service.
      * @return user readable description of service
      */
@@ -739,10 +828,16 @@ public final class ApduServiceInfo implements Parcelable {
     @FlaggedApi(Flags.FLAG_NFC_READ_POLLING_LOOP)
     public void addPollingLoopFilter(@NonNull String pollingLoopFilter,
             boolean autoTransact) {
+        if (!PLF_PATTERN.matcher(pollingLoopFilter).matches()
+                || pollingLoopFilter.length() % 2 != 0) {
+            throw new IllegalArgumentException(
+                    "Polling loop filter must contain an even number of characters 0-9 or A-F"
+            );
+        }
         if (!mOnHost && !autoTransact) {
             return;
         }
-        mAutoTransact.put(pollingLoopFilter, autoTransact);
+        mAutoTransact.put(pollingLoopFilter.toUpperCase(Locale.ROOT), autoTransact);
     }
 
     /**
@@ -767,10 +862,16 @@ public final class ApduServiceInfo implements Parcelable {
     @FlaggedApi(Flags.FLAG_NFC_READ_POLLING_LOOP)
     public void addPollingLoopPatternFilter(@NonNull String pollingLoopPatternFilter,
             boolean autoTransact) {
+        if (!PLPF_PATTERN.matcher(pollingLoopPatternFilter).matches()) {
+            throw new IllegalArgumentException(
+                    "Polling loop pattern filter is invalid"
+            );
+        }
         if (!mOnHost && !autoTransact) {
             return;
         }
-        mAutoTransactPatterns.put(Pattern.compile(pollingLoopPatternFilter), autoTransact);
+        mAutoTransactPatterns.put(Pattern.compile(
+                pollingLoopPatternFilter.toUpperCase(Locale.ROOT)), autoTransact);
     }
 
     /**
@@ -1028,6 +1129,9 @@ public final class ApduServiceInfo implements Parcelable {
         pw.println("    Settings Activity: " + mSettingsActivityName);
         pw.println("    Requires Device Unlock: " + mRequiresDeviceUnlock);
         pw.println("    Requires Device ScreenOn: " + mRequiresDeviceScreenOn);
+        pw.println("    Should Default to Observe Mode: " + mShouldDefaultToObserveMode);
+        pw.println("    Auto-Transact Mapping: " + mAutoTransact);
+        pw.println("    Auto-Transact Patterns: " + mAutoTransactPatterns);
     }
 
 
@@ -1081,6 +1185,27 @@ public final class ApduServiceInfo implements Parcelable {
             proto.end(token);
         }
         proto.write(ApduServiceInfoProto.SETTINGS_ACTIVITY_NAME, mSettingsActivityName);
+        proto.write(ApduServiceInfoProto.SHOULD_DEFAULT_TO_OBSERVE_MODE,
+                mShouldDefaultToObserveMode);
+        {
+            long token = proto.start(ApduServiceInfoProto.AUTO_TRANSACT_MAPPING);
+            for (Map.Entry<String, Boolean> entry : mAutoTransact.entrySet()) {
+                proto.write(ApduServiceInfoProto.AutoTransactMapping.AID, entry.getKey());
+                proto.write(ApduServiceInfoProto.AutoTransactMapping.SHOULD_AUTO_TRANSACT,
+                        entry.getValue());
+            }
+            proto.end(token);
+        }
+        {
+            long token = proto.start(ApduServiceInfoProto.AUTO_TRANSACT_PATTERNS);
+            for (Map.Entry<Pattern, Boolean> entry : mAutoTransactPatterns.entrySet()) {
+                proto.write(ApduServiceInfoProto.AutoTransactPattern.REGEXP_PATTERN,
+                        entry.getKey().pattern());
+                proto.write(ApduServiceInfoProto.AutoTransactPattern.SHOULD_AUTO_TRANSACT,
+                        entry.getValue());
+            }
+            proto.end(token);
+        }
     }
 
     private static final Pattern AID_PATTERN = Pattern.compile("[0-9A-Fa-f]{10,32}\\*?\\#?");

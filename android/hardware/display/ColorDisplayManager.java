@@ -17,7 +17,6 @@
 package android.hardware.display;
 
 import android.Manifest;
-import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -401,7 +400,6 @@ public final class ColorDisplayManager {
      * @hide
      */
     @TestApi
-    @FlaggedApi(android.app.Flags.FLAG_MODES_API)
     @RequiresPermission(Manifest.permission.CONTROL_DISPLAY_COLOR_TRANSFORMS)
     public boolean isSaturationActivated() {
         return mManager.isSaturationActivated();

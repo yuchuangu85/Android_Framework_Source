@@ -15,107 +15,132 @@
  */
 package com.android.internal.widget.remotecompose.core.operations;
 
-import com.android.internal.widget.remotecompose.core.CompanionOperation;
+import android.annotation.NonNull;
+
 import com.android.internal.widget.remotecompose.core.Operation;
 import com.android.internal.widget.remotecompose.core.Operations;
 import com.android.internal.widget.remotecompose.core.PaintContext;
-import com.android.internal.widget.remotecompose.core.PaintOperation;
 import com.android.internal.widget.remotecompose.core.WireBuffer;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentationBuilder;
+import com.android.internal.widget.remotecompose.core.documentation.DocumentedOperation;
+import com.android.internal.widget.remotecompose.core.serialize.MapSerializer;
 
 import java.util.List;
 
-public class DrawArc extends PaintOperation {
-    public static final Companion COMPANION = new Companion();
-    float mLeft;
-    float mTop;
-    float mRight;
-    float mBottom;
-    float mStartAngle;
-    float mSweepAngle;
+/** Draw an Arc command the specified arc, will be scaled to fit inside the specified oval. */
+public class DrawArc extends DrawBase6 {
+    private static final int OP_CODE = Operations.DRAW_ARC;
+    private static final String CLASS_NAME = "DrawArc";
 
+    /**
+     * Read this operation and add it to the list of operations
+     *
+     * @param buffer the buffer to read
+     * @param operations the list of operations that will be added to
+     */
+    public static void read(@NonNull WireBuffer buffer, @NonNull List<Operation> operations) {
+        Maker m = DrawArc::new;
+        read(m, buffer, operations);
+    }
+
+    /**
+     * The OP_CODE for this command
+     *
+     * @return the opcode
+     */
+    public static int id() {
+        return OP_CODE;
+    }
+
+    /**
+     * Writes out the operation to the buffer
+     *
+     * @param buffer the buffer to write to
+     * @param v1 The left side of the Oval
+     * @param v2 The top of the Oval
+     * @param v3 The right side of the Oval
+     * @param v4 The bottom of the Oval
+     * @param v5 Starting angle (in degrees) where the arc begins
+     * @param v6 Sweep angle (in degrees) measured clockwise
+     */
+    public static void apply(
+            @NonNull WireBuffer buffer,
+            float v1,
+            float v2,
+            float v3,
+            float v4,
+            float v5,
+            float v6) {
+        buffer.start(OP_CODE);
+        buffer.writeFloat(v1);
+        buffer.writeFloat(v2);
+        buffer.writeFloat(v3);
+        buffer.writeFloat(v4);
+        buffer.writeFloat(v5);
+        buffer.writeFloat(v6);
+    }
+
+    @Override
+    protected void write(
+            @NonNull WireBuffer buffer,
+            float v1,
+            float v2,
+            float v3,
+            float v4,
+            float v5,
+            float v6) {
+        apply(buffer, v1, v2, v3, v4, v5, v6);
+    }
+
+    /**
+     * Populate the documentation with a description of this operation
+     *
+     * @param doc to append the description to.
+     */
+    public static void documentation(@NonNull DocumentationBuilder doc) {
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+                .description(
+                        "Draw the specified arc"
+                                + "which will be scaled to fit inside the specified oval")
+                .field(DocumentedOperation.FLOAT, "left", "The left side of the Oval")
+                .field(DocumentedOperation.FLOAT, "top", "The top of the Oval")
+                .field(DocumentedOperation.FLOAT, "right", "The right side of the Oval")
+                .field(DocumentedOperation.FLOAT, "bottom", "The bottom of the Oval")
+                .field(
+                        DocumentedOperation.FLOAT,
+                        "startAngle",
+                        "Starting angle (in degrees) where the arc begins")
+                .field(
+                        DocumentedOperation.FLOAT,
+                        "sweepAngle",
+                        "Sweep angle (in degrees) measured clockwise");
+    }
+
+    /**
+     * Create Draw Arc command Draw the specified arc, which will be scaled to fit inside the
+     * specified oval.
+     *
+     * @param left the left side of the oval
+     * @param top the top of the oval
+     * @param right the right side of the oval
+     * @param bottom the bottom of the oval
+     * @param startAngle Starting angle (in degrees) where the arc begins
+     * @param sweepAngle Sweep angle (in degrees) measured clockwise
+     */
     public DrawArc(
-            float left,
-            float top,
-            float right,
-            float bottom,
-            float startAngle,
-            float sweepAngle) {
-        mLeft = left;
-        mTop = top;
-        mRight = right;
-        mBottom = bottom;
-        mStartAngle = startAngle;
-        mSweepAngle = sweepAngle;
+            float left, float top, float right, float bottom, float startAngle, float sweepAngle) {
+        super(left, top, right, bottom, startAngle, sweepAngle);
+        mName = "DrawArc";
     }
 
     @Override
-    public void write(WireBuffer buffer) {
-        COMPANION.apply(buffer, mLeft,
-                mTop,
-                mRight,
-                mBottom,
-                mStartAngle,
-                mSweepAngle);
+    public void paint(@NonNull PaintContext context) {
+        context.drawArc(mV1, mV2, mV3, mV4, mV5, mV6);
     }
 
     @Override
-    public String toString() {
-        return "DrawArc " + mLeft + " " + mTop
-                + " " + mRight + " " + mBottom + " "
-                + "- " + mStartAngle + " " + mSweepAngle + ";";
-    }
-
-    public static class Companion implements CompanionOperation {
-        private Companion() {
-        }
-
-        @Override
-        public void read(WireBuffer buffer, List<Operation> operations) {
-            float sLeft = buffer.readFloat();
-            float srcTop = buffer.readFloat();
-            float srcRight = buffer.readFloat();
-            float srcBottom = buffer.readFloat();
-            float mStartAngle = buffer.readFloat();
-            float mSweepAngle = buffer.readFloat();
-            DrawArc op = new DrawArc(sLeft, srcTop, srcRight, srcBottom,
-                    mStartAngle, mSweepAngle);
-            operations.add(op);
-        }
-
-        @Override
-        public String name() {
-            return "DrawArc";
-        }
-
-        @Override
-        public int id() {
-            return Operations.DRAW_ARC;
-        }
-
-        public void apply(WireBuffer buffer,
-                          float left,
-                          float top,
-                          float right,
-                          float bottom,
-                          float startAngle,
-                          float sweepAngle) {
-            buffer.start(Operations.DRAW_ARC);
-            buffer.writeFloat(left);
-            buffer.writeFloat(top);
-            buffer.writeFloat(right);
-            buffer.writeFloat(bottom);
-            buffer.writeFloat(startAngle);
-            buffer.writeFloat(sweepAngle);
-        }
-    }
-
-    @Override
-    public void paint(PaintContext context) {
-        context.drawArc(mLeft,
-                mTop,
-                mRight,
-                mBottom,
-                mStartAngle,
-                mSweepAngle);
+    public void serialize(MapSerializer serializer) {
+        serialize(serializer, "left", "top", "right", "bottom", "startAngle", "sweepAngle")
+                .add("type", CLASS_NAME);
     }
 }

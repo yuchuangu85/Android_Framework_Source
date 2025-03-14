@@ -1,10 +1,13 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.crypto.engines;
 
-import com.android.internal.org.bouncycastle.crypto.BlockCipher;
 import com.android.internal.org.bouncycastle.crypto.CipherParameters;
+import com.android.internal.org.bouncycastle.crypto.CryptoServicesRegistrar;
 import com.android.internal.org.bouncycastle.crypto.DataLengthException;
+import com.android.internal.org.bouncycastle.crypto.DefaultMultiBlockCipher;
+import com.android.internal.org.bouncycastle.crypto.MultiBlockCipher;
 import com.android.internal.org.bouncycastle.crypto.OutputLengthException;
+import com.android.internal.org.bouncycastle.crypto.constraints.DefaultServiceProperties;
 import com.android.internal.org.bouncycastle.crypto.params.KeyParameter;
 import com.android.internal.org.bouncycastle.util.Arrays;
 import com.android.internal.org.bouncycastle.util.Pack;
@@ -15,7 +18,7 @@ import com.android.internal.org.bouncycastle.util.Pack;
  * For further details see: <a href="https://csrc.nist.gov/encryption/aes/">https://csrc.nist.gov/encryption/aes/</a>.
  *
  * This implementation is based on optimizations from Dr. Brian Gladman's paper and C code at
- * <a href="http://fp.gladman.plus.com/cryptography_technology/rijndael/">http://fp.gladman.plus.com/cryptography_technology/rijndael/</a>
+ * <a href="https://fp.gladman.plus.com/cryptography_technology/rijndael/">https://fp.gladman.plus.com/cryptography_technology/rijndael/</a>
  *
  * There are three levels of tradeoff of speed vs memory
  * Because java has no preprocessor, they are written as three separate classes from which to choose
@@ -34,7 +37,7 @@ import com.android.internal.org.bouncycastle.util.Pack;
  *
  */
 public class AESEngine
-    implements BlockCipher
+    extends DefaultMultiBlockCipher
 {
     // The S box
     private static final byte[] S = {
@@ -414,7 +417,6 @@ private static final int[] Tinv0 =
 
     private int         ROUNDS;
     private int[][]     WorkingKey = null;
-    private int         C0, C1, C2, C3;
     private boolean     forEncryption;
 
     private byte[]      s;
@@ -422,10 +424,22 @@ private static final int[] Tinv0 =
     private static final int BLOCK_SIZE = 16;
 
     /**
+      * Return an AESEngine.
+      *
+      * @return an AES ECB mode cipher.
+      */
+     public static MultiBlockCipher newInstance()
+     {
+         return new AESEngine();
+     }
+
+    /**
      * default constructor - 128 bit block size.
+     * @deprecated use AESEngine.newInstance()
      */
     public AESEngine()
     {
+        CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), 256));
     }
 
     /**
@@ -452,6 +466,9 @@ private static final int[] Tinv0 =
             {
                 s = Arrays.clone(Si);
             }
+
+            CryptoServicesRegistrar.checkConstraints(new DefaultServiceProperties(getAlgorithmName(), bitsOfSecurity(), params, Utils.getPurpose(forEncryption)));
+
             return;
         }
 
@@ -468,38 +485,30 @@ private static final int[] Tinv0 =
         return BLOCK_SIZE;
     }
 
-    public int processBlock(
-        byte[] in,
-        int inOff,
-        byte[] out,
-        int outOff)
+    public int processBlock(byte[] in, int inOff, byte[] out, int outOff)
     {
         if (WorkingKey == null)
         {
             throw new IllegalStateException("AES engine not initialised");
         }
 
-        if ((inOff + (32 / 2)) > in.length)
+        if (inOff > (in.length - BLOCK_SIZE))
         {
             throw new DataLengthException("input buffer too short");
         }
 
-        if ((outOff + (32 / 2)) > out.length)
+        if (outOff > (out.length - BLOCK_SIZE))
         {
             throw new OutputLengthException("output buffer too short");
         }
 
         if (forEncryption)
         {
-            unpackBlock(in, inOff);
-            encryptBlock(WorkingKey);
-            packBlock(out, outOff);
+            encryptBlock(in, inOff, out, outOff, WorkingKey);
         }
         else
         {
-            unpackBlock(in, inOff);
-            decryptBlock(WorkingKey);
-            packBlock(out, outOff);
+            decryptBlock(in, inOff, out, outOff, WorkingKey);
         }
 
         return BLOCK_SIZE;
@@ -509,68 +518,18 @@ private static final int[] Tinv0 =
     {
     }
 
-    private void unpackBlock(
-        byte[]      bytes,
-        int         off)
+    private void encryptBlock(byte[] in, int inOff, byte[] out, int outOff, int[][] KW)
     {
-        int     index = off;
+        int C0 = Pack.littleEndianToInt(in, inOff +  0);
+        int C1 = Pack.littleEndianToInt(in, inOff +  4);
+        int C2 = Pack.littleEndianToInt(in, inOff +  8);
+        int C3 = Pack.littleEndianToInt(in, inOff + 12);
 
-        C0 = (bytes[index++] & 0xff);
-        C0 |= (bytes[index++] & 0xff) << 8;
-        C0 |= (bytes[index++] & 0xff) << 16;
-        C0 |= bytes[index++] << 24;
+        int t0 = C0 ^ KW[0][0];
+        int t1 = C1 ^ KW[0][1];
+        int t2 = C2 ^ KW[0][2];
 
-        C1 = (bytes[index++] & 0xff);
-        C1 |= (bytes[index++] & 0xff) << 8;
-        C1 |= (bytes[index++] & 0xff) << 16;
-        C1 |= bytes[index++] << 24;
-
-        C2 = (bytes[index++] & 0xff);
-        C2 |= (bytes[index++] & 0xff) << 8;
-        C2 |= (bytes[index++] & 0xff) << 16;
-        C2 |= bytes[index++] << 24;
-
-        C3 = (bytes[index++] & 0xff);
-        C3 |= (bytes[index++] & 0xff) << 8;
-        C3 |= (bytes[index++] & 0xff) << 16;
-        C3 |= bytes[index++] << 24;
-    }
-
-    private void packBlock(
-        byte[]      bytes,
-        int         off)
-    {
-        int     index = off;
-
-        bytes[index++] = (byte)C0;
-        bytes[index++] = (byte)(C0 >> 8);
-        bytes[index++] = (byte)(C0 >> 16);
-        bytes[index++] = (byte)(C0 >> 24);
-
-        bytes[index++] = (byte)C1;
-        bytes[index++] = (byte)(C1 >> 8);
-        bytes[index++] = (byte)(C1 >> 16);
-        bytes[index++] = (byte)(C1 >> 24);
-
-        bytes[index++] = (byte)C2;
-        bytes[index++] = (byte)(C2 >> 8);
-        bytes[index++] = (byte)(C2 >> 16);
-        bytes[index++] = (byte)(C2 >> 24);
-
-        bytes[index++] = (byte)C3;
-        bytes[index++] = (byte)(C3 >> 8);
-        bytes[index++] = (byte)(C3 >> 16);
-        bytes[index++] = (byte)(C3 >> 24);
-    }
-
-
-    private void encryptBlock(int[][] KW)
-    {
-        int t0 = this.C0 ^ KW[0][0];
-        int t1 = this.C1 ^ KW[0][1];
-        int t2 = this.C2 ^ KW[0][2];
-
-        int r = 1, r0, r1, r2, r3 = this.C3 ^ KW[0][3];
+        int r = 1, r0, r1, r2, r3 = C3 ^ KW[0][3];
         while (r < ROUNDS - 1)
         {
             r0 = T0[t0&255] ^ shift(T0[(t1>>8)&255], 24) ^ shift(T0[(t2>>16)&255], 16) ^ shift(T0[(r3>>24)&255], 8) ^ KW[r][0];
@@ -590,19 +549,29 @@ private static final int[] Tinv0 =
 
         // the final round's table is a simple function of S so we don't use a whole other four tables for it
 
-        this.C0 = (S[r0&255]&255) ^ ((S[(r1>>8)&255]&255)<<8) ^ ((s[(r2>>16)&255]&255)<<16) ^ (s[(r3>>24)&255]<<24) ^ KW[r][0];
-        this.C1 = (s[r1&255]&255) ^ ((S[(r2>>8)&255]&255)<<8) ^ ((S[(r3>>16)&255]&255)<<16) ^ (s[(r0>>24)&255]<<24) ^ KW[r][1];
-        this.C2 = (s[r2&255]&255) ^ ((S[(r3>>8)&255]&255)<<8) ^ ((S[(r0>>16)&255]&255)<<16) ^ (S[(r1>>24)&255]<<24) ^ KW[r][2];
-        this.C3 = (s[r3&255]&255) ^ ((s[(r0>>8)&255]&255)<<8) ^ ((s[(r1>>16)&255]&255)<<16) ^ (S[(r2>>24)&255]<<24) ^ KW[r][3];
+        C0 = (S[r0&255]&255) ^ ((S[(r1>>8)&255]&255)<<8) ^ ((s[(r2>>16)&255]&255)<<16) ^ (s[(r3>>24)&255]<<24) ^ KW[r][0];
+        C1 = (s[r1&255]&255) ^ ((S[(r2>>8)&255]&255)<<8) ^ ((S[(r3>>16)&255]&255)<<16) ^ (s[(r0>>24)&255]<<24) ^ KW[r][1];
+        C2 = (s[r2&255]&255) ^ ((S[(r3>>8)&255]&255)<<8) ^ ((S[(r0>>16)&255]&255)<<16) ^ (S[(r1>>24)&255]<<24) ^ KW[r][2];
+        C3 = (s[r3&255]&255) ^ ((s[(r0>>8)&255]&255)<<8) ^ ((s[(r1>>16)&255]&255)<<16) ^ (S[(r2>>24)&255]<<24) ^ KW[r][3];
+
+        Pack.intToLittleEndian(C0, out, outOff +  0);
+        Pack.intToLittleEndian(C1, out, outOff +  4);
+        Pack.intToLittleEndian(C2, out, outOff +  8);
+        Pack.intToLittleEndian(C3, out, outOff + 12);
     }
 
-    private void decryptBlock(int[][] KW)
+    private void decryptBlock(byte[] in, int inOff, byte[] out, int outOff, int[][] KW)
     {
-        int t0 = this.C0 ^ KW[ROUNDS][0];
-        int t1 = this.C1 ^ KW[ROUNDS][1];
-        int t2 = this.C2 ^ KW[ROUNDS][2];
+        int C0 = Pack.littleEndianToInt(in, inOff +  0);
+        int C1 = Pack.littleEndianToInt(in, inOff +  4);
+        int C2 = Pack.littleEndianToInt(in, inOff +  8);
+        int C3 = Pack.littleEndianToInt(in, inOff + 12);
 
-        int r = ROUNDS - 1, r0, r1, r2, r3 = this.C3 ^ KW[ROUNDS][3];
+        int t0 = C0 ^ KW[ROUNDS][0];
+        int t1 = C1 ^ KW[ROUNDS][1];
+        int t2 = C2 ^ KW[ROUNDS][2];
+
+        int r = ROUNDS - 1, r0, r1, r2, r3 = C3 ^ KW[ROUNDS][3];
         while (r > 1)
         {
             r0 = Tinv0[t0&255] ^ shift(Tinv0[(r3>>8)&255], 24) ^ shift(Tinv0[(t2>>16)&255], 16) ^ shift(Tinv0[(t1>>24)&255], 8) ^ KW[r][0];
@@ -622,9 +591,23 @@ private static final int[] Tinv0 =
         
         // the final round's table is a simple function of Si so we don't use a whole other four tables for it
 
-        this.C0 = (Si[r0&255]&255) ^ ((s[(r3>>8)&255]&255)<<8) ^ ((s[(r2>>16)&255]&255)<<16) ^ (Si[(r1>>24)&255]<<24) ^ KW[0][0];
-        this.C1 = (s[r1&255]&255) ^ ((s[(r0>>8)&255]&255)<<8) ^ ((Si[(r3>>16)&255]&255)<<16) ^ (s[(r2>>24)&255]<<24) ^ KW[0][1];
-        this.C2 = (s[r2&255]&255) ^ ((Si[(r1>>8)&255]&255)<<8) ^ ((Si[(r0>>16)&255]&255)<<16) ^ (s[(r3>>24)&255]<<24) ^ KW[0][2];
-        this.C3 = (Si[r3&255]&255) ^ ((s[(r2>>8)&255]&255)<<8) ^ ((s[(r1>>16)&255]&255)<<16) ^ (s[(r0>>24)&255]<<24) ^ KW[0][3];
+        C0 = (Si[r0&255]&255) ^ ((s[(r3>>8)&255]&255)<<8) ^ ((s[(r2>>16)&255]&255)<<16) ^ (Si[(r1>>24)&255]<<24) ^ KW[0][0];
+        C1 = (s[r1&255]&255) ^ ((s[(r0>>8)&255]&255)<<8) ^ ((Si[(r3>>16)&255]&255)<<16) ^ (s[(r2>>24)&255]<<24) ^ KW[0][1];
+        C2 = (s[r2&255]&255) ^ ((Si[(r1>>8)&255]&255)<<8) ^ ((Si[(r0>>16)&255]&255)<<16) ^ (s[(r3>>24)&255]<<24) ^ KW[0][2];
+        C3 = (Si[r3&255]&255) ^ ((s[(r2>>8)&255]&255)<<8) ^ ((s[(r1>>16)&255]&255)<<16) ^ (s[(r0>>24)&255]<<24) ^ KW[0][3];
+
+        Pack.intToLittleEndian(C0, out, outOff +  0);
+        Pack.intToLittleEndian(C1, out, outOff +  4);
+        Pack.intToLittleEndian(C2, out, outOff +  8);
+        Pack.intToLittleEndian(C3, out, outOff + 12);
+    }
+
+    private int bitsOfSecurity()
+    {
+        if (WorkingKey == null)
+        {
+            return 256;
+        }
+        return (WorkingKey.length - 7) << 5;
     }
 }

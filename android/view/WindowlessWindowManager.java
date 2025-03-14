@@ -23,7 +23,6 @@ import android.content.res.Configuration;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.graphics.Region;
-import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteCallback;
 import android.os.RemoteException;
@@ -31,6 +30,7 @@ import android.util.Log;
 import android.util.MergedConfiguration;
 import android.view.View.FocusDirection;
 import android.view.WindowInsets.Type.InsetsType;
+import android.view.inputmethod.ImeTracker;
 import android.window.ClientWindowFrames;
 import android.window.InputTransferToken;
 import android.window.OnBackInvokedCallbackInfo;
@@ -86,7 +86,6 @@ public class WindowlessWindowManager implements IWindowSession {
     final HashMap<IBinder, ResizeCompleteCallback> mResizeCompletionForWindow =
         new HashMap<IBinder, ResizeCompleteCallback>();
 
-    private final SurfaceSession mSurfaceSession = new SurfaceSession();
     protected final SurfaceControl mRootSurface;
     private final Configuration mConfiguration;
     private final IWindowSession mRealWm;
@@ -184,13 +183,13 @@ public class WindowlessWindowManager implements IWindowSession {
             InputChannel outInputChannel, InsetsState outInsetsState,
             InsetsSourceControl.Array outActiveControls, Rect outAttachedFrame,
             float[] outSizeCompatScale) {
-        final SurfaceControl leash = new SurfaceControl.Builder(mSurfaceSession)
+        final SurfaceControl leash = new SurfaceControl.Builder()
                 .setName(attrs.getTitle().toString() + "Leash")
                 .setCallsite("WindowlessWindowManager.addToDisplay")
                 .setParent(getParentSurface(window, attrs))
                 .build();
 
-        final SurfaceControl sc = new SurfaceControl.Builder(mSurfaceSession)
+        final SurfaceControl sc = new SurfaceControl.Builder()
                 .setFormat(attrs.format)
                 .setBLASTLayer()
                 .setName(attrs.getTitle().toString())
@@ -349,18 +348,6 @@ public class WindowlessWindowManager implements IWindowSession {
     }
 
     @Override
-    public int relayoutLegacy(IWindow window, WindowManager.LayoutParams inAttrs,
-            int requestedWidth, int requestedHeight, int viewFlags, int flags, int seq,
-            int lastSyncSeqId, ClientWindowFrames outFrames,
-            MergedConfiguration outMergedConfiguration, SurfaceControl outSurfaceControl,
-            InsetsState outInsetsState, InsetsSourceControl.Array outActiveControls,
-            Bundle outSyncSeqIdBundle) {
-        return relayoutInner(window, inAttrs, requestedWidth, requestedHeight, viewFlags, flags,
-                seq, lastSyncSeqId, outFrames, outMergedConfiguration, outSurfaceControl,
-                outInsetsState, outActiveControls);
-    }
-
-    @Override
     public int relayout(IWindow window, WindowManager.LayoutParams inAttrs,
             int requestedWidth, int requestedHeight, int viewFlags, int flags, int seq,
             int lastSyncSeqId, WindowRelayoutResult outRelayoutResult) {
@@ -516,16 +503,6 @@ public class WindowlessWindowManager implements IWindowSession {
     }
 
     @Override
-    public boolean performHapticFeedback(int effectId, boolean always, boolean fromIme) {
-        return false;
-    }
-
-    @Override
-    public void performHapticFeedbackAsync(int effectId, boolean always, boolean fromIme) {
-        performHapticFeedback(effectId, always, fromIme);
-    }
-
-    @Override
     public android.os.IBinder performDrag(android.view.IWindow window, int flags,
             android.view.SurfaceControl surface, int touchSource, int touchDeviceId,
             int touchPointerId, float touchX, float touchY, float thumbCenterX, float thumbCenterY,
@@ -609,7 +586,14 @@ public class WindowlessWindowManager implements IWindowSession {
 
     @Override
     public void updateRequestedVisibleTypes(IWindow window,
-            @InsetsType int requestedVisibleTypes)  {
+            @InsetsType int requestedVisibleTypes, @Nullable ImeTracker.Token imeStatsToken)
+            throws RemoteException {
+        if (android.view.inputmethod.Flags.refactorInsetsController()) {
+            // Embedded windows do not control insets (except for IME). The host window is
+            // responsible for controlling the insets.
+            mRealWm.updateRequestedVisibleTypes(window,
+                    requestedVisibleTypes & WindowInsets.Type.ime(), imeStatsToken);
+        }
     }
 
     @Override
@@ -688,6 +672,16 @@ public class WindowlessWindowManager implements IWindowSession {
         Log.e(TAG, "Received request to moveFocusToAdjacentWindow on"
                 + " WindowlessWindowManager. We shouldn't get here!");
         return false;
+    }
+
+    @Override
+    public void notifyImeWindowVisibilityChangedFromClient(IWindow window, boolean visible,
+            @NonNull ImeTracker.Token statsToken) {
+    }
+
+    @Override
+    public void notifyInsetsAnimationRunningStateChanged(IWindow window, boolean running) {
+        // NO-OP
     }
 
     void setParentInterface(@Nullable ISurfaceControlViewHostParent parentInterface) {

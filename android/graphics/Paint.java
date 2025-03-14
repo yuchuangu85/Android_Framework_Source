@@ -16,8 +16,11 @@
 
 package android.graphics;
 
+import static com.android.text.flags.Flags.FLAG_DEPRECATE_ELEGANT_TEXT_HEIGHT_API;
 import static com.android.text.flags.Flags.FLAG_FIX_LINE_HEIGHT_FOR_LOCALE;
 import static com.android.text.flags.Flags.FLAG_LETTER_SPACING_JUSTIFICATION;
+import static com.android.text.flags.Flags.FLAG_TYPEFACE_REDESIGN_READONLY;
+import static com.android.text.flags.Flags.FLAG_VERTICAL_TEXT_LAYOUT;
 
 import android.annotation.ColorInt;
 import android.annotation.ColorLong;
@@ -33,14 +36,17 @@ import android.compat.annotation.ChangeId;
 import android.compat.annotation.EnabledSince;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.graphics.fonts.FontVariationAxis;
+import android.graphics.text.TextRunShaper;
 import android.os.Build;
 import android.os.LocaleList;
 import android.text.GraphicsOperations;
 import android.text.SpannableString;
 import android.text.SpannedString;
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
+import com.android.text.flags.Flags;
 
 import dalvik.annotation.optimization.CriticalNative;
 import dalvik.annotation.optimization.FastNative;
@@ -52,6 +58,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
@@ -60,11 +67,13 @@ import java.util.Objects;
  * geometries, text and bitmaps.
  */
 public class Paint {
+    private static final String TAG = "Paint";
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private long mNativePaint;
     private long mNativeShader;
     private long mNativeColorFilter;
+    private long mNativeXfermode;
 
     // Use a Holder to allow static initialization of Paint in the boot image.
     private static class NoImagePreloadHolder {
@@ -89,6 +98,7 @@ public class Paint {
     private LocaleList      mLocales;
     private String          mFontFeatureSettings;
     private String          mFontVariationSettings;
+    private String          mFontVariationOverride;
 
     private float           mShadowLayerRadius;
     private float           mShadowLayerDx;
@@ -264,7 +274,24 @@ public class Paint {
     public static final int EMBEDDED_BITMAP_TEXT_FLAG = 0x400;
     /** @hide bit mask for the flag forcing freetype's autohinter on for text */
     public static final int AUTO_HINTING_TEXT_FLAG = 0x800;
-    /** @hide bit mask for the flag enabling vertical rendering for text */
+
+    /**
+     * A flat that controls text to be written in vertical orientation
+     *
+     * <p>
+     * This flag is used for telling the underlying text layout engine that the text is for vertical
+     * direction. By enabling this flag, text measurement, drawing and shaping APIs works for
+     * vertical text layout. For example, {@link Canvas#drawText(String, float, float, Paint)} draws
+     * text from top to bottom. {@link Paint#measureText(String)} returns vertical advances instead
+     * of horizontal advances. {@link TextRunShaper} shapes text vertically and report glyph IDs for
+     * vertical layout.
+     *
+     * <p>
+     * Do not set this flag for making {@link android.text.Layout}. The {@link android.text.Layout}
+     * class and its subclasses are designed for horizontal text only and does not work for vertical
+     * text.
+     */
+    @FlaggedApi(FLAG_VERTICAL_TEXT_LAYOUT)
     public static final int VERTICAL_TEXT_FLAG = 0x1000;
 
     /**
@@ -712,6 +739,7 @@ public class Paint {
         mPathEffect = null;
         mShader = null;
         mNativeShader = 0;
+        mNativeXfermode = 0;
         mTypeface = null;
         mXfermode = null;
 
@@ -757,6 +785,7 @@ public class Paint {
         mNativeShader = paint.mNativeShader;
         mTypeface = paint.mTypeface;
         mXfermode = paint.mXfermode;
+        mNativeXfermode = paint.mNativeXfermode;
 
         mHasCompatScaling = paint.mHasCompatScaling;
         mCompatScaling = paint.mCompatScaling;
@@ -792,7 +821,7 @@ public class Paint {
      *
      * Note: Although this method is |synchronized|, this is simply so it
      * is not thread-hostile to multiple threads calling this method. It
-     * is still unsafe to attempt to change the Shader/ColorFilter while
+     * is still unsafe to attempt to change the Shader/ColorFilter/Xfermode while
      * another thread attempts to access the native object.
      *
      * @hide
@@ -809,6 +838,15 @@ public class Paint {
         if (newNativeColorFilter != mNativeColorFilter) {
             mNativeColorFilter = newNativeColorFilter;
             nSetColorFilter(mNativePaint, mNativeColorFilter);
+        }
+        if (com.android.graphics.hwui.flags.Flags.runtimeColorFiltersBlenders()) {
+            if (mXfermode instanceof RuntimeXfermode) {
+                long newNativeXfermode = ((RuntimeXfermode) mXfermode).createNativeInstance();
+                if (newNativeXfermode != mNativeXfermode) {
+                    mNativeXfermode = newNativeXfermode;
+                    nSetXfermode(mNativePaint, mNativeXfermode);
+                }
+            }
         }
         return mNativePaint;
     }
@@ -1404,16 +1442,17 @@ public class Paint {
     }
 
     /**
-     * Get the paint's blend mode object.
+     * Get the paint's blend mode object. Will return null if there is a Xfermode applied that
+     * cannot be represented by a blend mode (i.e. a custom {@code RuntimeXfermode}
      *
      * @return the paint's blend mode (or null)
      */
     @Nullable
     public BlendMode getBlendMode() {
-        if (mXfermode == null) {
+        if (mXfermode == null || !(mXfermode instanceof PorterDuffXfermode)) {
             return null;
         } else {
-            return BlendMode.fromValue(mXfermode.porterDuffMode);
+            return BlendMode.fromValue(((PorterDuffXfermode) mXfermode).porterDuffMode);
         }
     }
 
@@ -1436,8 +1475,17 @@ public class Paint {
 
     @Nullable
     private Xfermode installXfermode(Xfermode xfermode) {
-        int newMode = xfermode != null ? xfermode.porterDuffMode : Xfermode.DEFAULT;
-        int curMode = mXfermode != null ? mXfermode.porterDuffMode : Xfermode.DEFAULT;
+        if (com.android.graphics.hwui.flags.Flags.runtimeColorFiltersBlenders()) {
+            if (xfermode instanceof RuntimeXfermode) {
+                mXfermode = xfermode;
+                nSetXfermode(mNativePaint, ((RuntimeXfermode) xfermode).createNativeInstance());
+                return xfermode;
+            }
+        }
+        int newMode = (xfermode instanceof PorterDuffXfermode)
+                ? ((PorterDuffXfermode) xfermode).porterDuffMode : PorterDuffXfermode.DEFAULT;
+        int curMode = (mXfermode instanceof PorterDuffXfermode)
+                ? ((PorterDuffXfermode) mXfermode).porterDuffMode : PorterDuffXfermode.DEFAULT;
         if (newMode != curMode) {
             nSetXfermode(mNativePaint, newMode);
         }
@@ -1540,6 +1588,18 @@ public class Paint {
      * @return         typeface
      */
     public Typeface setTypeface(Typeface typeface) {
+        if (Flags.typefaceRedesignReadonly() && typeface != null
+                && typeface.isVariationInstance()) {
+            Log.w(TAG, "Attempting to set a Typeface on a Paint object that was previously "
+                    + "configured with setFontVariationSettings(). This is no longer supported as "
+                    + "of Target SDK " + Build.VERSION_CODES.BAKLAVA + ". To apply font"
+                    + " variations, call setFontVariationSettings() directly on the Paint object"
+                    + " instead.");
+        }
+        return setTypefaceWithoutWarning(typeface);
+    }
+
+    private Typeface setTypefaceWithoutWarning(Typeface typeface) {
         final long typefaceNative = typeface == null ? 0 : typeface.native_instance;
         nSetTypeface(mNativePaint, typefaceNative);
         mTypeface = typeface;
@@ -1802,19 +1862,20 @@ public class Paint {
     /**
      * Get the elegant metrics flag.
      *
+     * Note:
+     * For applications target API 35 or later, this function returns true by default.
+     * For applications target API 36 or later, the function call will be ignored and the elegant
+     * text height is always enabled.
+     *
      * @return true if elegant metrics are enabled for text drawing.
+     * @deprecated The underlying UI fonts are deprecated and will be removed from the system image.
+     * Applications supporting scripts with large vertical metrics should adapt their UI by using
+     * fonts designed with corresponding vertical metrics.
      */
+    @Deprecated
+    @FlaggedApi(FLAG_DEPRECATE_ELEGANT_TEXT_HEIGHT_API)
     public boolean isElegantTextHeight() {
-        int rawValue = nGetElegantTextHeight(mNativePaint);
-        switch (rawValue) {
-            case ELEGANT_TEXT_HEIGHT_DISABLED:
-                return false;
-            case ELEGANT_TEXT_HEIGHT_ENABLED:
-                return true;
-            case ELEGANT_TEXT_HEIGHT_UNSET:
-            default:
-                return com.android.text.flags.Flags.deprecateUiFonts();
-        }
+        return nGetElegantTextHeight(mNativePaint) != ELEGANT_TEXT_HEIGHT_DISABLED;
     }
 
     // Note: the following three values must be equal to the ones in the JNI file: Paint.cpp
@@ -1827,9 +1888,28 @@ public class Paint {
      * variants that have not been compacted to fit Latin-based vertical
      * metrics, and also increases top and bottom bounds to provide more space.
      *
+     * <p>
+     * Note:
+     * For applications target API 35 or later, the default value will be true by default.
+     * For applications target API 36 or later, the function call will be ignored and the elegant
+     * text height is always enabled.
+     *
      * @param elegant set the paint's elegant metrics flag for drawing text.
+     * @deprecated This API will be no-op at some point in the future. The underlying UI fonts is
+     * deprecated and will be removed from the system image. Applications supporting scripts with
+     * large vertical metrics should adapt their UI by using fonts designed with corresponding
+     * vertical metrics.
      */
+    @Deprecated
+    @FlaggedApi(FLAG_DEPRECATE_ELEGANT_TEXT_HEIGHT_API)
     public void setElegantTextHeight(boolean elegant) {
+        if (Flags.deprecateElegantTextHeightApi() && !elegant
+                && CompatChanges.isChangeEnabled(DEPRECATE_UI_FONT_ENFORCE)) {
+            if (!elegant) {
+                Log.w(TAG, "The elegant text height cannot be turned off.");
+            }
+            return;
+        }
         nSetElegantTextHeight(mNativePaint,
                 elegant ? ELEGANT_TEXT_HEIGHT_ENABLED : ELEGANT_TEXT_HEIGHT_DISABLED);
     }
@@ -1846,6 +1926,19 @@ public class Paint {
     @ChangeId
     @EnabledSince(targetSdkVersion = Build.VERSION_CODES.VANILLA_ICE_CREAM)
     public static final long DEPRECATE_UI_FONT = 279646685L;
+
+    /**
+     * A change ID for deprecating UI fonts enforced.
+     *
+     * From API 36, the elegant text height will not be able to be overridden and always true if the
+     * app has a target SDK of API 36 or later.
+     *
+     * @hide
+     */
+    @ChangeId
+    @EnabledSince(targetSdkVersion = 36)
+    public static final long DEPRECATE_UI_FONT_ENFORCE = 349519475L;
+
 
     private void resetElegantTextHeight() {
         if (CompatChanges.isChangeEnabled(DEPRECATE_UI_FONT)) {
@@ -2050,6 +2143,12 @@ public class Paint {
      * @see #getFontVariationSettings()
      * @see FontVariationAxis
      */
+    // Add following API description once the setFontVariationOverride becomes public.
+    // This method generates new variation instance of the {@link Typeface} instance and set it to
+    // this object. Therefore, subsequent {@link #setTypeface(Typeface)} call will clear the font
+    // variation settings. Also, creating variation instance of the Typeface requires non trivial
+    // amount of time and memories, therefore consider using
+    // {@link #setFontVariationOverride(String, int)} for better performance.
     public boolean setFontVariationSettings(String fontVariationSettings) {
         final String settings = TextUtils.nullIfEmpty(fontVariationSettings);
         if (settings == mFontVariationSettings
@@ -2059,7 +2158,7 @@ public class Paint {
 
         if (settings == null || settings.length() == 0) {
             mFontVariationSettings = null;
-            setTypeface(Typeface.createFromTypefaceWithVariation(mTypeface,
+            setTypefaceWithoutWarning(Typeface.createFromTypefaceWithVariation(mTypeface,
                       Collections.emptyList()));
             return true;
         }
@@ -2078,8 +2177,73 @@ public class Paint {
             return false;
         }
         mFontVariationSettings = settings;
-        setTypeface(Typeface.createFromTypefaceWithVariation(targetTypeface, filteredAxes));
+        setTypefaceWithoutWarning(
+                Typeface.createFromTypefaceWithVariation(targetTypeface, filteredAxes));
         return true;
+    }
+
+    /**
+     * Sets TrueType or OpenType font variation settings for overriding.
+     *
+     * The settings string is constructed from multiple pairs of axis tag and style values. The axis
+     * tag must contain four ASCII characters and must be wrapped with single quotes (U+0027) or
+     * double quotes (U+0022). Axis strings that are longer or shorter than four characters, or
+     * contain characters outside of U+0020..U+007E are invalid.
+     *
+     * If invalid font variation settings is provided, this method does nothing and returning false
+     * with printing error message to the logcat.
+     *
+     * Different from {@link #setFontVariationSettings(String)}, this overrides the font variation
+     * settings which is already assigned to the font instance. For example, if the underlying font
+     * is configured as {@code 'wght' 500, 'ital' 1}, and if the override is specified as
+     * {@code 'wght' 700, `wdth` 150}, then the effective font variation setting is
+     * {@code `wght' 700, 'ital' 1, 'wdth' 150}. The `wght` value is updated by override, 'ital'
+     * value is preserved because no overrides, and `wdth` value is added by override. If the font
+     * variation override is empty or null, nothing overrides and original font variation settings
+     * assigned to the font instance is used as it is.
+     *
+     * @param fontVariationOverride font variation override. You can pass null or empty string for
+     *                              clearing font variation override.
+     *
+     * @return true if the provided font variation settings is valid. Otherwise returns false.
+     *
+     * @see #getFontVariationSettings()
+     * @see #setFontVariationSettings(String)
+     * @see #getFontVariationOverride()
+     * @see FontVariationAxis
+     */
+    @FlaggedApi(FLAG_TYPEFACE_REDESIGN_READONLY)
+    public boolean setFontVariationOverride(@Nullable String fontVariationOverride) {
+        if (Objects.equals(fontVariationOverride, mFontVariationOverride)) {
+            return true;
+        }
+
+        List<FontVariationAxis> axes;
+        try {
+            axes = FontVariationAxis.fromFontVariationSettingsForList(fontVariationOverride);
+        } catch (IllegalArgumentException e) {
+            Log.i(TAG, "failed to parse font variation settings.", e);
+            return false;
+        }
+        long builderPtr = nCreateFontVariationBuilder(axes.size());
+        for (int i = 0; i < axes.size(); ++i) {
+            FontVariationAxis axis = axes.get(i);
+            nAddFontVariationToBuilder(
+                    builderPtr, axis.getOpenTypeTagValue(), axis.getStyleValue());
+        }
+        nSetFontVariationOverride(mNativePaint, builderPtr);
+        mFontVariationOverride = fontVariationOverride;
+        return true;
+    }
+
+    /**
+     * Gets the current font variation override value.
+     *
+     * @return a current font variation override value.
+     */
+    @FlaggedApi(FLAG_TYPEFACE_REDESIGN_READONLY)
+    public @Nullable String getFontVariationOverride() {
+        return mFontVariationOverride;
     }
 
     /**
@@ -3735,6 +3899,8 @@ public class Paint {
     @CriticalNative
     private static native void nSetXfermode(long paintPtr, int xfermode);
     @CriticalNative
+    private static native void nSetXfermode(long paintPtr, long xfermodePtr);
+    @CriticalNative
     private static native long nSetPathEffect(long paintPtr, long effect);
     @CriticalNative
     private static native long nSetMaskFilter(long paintPtr, long maskfilter);
@@ -3838,7 +4004,12 @@ public class Paint {
     private static native void nSetTextSize(long paintPtr, float textSize);
     @CriticalNative
     private static native boolean nEqualsForTextMeasurement(long leftPaintPtr, long rightPaintPtr);
-
+    @CriticalNative
+    private static native long nCreateFontVariationBuilder(int size);
+    @CriticalNative
+    private static native void nAddFontVariationToBuilder(long builderPtr, int tag, float value);
+    @CriticalNative
+    private static native void nSetFontVariationOverride(long paintPtr, long builderPtr);
 
     // Following Native methods are kept for old Robolectric JNI signature used by
     // SystemUIGoogleRoboRNGTests

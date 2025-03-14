@@ -75,23 +75,15 @@ public class PiiElider {
                             + "*)?" // Rest of the URI path.
                             + "(\\b|$)"); // Always end on a word boundary or end of string.
 
-    // Example variant info chromium-TrichromeChromeGoogle6432.aab
-    private static final String CHROME_VARIANT_INFO = "chromium-[^\\.]+\\.aab";
-    private static final Pattern LIKELY_EXCEPTION_LOG =
+    private static final Pattern NOT_URLS_PATTERN =
             Pattern.compile(
-                    "\\sat\\s"
-                            // These are all package prefixes of classes that are likely to
-                            // exist on a stacktrace and are very unlikely to be a PII url.
-                            + "(org\\.chromium|com\\.google|java|android|com\\.android)\\.[^ ]+.|"
-                            // if a line has what looks like line number info, it's probably an
-                            // exception log.
-                            + "\\("
-                            + CHROME_VARIANT_INFO
-                            + "[^:]+:\\d+\\)|"
+                    ""
                             // When a class is not found it can fail to satisfy our isClass
                             // check but is still worth noting what it was.
-                            + "Caused by: java\\.lang\\."
-                            + "(ClassNotFoundException|NoClassDefFoundError):");
+                            + "^(?:Caused by: )?java\\.lang\\."
+                            + "(?:ClassNotFoundException|NoClassDefFoundError):|"
+                            // Ensure common local paths are not interpreted as URLs.
+                            + "(?:[\"' ]/(?:apex|data|mnt|proc|sdcard|storage|system))/");
 
     private static final String IP_ELISION = "1.2.3.4";
     private static final String MAC_ELISION = "01:23:45:67:89:AB";
@@ -108,10 +100,13 @@ public class PiiElider {
     private static final String[] SYSTEM_NAMESPACE =
             new String[] {
                 "android.",
+                "c2.", // MediaCodec names.
                 "com.android.",
                 "dalvik.",
                 "java.",
                 "javax.",
+                "omx.", // MediaCodec names.
+                "OMX.",
                 "org.apache.",
                 "org.json.",
                 "org.w3c.dom.",
@@ -140,7 +135,7 @@ public class PiiElider {
      */
     public static String elideUrl(String original) {
         // Url-matching is fussy. If something looks like an exception message, just return.
-        if (LIKELY_EXCEPTION_LOG.matcher(original).find()) return original;
+        if (NOT_URLS_PATTERN.matcher(original).find()) return original;
         StringBuilder buffer = new StringBuilder(original);
         Matcher matcher = WEB_URL.matcher(buffer);
         int start = 0;
@@ -149,6 +144,7 @@ public class PiiElider {
             int end = matcher.end();
             String url = buffer.substring(start, end);
             if (!likelyToBeAppNamespace(url)
+                    && !likelyToBeChromeApkName(url)
                     && !likelyToBeSystemNamespace(url)
                     && !likelyToBeClassOrMethodName(url)) {
                 buffer.replace(start, end, URL_ELISION);
@@ -168,6 +164,15 @@ public class PiiElider {
         int indexOfLastPeriod = url.lastIndexOf(".");
         if (indexOfLastPeriod == -1) return false;
         return isClassName(url.substring(0, indexOfLastPeriod));
+    }
+
+    private static boolean likelyToBeChromeApkName(String url) {
+        // Our Java stacktraces always contain a line that looks like:
+        // at Z94.e(chromium-TrichromeChromeGoogle6432.aab-canary-651000033:14)
+        if (url.startsWith("chromium-") && (url.endsWith(".apk") || url.endsWith(".aab"))) {
+            return true;
+        }
+        return false;
     }
 
     private static boolean isClassName(String url) {
@@ -242,15 +247,19 @@ public class PiiElider {
         if (TextUtils.isEmpty(stacktrace)) {
             return "";
         }
-        String[] frames = stacktrace.split("\\n");
-        // Sanitize first stacktrace line which contains the exception message.
-        frames[0] = elideUrl(frames[0]);
-        for (int i = 1; i < frames.length; i++) {
-            // Nested exceptions should also have their message sanitized.
-            if (frames[i].startsWith("Caused by:")) {
-                frames[i] = elideUrl(frames[i]);
+        String[] lines = stacktrace.split("\\n");
+        boolean foundAtLine = false;
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].startsWith("\tat ")) {
+                foundAtLine = true;
+            } else {
+                lines[i] = elideUrl(lines[i]);
             }
         }
-        return TextUtils.join("\n", frames);
+        // Guard against non-properly formatted stacktraces to ensure checking for "\tat :" is
+        // sufficient (e.g.: no logging-related line prefixes).
+        // There can be no frames when a native thread creates an exception using JNI.
+        assert foundAtLine || lines.length == 1 : "Was not a stack trace: " + stacktrace;
+        return TextUtils.join("\n", lines);
     }
 }

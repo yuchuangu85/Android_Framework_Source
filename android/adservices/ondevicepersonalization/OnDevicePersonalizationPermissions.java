@@ -16,10 +16,7 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.FlaggedApi;
 import android.annotation.SystemApi;
-
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 
 /**
  * OnDevicePersonalization permission settings.
@@ -27,7 +24,6 @@ import com.android.adservices.ondevicepersonalization.flags.Flags;
  * @hide
 */
 @SystemApi
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public class OnDevicePersonalizationPermissions {
     private OnDevicePersonalizationPermissions() {}
 

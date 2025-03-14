@@ -38,7 +38,6 @@ public final class SandboxedSdkContextUtils {
      *     SandboxedSdkContext}, or {@code null} otherwise.
      */
     public static SandboxedSdkContext getAsSandboxedSdkContext(Context context) {
-        // TODO(b/266693417): Replace build version check with SdkLevel.isAtLeastT()
         if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             return null; // SandboxedSdkContext is only available in T+
         }

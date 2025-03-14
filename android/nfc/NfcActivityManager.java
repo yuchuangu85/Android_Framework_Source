@@ -50,31 +50,9 @@ public final class NfcActivityManager extends IAppCallback.Stub
     final List<NfcActivityState> mActivities;  // Activities that have NFC state
 
     /**
-     * NFC State associated with an {@link Application}.
+     * @hide
      */
-    class NfcApplicationState {
-        int refCount = 0;
-        final Application app;
-        public NfcApplicationState(Application app) {
-            this.app = app;
-        }
-        public void register() {
-            refCount++;
-            if (refCount == 1) {
-                this.app.registerActivityLifecycleCallbacks(NfcActivityManager.this);
-            }
-        }
-        public void unregister() {
-            refCount--;
-            if (refCount == 0) {
-                this.app.unregisterActivityLifecycleCallbacks(NfcActivityManager.this);
-            } else if (refCount < 0) {
-                Log.e(TAG, "-ve refcount for " + app);
-            }
-        }
-    }
-
-    NfcApplicationState findAppState(Application app) {
+    public NfcApplicationState findAppState(Application app) {
         for (NfcApplicationState appState : mApps) {
             if (appState.app == app) {
                 return appState;
@@ -83,16 +61,22 @@ public final class NfcActivityManager extends IAppCallback.Stub
         return null;
     }
 
-    void registerApplication(Application app) {
+    /**
+     * @hide
+     */
+    public void registerApplication(Application app) {
         NfcApplicationState appState = findAppState(app);
         if (appState == null) {
-            appState = new NfcApplicationState(app);
+            appState = new NfcApplicationState(app, this);
             mApps.add(appState);
         }
         appState.register();
     }
 
-    void unregisterApplication(Application app) {
+    /**
+     * @hide
+     */
+    public void unregisterApplication(Application app) {
         NfcApplicationState appState = findAppState(app);
         if (appState == null) {
             Log.e(TAG, "app was not registered " + app);
@@ -101,55 +85,11 @@ public final class NfcActivityManager extends IAppCallback.Stub
         appState.unregister();
     }
 
-    /**
-     * NFC state associated with an {@link Activity}
+    /** find activity state from mActivities
+     *
+     * @hide
      */
-    class NfcActivityState {
-        boolean resumed = false;
-        Activity activity;
-        NfcAdapter.ReaderCallback readerCallback = null;
-        int readerModeFlags = 0;
-        Bundle readerModeExtras = null;
-        Binder token;
-
-        int mPollTech = NfcAdapter.FLAG_USE_ALL_TECH;
-        int mListenTech = NfcAdapter.FLAG_USE_ALL_TECH;
-
-        public NfcActivityState(Activity activity) {
-            if (activity.isDestroyed()) {
-                throw new IllegalStateException("activity is already destroyed");
-            }
-            // Check if activity is resumed right now, as we will not
-            // immediately get a callback for that.
-            resumed = activity.isResumed();
-
-            this.activity = activity;
-            this.token = new Binder();
-            registerApplication(activity.getApplication());
-        }
-        public void destroy() {
-            unregisterApplication(activity.getApplication());
-            resumed = false;
-            activity = null;
-            readerCallback = null;
-            readerModeFlags = 0;
-            readerModeExtras = null;
-            token = null;
-
-            mPollTech = NfcAdapter.FLAG_USE_ALL_TECH;
-            mListenTech = NfcAdapter.FLAG_USE_ALL_TECH;
-        }
-        @Override
-        public String toString() {
-            StringBuilder s = new StringBuilder("[");
-            s.append(readerCallback);
-            s.append("]");
-            return s.toString();
-        }
-    }
-
-    /** find activity state from mActivities */
-    synchronized NfcActivityState findActivityState(Activity activity) {
+    public synchronized NfcActivityState findActivityState(Activity activity) {
         for (NfcActivityState state : mActivities) {
             if (state.activity == activity) {
                 return state;
@@ -158,17 +98,23 @@ public final class NfcActivityManager extends IAppCallback.Stub
         return null;
     }
 
-    /** find or create activity state from mActivities */
-    synchronized NfcActivityState getActivityState(Activity activity) {
+    /** find or create activity state from mActivities
+     *
+     * @hide
+     */
+    public synchronized NfcActivityState getActivityState(Activity activity) {
         NfcActivityState state = findActivityState(activity);
         if (state == null) {
-            state = new NfcActivityState(activity);
+            state = new NfcActivityState(activity, this);
             mActivities.add(state);
         }
         return state;
     }
 
-    synchronized NfcActivityState findResumedActivityState() {
+    /**
+    * @hide
+    */
+    public synchronized NfcActivityState findResumedActivityState() {
         for (NfcActivityState state : mActivities) {
             if (state.resumed) {
                 return state;
@@ -177,7 +123,10 @@ public final class NfcActivityManager extends IAppCallback.Stub
         return null;
     }
 
-    synchronized void destroyActivityState(Activity activity) {
+    /**
+     * @hide
+     */
+    public synchronized void destroyActivityState(Activity activity) {
         NfcActivityState activityState = findActivityState(activity);
         if (activityState != null) {
             activityState.destroy();
@@ -236,11 +185,8 @@ public final class NfcActivityManager extends IAppCallback.Stub
 
     public void setReaderMode(Binder token, int flags, Bundle extras) {
         if (DBG) Log.d(TAG, "Setting reader mode");
-        try {
-            NfcAdapter.sService.setReaderMode(token, this, flags, extras);
-        } catch (RemoteException e) {
-            mAdapter.attemptDeadServiceRecovery(e);
-        }
+        NfcAdapter.callService(() -> NfcAdapter.sService.setReaderMode(
+                token, this, flags, extras, mAdapter.getContext().getPackageName()));
     }
 
     /**
@@ -248,19 +194,11 @@ public final class NfcActivityManager extends IAppCallback.Stub
      * Makes IPC call - do not hold lock.
      */
     void requestNfcServiceCallback() {
-        try {
-            NfcAdapter.sService.setAppCallback(this);
-        } catch (RemoteException e) {
-            mAdapter.attemptDeadServiceRecovery(e);
-        }
+        NfcAdapter.callService(() -> NfcAdapter.sService.setAppCallback(this));
     }
 
     void verifyNfcPermission() {
-        try {
-            NfcAdapter.sService.verifyNfcPermission();
-        } catch (RemoteException e) {
-            mAdapter.attemptDeadServiceRecovery(e);
-        }
+        NfcAdapter.callService(() -> NfcAdapter.sService.verifyNfcPermission());
     }
 
     @Override
@@ -406,11 +344,9 @@ public final class NfcActivityManager extends IAppCallback.Stub
     }
 
     private void changeDiscoveryTech(Binder token, int pollTech, int listenTech) {
-        try {
-            NfcAdapter.sService.updateDiscoveryTechnology(token, pollTech, listenTech);
-        } catch (RemoteException e) {
-            mAdapter.attemptDeadServiceRecovery(e);
-        }
+        NfcAdapter.callService(
+                () -> NfcAdapter.sService.updateDiscoveryTechnology(
+                        token, pollTech, listenTech, mAdapter.getContext().getPackageName()));
     }
 
 }

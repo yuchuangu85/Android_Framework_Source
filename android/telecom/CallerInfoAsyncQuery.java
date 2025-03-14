@@ -112,7 +112,7 @@ public class CallerInfoAsyncQuery {
         if (DBG) Log.d(LOG_TAG, "Trying to get current content resolver...");
 
         final int currentUser = ActivityManager.getCurrentUser();
-        final int myUser = UserManager.get(context).getProcessUserId();
+        final int myUser = UserHandle.myUserId();
 
         if (DBG) Log.d(LOG_TAG, "myUser=" + myUser + "currentUser=" + currentUser);
 
@@ -483,18 +483,28 @@ public class CallerInfoAsyncQuery {
 
         // check to see if these are recognized numbers, and use shortcuts if we can.
         TelephonyManager tm = context.getSystemService(TelephonyManager.class);
+
         boolean isEmergencyNumber = false;
         try {
             isEmergencyNumber = tm.isEmergencyNumber(number);
-        } catch (IllegalStateException ise) {
+        } catch (IllegalStateException | UnsupportedOperationException ise) {
             // Ignore the exception that Telephony is not up. Use PhoneNumberUtils API now.
             // Ideally the PhoneNumberUtils API needs to be removed once the
             // telphony service not up issue can be fixed (b/187412989)
+            // UnsupportedOperationException: telephony.calling may not be supported on this device
             isEmergencyNumber = PhoneNumberUtils.isLocalEmergencyNumber(context, number);
         }
+
+        boolean isVoicemailNumber;
+        try {
+            isVoicemailNumber = PhoneNumberUtils.isVoiceMailNumber(context, subId, number);
+        } catch (UnsupportedOperationException ex) {
+            isVoicemailNumber = false;
+        }
+
         if (isEmergencyNumber) {
             cw.event = EVENT_EMERGENCY_NUMBER;
-        } else if (PhoneNumberUtils.isVoiceMailNumber(context, subId, number)) {
+        } else if (isVoicemailNumber) {
             cw.event = EVENT_VOICEMAIL_NUMBER;
         } else {
             cw.event = EVENT_NEW_QUERY;

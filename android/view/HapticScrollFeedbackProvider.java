@@ -16,6 +16,8 @@
 
 package android.view;
 
+import static android.view.flags.Flags.dynamicViewRotaryHapticsConfiguration;
+
 import android.annotation.NonNull;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -41,13 +43,8 @@ public class HapticScrollFeedbackProvider implements ScrollFeedbackProvider {
 
     private final View mView;
     private final ViewConfiguration mViewConfig;
-    /**
-     * Flag to disable the logic in this class if the View-based scroll haptics implementation is
-     * enabled. If {@code false}, this class will continue to run despite the View's scroll
-     * haptics implementation being enabled. This value should be set to {@code true} when this
-     * class is directly used by the View class.
-     */
-    private final boolean mDisabledIfViewPlaysScrollHaptics;
+    /** Whether or not this provider is being used directly by the View class. */
+    private final boolean mIsFromView;
 
 
     // Info about the cause of the latest scroll event.
@@ -65,17 +62,23 @@ public class HapticScrollFeedbackProvider implements ScrollFeedbackProvider {
     private boolean mHapticScrollFeedbackEnabled = false;
 
     public HapticScrollFeedbackProvider(@NonNull View view) {
-        this(view, ViewConfiguration.get(view.getContext()),
-                /* disabledIfViewPlaysScrollHaptics= */ true);
+        this(view, ViewConfiguration.get(view.getContext()), /* isFromView= */ false);
     }
 
     /** @hide */
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PACKAGE)
     public HapticScrollFeedbackProvider(
-            View view, ViewConfiguration viewConfig, boolean disabledIfViewPlaysScrollHaptics) {
+            View view, ViewConfiguration viewConfig, boolean isFromView) {
         mView = view;
         mViewConfig = viewConfig;
-        mDisabledIfViewPlaysScrollHaptics = disabledIfViewPlaysScrollHaptics;
+        mIsFromView = isFromView;
+        if (dynamicViewRotaryHapticsConfiguration() && !isFromView) {
+            // Disable the View class's rotary scroll feedback logic if this provider is not being
+            // directly used by the View class. This is to avoid double rotary scroll feedback:
+            // one from the View class, and one from this provider instance (i.e. mute the View
+            // class's rotary feedback and enable this provider).
+            view.disableRotaryScrollFeedback();
+        }
     }
 
     @Override
@@ -100,8 +103,12 @@ public class HapticScrollFeedbackProvider implements ScrollFeedbackProvider {
 
         if (Math.abs(mTotalScrollPixels) >= mTickIntervalPixels) {
             mTotalScrollPixels %= mTickIntervalPixels;
-            // TODO(b/239594271): create a new `performHapticFeedbackForDevice` and use that here.
-            mView.performHapticFeedback(HapticFeedbackConstants.SCROLL_TICK);
+            if (android.os.vibrator.Flags.hapticFeedbackInputSourceCustomizationEnabled()) {
+                mView.performHapticFeedbackForInputDevice(
+                        HapticFeedbackConstants.SCROLL_TICK, inputDeviceId, source, /* flags= */ 0);
+            } else {
+                mView.performHapticFeedback(HapticFeedbackConstants.SCROLL_TICK);
+            }
         }
     }
 
@@ -115,9 +122,12 @@ public class HapticScrollFeedbackProvider implements ScrollFeedbackProvider {
         if (!mCanPlayLimitFeedback) {
             return;
         }
-
-        // TODO(b/239594271): create a new `performHapticFeedbackForDevice` and use that here.
-        mView.performHapticFeedback(HapticFeedbackConstants.SCROLL_LIMIT);
+        if (android.os.vibrator.Flags.hapticFeedbackInputSourceCustomizationEnabled()) {
+            mView.performHapticFeedbackForInputDevice(
+                    HapticFeedbackConstants.SCROLL_LIMIT, inputDeviceId, source, /* flags= */ 0);
+        } else {
+            mView.performHapticFeedback(HapticFeedbackConstants.SCROLL_LIMIT);
+        }
 
         mCanPlayLimitFeedback = false;
     }
@@ -128,22 +138,29 @@ public class HapticScrollFeedbackProvider implements ScrollFeedbackProvider {
         if (!mHapticScrollFeedbackEnabled) {
             return;
         }
-        // TODO(b/239594271): create a new `performHapticFeedbackForDevice` and use that here.
-        mView.performHapticFeedback(HapticFeedbackConstants.SCROLL_ITEM_FOCUS);
+        if (android.os.vibrator.Flags.hapticFeedbackInputSourceCustomizationEnabled()) {
+            mView.performHapticFeedbackForInputDevice(
+                    HapticFeedbackConstants.SCROLL_ITEM_FOCUS, inputDeviceId, source,
+                    /* flags= */ 0);
+        } else {
+            mView.performHapticFeedback(HapticFeedbackConstants.SCROLL_ITEM_FOCUS);
+        }
         mCanPlayLimitFeedback = true;
     }
 
     private void maybeUpdateCurrentConfig(int deviceId, int source, int axis) {
         if (mAxis != axis || mSource != source || mDeviceId != deviceId) {
-            if (mDisabledIfViewPlaysScrollHaptics
+            mSource = source;
+            mAxis = axis;
+            mDeviceId = deviceId;
+
+            if (!dynamicViewRotaryHapticsConfiguration()
+                    && !mIsFromView
                     && (source == InputDevice.SOURCE_ROTARY_ENCODER)
                     && mViewConfig.isViewBasedRotaryEncoderHapticScrollFeedbackEnabled()) {
                 mHapticScrollFeedbackEnabled = false;
                 return;
             }
-            mSource = source;
-            mAxis = axis;
-            mDeviceId = deviceId;
 
             mHapticScrollFeedbackEnabled =
                     mViewConfig.isHapticScrollFeedbackEnabled(deviceId, axis, source);

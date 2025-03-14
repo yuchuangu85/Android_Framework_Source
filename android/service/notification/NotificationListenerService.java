@@ -17,11 +17,13 @@
 package android.service.notification;
 
 import android.annotation.CurrentTimeMillisLong;
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
+import android.annotation.TestApi;
 import android.annotation.UiThread;
 import android.app.ActivityManager;
 import android.app.INotificationManager;
@@ -55,6 +57,7 @@ import android.os.Parcelable;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.UserHandle;
+import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.Log;
 import android.widget.RemoteViews;
@@ -882,6 +885,35 @@ public abstract class NotificationListenerService extends Service {
         }
     }
 
+    /**
+     * Creates a conversation notification channel for a given package for a given user.
+     *
+     * <p>This method will throw a security exception if you don't have access to notifications
+     * for the given user.</p>
+     * <p>The caller must have {@link CompanionDeviceManager#getAssociations() an associated
+     * device} or be the notification assistant in order to use this method.
+     *
+     * @param pkg The package the channel belongs to.
+     * @param user The user the channel belongs to.
+     * @param parentChannelId The parent channel id of the conversation channel belongs to.
+     * @param conversationId The conversation id of the conversation channel.
+     *
+     * @return The created conversation channel.
+     */
+    @FlaggedApi(Flags.FLAG_NOTIFICATION_CONVERSATION_CHANNEL_MANAGEMENT)
+    public final @Nullable NotificationChannel createConversationNotificationChannelForPackage(
+        @NonNull String pkg, @NonNull UserHandle user, @NonNull String parentChannelId,
+        @NonNull String conversationId) {
+        if (!isBound()) return null;
+        try {
+            return getNotificationInterface()
+                    .createConversationNotificationChannelForPackageFromPrivilegedListener(
+                            mWrapper, pkg, user, parentChannelId, conversationId);
+        } catch (RemoteException e) {
+            Log.v(TAG, "Unable to contact notification manager", e);
+            throw e.rethrowFromSystemServer();
+        }
+    }
 
     /**
      * Updates a notification channel for a given package for a given user. This should only be used
@@ -890,7 +922,7 @@ public abstract class NotificationListenerService extends Service {
      * <p>This method will throw a security exception if you don't have access to notifications
      * for the given user.</p>
      * <p>The caller must have {@link CompanionDeviceManager#getAssociations() an associated
-     * device} in order to use this method.
+     * device} or be the notification assistant in order to use this method.
      *
      * @param pkg The package the channel belongs to.
      * @param user The user the channel belongs to.
@@ -1460,7 +1492,12 @@ public abstract class NotificationListenerService extends Service {
                 Log.w(TAG, "onNotificationPosted: Error receiving StatusBarNotification");
                 return;
             }
+            onNotificationPostedFull(sbn, update);
+        }
 
+        @Override
+        public void onNotificationPostedFull(StatusBarNotification sbn,
+                NotificationRankingUpdate update) {
             try {
                 // convert icon metadata to legacy format for older clients
                 createLegacyIconExtras(sbn.getNotification());
@@ -1488,7 +1525,6 @@ public abstract class NotificationListenerService extends Service {
                             mRankingMap).sendToTarget();
                 }
             }
-
         }
 
         @Override
@@ -1501,6 +1537,12 @@ public abstract class NotificationListenerService extends Service {
                 Log.w(TAG, "onNotificationRemoved: Error receiving StatusBarNotification", e);
                 return;
             }
+            onNotificationRemovedFull(sbn, update, stats, reason);
+        }
+
+        @Override
+        public void onNotificationRemovedFull(StatusBarNotification sbn,
+                NotificationRankingUpdate update, NotificationStats stats, int reason) {
             if (sbn == null) {
                 Log.w(TAG, "onNotificationRemoved: Error receiving StatusBarNotification");
                 return;
@@ -1562,6 +1604,14 @@ public abstract class NotificationListenerService extends Service {
         }
 
         @Override
+        public void onNotificationEnqueuedWithChannelFull(
+                StatusBarNotification sbn, NotificationChannel channel,
+                NotificationRankingUpdate update)
+                throws RemoteException {
+            // no-op in the listener
+        }
+
+        @Override
         public void onNotificationsSeen(List<String> keys)
                 throws RemoteException {
             // no-op in the listener
@@ -1586,6 +1636,13 @@ public abstract class NotificationListenerService extends Service {
         @Override
         public void onNotificationSnoozedUntilContext(
                 IStatusBarNotificationHolder notificationHolder, String snoozeCriterionId)
+                throws RemoteException {
+            // no-op in the listener
+        }
+
+        @Override
+        public void onNotificationSnoozedUntilContextFull(
+                StatusBarNotification sbn, String snoozeCriterionId)
                 throws RemoteException {
             // no-op in the listener
         }
@@ -1658,8 +1715,6 @@ public abstract class NotificationListenerService extends Service {
                 Bundle feedback) {
             // no-op in the listener
         }
-
-
     }
 
     /**
@@ -1771,6 +1826,7 @@ public abstract class NotificationListenerService extends Service {
         private int mProposedImportance;
         // Sensitive info detected by the notification assistant
         private boolean mSensitiveContent;
+        private String mSummarization;
 
         private static final int PARCEL_VERSION = 2;
 
@@ -1811,6 +1867,7 @@ public abstract class NotificationListenerService extends Service {
             out.writeBoolean(mIsBubble);
             out.writeInt(mProposedImportance);
             out.writeBoolean(mSensitiveContent);
+            out.writeString(mSummarization);
         }
 
         /** @hide */
@@ -1851,6 +1908,7 @@ public abstract class NotificationListenerService extends Service {
             mIsBubble = in.readBoolean();
             mProposedImportance = in.readInt();
             mSensitiveContent = in.readBoolean();
+            mSummarization = in.readString();
         }
 
 
@@ -2127,6 +2185,16 @@ public abstract class NotificationListenerService extends Service {
         }
 
         /**
+         * Returns a summary of the content in the notification, or potentially of the current
+         * notification and related notifications (for example, if this is provided for a group
+         * summary notification it may be summarizing all the child notifications).
+         */
+        @FlaggedApi(android.app.Flags.FLAG_NM_SUMMARIZATION)
+        public @Nullable String getSummarization() {
+            return mSummarization;
+        }
+
+        /**
          * Returns the intended transition to ranking passed by {@link NotificationAssistantService}
          * @hide
          */
@@ -2148,7 +2216,7 @@ public abstract class NotificationListenerService extends Service {
                 ArrayList<CharSequence> smartReplies, boolean canBubble,
                 boolean isTextChanged, boolean isConversation, ShortcutInfo shortcutInfo,
                 int rankingAdjustment, boolean isBubble, int proposedImportance,
-                boolean sensitiveContent) {
+                boolean sensitiveContent, String summarization) {
             mKey = key;
             mRank = rank;
             mIsAmbient = importance < NotificationManager.IMPORTANCE_LOW;
@@ -2176,6 +2244,7 @@ public abstract class NotificationListenerService extends Service {
             mIsBubble = isBubble;
             mProposedImportance = proposedImportance;
             mSensitiveContent = sensitiveContent;
+            mSummarization = TextUtils.nullIfEmpty(summarization);
         }
 
         /**
@@ -2218,7 +2287,8 @@ public abstract class NotificationListenerService extends Service {
                     other.mRankingAdjustment,
                     other.mIsBubble,
                     other.mProposedImportance,
-                    other.mSensitiveContent);
+                    other.mSensitiveContent,
+                    other.mSummarization);
         }
 
         /**
@@ -2279,7 +2349,8 @@ public abstract class NotificationListenerService extends Service {
                     && Objects.equals(mRankingAdjustment, other.mRankingAdjustment)
                     && Objects.equals(mIsBubble, other.mIsBubble)
                     && Objects.equals(mProposedImportance, other.mProposedImportance)
-                    && Objects.equals(mSensitiveContent, other.mSensitiveContent);
+                    && Objects.equals(mSensitiveContent, other.mSensitiveContent)
+                    && Objects.equals(mSummarization, other.mSummarization);
         }
     }
 
@@ -2310,7 +2381,6 @@ public abstract class NotificationListenerService extends Service {
         // -- parcelable interface --
 
         private RankingMap(Parcel in) {
-            final ClassLoader cl = getClass().getClassLoader();
             final int count = in.readInt();
             mOrderedKeys.ensureCapacity(count);
             mRankings.ensureCapacity(count);

@@ -123,6 +123,11 @@ public abstract class IntervalRecordInternal<T extends IntervalRecord> extends R
         return LocalDate.ofInstant(this.getStartTime(), this.getStartZoneOffset());
     }
 
+    @Override
+    public long getRecordTime() {
+        return getEndTimeInMillis();
+    }
+
     /**
      * Child class must implement this method and populates itself with the data present in {@param
      * bundle}. Reads should be in the same order as write

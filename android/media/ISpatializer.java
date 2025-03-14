@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/3/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen/android/media/ISpatializer.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/ISpatializer.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.audio.common.types_interface/4/preprocessed.aidl -pout/soong/.intermediates/frameworks/av/media/libaudioclient/audiopolicy-types-aidl_interface/preprocessed.aidl --ninja -d out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen/android/media/ISpatializer.java.d -o out/soong/.intermediates/frameworks/av/media/libaudioclient/spatializer-aidl-java-source/gen -Nframeworks/av/media/libaudioclient/aidl frameworks/av/media/libaudioclient/aidl/android/media/ISpatializer.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.media;
 /**
@@ -171,6 +175,15 @@ public interface ISpatializer extends android.os.IInterface
     {
       return 0;
     }
+    /**
+     * Returns a list of channel masks that represent the widest channel masks the spatializer
+     * is capable of rendering with individual channel positions.
+     * Note that each channel mask is in the native format.
+     */
+    @Override public int[] getSpatializedChannelMasks() throws android.os.RemoteException
+    {
+      return null;
+    }
     @Override
     public android.os.IBinder asBinder() {
       return null;
@@ -179,7 +192,7 @@ public interface ISpatializer extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.media.ISpatializer
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -379,6 +392,13 @@ public interface ISpatializer extends android.os.IInterface
           int _result = this.getOutput();
           reply.writeNoException();
           reply.writeInt(_result);
+          break;
+        }
+        case TRANSACTION_getSpatializedChannelMasks:
+        {
+          int[] _result = this.getSpatializedChannelMasks();
+          reply.writeNoException();
+          reply.writeIntArray(_result);
           break;
         }
         default:
@@ -806,6 +826,28 @@ public interface ISpatializer extends android.os.IInterface
         }
         return _result;
       }
+      /**
+       * Returns a list of channel masks that represent the widest channel masks the spatializer
+       * is capable of rendering with individual channel positions.
+       * Note that each channel mask is in the native format.
+       */
+      @Override public int[] getSpatializedChannelMasks() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        int[] _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getSpatializedChannelMasks, _data, _reply, 0);
+          _reply.readException();
+          _result = _reply.createIntArray();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
     }
     static final int TRANSACTION_release = (android.os.IBinder.FIRST_CALL_TRANSACTION + 0);
     static final int TRANSACTION_getSupportedLevels = (android.os.IBinder.FIRST_CALL_TRANSACTION + 1);
@@ -827,6 +869,7 @@ public interface ISpatializer extends android.os.IInterface
     static final int TRANSACTION_setParameter = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
     static final int TRANSACTION_getParameter = (android.os.IBinder.FIRST_CALL_TRANSACTION + 18);
     static final int TRANSACTION_getOutput = (android.os.IBinder.FIRST_CALL_TRANSACTION + 19);
+    static final int TRANSACTION_getSpatializedChannelMasks = (android.os.IBinder.FIRST_CALL_TRANSACTION + 20);
   }
   /** @hide */
   public static final java.lang.String DESCRIPTOR = "android.media.ISpatializer";
@@ -938,4 +981,10 @@ public interface ISpatializer extends android.os.IInterface
   public void getParameter(int key, byte[] value) throws android.os.RemoteException;
   /** Gets the io handle of the output stream the spatializer is connected to. */
   public int getOutput() throws android.os.RemoteException;
+  /**
+   * Returns a list of channel masks that represent the widest channel masks the spatializer
+   * is capable of rendering with individual channel positions.
+   * Note that each channel mask is in the native format.
+   */
+  public int[] getSpatializedChannelMasks() throws android.os.RemoteException;
 }

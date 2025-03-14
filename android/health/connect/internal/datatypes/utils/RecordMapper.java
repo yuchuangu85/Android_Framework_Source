@@ -40,6 +40,7 @@ import android.health.connect.datatypes.IntermenstrualBleedingRecord;
 import android.health.connect.datatypes.LeanBodyMassRecord;
 import android.health.connect.datatypes.MenstruationFlowRecord;
 import android.health.connect.datatypes.MenstruationPeriodRecord;
+import android.health.connect.datatypes.MindfulnessSessionRecord;
 import android.health.connect.datatypes.NutritionRecord;
 import android.health.connect.datatypes.OvulationTestRecord;
 import android.health.connect.datatypes.OxygenSaturationRecord;
@@ -82,6 +83,7 @@ import android.health.connect.internal.datatypes.IntermenstrualBleedingRecordInt
 import android.health.connect.internal.datatypes.LeanBodyMassRecordInternal;
 import android.health.connect.internal.datatypes.MenstruationFlowRecordInternal;
 import android.health.connect.internal.datatypes.MenstruationPeriodRecordInternal;
+import android.health.connect.internal.datatypes.MindfulnessSessionRecordInternal;
 import android.health.connect.internal.datatypes.NutritionRecordInternal;
 import android.health.connect.internal.datatypes.OvulationTestRecordInternal;
 import android.health.connect.internal.datatypes.OxygenSaturationRecordInternal;
@@ -102,9 +104,14 @@ import android.health.connect.internal.datatypes.WeightRecordInternal;
 import android.health.connect.internal.datatypes.WheelchairPushesRecordInternal;
 import android.util.ArrayMap;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** @hide */
+/**
+ * @deprecated Use {@link HealthConnectMappings}
+ * @hide
+ */
+@Deprecated
 public final class RecordMapper {
     private static final int NUM_ENTRIES = 35;
 
@@ -117,7 +124,9 @@ public final class RecordMapper {
     private final Map<Class<? extends Record>, Integer> mExternalRecordClassToRecordIdMap;
 
     private RecordMapper() {
-        mRecordIdToInternalRecordClassMap = new ArrayMap<>(NUM_ENTRIES);
+        // Use LinkedHashMap to guarantee the order of different records types when reading data for
+        // backup & restore.
+        mRecordIdToInternalRecordClassMap = new LinkedHashMap<>(NUM_ENTRIES);
         mRecordIdToInternalRecordClassMap.put(
                 RecordTypeIdentifier.RECORD_TYPE_STEPS, StepsRecordInternal.class);
         mRecordIdToInternalRecordClassMap.put(
@@ -212,16 +221,19 @@ public final class RecordMapper {
         mRecordIdToInternalRecordClassMap.put(
                 RecordTypeIdentifier.RECORD_TYPE_LEAN_BODY_MASS, LeanBodyMassRecordInternal.class);
         mRecordIdToInternalRecordClassMap.put(
-                RecordTypeIdentifier.RECORD_TYPE_EXERCISE_SESSION,
-                ExerciseSessionRecordInternal.class);
-        mRecordIdToInternalRecordClassMap.put(
                 RecordTypeIdentifier.RECORD_TYPE_PLANNED_EXERCISE_SESSION,
                 PlannedExerciseSessionRecordInternal.class);
+        mRecordIdToInternalRecordClassMap.put(
+                RecordTypeIdentifier.RECORD_TYPE_EXERCISE_SESSION,
+                ExerciseSessionRecordInternal.class);
         mRecordIdToInternalRecordClassMap.put(
                 RecordTypeIdentifier.RECORD_TYPE_SLEEP_SESSION, SleepSessionRecordInternal.class);
         mRecordIdToInternalRecordClassMap.put(
                 RecordTypeIdentifier.RECORD_TYPE_SKIN_TEMPERATURE,
                 SkinTemperatureRecordInternal.class);
+        mRecordIdToInternalRecordClassMap.put(
+                RecordTypeIdentifier.RECORD_TYPE_MINDFULNESS_SESSION,
+                MindfulnessSessionRecordInternal.class);
 
         mRecordIdToExternalRecordClassMap = new ArrayMap<>(NUM_ENTRIES);
         mRecordIdToExternalRecordClassMap.put(
@@ -317,6 +329,9 @@ public final class RecordMapper {
         mRecordIdToExternalRecordClassMap.put(
                 RecordTypeIdentifier.RECORD_TYPE_PLANNED_EXERCISE_SESSION,
                 PlannedExerciseSessionRecord.class);
+        mRecordIdToExternalRecordClassMap.put(
+                RecordTypeIdentifier.RECORD_TYPE_MINDFULNESS_SESSION,
+                MindfulnessSessionRecord.class);
 
         mExternalRecordClassToRecordIdMap =
                 new ArrayMap<>(mRecordIdToExternalRecordClassMap.size());
@@ -333,23 +348,40 @@ public final class RecordMapper {
         return sRecordMapper;
     }
 
+    /**
+     * @deprecated {@link HealthConnectMappings#getRecordIdToInternalRecordClassMap()}
+     */
+    @Deprecated
     @NonNull
     public Map<Integer, Class<? extends RecordInternal<?>>> getRecordIdToInternalRecordClassMap() {
         return mRecordIdToInternalRecordClassMap;
     }
 
+    /**
+     * @deprecated {@link HealthConnectMappings#getRecordIdToExternalRecordClassMap()}
+     */
+    @Deprecated
     @NonNull
     public Map<Integer, Class<? extends Record>> getRecordIdToExternalRecordClassMap() {
         return mRecordIdToExternalRecordClassMap;
     }
 
+    /**
+     * @deprecated {@link HealthConnectMappings#getRecordType(Class)}
+     */
     @SuppressWarnings("NullAway") // TODO(b/317029272): fix this suppression
+    @Deprecated
     @RecordTypeIdentifier.RecordType
     public int getRecordType(Class<? extends Record> recordClass) {
         return mExternalRecordClassToRecordIdMap.get(recordClass);
     }
 
-    /** Checks whether the given {@code recordClass} can be mapped. */
+    /**
+     * Checks whether the given {@code recordClass} can be mapped.
+     *
+     * @deprecated Use {@link HealthConnectMappings#hasRecordType(Class)}
+     */
+    @Deprecated
     public boolean hasRecordType(Class<? extends Record> recordClass) {
         return mExternalRecordClassToRecordIdMap.containsKey(recordClass);
     }

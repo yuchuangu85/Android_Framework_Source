@@ -17,6 +17,7 @@
 package com.android.org.conscrypt;
 
 import com.android.org.conscrypt.io.IoUtils;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -25,6 +26,7 @@ import java.security.PrivateKey;
 import java.security.Provider;
 import java.security.cert.X509Certificate;
 import java.util.Properties;
+
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
@@ -169,6 +171,8 @@ public final class Conscrypt {
         private String name = Platform.getDefaultProviderName();
         private boolean provideTrustManager = Platform.provideTrustManagerByDefault();
         private String defaultTlsProtocol = NativeCrypto.SUPPORTED_PROTOCOL_TLSV1_3;
+        private boolean deprecatedTlsV1 = Platform.isTlsV1Deprecated();
+        private boolean enabledTlsV1 = Platform.isTlsV1Supported();
 
         private ProviderBuilder() {}
 
@@ -186,6 +190,7 @@ public final class Conscrypt {
          * @deprecated Use provideTrustManager(true)
          */
         @Deprecated
+        @SuppressWarnings("InlineMeSuggester")
         public ProviderBuilder provideTrustManager() {
             return provideTrustManager(true);
         }
@@ -208,8 +213,21 @@ public final class Conscrypt {
             return this;
         }
 
+        /** Specifies whether TLS v1.0 and 1.1 should be deprecated */
+        public ProviderBuilder isTlsV1Deprecated(boolean deprecatedTlsV1) {
+            this.deprecatedTlsV1 = deprecatedTlsV1;
+            return this;
+        }
+
+        /** Specifies whether TLS v1.0 and 1.1 should be enabled */
+        public ProviderBuilder isTlsV1Enabled(boolean enabledTlsV1) {
+            this.enabledTlsV1 = enabledTlsV1;
+            return this;
+        }
+
         public Provider build() {
-            return new OpenSSLProvider(name, provideTrustManager, defaultTlsProtocol);
+            return new OpenSSLProvider(name, provideTrustManager,
+                defaultTlsProtocol, deprecatedTlsV1, enabledTlsV1);
         }
     }
 

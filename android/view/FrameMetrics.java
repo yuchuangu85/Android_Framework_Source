@@ -18,9 +18,12 @@ package android.view;
 
 import static android.graphics.FrameInfo.FLAG_WINDOW_VISIBILITY_CHANGED;
 
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.os.Build;
+
+import com.android.window.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -177,6 +180,16 @@ public final class FrameMetrics {
     public static final int DEADLINE = 13;
 
     /**
+     * Metric identifier for the frame's VSync identifier.
+     * <p>
+     * The id that corresponds to the chosen frame timeline, used to correlate a frame produced
+     * by HWUI with the timeline data from the compositor.
+     * </p>
+     */
+    @FlaggedApi(Flags.FLAG_JANK_API)
+    public static final int FRAME_TIMELINE_VSYNC_ID = 14;
+
+    /**
      * Identifiers for metrics available for each frame.
      *
      * {@see #getMetric(int)}
@@ -246,19 +259,20 @@ public final class FrameMetrics {
         int FRAME_DEADLINE = 9;
         int FRAME_START_TIME = 10;
         int FRAME_INTERVAL = 11;
-        int SYNC_QUEUED = 12;
-        int SYNC_START = 13;
-        int ISSUE_DRAW_COMMANDS_START = 14;
-        int SWAP_BUFFERS = 15;
-        int FRAME_COMPLETED = 16;
-        int DEQUEUE_BUFFER_DURATION = 17;
-        int QUEUE_BUFFER_DURATION = 18;
-        int GPU_COMPLETED = 19;
-        int SWAP_BUFFERS_COMPLETED = 20;
-        int DISPLAY_PRESENT_TIME = 21;
-        int COMMAND_SUBMISSION_COMPLETED = 22;
+        int WORKLOAD_TARGET = 12;
+        int SYNC_QUEUED = 13;
+        int SYNC_START = 14;
+        int ISSUE_DRAW_COMMANDS_START = 15;
+        int SWAP_BUFFERS = 16;
+        int FRAME_COMPLETED = 17;
+        int DEQUEUE_BUFFER_DURATION = 18;
+        int QUEUE_BUFFER_DURATION = 19;
+        int GPU_COMPLETED = 20;
+        int SWAP_BUFFERS_COMPLETED = 21;
+        int DISPLAY_PRESENT_TIME = 22;
+        int COMMAND_SUBMISSION_COMPLETED = 23;
 
-        int FRAME_STATS_COUNT = 23; // must always be last and in sync with
+        int FRAME_STATS_COUNT = 24; // must always be last and in sync with
                                     // FrameInfoIndex::NumIndexes in libs/hwui/FrameInfo.h
     }
 
@@ -337,7 +351,8 @@ public final class FrameMetrics {
      * @return the value of the metric or -1 if it is not available.
      */
     public long getMetric(@Metric int id) {
-        if (id < UNKNOWN_DELAY_DURATION || id > DEADLINE) {
+        if (id < UNKNOWN_DELAY_DURATION
+                || id > (Flags.jankApi() ? FRAME_TIMELINE_VSYNC_ID : DEADLINE)) {
             return -1;
         }
 
@@ -351,6 +366,8 @@ public final class FrameMetrics {
             return mTimingData[Index.INTENDED_VSYNC];
         } else if (id == VSYNC_TIMESTAMP) {
             return mTimingData[Index.VSYNC];
+        } else if (id == FRAME_TIMELINE_VSYNC_ID) {
+            return mTimingData[Index.FRAME_TIMELINE_VSYNC_ID];
         }
 
         int durationsIdx = 2 * id;
@@ -358,4 +375,3 @@ public final class FrameMetrics {
                 - mTimingData[DURATIONS[durationsIdx]];
     }
 }
-

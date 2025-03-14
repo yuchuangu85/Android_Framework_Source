@@ -15,8 +15,6 @@
  */
 package android.net;
 
-import static android.net.IpSecManager.Flags.IPSEC_TRANSFORM_STATE;
-
 import static com.android.internal.annotations.VisibleForTesting.Visibility;
 
 import android.annotation.FlaggedApi;
@@ -26,6 +24,7 @@ import android.os.Parcelable;
 import android.os.SystemClock;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.net.flags.Flags;
 import com.android.net.module.util.HexDump;
 
 import java.util.Objects;
@@ -39,7 +38,7 @@ import java.util.Objects;
  * IpSecTransformStates at two timestamps. By comparing the changes in packet counts and sequence
  * numbers, callers can estimate IPsec data loss in the inbound direction.
  */
-@FlaggedApi(IPSEC_TRANSFORM_STATE)
+@FlaggedApi(Flags.FLAG_IPSEC_TRANSFORM_STATE)
 public final class IpSecTransformState implements Parcelable {
     private final long mTimestamp;
     private final long mTxHighestSequenceNumber;
@@ -197,7 +196,7 @@ public final class IpSecTransformState implements Parcelable {
      * <p>Except for testing, IPsec callers normally do not instantiate {@link IpSecTransformState}
      * themselves but instead get a reference via {@link IpSecTransformState}
      */
-    @FlaggedApi(IPSEC_TRANSFORM_STATE)
+    @FlaggedApi(Flags.FLAG_IPSEC_TRANSFORM_STATE)
     public static final class Builder {
         private long mTimestamp;
         private long mTxHighestSequenceNumber;

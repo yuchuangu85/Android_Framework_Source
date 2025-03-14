@@ -16,11 +16,30 @@
 
 package android.view;
 
+import android.annotation.IntDef;
+
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+
 /**
  * Constants to be used to perform haptic feedback effects via
  * {@link View#performHapticFeedback(int)} 
  */
 public class HapticFeedbackConstants {
+    /** @hide **/
+    @IntDef(flag = true, prefix = "FLAG_", value = {
+            FLAG_IGNORE_VIEW_SETTING,
+            FLAG_IGNORE_GLOBAL_SETTING,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Flags {}
+
+    /** @hide **/
+    @IntDef(flag = true, prefix = "PRIVATE_FLAG_", value = {
+            PRIVATE_FLAG_APPLY_INPUT_METHOD_SETTINGS,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface PrivateFlags {}
 
     private HapticFeedbackConstants() {}
 
@@ -157,7 +176,7 @@ public class HapticFeedbackConstants {
 
     /**
      * The user is executing a swipe/drag-style gesture, such as pull-to-refresh, where the
-     * gesture action is “eligible” at a certain threshold of movement, and can be cancelled by
+     * gesture action is "eligible" at a certain threshold of movement, and can be cancelled by
      * moving back past the threshold. This constant indicates that the user's motion has just
      * passed the threshold for the action to be activated on release.
      *
@@ -167,7 +186,7 @@ public class HapticFeedbackConstants {
 
     /**
      * The user is executing a swipe/drag-style gesture, such as pull-to-refresh, where the
-     * gesture action is “eligible” at a certain threshold of movement, and can be cancelled by
+     * gesture action is "eligible" at a certain threshold of movement, and can be cancelled by
      * moving back past the threshold. This constant indicates that the user's motion has just
      * re-crossed back "under" the threshold for the action to be activated, meaning the gesture is
      * currently in a cancelled state.
@@ -258,4 +277,14 @@ public class HapticFeedbackConstants {
      */
     @Deprecated
     public static final int FLAG_IGNORE_GLOBAL_SETTING = 0x0002;
+
+    /**
+     * Flag for {@link android.os.Vibrator#performHapticFeedback(int, boolean, String, int, int)} or
+     * {@link ViewRootImpl#performHapticFeedback(int, boolean, int, int)}: Perform the haptic
+     * feedback with the input method vibration settings, e.g. applying the keyboard vibration
+     * user settings to the KEYBOARD_* constants.
+     *
+     * @hide
+     */
+    public static final int PRIVATE_FLAG_APPLY_INPUT_METHOD_SETTINGS = 0x0001;
 }

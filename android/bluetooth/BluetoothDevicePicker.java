@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import static android.Manifest.permission.BLUETOOTH_CONNECT;
+
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
@@ -66,7 +68,7 @@ public interface BluetoothDevicePicker {
      * BluetoothDevice} is returned in extra data named {@link BluetoothDevice#EXTRA_DEVICE}.
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     @SuppressLint("ActionValue")
     String ACTION_DEVICE_SELECTED = "android.bluetooth.devicepicker.action.DEVICE_SELECTED";
@@ -79,7 +81,7 @@ public interface BluetoothDevicePicker {
      * #EXTRA_LAUNCH_CLASS} (string): where(which class) this intent come from
      */
     @RequiresBluetoothConnectPermission
-    @RequiresPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+    @RequiresPermission(BLUETOOTH_CONNECT)
     @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
     @SuppressLint("ActionValue")
     String ACTION_LAUNCH = "android.bluetooth.devicepicker.action.LAUNCH";

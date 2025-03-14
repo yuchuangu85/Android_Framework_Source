@@ -109,7 +109,8 @@ public class ParsedActivityUtils {
                             R.styleable.AndroidManifestActivity_process,
                             R.styleable.AndroidManifestActivity_roundIcon,
                             R.styleable.AndroidManifestActivity_splitName,
-                            R.styleable.AndroidManifestActivity_attributionTags);
+                            R.styleable.AndroidManifestActivity_attributionTags,
+                            R.styleable.AndroidManifestActivity_intentMatchingFlags);
             if (result.isError()) {
                 return input.error(result);
             }
@@ -310,7 +311,8 @@ public class ParsedActivityUtils {
                     NOT_SET /*processAttr*/,
                     R.styleable.AndroidManifestActivityAlias_roundIcon,
                     NOT_SET /*splitNameAttr*/,
-                    R.styleable.AndroidManifestActivityAlias_attributionTags);
+                    R.styleable.AndroidManifestActivityAlias_attributionTags,
+                    R.styleable.AndroidManifestActivityAlias_intentMatchingFlags);
             if (result.isError()) {
                 return input.error(result);
             }
@@ -391,6 +393,9 @@ public class ParsedActivityUtils {
                 && (type != XmlPullParser.END_TAG
                 || parser.getDepth() > depth)) {
             if (type != XmlPullParser.START_TAG) {
+                continue;
+            }
+            if (ParsingPackageUtils.getAconfigFlags().skipCurrentElement(pkg, parser)) {
                 continue;
             }
 

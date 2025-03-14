@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash 2f49c78011338b42b43d5d0e250d9b520850cc1f -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen/android/hardware/thermal/IThermal.java.d -o out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V2-java-source/gen -Nhardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2 hardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/2/android/hardware/thermal/IThermal.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 4c4fc474c40b64963eb8d78b713b1095fecd72f0 -t --stability vintf --min_sdk_version platform_apis --ninja -d out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V3-java-source/gen/android/hardware/thermal/IThermal.java.d -o out/soong/.intermediates/hardware/interfaces/thermal/aidl/android.hardware.thermal-V3-java-source/gen -Nhardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/3 hardware/interfaces/thermal/aidl/aidl_api/android.hardware.thermal/3/android/hardware/thermal/IThermal.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.thermal;
 /** @hide */
@@ -12,8 +16,8 @@ public interface IThermal extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "2f49c78011338b42b43d5d0e250d9b520850cc1f";
+  public static final int VERSION = 3;
+  public static final String HASH = "4c4fc474c40b64963eb8d78b713b1095fecd72f0";
   /** Default implementation for IThermal. */
   public static class Default implements android.hardware.thermal.IThermal
   {
@@ -56,6 +60,10 @@ public interface IThermal extends android.os.IInterface
     @Override public void unregisterCoolingDeviceChangedCallback(android.hardware.thermal.ICoolingDeviceChangedCallback callback) throws android.os.RemoteException
     {
     }
+    @Override public float forecastSkinTemperature(int forecastSeconds) throws android.os.RemoteException
+    {
+      return 0.0f;
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -72,7 +80,7 @@ public interface IThermal extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.thermal.IThermal
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -146,6 +154,10 @@ public interface IThermal extends android.os.IInterface
         case TRANSACTION_unregisterCoolingDeviceChangedCallback:
         {
           return "unregisterCoolingDeviceChangedCallback";
+        }
+        case TRANSACTION_forecastSkinTemperature:
+        {
+          return "forecastSkinTemperature";
         }
         case TRANSACTION_getInterfaceVersion:
         {
@@ -286,6 +298,16 @@ public interface IThermal extends android.os.IInterface
           data.enforceNoDataAvail();
           this.unregisterCoolingDeviceChangedCallback(_arg0);
           reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_forecastSkinTemperature:
+        {
+          int _arg0;
+          _arg0 = data.readInt();
+          data.enforceNoDataAvail();
+          float _result = this.forecastSkinTemperature(_arg0);
+          reply.writeNoException();
+          reply.writeFloat(_result);
           break;
         }
         default:
@@ -527,6 +549,27 @@ public interface IThermal extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public float forecastSkinTemperature(int forecastSeconds) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        float _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeInt(forecastSeconds);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_forecastSkinTemperature, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method forecastSkinTemperature is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.readFloat();
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -573,6 +616,7 @@ public interface IThermal extends android.os.IInterface
     static final int TRANSACTION_unregisterThermalChangedCallback = (android.os.IBinder.FIRST_CALL_TRANSACTION + 8);
     static final int TRANSACTION_registerCoolingDeviceChangedCallbackWithType = (android.os.IBinder.FIRST_CALL_TRANSACTION + 9);
     static final int TRANSACTION_unregisterCoolingDeviceChangedCallback = (android.os.IBinder.FIRST_CALL_TRANSACTION + 10);
+    static final int TRANSACTION_forecastSkinTemperature = (android.os.IBinder.FIRST_CALL_TRANSACTION + 11);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
     /** @hide */
@@ -594,6 +638,7 @@ public interface IThermal extends android.os.IInterface
   public void unregisterThermalChangedCallback(android.hardware.thermal.IThermalChangedCallback callback) throws android.os.RemoteException;
   public void registerCoolingDeviceChangedCallbackWithType(android.hardware.thermal.ICoolingDeviceChangedCallback callback, int type) throws android.os.RemoteException;
   public void unregisterCoolingDeviceChangedCallback(android.hardware.thermal.ICoolingDeviceChangedCallback callback) throws android.os.RemoteException;
+  public float forecastSkinTemperature(int forecastSeconds) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

@@ -57,11 +57,6 @@ public class PKIXCertPathValidatorSpi
     {
         this.isForCRLCheck = isForCRLCheck;
     }
-    // BEGIN Android-added: Avoid loading blocklist during class init
-    private static class NoPreloadHolder {
-        private final static CertBlocklist blocklist = new CertBlocklist();
-    }
-    // END Android-added: Avoid loading blocklist during class init
 
     public CertPathValidatorResult engineValidate(
             CertPath certPath,
@@ -117,22 +112,6 @@ public class PKIXCertPathValidatorSpi
         {
             throw new CertPathValidatorException("Certification path is empty.", null, certPath, -1);
         }
-        // BEGIN Android-added: Support blocklisting known-bad certs
-        {
-            X509Certificate cert = (X509Certificate) certs.get(0);
-
-            if (cert != null) {
-                BigInteger serial = cert.getSerialNumber();
-                if (NoPreloadHolder.blocklist.isSerialNumberBlockListed(serial)) {
-                    // emulate CRL exception message in RFC3280CertPathUtilities.checkCRLs
-                    String message = "Certificate revocation of serial 0x" + serial.toString(16);
-                    System.out.println(message);
-                    AnnotatedException e = new AnnotatedException(message);
-                    throw new CertPathValidatorException(e.getMessage(), e, certPath, 0);
-                }
-            }
-        }
-        // END Android-added: Support blocklisting known-bad certs
 
         //
         // (b)
@@ -328,15 +307,6 @@ public class PKIXCertPathValidatorSpi
 
         for (index = certs.size() - 1; index >= 0; index--)
         {
-            // BEGIN Android-added: Support blocklisting known-bad certs
-            if (NoPreloadHolder.blocklist.isPublicKeyBlockListed(workingPublicKey)) {
-                // emulate CRL exception message in RFC3280CertPathUtilities.checkCRLs
-                String message = "Certificate revocation of public key " + workingPublicKey;
-                System.out.println(message);
-                AnnotatedException e = new AnnotatedException(message);
-                throw new CertPathValidatorException(e.getMessage(), e, certPath, index);
-            }
-            // END Android-added: Support blocklisting known-bad certs
             // try
             // {
             //

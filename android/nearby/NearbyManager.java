@@ -32,11 +32,11 @@ import android.location.LocationManager;
 import android.nearby.aidl.IOffloadCallback;
 import android.os.RemoteException;
 import android.os.SystemProperties;
-import android.provider.Settings;
 import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.util.Preconditions;
+import com.android.nearby.flags.Flags;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -46,6 +46,7 @@ import java.util.Objects;
 import java.util.WeakHashMap;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * This class provides a way to perform Nearby related operations such as scanning, broadcasting
@@ -84,7 +85,7 @@ public class NearbyManager {
      * Return value of {@link #getPoweredOffFindingMode()} when this powered off finding is not
      * supported the device.
      */
-    @FlaggedApi("com.android.nearby.flags.powered_off_finding")
+    @FlaggedApi(Flags.FLAG_POWERED_OFF_FINDING)
     public static final int POWERED_OFF_FINDING_MODE_UNSUPPORTED = 0;
 
     /**
@@ -92,7 +93,7 @@ public class NearbyManager {
      * #setPoweredOffFindingMode(int)} when powered off finding is supported but disabled. The
      * device will not start to advertise when powered off.
      */
-    @FlaggedApi("com.android.nearby.flags.powered_off_finding")
+    @FlaggedApi(Flags.FLAG_POWERED_OFF_FINDING)
     public static final int POWERED_OFF_FINDING_MODE_DISABLED = 1;
 
     /**
@@ -100,7 +101,7 @@ public class NearbyManager {
      * #setPoweredOffFindingMode(int)} when powered off finding is enabled. The device will start to
      * advertise when powered off.
      */
-    @FlaggedApi("com.android.nearby.flags.powered_off_finding")
+    @FlaggedApi(Flags.FLAG_POWERED_OFF_FINDING)
     public static final int POWERED_OFF_FINDING_MODE_ENABLED = 2;
 
     /**
@@ -122,18 +123,11 @@ public class NearbyManager {
 
     private static final int POWERED_OFF_FINDING_EID_LENGTH = 20;
 
-    private static final String POWER_OFF_FINDING_SUPPORTED_PROPERTY =
+    private static final String POWER_OFF_FINDING_SUPPORTED_PROPERTY_RO =
             "ro.bluetooth.finder.supported";
 
-    /**
-     * TODO(b/286137024): Remove this when CTS R5 is rolled out.
-     * Whether allows Fast Pair to scan.
-     *
-     * (0 = disabled, 1 = enabled)
-     *
-     * @hide
-     */
-    public static final String FAST_PAIR_SCAN_ENABLED = "fast_pair_scan_enabled";
+    private static final String POWER_OFF_FINDING_SUPPORTED_PROPERTY_PERSIST =
+            "persist.bluetooth.finder.supported";
 
     @GuardedBy("sScanListeners")
     private static final WeakHashMap<ScanCallback, WeakReference<ScanListenerTransport>>
@@ -475,36 +469,6 @@ public class NearbyManager {
     }
 
     /**
-     * TODO(b/286137024): Remove this when CTS R5 is rolled out.
-     * Read from {@link Settings} whether Fast Pair scan is enabled.
-     *
-     * @param context the {@link Context} to query the setting
-     * @return whether the Fast Pair is enabled
-     * @hide
-     */
-    public static boolean getFastPairScanEnabled(@NonNull Context context) {
-        final int enabled = Settings.Secure.getInt(
-                context.getContentResolver(), FAST_PAIR_SCAN_ENABLED, 0);
-        return enabled != 0;
-    }
-
-    /**
-     * TODO(b/286137024): Remove this when CTS R5 is rolled out.
-     * Write into {@link Settings} whether Fast Pair scan is enabled
-     *
-     * @param context the {@link Context} to set the setting
-     * @param enable whether the Fast Pair scan should be enabled
-     * @hide
-     */
-    @RequiresPermission(Manifest.permission.WRITE_SECURE_SETTINGS)
-    public static void setFastPairScanEnabled(@NonNull Context context, boolean enable) {
-        Settings.Secure.putInt(
-                context.getContentResolver(), FAST_PAIR_SCAN_ENABLED, enable ? 1 : 0);
-        Log.v(TAG, String.format(
-                "successfully %s Fast Pair scan", enable ? "enables" : "disables"));
-    }
-
-    /**
      * Sets the precomputed EIDs for advertising when the phone is powered off. The Bluetooth
      * controller will store these EIDs in its memory, and will start advertising them in Find My
      * Device network EID frames when powered off, only if the powered off finding mode was
@@ -526,7 +490,7 @@ public class NearbyManager {
      *
      * @throws IllegalArgumentException if the length of one of the EIDs is not 20 bytes
      */
-    @FlaggedApi("com.android.nearby.flags.powered_off_finding")
+    @FlaggedApi(Flags.FLAG_POWERED_OFF_FINDING)
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public void setPoweredOffFindingEphemeralIds(@NonNull List<byte[]> eids) {
         Objects.requireNonNull(eids);
@@ -540,7 +504,7 @@ public class NearbyManager {
                     PoweredOffFindingEphemeralId ephemeralId = new PoweredOffFindingEphemeralId();
                     ephemeralId.bytes = eid;
                     return ephemeralId;
-                }).toList();
+                }).collect(Collectors.toUnmodifiableList());
         try {
             mService.setPoweredOffFindingEphemeralIds(ephemeralIdList);
         } catch (RemoteException e) {
@@ -570,7 +534,7 @@ public class NearbyManager {
      * @throws IllegalStateException if called with {@link #POWERED_OFF_FINDING_MODE_ENABLED} when
      * Bluetooth or location services are disabled
      */
-    @FlaggedApi("com.android.nearby.flags.powered_off_finding")
+    @FlaggedApi(Flags.FLAG_POWERED_OFF_FINDING)
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public void setPoweredOffFindingMode(@PoweredOffFindingMode int poweredOffFindingMode) {
         Preconditions.checkArgument(
@@ -602,7 +566,7 @@ public class NearbyManager {
      * #POWERED_OFF_FINDING_MODE_ENABLED} if this was the last value set by {@link
      * #setPoweredOffFindingMode(int)}
      */
-    @FlaggedApi("com.android.nearby.flags.powered_off_finding")
+    @FlaggedApi(Flags.FLAG_POWERED_OFF_FINDING)
     @RequiresPermission(android.Manifest.permission.BLUETOOTH_PRIVILEGED)
     public @PoweredOffFindingMode int getPoweredOffFindingMode() {
         if (!isPoweredOffFindingSupported()) {
@@ -617,7 +581,9 @@ public class NearbyManager {
     }
 
     private boolean isPoweredOffFindingSupported() {
-        return Boolean.parseBoolean(SystemProperties.get(POWER_OFF_FINDING_SUPPORTED_PROPERTY));
+        return Boolean.parseBoolean(SystemProperties.get(POWER_OFF_FINDING_SUPPORTED_PROPERTY_RO))
+                || Boolean.parseBoolean(SystemProperties.get(
+                        POWER_OFF_FINDING_SUPPORTED_PROPERTY_PERSIST));
     }
 
     private boolean areLocationAndBluetoothEnabled() {

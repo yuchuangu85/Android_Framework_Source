@@ -19,6 +19,8 @@ package android.app.servertransaction;
 import static android.os.Trace.TRACE_TAG_ACTIVITY_MANAGER;
 import static android.view.Display.INVALID_DISPLAY;
 
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityThread.ActivityClientRecord;
@@ -34,16 +36,27 @@ import java.util.Objects;
 
 /**
  * Activity configuration changed callback.
+ *
  * @hide
  */
 public class ActivityConfigurationChangeItem extends ActivityTransactionItem {
 
-    private Configuration mConfiguration;
-    private ActivityWindowInfo mActivityWindowInfo;
+    @NonNull
+    private final Configuration mConfiguration;
+
+    @NonNull
+    private final ActivityWindowInfo mActivityWindowInfo;
+
+    public ActivityConfigurationChangeItem(@NonNull IBinder activityToken,
+            @NonNull Configuration config, @NonNull ActivityWindowInfo activityWindowInfo) {
+        super(activityToken);
+        mConfiguration = new Configuration(config);
+        mActivityWindowInfo = new ActivityWindowInfo(activityWindowInfo);
+    }
 
     @Override
     public void preExecute(@NonNull ClientTransactionHandler client) {
-        CompatibilityInfo.applyOverrideScaleIfNeeded(mConfiguration);
+        CompatibilityInfo.applyOverrideIfNeeded(mConfiguration);
         // Notify the client of an upcoming change in the token configuration. This ensures that
         // batches of config change items only process the newest configuration.
         client.updatePendingActivityConfiguration(getActivityToken(), mConfiguration);
@@ -59,38 +72,9 @@ public class ActivityConfigurationChangeItem extends ActivityTransactionItem {
         Trace.traceEnd(TRACE_TAG_ACTIVITY_MANAGER);
     }
 
-    // ObjectPoolItem implementation
-
-    private ActivityConfigurationChangeItem() {}
-
-    /** Obtain an instance initialized with provided params. */
-    @NonNull
-    public static ActivityConfigurationChangeItem obtain(@NonNull IBinder activityToken,
-            @NonNull Configuration config, @NonNull ActivityWindowInfo activityWindowInfo) {
-        ActivityConfigurationChangeItem instance =
-                ObjectPool.obtain(ActivityConfigurationChangeItem.class);
-        if (instance == null) {
-            instance = new ActivityConfigurationChangeItem();
-        }
-        instance.setActivityToken(activityToken);
-        instance.mConfiguration = new Configuration(config);
-        instance.mActivityWindowInfo = new ActivityWindowInfo(activityWindowInfo);
-
-        return instance;
-    }
-
-    @Override
-    public void recycle() {
-        super.recycle();
-        mConfiguration = null;
-        mActivityWindowInfo = null;
-        ObjectPool.recycle(this);
-    }
-
-
     // Parcelable implementation
 
-    /** Write to Parcel. */
+    /** Writes to Parcel. */
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         super.writeToParcel(dest, flags);
@@ -98,11 +82,11 @@ public class ActivityConfigurationChangeItem extends ActivityTransactionItem {
         dest.writeTypedObject(mActivityWindowInfo, flags);
     }
 
-    /** Read from Parcel. */
+    /** Reads from Parcel. */
     private ActivityConfigurationChangeItem(@NonNull Parcel in) {
         super(in);
-        mConfiguration = in.readTypedObject(Configuration.CREATOR);
-        mActivityWindowInfo = in.readTypedObject(ActivityWindowInfo.CREATOR);
+        mConfiguration = requireNonNull(in.readTypedObject(Configuration.CREATOR));
+        mActivityWindowInfo = requireNonNull(in.readTypedObject(ActivityWindowInfo.CREATOR));
     }
 
     public static final @NonNull Creator<ActivityConfigurationChangeItem> CREATOR =

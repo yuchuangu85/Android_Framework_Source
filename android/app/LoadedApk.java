@@ -1129,6 +1129,10 @@ public final class LoadedApk {
 
     @UnsupportedAppUsage
     public ClassLoader getClassLoader() {
+        ClassLoader ret = mClassLoader;
+        if (ret != null) {
+            return ret;
+        }
         synchronized (mLock) {
             if (mClassLoader == null) {
                 createOrUpdateClassLoaderLocked(null /*addedPaths*/);
@@ -1478,7 +1482,7 @@ public final class LoadedApk {
                         + " package " + mPackageName + ": " + e.toString(), e);
                 }
             }
-            mActivityThread.mAllApplications.add(app);
+            mActivityThread.addApplication(app);
             mApplication = app;
             if (!allowDuplicateInstances) {
                 synchronized (sApplications) {
@@ -1627,6 +1631,18 @@ public final class LoadedApk {
         }
     }
 
+    IIntentReceiver findRegisteredReceiverDispatcher(BroadcastReceiver r, Context context) {
+        synchronized (mReceivers) {
+            final ArrayMap<BroadcastReceiver, LoadedApk.ReceiverDispatcher> map =
+                    mReceivers.get(context);
+            if (map != null) {
+                final LoadedApk.ReceiverDispatcher rd = map.get(r);
+                return rd == null ? null : rd.getIIntentReceiver();
+            }
+            return null;
+        }
+    }
+
     public IIntentReceiver forgetReceiverDispatcher(Context context,
             BroadcastReceiver r) {
         synchronized (mReceivers) {
@@ -1648,7 +1664,6 @@ public final class LoadedApk {
                         }
                         RuntimeException ex = new IllegalArgumentException(
                                 "Originally unregistered here:");
-                        ex.fillInStackTrace();
                         rd.setUnregisterLocation(ex);
                         holder.put(r, rd);
                     }
@@ -1848,7 +1863,6 @@ public final class LoadedApk {
             mInstrumentation = instrumentation;
             mRegistered = registered;
             mLocation = new IntentReceiverLeaked(null);
-            mLocation.fillInStackTrace();
         }
 
         void validate(Context context, Handler activityThread) {
@@ -1988,7 +2002,6 @@ public final class LoadedApk {
                         }
                         RuntimeException ex = new IllegalArgumentException(
                                 "Originally unbound here:");
-                        ex.fillInStackTrace();
                         sd.setUnbindLocation(ex);
                         holder.put(c, sd);
                     }
@@ -2064,7 +2077,6 @@ public final class LoadedApk {
             mActivityThread = activityThread;
             mActivityExecutor = null;
             mLocation = new ServiceConnectionLeaked(null);
-            mLocation.fillInStackTrace();
             mFlags = flags;
         }
 
@@ -2076,7 +2088,6 @@ public final class LoadedApk {
             mActivityThread = null;
             mActivityExecutor = activityExecutor;
             mLocation = new ServiceConnectionLeaked(null);
-            mLocation.fillInStackTrace();
             mFlags = flags;
         }
 

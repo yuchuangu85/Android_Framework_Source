@@ -16,8 +16,6 @@
 
 package android.webkit;
 
-import static android.webkit.Flags.updateServiceV2;
-
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.annotation.UptimeMillisLong;
@@ -36,6 +34,7 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.Trace;
+import android.os.UserHandle;
 import android.text.TextUtils;
 import android.util.AndroidRuntimeException;
 import android.util.ArraySet;
@@ -52,12 +51,6 @@ import java.lang.reflect.Method;
  */
 @SystemApi
 public final class WebViewFactory {
-
-    // visible for WebViewZygoteInit to look up the class by reflection and call preloadInZygote.
-    /** @hide */
-    private static final String CHROMIUM_WEBVIEW_FACTORY =
-            "com.android.webview.chromium.WebViewChromiumFactoryProviderForT";
-
     private static final String CHROMIUM_WEBVIEW_FACTORY_METHOD = "create";
 
     private static final String LOGTAG = "WebViewFactory";
@@ -207,7 +200,7 @@ public final class WebViewFactory {
         public MissingWebViewPackageException(Exception e) { super(e); }
     }
 
-    private static boolean isWebViewSupported() {
+    static boolean isWebViewSupported() {
         // No lock; this is a benign race as Boolean's state is final and the PackageManager call
         // will always return the same value.
         if (sWebViewSupported == null) {
@@ -276,8 +269,8 @@ public final class WebViewFactory {
      */
     public static Class<WebViewFactoryProvider> getWebViewProviderClass(ClassLoader clazzLoader)
             throws ClassNotFoundException {
-        return (Class<WebViewFactoryProvider>) Class.forName(CHROMIUM_WEBVIEW_FACTORY,
-                true, clazzLoader);
+        return (Class<WebViewFactoryProvider>) Class.forName(
+                WebViewFactoryProvider.getWebViewFactoryClassName(), true, clazzLoader);
     }
 
     /**
@@ -317,7 +310,7 @@ public final class WebViewFactory {
         String libraryFileName;
         try {
             PackageInfo packageInfo = packageManager.getPackageInfo(packageName,
-                    PackageManager.GET_META_DATA | PackageManager.MATCH_DEBUG_TRIAGED_MISSING);
+                    PackageManager.GET_META_DATA);
             libraryFileName = getWebViewLibrary(packageInfo.applicationInfo);
         } catch (PackageManager.NameNotFoundException e) {
             Log.e(LOGTAG, "Couldn't find package " + packageName);
@@ -339,10 +332,10 @@ public final class WebViewFactory {
             if (sProviderInstance != null) return sProviderInstance;
 
             sTimestamps.mWebViewLoadStart = SystemClock.uptimeMillis();
-            final int uid = android.os.Process.myUid();
-            if (uid == android.os.Process.ROOT_UID || uid == android.os.Process.SYSTEM_UID
-                    || uid == android.os.Process.PHONE_UID || uid == android.os.Process.NFC_UID
-                    || uid == android.os.Process.BLUETOOTH_UID) {
+            final int appId = UserHandle.getAppId(android.os.Process.myUid());
+            if (appId == android.os.Process.ROOT_UID || appId == android.os.Process.SYSTEM_UID
+                    || appId == android.os.Process.PHONE_UID || appId == android.os.Process.NFC_UID
+                    || appId == android.os.Process.BLUETOOTH_UID) {
                 throw new UnsupportedOperationException(
                         "For security reasons, WebView is not allowed in privileged processes");
             }
@@ -478,7 +471,6 @@ public final class WebViewFactory {
                 newPackageInfo = pm.getPackageInfo(
                     response.packageInfo.packageName,
                     PackageManager.GET_SHARED_LIBRARY_FILES
-                    | PackageManager.MATCH_DEBUG_TRIAGED_MISSING
                     // Make sure that we fetch the current provider even if its not
                     // installed for the current user
                     | PackageManager.MATCH_UNINSTALLED_PACKAGES
@@ -490,7 +482,7 @@ public final class WebViewFactory {
                 Trace.traceEnd(Trace.TRACE_TAG_WEBVIEW);
             }
 
-            if (updateServiceV2() && !isInstalledPackage(newPackageInfo)) {
+            if (!isInstalledPackage(newPackageInfo)) {
                 throw new MissingWebViewPackageException(
                         TextUtils.formatSimple(
                                 "Current WebView Package (%s) is not installed for the current "
@@ -498,7 +490,7 @@ public final class WebViewFactory {
                                 newPackageInfo.packageName));
             }
 
-            if (updateServiceV2() && !isEnabledPackage(newPackageInfo)) {
+            if (!isEnabledPackage(newPackageInfo)) {
                 throw new MissingWebViewPackageException(
                         TextUtils.formatSimple(
                                 "Current WebView Package (%s) is not enabled for the current user",

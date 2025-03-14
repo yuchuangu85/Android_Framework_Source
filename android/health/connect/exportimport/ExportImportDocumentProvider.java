@@ -15,10 +15,7 @@
  */
 package android.health.connect.exportimport;
 
-import static com.android.healthfitness.flags.Flags.FLAG_EXPORT_IMPORT;
-
 import android.annotation.DrawableRes;
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.net.Uri;
 import android.os.Parcel;
@@ -31,7 +28,6 @@ import java.util.Objects;
  *
  * @hide
  */
-@FlaggedApi(FLAG_EXPORT_IMPORT)
 public final class ExportImportDocumentProvider implements Parcelable {
     @NonNull
     public static final Creator<ExportImportDocumentProvider> CREATOR =
@@ -51,23 +47,27 @@ public final class ExportImportDocumentProvider implements Parcelable {
     @NonNull private final String mSummary;
     private final @DrawableRes int mIconResource;
     @NonNull private final Uri mRootUri;
+    @NonNull private final String mAuthority;
 
     private ExportImportDocumentProvider(@NonNull Parcel in) {
         mTitle = Objects.requireNonNull(in.readString());
         mSummary = Objects.requireNonNull(in.readString());
         mIconResource = in.readInt();
         mRootUri = Uri.parse(Objects.requireNonNull(in.readString()));
+        mAuthority = Objects.requireNonNull(in.readString());
     }
 
     public ExportImportDocumentProvider(
             @NonNull String title,
             @NonNull String summary,
             @DrawableRes int iconResource,
-            @NonNull Uri rootUri) {
-        mTitle = title;
-        mSummary = summary;
+            @NonNull Uri rootUri,
+            @NonNull String authority) {
+        mTitle = Objects.requireNonNull(title);
+        mSummary = Objects.requireNonNull(summary);
         mIconResource = iconResource;
-        mRootUri = rootUri;
+        mRootUri = Objects.requireNonNull(rootUri);
+        mAuthority = Objects.requireNonNull(authority);
     }
 
     /** Returns the title for the document provider (usually corresponds to the app name). */
@@ -101,6 +101,12 @@ public final class ExportImportDocumentProvider implements Parcelable {
         return mRootUri;
     }
 
+    /** Returns the authority that can be used for loading the icon drawable. */
+    @NonNull
+    public String getAuthority() {
+        return mAuthority;
+    }
+
     @Override
     public int describeContents() {
         return 0;
@@ -112,5 +118,6 @@ public final class ExportImportDocumentProvider implements Parcelable {
         dest.writeString(mSummary);
         dest.writeInt(mIconResource);
         dest.writeString(mRootUri.toString());
+        dest.writeString(mAuthority);
     }
 }

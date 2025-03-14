@@ -25,10 +25,13 @@ import android.telephony.BarringInfo;
 import android.telephony.CallQuality;
 import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
+import android.telephony.CellularIdentifierDisclosure;
 import android.telephony.LinkCapacityEstimate;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PhoneCapability;
 import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseDataConnectionState;
+import android.telephony.SecurityAlgorithmUpdate;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager.DataEnabledReason;
@@ -37,6 +40,7 @@ import android.telephony.TelephonyManager.EmergencyCallbackModeType;
 import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.MediaQualityStatus;
+import android.telephony.satellite.NtnSignalStrength;
 
 import java.util.List;
 import java.util.Set;
@@ -145,7 +149,12 @@ public interface PhoneNotifier {
             List<LinkCapacityEstimate> linkCapacityEstimateList);
 
     /** Notify callback mode started. */
-    void notifyCallbackModeStarted(Phone sender, @EmergencyCallbackModeType int type);
+    void notifyCallbackModeStarted(Phone sender, @EmergencyCallbackModeType int type,
+            long durationMillis);
+
+    /** Notify callback mode restarted. */
+    void notifyCallbackModeRestarted(Phone sender, @EmergencyCallbackModeType int type,
+            long durationMillis);
 
     /** Notify callback mode stopped. */
     void notifyCallbackModeStopped(Phone sender, @EmergencyCallbackModeType int type,
@@ -156,4 +165,22 @@ public interface PhoneNotifier {
 
     /** Notify carrier roaming non-terrestrial network mode changed. **/
     void notifyCarrierRoamingNtnModeChanged(Phone sender, boolean active);
+
+    /** Notify eligibility to connect to carrier roaming non-terrestrial network changed. */
+    void notifyCarrierRoamingNtnEligibleStateChanged(Phone sender, boolean eligible);
+
+    /** Notify carrier roaming non-terrestrial available services changed. */
+    void notifyCarrierRoamingNtnAvailableServicesChanged(
+            Phone sender, @NetworkRegistrationInfo.ServiceType int[] availableServices);
+
+    /** Notify carrier roaming non-terrestrial network signal strength changed. */
+    void notifyCarrierRoamingNtnSignalStrengthChanged(Phone sender,
+            @NonNull NtnSignalStrength ntnSignalStrength);
+
+    /** Notify of a cellular identifier disclosure change. */
+    void notifyCellularIdentifierDisclosedChanged(Phone sender,
+            CellularIdentifierDisclosure disclosure);
+
+    /** Notify of a security algorithm update change. */
+    void notifySecurityAlgorithmsChanged(Phone sender, SecurityAlgorithmUpdate update);
 }

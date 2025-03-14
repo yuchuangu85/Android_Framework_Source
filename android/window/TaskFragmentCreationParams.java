@@ -24,6 +24,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.TestApi;
+import android.content.pm.ActivityInfo;
 import android.content.pm.ActivityInfo.ScreenOrientation;
 import android.graphics.Rect;
 import android.os.IBinder;
@@ -112,12 +113,21 @@ public final class TaskFragmentCreationParams implements Parcelable {
      */
     private final @ScreenOrientation int mOverrideOrientation;
 
+    /**
+     * {@link android.content.pm.ActivityInfo.Config} mask that specifies which
+     * configuration changes should trigger TaskFragment info change callbacks.
+     *
+     * @see android.content.pm.ActivityInfo.Config
+     */
+    private final @ActivityInfo.Config int mConfigurationChangeMask;
+
     private TaskFragmentCreationParams(
             @NonNull TaskFragmentOrganizerToken organizer, @NonNull IBinder fragmentToken,
             @NonNull IBinder ownerToken, @NonNull Rect initialRelativeBounds,
             @WindowingMode int windowingMode, @Nullable IBinder pairedPrimaryFragmentToken,
             @Nullable IBinder pairedActivityToken, boolean allowTransitionWhenEmpty,
-            @ScreenOrientation int overrideOrientation) {
+            @ScreenOrientation int overrideOrientation,
+            @ActivityInfo.Config int configurationChangeMask) {
         if (pairedPrimaryFragmentToken != null && pairedActivityToken != null) {
             throw new IllegalArgumentException("pairedPrimaryFragmentToken and"
                     + " pairedActivityToken should not be set at the same time.");
@@ -131,6 +141,7 @@ public final class TaskFragmentCreationParams implements Parcelable {
         mPairedActivityToken = pairedActivityToken;
         mAllowTransitionWhenEmpty = allowTransitionWhenEmpty;
         mOverrideOrientation = overrideOrientation;
+        mConfigurationChangeMask = configurationChangeMask;
     }
 
     @NonNull
@@ -186,6 +197,11 @@ public final class TaskFragmentCreationParams implements Parcelable {
         return mOverrideOrientation;
     }
 
+    /** @hide */
+    public @ActivityInfo.Config int getConfigurationChangeMask() {
+        return mConfigurationChangeMask;
+    }
+
     private TaskFragmentCreationParams(Parcel in) {
         mOrganizer = TaskFragmentOrganizerToken.CREATOR.createFromParcel(in);
         mFragmentToken = in.readStrongBinder();
@@ -196,6 +212,7 @@ public final class TaskFragmentCreationParams implements Parcelable {
         mPairedActivityToken = in.readStrongBinder();
         mAllowTransitionWhenEmpty = in.readBoolean();
         mOverrideOrientation = in.readInt();
+        mConfigurationChangeMask = in.readInt();
     }
 
     /** @hide */
@@ -210,6 +227,7 @@ public final class TaskFragmentCreationParams implements Parcelable {
         dest.writeStrongBinder(mPairedActivityToken);
         dest.writeBoolean(mAllowTransitionWhenEmpty);
         dest.writeInt(mOverrideOrientation);
+        dest.writeInt(mConfigurationChangeMask);
     }
 
     @NonNull
@@ -238,6 +256,7 @@ public final class TaskFragmentCreationParams implements Parcelable {
                 + " pairedActivityToken=" + mPairedActivityToken
                 + " allowTransitionWhenEmpty=" + mAllowTransitionWhenEmpty
                 + " overrideOrientation=" + mOverrideOrientation
+                + " configurationChangeMask=" + mConfigurationChangeMask
                 + "}";
     }
 
@@ -274,6 +293,8 @@ public final class TaskFragmentCreationParams implements Parcelable {
         private boolean mAllowTransitionWhenEmpty;
 
         private @ScreenOrientation int mOverrideOrientation = SCREEN_ORIENTATION_UNSPECIFIED;
+
+        private @ActivityInfo.Config int mConfigurationChangeMask = 0;
 
         public Builder(@NonNull TaskFragmentOrganizerToken organizer,
                 @NonNull IBinder fragmentToken, @NonNull IBinder ownerToken) {
@@ -369,12 +390,30 @@ public final class TaskFragmentCreationParams implements Parcelable {
             return this;
         }
 
+        /**
+         * Sets {@link android.content.pm.ActivityInfo.Config} mask that specifies which
+         * configuration changes should trigger TaskFragment info change callbacks.
+         *
+         * Only system organizers are allowed to configure this value. This value is ignored for
+         * non-system organizers.
+         *
+         * @see android.content.pm.ActivityInfo.Config
+         * @hide
+         */
+        @NonNull
+        public Builder setConfigurationChangeMask(
+                @ActivityInfo.Config int configurationChangeMask) {
+            mConfigurationChangeMask = configurationChangeMask;
+            return this;
+        }
+
         /** Constructs the options to create TaskFragment with. */
         @NonNull
         public TaskFragmentCreationParams build() {
             return new TaskFragmentCreationParams(mOrganizer, mFragmentToken, mOwnerToken,
                     mInitialRelativeBounds, mWindowingMode, mPairedPrimaryFragmentToken,
-                    mPairedActivityToken, mAllowTransitionWhenEmpty, mOverrideOrientation);
+                    mPairedActivityToken, mAllowTransitionWhenEmpty, mOverrideOrientation,
+                    mConfigurationChangeMask);
         }
     }
 }

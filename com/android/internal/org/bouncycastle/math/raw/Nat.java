@@ -236,6 +236,19 @@ public abstract class Nat
         return (int)c;
     }
 
+    public static int caddTo(int len, int mask, int[] x, int[] z)
+    {
+        long MASK = -(mask & 1) & M;
+        long c = 0;
+        for (int i = 0; i < len; ++i)
+        {
+            c += (z[i] & M) + (x[i] & MASK);
+            z[i] = (int)c;
+            c >>>= 32;
+        }
+        return (int)c;
+    }
+
     public static void cmov(int len, int mask, int[] x, int xOff, int[] z, int zOff)
     {
         mask = -(mask & 1);
@@ -1127,41 +1140,6 @@ public abstract class Nat
 //        assert 0L == d;
 
         shiftUpBit(extLen, zz, zzOff, x[xOff] << 31);
-    }
-
-    /**
-     * @deprecated Use {@link #squareWordAddTo(int[], int, int[])} instead.
-     */
-    public static int squareWordAdd(int[] x, int xPos, int[] z)
-    {
-        long c = 0, xVal = x[xPos] & M;
-        int i = 0;
-        do
-        {
-            c += xVal * (x[i] & M) + (z[xPos + i] & M);
-            z[xPos + i] = (int)c;
-            c >>>= 32;
-        }
-        while (++i < xPos);
-        return (int)c;
-    }
-
-    /**
-     * @deprecated Use {@link #squareWordAddTo(int[], int, int, int[], int)} instead.
-     */
-    public static int squareWordAdd(int[] x, int xOff, int xPos, int[] z, int zOff)
-    {
-        long c = 0, xVal = x[xOff + xPos] & M;
-        int i = 0;
-        do
-        {
-            c += xVal * (x[xOff + i] & M) + (z[xPos + zOff] & M);
-            z[xPos + zOff] = (int)c;
-            c >>>= 32;
-            ++zOff;
-        }
-        while (++i < xPos);
-        return (int)c;
     }
 
     public static int squareWordAddTo(int[] x, int xPos, int[] z)

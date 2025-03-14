@@ -31,14 +31,18 @@ import sun.reflect.Reflection;
 
 import java.lang.reflect.*;
 import java.nio.ByteOrder;
+import java.nio.charset.Charset;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.NoSuchElementException;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import jdk.internal.vm.annotation.Stable;
 
 import static java.lang.invoke.MethodHandleStatics.*;
 import static java.lang.invoke.MethodHandleStatics.newIllegalArgumentException;
@@ -739,7 +743,11 @@ public class MethodHandles {
                             && !name.equals("java.lang.Daemons$FinalizerWatchdogDaemon")
                             && !name.equals("java.lang.runtime.ObjectMethods")
                             && !name.equals("java.lang.Thread")
-                            && !name.equals("java.util.HashMap")) ||
+                            && !name.equals("java.util.HashMap")
+                            && !name.equals("java.util.HashSet")
+                            && !name.equals("java.util.WeakHashMap")
+                            && !name.equals("java.lang.runtime.SwitchBootstraps")
+                            && !name.startsWith("java.util.stream.")) ||
                         (name.startsWith("sun.")
                                 && !name.startsWith("sun.invoke.")
                                 && !name.equals("sun.reflect.ReflectionFactory"))) {
@@ -988,7 +996,13 @@ assertEquals("", (String) MH_newString.invokeExact());
 
             // Insert the leading reference parameter.
             MethodType handleType = type.insertParameterTypes(0, refc);
-            return createMethodHandle(method, MethodHandle.INVOKE_VIRTUAL, handleType);
+            int kind = MethodHandle.INVOKE_VIRTUAL;
+            // This is the same check what Class::FindVirtualMethodForVirtualOrInterface is doing.
+            // Not doing `isCopied` check as copied methods are not exposed in the reflection APIs.
+            if (method.getDeclaringClass().isInterface() /* && !method.isCopied() */) {
+                kind = MethodHandle.INVOKE_INTERFACE;
+            }
+            return createMethodHandle(method, kind, handleType);
         }
 
         /**
@@ -1082,6 +1096,81 @@ assertEquals("[x, y, z]", pb.command().toString());
         }
         // END Android-added: Add findClass(String) from OpenJDK 17. http://b/270028670
 
+        // BEGIN Android-added: mapping from String constructors to StringFactory methods.
+        private static final Map<Constructor<String>, Method> STRING_TO_STRING_FACTORY =
+                buildMapping();
+
+        private static Map<Constructor<String>, Method> buildMapping() {
+            // If system image is not provided, during bootstrap time
+            // String.class.getDeclaringConstructor will succeeded, but j.l.r.Constructor might
+            // not be initialized yet. Hence initializing it explicitly here.
+            try {
+                Class.forName("java.lang.reflect.Constructor");
+            } catch (Exception e) {
+                throw new InternalError("Failed to initialize Constructor class", e);
+            }
+
+            Map<Constructor<String>, Method> mapping = new HashMap<>();
+            Map<List<Class<?>>, String> signatureAndName = new HashMap<>();
+            // Intentionally not using ImmutableCollections (List.of, Map.copyOf) below.
+            // ImmutableCollections' static initializer calls System.nanoTime and adding its
+            // implementation to UnstartedRuntime leads to Math.RandomNumberGeneratorHolder
+            // initialization in the system image effectively making it deterministic.
+            signatureAndName.put(Arrays.asList(), "newEmptyString");
+            signatureAndName.put(Arrays.asList(byte[].class),"newStringFromBytes");
+            signatureAndName.put(Arrays.asList(byte[].class, byte.class), "newStringFromBytes");
+            signatureAndName.put(Arrays.asList(byte[].class, int.class), "newStringFromBytes");
+            signatureAndName.put(
+                    Arrays.asList(byte[].class, int.class, int.class), "newStringFromBytes");
+            signatureAndName.put(
+                    Arrays.asList(byte[].class, int.class, int.class, int.class),
+                    "newStringFromBytes");
+            signatureAndName.put(
+                    Arrays.asList(byte[].class, int.class, int.class, String.class),
+                    "newStringFromBytes");
+            signatureAndName.put(Arrays.asList(byte[].class, String.class), "newStringFromBytes");
+            signatureAndName.put(
+                    Arrays.asList(byte[].class, int.class, int.class, Charset.class),
+                    "newStringFromBytes");
+            signatureAndName.put(Arrays.asList(byte[].class, Charset.class), "newStringFromBytes");
+            signatureAndName.put(Arrays.asList(char[].class), "newStringFromChars");
+            signatureAndName.put(
+                    Arrays.asList(char[].class, int.class, int.class), "newStringFromChars");
+            signatureAndName.put(
+                    Arrays.asList(int.class, int.class, char[].class), "newStringFromChars");
+            signatureAndName.put(Arrays.asList(String.class), "newStringFromString");
+            signatureAndName.put(Arrays.asList(StringBuffer.class), "newStringFromStringBuffer");
+            signatureAndName.put(
+                    Arrays.asList(int[].class, int.class, int.class), "newStringFromCodePoints");
+            signatureAndName.put(Arrays.asList(StringBuilder.class), "newStringFromStringBuilder");
+
+            for (var entry : signatureAndName.entrySet()) {
+                List<Class<?>> types = entry.getKey();
+                String name = entry.getValue();
+                try {
+                    Constructor<String> stringConstructor =
+                            String.class.getDeclaredConstructor(
+                                    types.toArray(new Class<?>[0]));
+                    Method factoryMethod =
+                            StringFactory.class.getDeclaredMethod(
+                                    name, types.toArray(new Class<?>[0]));
+                    if (mapping.put(stringConstructor, factoryMethod) != null) {
+                        throw new InternalError("Attempt to remap " + stringConstructor);
+                    }
+                } catch (NoSuchMethodException nsme) {
+                    throw new InternalError(nsme);
+                }
+            }
+
+            return Collections.unmodifiableMap(mapping);
+        }
+
+        private static Method findStringFactoryMethod(Constructor<String> constructor) {
+            return Objects.requireNonNull(STRING_TO_STRING_FACTORY.get(constructor),
+                                          "No mapping for " + constructor);
+        }
+        // END Android-added: mapping from String constructors to StringFactory methods.
+
         private MethodHandle createMethodHandleForConstructor(Constructor constructor) {
             Class<?> refc = constructor.getDeclaringClass();
             MethodType constructorType =
@@ -1091,8 +1180,8 @@ assertEquals("[x, y, z]", pb.command().toString());
                 // String constructors have optimized StringFactory methods
                 // that matches returned type. These factory methods combine the
                 // memory allocation and initialization calls for String objects.
-                mh = new MethodHandleImpl(constructor.getArtMethod(), MethodHandle.INVOKE_DIRECT,
-                                          constructorType);
+                mh = new MethodHandleImpl(findStringFactoryMethod(constructor).getArtMethod(),
+                        MethodHandle.INVOKE_STATIC, constructorType);
             } else {
                 // Constructors for all other classes use a Construct transformer to perform
                 // their memory allocation and call to <init>.
@@ -2258,12 +2347,25 @@ return mh1;
      */
     public static
     MethodHandle arrayLength(Class<?> arrayClass) throws IllegalArgumentException {
-        // Android-changed: transformer based implementation.
+        // Android-changed: calling static function directly.
         // return MethodHandleImpl.makeArrayElementAccessor(arrayClass, MethodHandleImpl.ArrayAccess.LENGTH);
         if (!arrayClass.isArray()) {
             throw newIllegalArgumentException("not an array class: " + arrayClass.getName());
         }
-        return new Transformers.ArrayLength(arrayClass);
+        Class<?> componentType = arrayClass.getComponentType();
+        Class<?> reducedArrayType = componentType.isPrimitive() ? arrayClass : Object[].class;
+
+        try {
+            Method arrayLength =
+                MethodHandles.class.getDeclaredMethod("arrayLength", reducedArrayType);
+
+            return new MethodHandleImpl(
+                    arrayLength.getArtMethod(),
+                    MethodHandle.INVOKE_STATIC,
+                    MethodType.methodType(int.class, arrayClass));
+        } catch (NoSuchMethodException nsme) {
+            throw new AssertionError(nsme);
+        }
     }
 
     // BEGIN Android-added: method to check if a class is an array.
@@ -2272,6 +2374,16 @@ return mh1;
             throw new IllegalArgumentException("Not an array type: " + c);
         }
     }
+
+    private static int arrayLength(byte[] array) { return array.length; }
+    private static int arrayLength(boolean[] array) { return array.length; }
+    private static int arrayLength(char[] array) { return array.length; }
+    private static int arrayLength(short[] array) { return array.length; }
+    private static int arrayLength(int[] array) { return array.length; }
+    private static int arrayLength(long[] array) { return array.length; }
+    private static int arrayLength(float[] array) { return array.length; }
+    private static int arrayLength(double[] array) { return array.length; }
+    private static int arrayLength(Object[] array) { return array.length; }
 
     private static void checkTypeIsViewable(Class<?> componentType) {
         if (componentType == short.class ||
@@ -2310,7 +2422,19 @@ return mh1;
             }
         }
 
-        return new Transformers.ReferenceArrayElementGetter(arrayClass);
+        try {
+            // MethodHandle objects can be cached.
+            Method arrayElementGetter =
+                MethodHandles.class.getDeclaredMethod(
+                        "arrayElementGetter", Object[].class, int.class);
+
+            return new MethodHandleImpl(
+                    arrayElementGetter.getArtMethod(),
+                    MethodHandle.INVOKE_STATIC,
+                    MethodType.methodType(componentType, arrayClass, int.class));
+        } catch (NoSuchMethodException nsme) {
+            throw new AssertionError(nsme);
+        }
     }
 
     /** @hide */ public static byte arrayElementGetter(byte[] array, int i) { return array[i]; }
@@ -2321,6 +2445,7 @@ return mh1;
     /** @hide */ public static long arrayElementGetter(long[] array, int i) { return array[i]; }
     /** @hide */ public static float arrayElementGetter(float[] array, int i) { return array[i]; }
     /** @hide */ public static double arrayElementGetter(double[] array, int i) { return array[i]; }
+    private static Object arrayElementGetter(Object[] array, int i) { return array[i]; }
 
     /**
      * Produces a method handle giving write access to elements of an array.
@@ -2346,7 +2471,18 @@ return mh1;
             }
         }
 
-        return new Transformers.ReferenceArrayElementSetter(arrayClass);
+        try {
+            Method arrayElementSetter =
+                MethodHandles.class.getDeclaredMethod(
+                        "arrayElementSetter", Object[].class, int.class, Object.class);
+
+            return new MethodHandleImpl(
+                    arrayElementSetter.getArtMethod(),
+                    MethodHandle.INVOKE_STATIC,
+                    MethodType.methodType(void.class, arrayClass, int.class, componentType));
+        } catch (NoSuchMethodException nsme) {
+            throw new AssertionError(nsme);
+        }
     }
 
     /** @hide */
@@ -2365,6 +2501,7 @@ return mh1;
     public static void arrayElementSetter(float[] array, int i, float val) { array[i] = val; }
     /** @hide */
     public static void arrayElementSetter(double[] array, int i, double val) { array[i] = val; }
+    private static void arrayElementSetter(Object[] array, int i, Object val) { array[i] = val; }
 
     // BEGIN Android-changed: OpenJDK 9+181 VarHandle API factory methods.
     /**
@@ -3733,14 +3870,18 @@ assertEquals("[top, [[up, down, strange], charm], bottom]",
         MethodType targetType = target.type();
         MethodType filterType = filter.type();
         Class<?> rtype = filterType.returnType();
-        List<Class<?>> filterArgs = filterType.parameterList();
+        Class<?>[] filterArgs = filterType.ptypes();
+        if (pos < 0 || (rtype == void.class && pos > targetType.parameterCount()) ||
+                       (rtype != void.class && pos >= targetType.parameterCount())) {
+            throw newIllegalArgumentException("position is out of range for target", target, pos);
+        }
         if (rtype == void.class) {
             return targetType.insertParameterTypes(pos, filterArgs);
         }
         if (rtype != targetType.parameterType(pos)) {
             throw newIllegalArgumentException("target and filter types do not match", targetType, filterType);
         }
-        return targetType.dropParameterTypes(pos, pos+1).insertParameterTypes(pos, filterArgs);
+        return targetType.dropParameterTypes(pos, pos + 1).insertParameterTypes(pos, filterArgs);
     }
 
     /**

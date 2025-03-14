@@ -16,9 +16,9 @@ import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1Set;
 import com.android.org.bouncycastle.asn1.ASN1String;
 import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
+import com.android.org.bouncycastle.asn1.ASN1UniversalString;
 import com.android.org.bouncycastle.asn1.DERSequence;
 import com.android.org.bouncycastle.asn1.DERSet;
-import com.android.org.bouncycastle.asn1.DERUniversalString;
 import com.android.org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
 import com.android.org.bouncycastle.asn1.x500.X500Name;
 import com.android.org.bouncycastle.util.Strings;
@@ -429,7 +429,7 @@ public class X509Name
                    ordering.addElement(ASN1ObjectIdentifier.getInstance(s.getObjectAt(0)));
                    
                    ASN1Encodable value = s.getObjectAt(1);
-                   if (value instanceof ASN1String && !(value instanceof DERUniversalString))
+                   if (value instanceof ASN1String && !(value instanceof ASN1UniversalString))
                    {
                        String v = ((ASN1String)value).getString();
                        if (v.length() > 0 && v.charAt(0) == '#')

@@ -81,7 +81,7 @@ public final class InputEventConsistencyVerifier {
 
     // Bitfield of pointer ids that are currently down.
     // Assumes that the largest possible pointer id is 31, which is potentially subject to change.
-    // (See MAX_POINTER_ID in frameworks/base/include/ui/Input.h)
+    // (See MAX_POINTER_ID in frameworks/native/include/input/input.h)
     private int mTouchEventStreamPointers;
 
     // The device id and source of the current stream of touch events.
@@ -180,7 +180,7 @@ public final class InputEventConsistencyVerifier {
             final MotionEvent motionEvent = (MotionEvent)event;
             if (motionEvent.isTouchEvent()) {
                 onTouchEvent(motionEvent, nestingLevel);
-            } else if ((motionEvent.getSource() & InputDevice.SOURCE_CLASS_TRACKBALL) != 0) {
+            } else if (motionEvent.isFromSource(InputDevice.SOURCE_TRACKBALL)) {
                 onTrackballEvent(motionEvent, nestingLevel);
             } else {
                 onGenericMotionEvent(motionEvent, nestingLevel);

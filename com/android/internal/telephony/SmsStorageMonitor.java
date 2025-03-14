@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony;
 
+import android.annotation.NonNull;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -33,6 +34,7 @@ import android.provider.Telephony.Sms.Intents;
 import android.telephony.SubscriptionManager;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
 
@@ -91,6 +93,9 @@ public class SmsStorageMonitor extends Handler {
 
     private boolean mMemoryStatusOverrideFlag = false;
 
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
+
     /**
      * Hold the wake lock for 5 seconds, which should be enough time for
      * any receiver(s) to grab its own wake lock.
@@ -100,9 +105,11 @@ public class SmsStorageMonitor extends Handler {
     /**
      * Creates an SmsStorageMonitor and registers for events.
      * @param phone the Phone to use
+     * @param flags The Android feature flags
      */
-    public SmsStorageMonitor(Phone phone) {
+    public SmsStorageMonitor(@NonNull Phone phone, @NonNull FeatureFlags flags) {
         mPhone = phone;
+        mFeatureFlags = flags;
         mContext = phone.getContext();
         mCi = phone.mCi;
 
@@ -278,7 +285,12 @@ public class SmsStorageMonitor extends Handler {
         intent.setComponent(componentName);
         mWakeLock.acquire(WAKE_LOCK_TIMEOUT);
         SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
-        mContext.sendBroadcast(intent, android.Manifest.permission.RECEIVE_SMS);
+        if (mFeatureFlags.hsumBroadcast()) {
+            mContext.sendBroadcastAsUser(intent, UserHandle.ALL,
+                    android.Manifest.permission.RECEIVE_SMS);
+        } else {
+            mContext.sendBroadcast(intent, android.Manifest.permission.RECEIVE_SMS);
+        }
     }
 
     /** Returns whether or not there is storage available for an incoming SMS. */

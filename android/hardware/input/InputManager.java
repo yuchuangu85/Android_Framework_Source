@@ -18,7 +18,8 @@ package android.hardware.input;
 
 import static com.android.input.flags.Flags.FLAG_INPUT_DEVICE_VIEW_BEHAVIOR_API;
 import static com.android.input.flags.Flags.FLAG_DEVICE_ASSOCIATIONS;
-import static com.android.hardware.input.Flags.keyboardLayoutPreviewFlag;
+import static com.android.hardware.input.Flags.enableCustomizableInputGestures;
+import static com.android.hardware.input.Flags.keyboardGlyphMap;
 
 import android.Manifest;
 import android.annotation.FlaggedApi;
@@ -32,6 +33,7 @@ import android.annotation.SdkConstant.SdkConstantType;
 import android.annotation.SuppressLint;
 import android.annotation.SystemService;
 import android.annotation.TestApi;
+import android.annotation.UserHandleAware;
 import android.annotation.UserIdInt;
 import android.app.ActivityThread;
 import android.compat.annotation.ChangeId;
@@ -158,6 +160,34 @@ public final class InputManager {
             "android.hardware.input.metadata.KEYBOARD_LAYOUTS";
 
     /**
+     * Broadcast Action: Query available keyboard glyph maps.
+     * <p>
+     * The input manager service locates available keyboard glyph maps
+     * by querying broadcast receivers that are registered for this action.
+     * An application can offer additional keyboard glyph maps to the user
+     * by declaring a suitable broadcast receiver in its manifest.
+     * </p>
+     *
+     * @hide
+     */
+    @SdkConstant(SdkConstantType.BROADCAST_INTENT_ACTION)
+    public static final String ACTION_QUERY_KEYBOARD_GLYPH_MAPS =
+            "android.hardware.input.action.QUERY_KEYBOARD_GLYPH_MAPS";
+
+    /**
+     * Metadata Key: Keyboard glyph map metadata associated with
+     * {@link #ACTION_QUERY_KEYBOARD_GLYPH_MAPS}.
+     * <p>
+     * Specifies the resource id of a XML resource that describes the keyboard
+     * glyph maps that are provided by the application.
+     * </p>
+     *
+     * @hide
+     */
+    public static final String META_DATA_KEYBOARD_GLYPH_MAPS =
+            "android.hardware.input.metadata.KEYBOARD_GLYPH_MAPS";
+
+    /**
      * Prevent touches from being consumed by apps if these touches passed through a non-trusted
      * window from a different UID and are considered unsafe.
      *
@@ -227,6 +257,52 @@ public final class InputManager {
         int REMAPPABLE_MODIFIER_KEY_SHIFT_RIGHT = KeyEvent.KEYCODE_SHIFT_RIGHT;
         int REMAPPABLE_MODIFIER_KEY_CAPS_LOCK = KeyEvent.KEYCODE_CAPS_LOCK;
     }
+
+    /**
+     * Custom input gesture result success
+     *
+     * @hide
+     */
+    public static final int CUSTOM_INPUT_GESTURE_RESULT_SUCCESS = 1;
+
+    /**
+     * Custom input gesture error: Input gesture already exists
+     *
+     * @hide
+     */
+    public static final int CUSTOM_INPUT_GESTURE_RESULT_ERROR_ALREADY_EXISTS = 2;
+
+    /**
+     * Custom input gesture error: Input gesture does not exist
+     *
+     * @hide
+     */
+    public static final int CUSTOM_INPUT_GESTURE_RESULT_ERROR_DOES_NOT_EXIST = 3;
+
+    /**
+     * Custom input gesture error: Input gesture is reserved for system action
+     *
+     * @hide
+     */
+    public static final int CUSTOM_INPUT_GESTURE_RESULT_ERROR_RESERVED_GESTURE = 4;
+
+    /**
+     * Custom input gesture error: Failure error code for all other errors/warnings
+     *
+     * @hide
+     */
+    public static final int CUSTOM_INPUT_GESTURE_RESULT_ERROR_OTHER = 5;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(prefix = { "CUSTOM_INPUT_GESTURE_RESULT_" }, value = {
+            CUSTOM_INPUT_GESTURE_RESULT_SUCCESS,
+            CUSTOM_INPUT_GESTURE_RESULT_ERROR_ALREADY_EXISTS,
+            CUSTOM_INPUT_GESTURE_RESULT_ERROR_DOES_NOT_EXIST,
+            CUSTOM_INPUT_GESTURE_RESULT_ERROR_RESERVED_GESTURE,
+            CUSTOM_INPUT_GESTURE_RESULT_ERROR_OTHER,
+    })
+    public @interface CustomInputGestureResult {}
 
     /**
      * Switch State: Unknown.
@@ -330,19 +406,6 @@ public final class InputManager {
      */
     public int[] getInputDeviceIds() {
         return mGlobal.getInputDeviceIds();
-    }
-
-    /**
-     * Returns true if an input device is enabled. Should return true for most
-     * situations. Some system apps may disable an input device, for
-     * example to prevent unwanted touch events.
-     *
-     * @param id The input device Id.
-     *
-     * @hide
-     */
-    public boolean isInputDeviceEnabled(int id) {
-        return mGlobal.isInputDeviceEnabled(id);
     }
 
     /**
@@ -902,12 +965,26 @@ public final class InputManager {
     @Nullable
     public Drawable getKeyboardLayoutPreview(@Nullable KeyboardLayout keyboardLayout, int width,
             int height) {
-        if (!keyboardLayoutPreviewFlag()) {
-            return null;
-        }
         PhysicalKeyLayout keyLayout = new PhysicalKeyLayout(
                 mGlobal.getKeyCharacterMap(keyboardLayout), keyboardLayout);
         return new KeyboardLayoutPreviewDrawable(mContext, keyLayout, width, height);
+    }
+
+    /**
+     * Provides associated glyph map for the keyboard device (if available)
+     *
+     * @hide
+     */
+    @Nullable
+    public KeyGlyphMap getKeyGlyphMap(int deviceId) {
+        if (!keyboardGlyphMap()) {
+            return null;
+        }
+        try {
+            return mIm.getKeyGlyphMap(deviceId);
+        } catch (RemoteException ex) {
+            throw ex.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -976,11 +1053,10 @@ public final class InputManager {
      * originate from the system, just that we were unable to verify it. This can
      * happen for a number of reasons during normal operation.
      *
-     * @param event The {@link android.view.InputEvent} to check
+     * @param event The {@link android.view.InputEvent} to check.
      *
      * @return {@link android.view.VerifiedInputEvent}, which is a subset of the provided
-     * {@link android.view.InputEvent}
-     *         {@code null} if the event could not be verified.
+     *     {@link android.view.InputEvent}, or {@code null} if the event could not be verified.
      */
     @Nullable
     public VerifiedInputEvent verifyInputEvent(@NonNull InputEvent event) {
@@ -1039,8 +1115,18 @@ public final class InputManager {
     /**
      * Monitor input on the specified display for gestures.
      *
+     * NOTE: New usages of Gesture Monitors are strongly discouraged. Gesture Monitors are
+     * deprecated, in favor of spy windows (see {@link LayoutParams#INPUT_FEATURE_SPY}).
+     * The spy window should be configured specifically to receive the desired events,
+     * unlike the gesture monitor which receives all events on the display.
+     *
      * @hide
+     * @deprecated
+     * @see LayoutParams#INPUT_FEATURE_SPY
+     * @see android.os.InputConfig#SPY
+     * @see #pilferPointers(IBinder)
      */
+    @Deprecated
     public InputMonitor monitorGestureInput(String name, int displayId) {
         return mGlobal.monitorGestureInput(name, displayId);
     }
@@ -1209,8 +1295,22 @@ public final class InputManager {
      * canceled. Only the pilfering window will continue to receive events for the affected pointers
      * until the pointer is lifted.
      *
-     * This method should be used with caution as unexpected pilfering can break fundamental user
-     * interactions.
+     * Furthermore, if any new pointers go down within the touchable region of the pilfering window
+     * and are part of the same gesture, those new pointers will be pilfered as well, and will not
+     * be sent to any other windows.
+     *
+     * Pilfering is designed to be used only once per gesture. Once the gesture is complete
+     * (i.e. on {@link MotionEvent#ACTION_UP}, {@link MotionEvent#ACTION_CANCEL},
+     * or {@link MotionEvent#ACTION_HOVER_EXIT}), the system will resume dispatching pointers
+     * to the appropriately touched windows.
+     *
+     * NOTE: This method should be used with caution as unexpected pilfering can break fundamental
+     * user interactions.
+     *
+     * NOTE: Since this method pilfers pointers based on gesture stream that is
+     * currently active for the window, the behavior will depend on the state of the system, and
+     * is inherently racy. For example, a pilfer request on a quick tap may not be successful if
+     * the tap is already complete by the time the pilfer request is received by the system.
      *
      * @see android.os.InputConfig#SPY
      * @hide
@@ -1299,9 +1399,6 @@ public final class InputManager {
     @RequiresPermission(Manifest.permission.MONITOR_STICKY_MODIFIER_STATE)
     public void registerStickyModifierStateListener(@NonNull Executor executor,
             @NonNull StickyModifierStateListener listener) throws IllegalArgumentException {
-        if (!InputSettings.isAccessibilityStickyKeysFeatureEnabled()) {
-            return;
-        }
         mGlobal.registerStickyModifierStateListener(executor, listener);
     }
 
@@ -1315,10 +1412,210 @@ public final class InputManager {
     @RequiresPermission(Manifest.permission.MONITOR_STICKY_MODIFIER_STATE)
     public void unregisterStickyModifierStateListener(
             @NonNull StickyModifierStateListener listener) {
-        if (!InputSettings.isAccessibilityStickyKeysFeatureEnabled()) {
+        mGlobal.unregisterStickyModifierStateListener(listener);
+    }
+
+    /**
+     * Registers a key gesture event listener for {@link KeyGestureEvent} being triggered.
+     *
+     * @param executor an executor on which the callback will be called
+     * @param listener the {@link KeyGestureEventListener}
+     * @throws IllegalArgumentException if {@code listener} has already been registered previously.
+     * @throws NullPointerException     if {@code listener} or {@code executor} is null.
+     * @hide
+     * @see #unregisterKeyGestureEventListener(KeyGestureEventListener)
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    public void registerKeyGestureEventListener(@NonNull Executor executor,
+            @NonNull KeyGestureEventListener listener) throws IllegalArgumentException {
+        mGlobal.registerKeyGestureEventListener(executor, listener);
+    }
+
+    /**
+     * Unregisters a previously added key gesture event listener.
+     *
+     * @param listener the {@link KeyGestureEventListener}
+     * @hide
+     * @see #registerKeyGestureEventListener(Executor, KeyGestureEventListener)
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    public void unregisterKeyGestureEventListener(@NonNull KeyGestureEventListener listener) {
+        mGlobal.unregisterKeyGestureEventListener(listener);
+    }
+
+    /**
+     * Registers a key gesture event handler for {@link KeyGestureEvent} handling.
+     *
+     * @param handler the {@link KeyGestureEventHandler}
+     * @throws IllegalArgumentException if {@code handler} has already been registered previously.
+     * @throws NullPointerException     if {@code handler} or {@code executor} is null.
+     * @hide
+     * @see #unregisterKeyGestureEventHandler(KeyGestureEventHandler)
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    public void registerKeyGestureEventHandler(@NonNull KeyGestureEventHandler handler)
+            throws IllegalArgumentException {
+        mGlobal.registerKeyGestureEventHandler(handler);
+    }
+
+    /**
+     * Unregisters a previously added key gesture event handler.
+     *
+     * @param handler the {@link KeyGestureEventHandler}
+     * @hide
+     * @see #registerKeyGestureEventHandler(KeyGestureEventHandler)
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    public void unregisterKeyGestureEventHandler(@NonNull KeyGestureEventHandler handler) {
+        mGlobal.unregisterKeyGestureEventHandler(handler);
+    }
+
+    /**
+     * Find an input gesture mapped to a particular trigger.
+     *
+     * @param trigger to find the input gesture for
+     * @return input gesture mapped to the provided trigger, {@code null} if none found
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    @UserHandleAware
+    @Nullable
+    public InputGestureData getInputGesture(@NonNull InputGestureData.Trigger trigger) {
+        try {
+            AidlInputGestureData result = mIm.getInputGesture(mContext.getUserId(),
+                    trigger.getAidlTrigger());
+            if (result == null) {
+                return null;
+            }
+            return new InputGestureData(result);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** Adds a new custom input gesture
+     *
+     * @param inputGestureData gesture data to add as custom gesture
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    @CustomInputGestureResult
+    @UserHandleAware
+    public int addCustomInputGesture(@NonNull InputGestureData inputGestureData) {
+        if (!enableCustomizableInputGestures()) {
+            return CUSTOM_INPUT_GESTURE_RESULT_ERROR_OTHER;
+        }
+        try {
+            return mIm.addCustomInputGesture(mContext.getUserId(), inputGestureData.getAidlData());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** Removes an existing custom gesture
+     *
+     * <p> NOTE: Should not be used to remove system gestures. This API is only to be used to
+     * remove gestures added using {@link #addCustomInputGesture(InputGestureData)}
+     *
+     * @param inputGestureData gesture data for the existing custom gesture to remove
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    @CustomInputGestureResult
+    @UserHandleAware
+    public int removeCustomInputGesture(@NonNull InputGestureData inputGestureData) {
+        if (!enableCustomizableInputGestures()) {
+            return CUSTOM_INPUT_GESTURE_RESULT_ERROR_OTHER;
+        }
+        try {
+            return mIm.removeCustomInputGesture(mContext.getUserId(),
+                    inputGestureData.getAidlData());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** Removes all custom input gestures
+     *
+     * @param filter for removing all gestures of a category. If {@code null}, all custom input
+     *               gestures will be removed
+     *
+     * @hide
+     */
+    @RequiresPermission(Manifest.permission.MANAGE_KEY_GESTURES)
+    @UserHandleAware
+    public void removeAllCustomInputGestures(@Nullable InputGestureData.Filter filter) {
+        if (!enableCustomizableInputGestures()) {
             return;
         }
-        mGlobal.unregisterStickyModifierStateListener(listener);
+        try {
+            mIm.removeAllCustomInputGestures(mContext.getUserId(),
+                    filter == null ? -1 : filter.getTag());
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** Get all custom input gestures
+     *
+     * @param filter for fetching all gestures of a category. If {@code null}, then will return
+     *               all custom input gestures
+     *
+     * @hide
+     */
+    @UserHandleAware
+    public List<InputGestureData> getCustomInputGestures(@Nullable InputGestureData.Filter filter) {
+        List<InputGestureData> result = new ArrayList<>();
+        if (!enableCustomizableInputGestures()) {
+            return result;
+        }
+        try {
+            for (AidlInputGestureData data : mIm.getCustomInputGestures(mContext.getUserId(),
+                    filter == null ? -1 : filter.getTag())) {
+                result.add(new InputGestureData(data));
+            }
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+        return result;
+    }
+
+    /**
+     * Return the set of application launch bookmarks handled by the input framework.
+     *
+     * @return list of {@link InputGestureData} containing the application launch shortcuts parsed
+     * at boot time from {@code bookmarks.xml}.
+     *
+     * @hide
+     */
+    public List<InputGestureData> getAppLaunchBookmarks() {
+        try {
+            List<InputGestureData> result = new ArrayList<>();
+            for (AidlInputGestureData data : mIm.getAppLaunchBookmarks()) {
+                result.add(new InputGestureData(data));
+            }
+            return result;
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Resets locked modifier state (i.e.. Caps Lock, Num Lock, Scroll Lock state)
+     *
+     * @hide
+     */
+    @TestApi
+    @SuppressLint("UnflaggedApi") // @TestApi without associated feature.
+    public void resetLockedModifierState() {
+        try {
+            mIm.resetLockedModifierState();
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     /**
@@ -1422,4 +1719,88 @@ public final class InputManager {
          */
         void onStickyModifierStateChanged(@NonNull StickyModifierState state);
     }
+
+    /**
+     * A callback used to notify about key gesture event on completion.
+     *
+     * @see #registerKeyGestureEventListener(Executor, KeyGestureEventListener)
+     * @see #unregisterKeyGestureEventListener(KeyGestureEventListener)
+     * @hide
+     */
+    public interface KeyGestureEventListener {
+        /**
+         * Called when a key gesture event occurs.
+         *
+         * @param event the gesture event that occurred.
+         */
+        void onKeyGestureEvent(@NonNull KeyGestureEvent event);
+    }
+
+    /**
+     * A callback used to notify about key gesture event start, complete and cancel. Unlike
+     * {@see KeyGestureEventListener} which is to listen to successfully handled key gestures, this
+     * interface allows system components to register handler for handling key gestures.
+     *
+     * @see #registerKeyGestureEventHandler(KeyGestureEventHandler)
+     * @see #unregisterKeyGestureEventHandler(KeyGestureEventHandler)
+     *
+     * <p> NOTE: All callbacks will occur on system main and input threads, so the caller needs
+     * to move time-consuming operations to appropriate handler threads.
+     * @hide
+     */
+    public interface KeyGestureEventHandler {
+        /**
+         * Called when a key gesture event starts, is completed, or is cancelled. If a handler
+         * returns {@code true}, it implies that the handler intends to handle the key gesture and
+         * only this handler will receive the future events for this key gesture.
+         *
+         * @param event the gesture event
+         */
+        boolean handleKeyGestureEvent(@NonNull KeyGestureEvent event,
+                @Nullable IBinder focusedToken);
+
+        /**
+         * Called to identify if a particular gesture is of interest to a handler.
+         *
+         * NOTE: If no active handler supports certain gestures, the gestures will not be captured.
+         */
+        boolean isKeyGestureSupported(@KeyGestureEvent.KeyGestureType int gestureType);
+    }
+
+    /** @hide */
+    public interface KeyEventActivityListener {
+        /**
+         * Reports a change for user activeness.
+         *
+         * This listener will be triggered any time a user presses a key.
+         */
+        void onKeyEventActivity();
+    }
+
+
+    /**
+     * Registers a listener for updates to key event activeness
+     *
+     * @param listener to be registered
+     * @return true if listener registered successfully
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.LISTEN_FOR_KEY_ACTIVITY)
+    public boolean registerKeyEventActivityListener(@NonNull KeyEventActivityListener listener) {
+        return mGlobal.registerKeyEventActivityListener(listener);
+    }
+
+    /**
+     * Unregisters a listener for updates to key event activeness
+     *
+     * @param listener to be unregistered
+     * @return true if listener unregistered successfully, also returns true if
+     * invoked but listener was not present
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.LISTEN_FOR_KEY_ACTIVITY)
+    public boolean unregisterKeyEventActivityListener(@NonNull KeyEventActivityListener listener) {
+        return mGlobal.unregisterKeyEventActivityListener(listener);
+    }
+
 }

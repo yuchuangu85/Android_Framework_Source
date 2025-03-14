@@ -16,14 +16,18 @@
 
 package com.android.internal.telephony.uicc;
 
+import static com.android.internal.telephony.util.TelephonyUtils.FORCE_VERBOSE_STATE_LOGGING;
+
 import android.compat.annotation.UnsupportedAppUsage;
 import android.os.AsyncResult;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
+import android.util.Log;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CommandsInterface;
+import com.android.telephony.Rlog;
 
 import java.util.ArrayList;
 
@@ -31,7 +35,9 @@ import java.util.ArrayList;
  * {@hide}
  */
 public abstract class IccFileHandler extends Handler implements IccConstants {
-    private static final boolean VDBG = false;
+    protected static final String LOG_TAG = "IccFileHandler";
+    private static final boolean VDBG = FORCE_VERBOSE_STATE_LOGGING ||
+            Rlog.isLoggable(LOG_TAG, Log.VERBOSE);
 
     //from TS 11.11 9.1 or elsewhere
     static protected final int COMMAND_READ_BINARY = 0xb0;

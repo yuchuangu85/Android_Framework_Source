@@ -142,6 +142,12 @@ public class SecurityLogTags {
   /** 210044 security_backup_service_toggled (package|3),(admin_user|1),(enabled|1) */
   public static final int SECURITY_BACKUP_SERVICE_TOGGLED = 210044;
 
+  /** 210045 security_nfc_enabled */
+  public static final int SECURITY_NFC_ENABLED = 210045;
+
+  /** 210046 security_nfc_disabled */
+  public static final int SECURITY_NFC_DISABLED = 210046;
+
   public static void writeSecurityAdbShellInteractive() {
     android.util.EventLog.writeEvent(SECURITY_ADB_SHELL_INTERACTIVE);
   }
@@ -316,5 +322,13 @@ public class SecurityLogTags {
 
   public static void writeSecurityBackupServiceToggled(String package_, int adminUser, int enabled) {
     android.util.EventLog.writeEvent(SECURITY_BACKUP_SERVICE_TOGGLED, package_, adminUser, enabled);
+  }
+
+  public static void writeSecurityNfcEnabled() {
+    android.util.EventLog.writeEvent(SECURITY_NFC_ENABLED);
+  }
+
+  public static void writeSecurityNfcDisabled() {
+    android.util.EventLog.writeEvent(SECURITY_NFC_DISABLED);
   }
 }

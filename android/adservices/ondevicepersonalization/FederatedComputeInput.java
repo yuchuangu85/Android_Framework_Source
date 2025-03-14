@@ -16,16 +16,13 @@
 
 package android.adservices.ondevicepersonalization;
 
-import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 
-import com.android.adservices.ondevicepersonalization.flags.Flags;
 import com.android.ondevicepersonalization.internal.util.AnnotationValidations;
 import com.android.ondevicepersonalization.internal.util.DataClass;
 
 /** The input data for {@link FederatedComputeScheduler#schedule}. */
 @DataClass(genBuilder = true, genEqualsHashCode = true)
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public final class FederatedComputeInput {
     // TODO(b/300461799): add federated compute server document.
     /**

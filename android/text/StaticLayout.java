@@ -41,6 +41,7 @@ import android.util.Pools.SynchronizedPool;
 
 import com.android.internal.util.ArrayUtils;
 import com.android.internal.util.GrowingArrayUtils;
+import com.android.text.flags.Flags;
 
 import java.util.Arrays;
 
@@ -120,6 +121,7 @@ public class StaticLayout extends Layout {
             b.mHyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE;
             b.mJustificationMode = Layout.JUSTIFICATION_MODE_NONE;
             b.mLineBreakConfig = LineBreakConfig.NONE;
+            b.mUseBoundsForWidth = false;
             b.mMinimumFontMetrics = null;
             return b;
         }
@@ -447,6 +449,7 @@ public class StaticLayout extends Layout {
          * @see Layout#getUseBoundsForWidth()
          * @see Layout.Builder#setUseBoundsForWidth(boolean)
          */
+        @SuppressLint("MissingGetterMatchingBuilder")  // The base class `Layout` has a getter.
         @NonNull
         @FlaggedApi(FLAG_USE_BOUNDS_FOR_WIDTH)
         public Builder setUseBoundsForWidth(boolean useBoundsForWidth) {
@@ -802,7 +805,7 @@ public class StaticLayout extends Layout {
         final int defaultAscent;
         final int defaultDescent;
         int defaultBottom;
-        if (ClientFlags.fixLineHeightForLocale() && b.mMinimumFontMetrics != null) {
+        if (Flags.fixLineHeightForLocale() && b.mMinimumFontMetrics != null) {
             defaultTop = (int) Math.floor(b.mMinimumFontMetrics.top);
             defaultAscent = Math.round(b.mMinimumFontMetrics.ascent);
             defaultDescent = Math.round(b.mMinimumFontMetrics.descent);

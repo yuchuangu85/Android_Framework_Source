@@ -18,6 +18,7 @@ import java.text.AttributedString;
 import java.text.FieldPosition;
 import java.text.Format;
 import java.text.ParsePosition;
+import java.time.temporal.Temporal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -31,6 +32,7 @@ import android.icu.impl.DayPeriodRules;
 import android.icu.impl.ICUCache;
 import android.icu.impl.ICUData;
 import android.icu.impl.ICUResourceBundle;
+import android.icu.impl.JavaTimeConverters;
 import android.icu.impl.PatternProps;
 import android.icu.impl.SimpleCache;
 import android.icu.impl.SimpleFormatterImpl;
@@ -3884,6 +3886,8 @@ public class SimpleDateFormat extends DateFormat {
             calendar.setTime((Date)obj);
         } else if (obj instanceof Number) {
             calendar.setTimeInMillis(((Number)obj).longValue());
+        } else if (obj instanceof Temporal) {
+            cal = JavaTimeConverters.temporalToCalendar((Temporal) obj);
         } else {
             throw new IllegalArgumentException("Cannot format given Object as a Date");
         }

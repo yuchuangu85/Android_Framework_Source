@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen/android/security/apc/IConfirmationCallback.java.d -o out/soong/.intermediates/system/security/keystore2/aidl/android.security.apc-java-source/gen -Nsystem/security/keystore2/aidl system/security/keystore2/aidl/android/security/apc/IConfirmationCallback.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.security.apc;
 /**
@@ -16,10 +20,6 @@ public interface IConfirmationCallback extends android.os.IInterface
     /**
      * This callback gets called by the implementing service when a pending confirmation prompt
      * gets finalized.
-     * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-     *             makers and developers alike. Given the lack of devices supporting the feature,
-     *             it is deprecated. Developers can use auth-bound Keystore keys as a partial
-     *             replacement.
      * 
      * @param result
      *  - ResponseCode.OK On success. In this case dataConfirmed must be non null.
@@ -45,7 +45,7 @@ public interface IConfirmationCallback extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.security.apc.IConfirmationCallback
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -117,10 +117,6 @@ public interface IConfirmationCallback extends android.os.IInterface
       /**
        * This callback gets called by the implementing service when a pending confirmation prompt
        * gets finalized.
-       * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-       *             makers and developers alike. Given the lack of devices supporting the feature,
-       *             it is deprecated. Developers can use auth-bound Keystore keys as a partial
-       *             replacement.
        * 
        * @param result
        *  - ResponseCode.OK On success. In this case dataConfirmed must be non null.
@@ -156,10 +152,6 @@ public interface IConfirmationCallback extends android.os.IInterface
   /**
    * This callback gets called by the implementing service when a pending confirmation prompt
    * gets finalized.
-   * @deprecated Android Protected Confirmation had a low adoption rate among Android device
-   *             makers and developers alike. Given the lack of devices supporting the feature,
-   *             it is deprecated. Developers can use auth-bound Keystore keys as a partial
-   *             replacement.
    * 
    * @param result
    *  - ResponseCode.OK On success. In this case dataConfirmed must be non null.
@@ -174,6 +166,5 @@ public interface IConfirmationCallback extends android.os.IInterface
    *           message with a confirmation bound key will succeed. The message is a CBOR map
    *           including the prompt text and the extra data.
    */
-  @Deprecated
   public void onCompleted(int result, byte[] dataConfirmed) throws android.os.RemoteException;
 }

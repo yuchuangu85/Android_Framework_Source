@@ -16,8 +16,10 @@
 
 package android.app.appsearch.util;
 
-import android.annotation.NonNull;
 import android.app.appsearch.GenericDocument;
+import android.app.appsearch.JoinSpec;
+
+import org.jspecify.annotations.NonNull;
 
 import java.util.Objects;
 
@@ -29,10 +31,20 @@ public class DocumentIdUtil {
     private static final String NAMESPACE_DELIMITER = "#";
 
     /**
-     * In regex, 4 backslashes in Java represent a single backslash in Regex. This will escape the
-     * namespace delimiter.
+     * Replacement for the namespace delimiter.
+     *
+     * <p>We are using literal replace, so this is the literal replacement String, not a regex. We
+     * want to replace "#" with "\\#".
      */
-    private static final String NAMESPACE_DELIMITER_REPLACEMENT_REGEX = "\\\\#";
+    private static final String NAMESPACE_DELIMITER_REPLACEMENT = "\\#";
+
+    /**
+     * Replacement for backslash.
+     *
+     * <p>We are using literal replace, so this is the literal replacement String, not a regex. We
+     * want to replace "\" with "\\".
+     */
+    private static final String BACKSLASH_REPLACEMENT = "\\\\";
 
     /**
      * Generates a qualified id based on package, database, and a {@link GenericDocument}.
@@ -43,8 +55,7 @@ public class DocumentIdUtil {
      * @return the qualified id of a document.
      * @see #createQualifiedId(String, String, String, String)
      */
-    @NonNull
-    public static String createQualifiedId(
+    public static @NonNull String createQualifiedId(
             @NonNull String packageName,
             @NonNull String databaseName,
             @NonNull GenericDocument document) {
@@ -64,10 +75,10 @@ public class DocumentIdUtil {
      * @param namespace The namespace of the document.
      * @param id The id of the document.
      * @return the qualified id of a document
+     * @see JoinSpec
+     * @see JoinSpec#QUALIFIED_ID
      */
-    // TODO(b/256022027): Add @link to QUALIFIED_ID and JoinSpec
-    @NonNull
-    public static String createQualifiedId(
+    public static @NonNull String createQualifiedId(
             @NonNull String packageName,
             @NonNull String databaseName,
             @NonNull String namespace,
@@ -101,8 +112,23 @@ public class DocumentIdUtil {
      * @return An escaped string
      */
     private static String escapeNsDelimiters(@NonNull String original) {
-        // Four backslashes represent a single backslash in regex.
-        return original.replaceAll("\\\\", "\\\\\\\\")
-                .replaceAll(NAMESPACE_DELIMITER, NAMESPACE_DELIMITER_REPLACEMENT_REGEX);
+        StringBuilder escapedString = null;
+        for (int i = 0; i < original.length(); i++) {
+            char currentChar = original.charAt(i);
+            if (currentChar == '\\') {
+                if (escapedString == null) {
+                    escapedString = new StringBuilder(original.substring(0, i));
+                }
+                escapedString.append(BACKSLASH_REPLACEMENT);
+            } else if (currentChar == '#') {
+                if (escapedString == null) {
+                    escapedString = new StringBuilder(original.substring(0, i));
+                }
+                escapedString.append(NAMESPACE_DELIMITER_REPLACEMENT);
+            } else if (escapedString != null) {
+                escapedString.append(currentChar);
+            }
+        }
+        return escapedString == null ? original : escapedString.toString();
     }
 }

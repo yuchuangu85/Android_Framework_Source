@@ -23,6 +23,7 @@ import static com.google.android.mms.pdu.PduHeaders.MESSAGE_TYPE_NOTIFICATION_IN
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AppOpsManager;
 import android.app.BroadcastOptions;
@@ -45,6 +46,7 @@ import android.telephony.SmsManager;
 import android.telephony.SubscriptionManager;
 import android.text.TextUtils;
 
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.telephony.Rlog;
@@ -67,7 +69,13 @@ public class WapPushOverSms implements ServiceConnection {
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private final Context mContext;
+
+    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    private UserManager mUserManager;
+
     PowerWhitelistManager mPowerWhitelistManager;
+
+    protected final @NonNull FeatureFlags mFeatureFlags;
 
     private String mWapPushManagerPackage;
 
@@ -128,11 +136,11 @@ public class WapPushOverSms implements ServiceConnection {
         if (DBG) Rlog.v(TAG, "wappush manager disconnected.");
     }
 
-    public WapPushOverSms(Context context) {
+    public WapPushOverSms(Context context, FeatureFlags featureFlags) {
+        mFeatureFlags = featureFlags;
         mContext = context;
         mPowerWhitelistManager = mContext.getSystemService(PowerWhitelistManager.class);
-
-        UserManager userManager = (UserManager) mContext.getSystemService(Context.USER_SERVICE);
+        mUserManager = mContext.getSystemService(UserManager.class);
 
         bindWapPushManagerService(mContext);
     }
@@ -325,6 +333,7 @@ public class WapPushOverSms implements ServiceConnection {
      *         {@link Activity#RESULT_OK} if the message has been broadcast
      *         to applications
      */
+    @SuppressLint("MissingPermission")
     public int dispatchWapPdu(byte[] pdu, InboundSmsHandler.SmsBroadcastReceiver receiver,
             InboundSmsHandler handler, String address, int subId, long messageId) {
         DecodedResult result = decodeWapPdu(pdu, handler);
@@ -422,7 +431,11 @@ public class WapPushOverSms implements ServiceConnection {
         }
 
         if (userHandle == null) {
-            userHandle = UserHandle.SYSTEM;
+            if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()) {
+                userHandle = mUserManager.getMainUser();
+            } else {
+                userHandle = UserHandle.SYSTEM;
+            }
         }
         handler.dispatchIntent(intent, getPermissionForType(result.mimeType),
                 getAppOpsStringPermissionForIntent(result.mimeType), options, receiver,

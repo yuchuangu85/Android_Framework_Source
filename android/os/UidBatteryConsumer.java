@@ -70,10 +70,7 @@ public final class UidBatteryConsumer extends BatteryConsumer {
 
     static final int COLUMN_INDEX_UID = BatteryConsumer.COLUMN_COUNT;
     static final int COLUMN_INDEX_PACKAGE_WITH_HIGHEST_DRAIN = COLUMN_INDEX_UID + 1;
-    static final int COLUMN_INDEX_TIME_IN_FOREGROUND = COLUMN_INDEX_UID + 2;
-    static final int COLUMN_INDEX_TIME_IN_BACKGROUND = COLUMN_INDEX_UID + 3;
-    static final int COLUMN_INDEX_TIME_IN_FOREGROUND_SERVICE = COLUMN_INDEX_UID + 4;
-    static final int COLUMN_COUNT = BatteryConsumer.COLUMN_COUNT + 5;
+    static final int COLUMN_COUNT = BatteryConsumer.COLUMN_COUNT + 2;
 
     UidBatteryConsumer(BatteryConsumerData data) {
         super(data);
@@ -100,10 +97,10 @@ public final class UidBatteryConsumer extends BatteryConsumer {
     public long getTimeInStateMs(@State int state) {
         switch (state) {
             case STATE_BACKGROUND:
-                return mData.getInt(COLUMN_INDEX_TIME_IN_BACKGROUND)
-                        + mData.getInt(COLUMN_INDEX_TIME_IN_FOREGROUND_SERVICE);
+                return getTimeInProcessStateMs(PROCESS_STATE_BACKGROUND)
+                        + getTimeInProcessStateMs(PROCESS_STATE_FOREGROUND_SERVICE);
             case STATE_FOREGROUND:
-                return mData.getInt(COLUMN_INDEX_TIME_IN_FOREGROUND);
+                return getTimeInProcessStateMs(PROCESS_STATE_FOREGROUND);
         }
         return 0;
     }
@@ -112,13 +109,11 @@ public final class UidBatteryConsumer extends BatteryConsumer {
      * Returns the amount of time in milliseconds this UID spent in the specified process state.
      */
     public long getTimeInProcessStateMs(@ProcessState int state) {
-        switch (state) {
-            case PROCESS_STATE_BACKGROUND:
-                return mData.getInt(COLUMN_INDEX_TIME_IN_BACKGROUND);
-            case PROCESS_STATE_FOREGROUND:
-                return mData.getInt(COLUMN_INDEX_TIME_IN_FOREGROUND);
-            case PROCESS_STATE_FOREGROUND_SERVICE:
-                return mData.getInt(COLUMN_INDEX_TIME_IN_FOREGROUND_SERVICE);
+        if (state != BatteryConsumer.PROCESS_STATE_UNSPECIFIED) {
+            Key key = getKey(POWER_COMPONENT_BASE, state);
+            if (key != null) {
+                return getUsageDurationMillis(key);
+            }
         }
         return 0;
     }
@@ -130,38 +125,76 @@ public final class UidBatteryConsumer extends BatteryConsumer {
         pw.print(": ");
         pw.print(BatteryStats.formatCharge(getConsumedPower()));
 
-        if (mData.layout.processStateDataIncluded) {
-            StringBuilder sb = new StringBuilder();
-            appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_FOREGROUND,
-                    skipEmptyComponents);
-            appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_BACKGROUND,
-                    skipEmptyComponents);
-            appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_FOREGROUND_SERVICE,
-                    skipEmptyComponents);
-            appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_CACHED,
-                    skipEmptyComponents);
-            pw.print(sb);
-        }
+        StringBuilder sb = new StringBuilder();
+        appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_FOREGROUND,
+                skipEmptyComponents);
+        appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_BACKGROUND,
+                skipEmptyComponents);
+        appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_FOREGROUND_SERVICE,
+                skipEmptyComponents);
+        appendProcessStateData(sb, BatteryConsumer.PROCESS_STATE_CACHED,
+                skipEmptyComponents);
+        pw.println(sb);
 
-        pw.print(" ( ");
-        mPowerComponents.dump(pw, skipEmptyComponents  /* skipTotalPowerComponent */);
-        pw.print(" ) ");
+        pw.print("      ");
+        mPowerComponents.dump(pw, SCREEN_STATE_ANY, POWER_STATE_ANY, skipEmptyComponents);
+
+        if (mData.layout.powerStateDataIncluded || mData.layout.screenStateDataIncluded) {
+            for (int powerState = 0; powerState < POWER_STATE_COUNT; powerState++) {
+                if (mData.layout.powerStateDataIncluded && powerState == POWER_STATE_UNSPECIFIED) {
+                    continue;
+                }
+
+                for (int screenState = 0; screenState < SCREEN_STATE_COUNT; screenState++) {
+                    if (mData.layout.screenStateDataIncluded
+                            && screenState == SCREEN_STATE_UNSPECIFIED) {
+                        continue;
+                    }
+
+                    final double consumedPower = mPowerComponents.getConsumedPower(
+                            POWER_COMPONENT_ANY,
+                            PROCESS_STATE_ANY, screenState, powerState);
+                    if (consumedPower == 0) {
+                        continue;
+                    }
+
+                    pw.print("      (");
+                    if (powerState != POWER_STATE_UNSPECIFIED) {
+                        pw.print(BatteryConsumer.powerStateToString(powerState));
+                    }
+                    if (screenState != SCREEN_STATE_UNSPECIFIED) {
+                        if (powerState != POWER_STATE_UNSPECIFIED) {
+                            pw.print(", ");
+                        }
+                        pw.print("screen ");
+                        pw.print(BatteryConsumer.screenStateToString(screenState));
+                    }
+                    pw.print(") ");
+                    mPowerComponents.dump(pw, screenState, powerState,
+                            skipEmptyComponents  /* skipTotalPowerComponent */);
+                }
+            }
+        }
     }
 
     private void appendProcessStateData(StringBuilder sb, @ProcessState int processState,
             boolean skipEmptyComponents) {
         Dimensions dimensions = new Dimensions(POWER_COMPONENT_ANY, processState);
         final double power = mPowerComponents.getConsumedPower(dimensions);
-        if (power == 0 && skipEmptyComponents) {
+
+        Key key = getKey(POWER_COMPONENT_BASE, processState);
+        long durationMs = key != null ? mPowerComponents.getUsageDurationMillis(key) : 0;
+        if (power == 0 && durationMs == 0 && skipEmptyComponents) {
             return;
         }
 
         sb.append(" ").append(processStateToString(processState)).append(": ")
                 .append(BatteryStats.formatCharge(power));
-    }
-
-    static UidBatteryConsumer create(BatteryConsumerData data) {
-        return new UidBatteryConsumer(data);
+        if (durationMs != 0) {
+            sb.append(" (");
+            BatteryStats.formatTimeMsNoSpace(sb, durationMs);
+            sb.append(")");
+        }
     }
 
     /** Serializes this object to XML */
@@ -177,12 +210,6 @@ public final class UidBatteryConsumer extends BatteryConsumer {
             serializer.attribute(null, BatteryUsageStats.XML_ATTR_HIGHEST_DRAIN_PACKAGE,
                     packageWithHighestDrain);
         }
-        serializer.attributeLong(null, BatteryUsageStats.XML_ATTR_TIME_IN_FOREGROUND,
-                getTimeInProcessStateMs(PROCESS_STATE_FOREGROUND));
-        serializer.attributeLong(null, BatteryUsageStats.XML_ATTR_TIME_IN_BACKGROUND,
-                getTimeInProcessStateMs(PROCESS_STATE_BACKGROUND));
-        serializer.attributeLong(null, BatteryUsageStats.XML_ATTR_TIME_IN_FOREGROUND_SERVICE,
-                getTimeInProcessStateMs(PROCESS_STATE_FOREGROUND_SERVICE));
         mPowerComponents.writeToXml(serializer);
         serializer.endTag(null, BatteryUsageStats.XML_TAG_UID);
     }
@@ -202,13 +229,6 @@ public final class UidBatteryConsumer extends BatteryConsumer {
 
         consumerBuilder.setPackageWithHighestDrain(
                 parser.getAttributeValue(null, BatteryUsageStats.XML_ATTR_HIGHEST_DRAIN_PACKAGE));
-        consumerBuilder.setTimeInProcessStateMs(PROCESS_STATE_FOREGROUND,
-                parser.getAttributeLong(null, BatteryUsageStats.XML_ATTR_TIME_IN_FOREGROUND));
-        consumerBuilder.setTimeInProcessStateMs(PROCESS_STATE_BACKGROUND,
-                parser.getAttributeLong(null, BatteryUsageStats.XML_ATTR_TIME_IN_BACKGROUND));
-        consumerBuilder.setTimeInProcessStateMs(PROCESS_STATE_FOREGROUND_SERVICE,
-                parser.getAttributeLong(null,
-                        BatteryUsageStats.XML_ATTR_TIME_IN_FOREGROUND_SERVICE));
         while (!(eventType == XmlPullParser.END_TAG
                 && parser.getName().equals(BatteryUsageStats.XML_TAG_UID))
                 && eventType != XmlPullParser.END_DOCUMENT) {
@@ -288,10 +308,10 @@ public final class UidBatteryConsumer extends BatteryConsumer {
         public Builder setTimeInStateMs(@State int state, long timeInStateMs) {
             switch (state) {
                 case STATE_FOREGROUND:
-                    mData.putLong(COLUMN_INDEX_TIME_IN_FOREGROUND, timeInStateMs);
+                    setTimeInProcessStateMs(PROCESS_STATE_FOREGROUND, timeInStateMs);
                     break;
                 case STATE_BACKGROUND:
-                    mData.putLong(COLUMN_INDEX_TIME_IN_BACKGROUND, timeInStateMs);
+                    setTimeInProcessStateMs(PROCESS_STATE_BACKGROUND, timeInStateMs);
                     break;
                 default:
                     throw new IllegalArgumentException("Unsupported state: " + state);
@@ -302,21 +322,16 @@ public final class UidBatteryConsumer extends BatteryConsumer {
         /**
          * Sets the duration, in milliseconds, that this UID was active in a particular process
          * state, such as foreground service.
+         *
+         * @deprecated time in process is now derived from the
+         * {@link BatteryConsumer#POWER_COMPONENT_BASE} duration
          */
+        @Deprecated
         @NonNull
         public Builder setTimeInProcessStateMs(@ProcessState int state, long timeInProcessStateMs) {
-            switch (state) {
-                case PROCESS_STATE_FOREGROUND:
-                    mData.putLong(COLUMN_INDEX_TIME_IN_FOREGROUND, timeInProcessStateMs);
-                    break;
-                case PROCESS_STATE_BACKGROUND:
-                    mData.putLong(COLUMN_INDEX_TIME_IN_BACKGROUND, timeInProcessStateMs);
-                    break;
-                case PROCESS_STATE_FOREGROUND_SERVICE:
-                    mData.putLong(COLUMN_INDEX_TIME_IN_FOREGROUND_SERVICE, timeInProcessStateMs);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unsupported process state: " + state);
+            Key key = getKey(POWER_COMPONENT_BASE, state);
+            if (key != null) {
+                mData.putLong(key.mDurationColumnIndex, timeInProcessStateMs);
             }
             return this;
         }
@@ -334,17 +349,6 @@ public final class UidBatteryConsumer extends BatteryConsumer {
          */
         public Builder add(UidBatteryConsumer consumer) {
             mPowerComponentsBuilder.addPowerAndDuration(consumer.mPowerComponents);
-
-            setTimeInProcessStateMs(PROCESS_STATE_FOREGROUND,
-                    mData.getLong(COLUMN_INDEX_TIME_IN_FOREGROUND)
-                            + consumer.getTimeInProcessStateMs(PROCESS_STATE_FOREGROUND));
-            setTimeInProcessStateMs(PROCESS_STATE_BACKGROUND,
-                    mData.getLong(COLUMN_INDEX_TIME_IN_BACKGROUND)
-                            + consumer.getTimeInProcessStateMs(PROCESS_STATE_BACKGROUND));
-            setTimeInProcessStateMs(PROCESS_STATE_FOREGROUND_SERVICE,
-                    mData.getLong(COLUMN_INDEX_TIME_IN_FOREGROUND_SERVICE)
-                            + consumer.getTimeInProcessStateMs(PROCESS_STATE_FOREGROUND_SERVICE));
-
             if (mPackageWithHighestDrain == PACKAGE_NAME_UNINITIALIZED) {
                 mPackageWithHighestDrain = consumer.getPackageWithHighestDrain();
             } else if (!TextUtils.equals(mPackageWithHighestDrain,

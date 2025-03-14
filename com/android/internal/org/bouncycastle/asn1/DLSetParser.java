@@ -6,7 +6,7 @@ import java.io.IOException;
 /**
  * Parser class for DL SETs.
  *
- * TODO The class is only publicly visible to support 'instanceof' checks; provide an alternative
+ * @deprecated Check for 'ASN1SetParser' instead
  * @hide This class is not part of the Android public SDK API
  */
 public class DLSetParser
@@ -40,7 +40,7 @@ public class DLSetParser
     public ASN1Primitive getLoadedObject()
         throws IOException
     {
-        return new DLSet(_parser.readVector());
+        return DLFactory.createSet(_parser.readVector());
     }
 
     /**

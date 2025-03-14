@@ -14,6 +14,7 @@ import com.android.internal.org.bouncycastle.util.Arrays;
  */
 public class CFBBlockCipher
     extends StreamBlockCipher
+    implements CFBModeCipher
 {
     private byte[]          IV;
     private byte[]          cfbV;
@@ -26,11 +27,23 @@ public class CFBBlockCipher
     private int             byteCount;
 
     /**
+     * Return a new CFB mode cipher based on the passed in base cipher
+     *
+     * @param cipher the base cipher for the CFB mode.
+     * @param blockSize the block size (in bits) used for the CFB mode.
+     */
+    public static CFBModeCipher newInstance(BlockCipher cipher, int blockSize)
+    {
+        return new CFBBlockCipher(cipher, blockSize);
+    }
+
+    /**
      * Basic constructor.
      *
      * @param cipher the block cipher to be used as the basis of the
      * feedback mode.
      * @param bitBlockSize the block size in bits (note: a multiple of 8)
+     * @deprecated use the equivalent CFBBlockCipher.newInstance() static method.
      */
     public CFBBlockCipher(
         BlockCipher cipher,

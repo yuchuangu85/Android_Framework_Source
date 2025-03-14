@@ -1,6 +1,7 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
 package com.android.internal.org.bouncycastle.asn1.x509;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.internal.org.bouncycastle.asn1.ASN1EncodableVector;
 import com.android.internal.org.bouncycastle.asn1.ASN1Integer;
@@ -8,7 +9,6 @@ import com.android.internal.org.bouncycastle.asn1.ASN1Object;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.internal.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.internal.org.bouncycastle.asn1.ASN1TaggedObject;
-import com.android.internal.org.bouncycastle.asn1.DERBitString;
 import com.android.internal.org.bouncycastle.asn1.DERSequence;
 
 /**
@@ -21,10 +21,10 @@ public class AttributeCertificateInfo
     private Holder                  holder;
     private AttCertIssuer           issuer;
     private AlgorithmIdentifier     signature;
-    private ASN1Integer              serialNumber;
+    private ASN1Integer             serialNumber;
     private AttCertValidityPeriod   attrCertValidityPeriod;
     private ASN1Sequence            attributes;
-    private DERBitString            issuerUniqueID;
+    private ASN1BitString           issuerUniqueID;
     private Extensions              extensions;
 
     public static AttributeCertificateInfo getInstance(
@@ -80,9 +80,9 @@ public class AttributeCertificateInfo
         {
             ASN1Encodable    obj = seq.getObjectAt(i);
 
-            if (obj instanceof DERBitString)
+            if (obj instanceof ASN1BitString)
             {
-                this.issuerUniqueID = DERBitString.getInstance(seq.getObjectAt(i));
+                this.issuerUniqueID = ASN1BitString.getInstance(seq.getObjectAt(i));
             }
             else if (obj instanceof ASN1Sequence || obj instanceof Extensions)
             {
@@ -126,7 +126,7 @@ public class AttributeCertificateInfo
         return attributes;
     }
 
-    public DERBitString getIssuerUniqueID()
+    public ASN1BitString getIssuerUniqueID()
     {
         return issuerUniqueID;
     }
@@ -158,7 +158,7 @@ public class AttributeCertificateInfo
     {
         ASN1EncodableVector v = new ASN1EncodableVector(9);
 
-        if (version.intValueExact() != 0)
+        if (!version.hasValue(0))
         {
             v.add(version);
         }

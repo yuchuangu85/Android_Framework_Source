@@ -90,26 +90,6 @@ public final class TaskFragmentOperation implements Parcelable {
     public static final int OP_TYPE_SET_ISOLATED_NAVIGATION = 11;
 
     /**
-     * Reorders the TaskFragment to be the bottom-most in the Task. Note that this op will bring the
-     * TaskFragment to the bottom of the Task below all the other Activities and TaskFragments.
-     *
-     * This is only allowed for system organizers. See
-     * {@link com.android.server.wm.TaskFragmentOrganizerController#registerOrganizer(
-     * ITaskFragmentOrganizer, boolean)}
-     */
-    public static final int OP_TYPE_REORDER_TO_BOTTOM_OF_TASK = 12;
-
-    /**
-     * Reorders the TaskFragment to be the top-most in the Task. Note that this op will bring the
-     * TaskFragment to the top of the Task above all the other Activities and TaskFragments.
-     *
-     * This is only allowed for system organizers. See
-     * {@link com.android.server.wm.TaskFragmentOrganizerController#registerOrganizer(
-     * ITaskFragmentOrganizer, boolean)}
-     */
-    public static final int OP_TYPE_REORDER_TO_TOP_OF_TASK = 13;
-
-    /**
      * Creates a decor surface in the parent Task of the TaskFragment. The created decor surface
      * will be provided in {@link TaskFragmentTransaction#TYPE_TASK_FRAGMENT_PARENT_INFO_CHANGED}
      * event callback. If a decor surface already exists in the parent Task, the current
@@ -118,27 +98,17 @@ public final class TaskFragmentOperation implements Parcelable {
      *
      * The decor surface can be used to draw the divider between TaskFragments or other decorations.
      */
-    public static final int OP_TYPE_CREATE_OR_MOVE_TASK_FRAGMENT_DECOR_SURFACE = 14;
+    public static final int OP_TYPE_CREATE_OR_MOVE_TASK_FRAGMENT_DECOR_SURFACE = 12;
 
     /**
      * Removes the decor surface in the parent Task of the TaskFragment.
      */
-    public static final int OP_TYPE_REMOVE_TASK_FRAGMENT_DECOR_SURFACE = 15;
+    public static final int OP_TYPE_REMOVE_TASK_FRAGMENT_DECOR_SURFACE = 13;
 
     /**
      * Applies dimming on the parent Task which could cross two TaskFragments.
      */
-    public static final int OP_TYPE_SET_DIM_ON_TASK = 16;
-
-    /**
-     * Sets this TaskFragment to move to bottom of the Task if any of the activities below it is
-     * launched in a mode requiring clear top.
-     *
-     * This is only allowed for system organizers. See
-     * {@link com.android.server.wm.TaskFragmentOrganizerController#registerOrganizer(
-     * ITaskFragmentOrganizer, boolean)}
-     */
-    public static final int OP_TYPE_SET_MOVE_TO_BOTTOM_IF_CLEAR_WHEN_LAUNCH = 17;
+    public static final int OP_TYPE_SET_DIM_ON_TASK = 14;
 
     /**
      * Sets whether the decor surface will be boosted. When not boosted, the decor surface is placed
@@ -147,7 +117,7 @@ public final class TaskFragmentOperation implements Parcelable {
      * surface is placed above all the non-boosted windows in the Task, the content of these
      * non-boosted windows will be hidden and inputs are disabled.
      */
-    public static final int OP_TYPE_SET_DECOR_SURFACE_BOOSTED = 18;
+    public static final int OP_TYPE_SET_DECOR_SURFACE_BOOSTED = 15;
 
     /**
      * Sets the TaskFragment to be pinned.
@@ -159,7 +129,55 @@ public final class TaskFragmentOperation implements Parcelable {
      * <p>
      * See {@link #OP_TYPE_REORDER_TO_FRONT} on how to reorder a pinned TaskFragment to the top.
      */
-    public static final int OP_TYPE_SET_PINNED = 19;
+    public static final int OP_TYPE_SET_PINNED = 16;
+
+    /**
+     * The start index of the privileged operations. Only system organizers are allowed to use
+     * operations with index greater than or equal to this value.
+     */
+    public static final int PRIVILEGED_OP_START = 1000;
+
+    /**
+     * Reorders the TaskFragment to be the bottom-most in the Task. Note that this op will bring the
+     * TaskFragment to the bottom of the Task below all the other Activities and TaskFragments.
+     *
+     * This is only allowed for system organizers. See
+     * {@link com.android.server.wm.TaskFragmentOrganizerController#registerOrganizer(
+     * ITaskFragmentOrganizer, boolean)}
+     */
+    public static final int OP_TYPE_PRIVILEGED_REORDER_TO_BOTTOM_OF_TASK = PRIVILEGED_OP_START + 1;
+
+    /**
+     * Reorders the TaskFragment to be the top-most in the Task. Note that this op will bring the
+     * TaskFragment to the top of the Task above all the other Activities and TaskFragments.
+     *
+     * This is only allowed for system organizers. See
+     * {@link com.android.server.wm.TaskFragmentOrganizerController#registerOrganizer(
+     * ITaskFragmentOrganizer, boolean)}
+     */
+    public static final int OP_TYPE_PRIVILEGED_REORDER_TO_TOP_OF_TASK = PRIVILEGED_OP_START + 2;
+
+    /**
+     * Sets this TaskFragment to move to bottom of the Task if any of the activities below it is
+     * launched in a mode requiring clear top.
+     *
+     * This is only allowed for system organizers. See
+     * {@link com.android.server.wm.TaskFragmentOrganizerController#registerOrganizer(
+     * ITaskFragmentOrganizer, boolean)}
+     */
+    public static final int OP_TYPE_PRIVILEGED_SET_MOVE_TO_BOTTOM_IF_CLEAR_WHEN_LAUNCH =
+            PRIVILEGED_OP_START + 3;
+
+    /**
+     * Sets whether this TaskFragment can affect system UI flags such as the status bar. Default
+     * is {@code true}.
+     *
+     * This operation is only allowed for system organizers. See
+     * {@link com.android.server.wm.TaskFragmentOrganizerController#registerOrganizer(
+     * ITaskFragmentOrganizer, boolean)}
+     */
+    public static final int OP_TYPE_PRIVILEGED_SET_CAN_AFFECT_SYSTEM_UI_FLAGS =
+            PRIVILEGED_OP_START + 4;
 
     @IntDef(prefix = { "OP_TYPE_" }, value = {
             OP_TYPE_UNKNOWN,
@@ -175,14 +193,15 @@ public final class TaskFragmentOperation implements Parcelable {
             OP_TYPE_SET_RELATIVE_BOUNDS,
             OP_TYPE_REORDER_TO_FRONT,
             OP_TYPE_SET_ISOLATED_NAVIGATION,
-            OP_TYPE_REORDER_TO_BOTTOM_OF_TASK,
-            OP_TYPE_REORDER_TO_TOP_OF_TASK,
             OP_TYPE_CREATE_OR_MOVE_TASK_FRAGMENT_DECOR_SURFACE,
             OP_TYPE_REMOVE_TASK_FRAGMENT_DECOR_SURFACE,
             OP_TYPE_SET_DIM_ON_TASK,
-            OP_TYPE_SET_MOVE_TO_BOTTOM_IF_CLEAR_WHEN_LAUNCH,
             OP_TYPE_SET_DECOR_SURFACE_BOOSTED,
             OP_TYPE_SET_PINNED,
+            OP_TYPE_PRIVILEGED_REORDER_TO_BOTTOM_OF_TASK,
+            OP_TYPE_PRIVILEGED_REORDER_TO_TOP_OF_TASK,
+            OP_TYPE_PRIVILEGED_SET_MOVE_TO_BOTTOM_IF_CLEAR_WHEN_LAUNCH,
+            OP_TYPE_PRIVILEGED_SET_CAN_AFFECT_SYSTEM_UI_FLAGS,
     })
     @Retention(RetentionPolicy.SOURCE)
     public @interface OperationType {}

@@ -169,7 +169,7 @@ class ConfigurationController {
 
         // Get theme outside of synchronization to avoid nested lock.
         final Resources.Theme systemTheme = mActivityThread.getSystemContext().getTheme();
-        final ContextImpl systemUiContext = mActivityThread.getSystemUiContextNoCreate();
+        final Context systemUiContext = mActivityThread.getSystemUiContextNoCreate();
         final Resources.Theme systemUiTheme =
                 systemUiContext != null ? systemUiContext.getTheme() : null;
         synchronized (mResourcesManager) {

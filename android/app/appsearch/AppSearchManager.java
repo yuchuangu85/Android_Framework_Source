@@ -22,11 +22,10 @@ import android.annotation.SystemService;
 import android.annotation.UserHandleAware;
 import android.app.appsearch.aidl.AppSearchAttributionSource;
 import android.app.appsearch.aidl.IAppSearchManager;
-import android.app.appsearch.flags.Flags;
-import android.app.appsearch.functions.AppFunctionManager;
 import android.content.Context;
 import android.os.Process;
 
+import com.android.appsearch.flags.Flags;
 import com.android.internal.util.Preconditions;
 
 import java.util.Objects;
@@ -80,7 +79,7 @@ import java.util.function.Consumer;
  * SetSchemaRequest request = new SetSchemaRequest.Builder().addSchema(emailSchemaType).build();
  * mAppSearchSession.set(request, mExecutor, appSearchResult -&gt; {
  *      if (appSearchResult.isSuccess()) {
- *           //Schema has been successfully set.
+ *           // Schema has been successfully set.
  *      }
  * });</pre>
  *
@@ -107,7 +106,7 @@ import java.util.function.Consumer;
  *     .build();
  * mAppSearchSession.put(request, mExecutor, appSearchBatchResult -&gt; {
  *      if (appSearchBatchResult.isSuccess()) {
- *           //All documents have been successfully indexed.
+ *           // All documents have been successfully indexed.
  *      }
  * });</pre>
  *
@@ -127,13 +126,11 @@ public class AppSearchManager {
 
     private final IAppSearchManager mService;
     private final Context mContext;
-    private final AppFunctionManager mAppFunctionManager;
 
     /** @hide */
     public AppSearchManager(@NonNull Context context, @NonNull IAppSearchManager service) {
         mContext = Objects.requireNonNull(context);
         mService = Objects.requireNonNull(service);
-        mAppFunctionManager = new AppFunctionManager(context, service);
     }
 
     /** Contains information about how to create the search session. */
@@ -278,12 +275,5 @@ public class AppSearchManager {
                         mContext, /* callingPid= */ Process.myPid()),
                 executor,
                 callback);
-    }
-
-    /** Returns an instance of {@link android.app.appsearch.functions.AppFunctionManager}. */
-    @FlaggedApi(Flags.FLAG_ENABLE_APP_FUNCTIONS)
-    @NonNull
-    public AppFunctionManager getAppFunctionManager() {
-        return mAppFunctionManager;
     }
 }

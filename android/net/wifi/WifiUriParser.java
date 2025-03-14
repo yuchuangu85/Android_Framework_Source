@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.Pair;
 
 import androidx.annotation.VisibleForTesting;
 
@@ -68,6 +69,7 @@ public class WifiUriParser {
     static final String PREFIX_ZXING_TRANSITION_DISABLE = "R:";
 
     static final String DELIMITER_QR_CODE = ";";
+    static final char URI_DELIMITER_CHAR = ';';
 
     // Ignores password if security is SECURITY_NO_PASSWORD or absent
     static final String SECURITY_NO_PASSWORD = "nopass"; // open network or OWE
@@ -78,6 +80,14 @@ public class WifiUriParser {
     private static final String SECURITY_ADB = "ADB";
 
     private WifiUriParser() {}
+
+    /**
+     * @hide
+     */
+    @VisibleForTesting
+    public static boolean mockableIsFlagNewUriParsingForEscapeCharacterEnabled() {
+        return Flags.newUriParsingForEscapeCharacter();
+    }
 
     /**
      * Returns parsed result from given uri.
@@ -117,26 +127,73 @@ public class WifiUriParser {
     }
 
     /** Parses ZXing reader library's Wi-Fi Network config format */
-    private static UriParserResults parseZxingWifiUriParser(String uri)
+    private static UriParserResults parseZxingWifiUriParser(@NonNull String uri)
             throws IllegalArgumentException {
-        List<String> keyValueList =
-                getKeyValueList(uri, PREFIX_ZXING_WIFI_NETWORK_CONFIG, DELIMITER_QR_CODE);
         WifiConfiguration config = null;
-        String security = getValueOrNull(keyValueList, PREFIX_ZXING_SECURITY);
-        String ssid = getValueOrNull(keyValueList, PREFIX_ZXING_SSID);
-        String password = getValueOrNull(keyValueList, PREFIX_ZXING_PASSWORD);
-        String hiddenSsidString = getValueOrNull(keyValueList, PREFIX_ZXING_HIDDEN_SSID);
-        String transitionDisabledValue = getValueOrNull(keyValueList,
-                PREFIX_ZXING_TRANSITION_DISABLE);
+        String security = null;
+        String ssid = null;
+        String password = null;
+        String hiddenSsidString = null;
+        String transitionDisabledValue = null;
+        if (mockableIsFlagNewUriParsingForEscapeCharacterEnabled()) {
+            String wifiQr = uri.substring(PREFIX_ZXING_WIFI_NETWORK_CONFIG.length());
+            Pair<Integer, String> zxingUriElement;
+            int start = 0;
+            while (start < wifiQr.length()) {
+                String value = wifiQr.substring(start);
+                char ch = wifiQr.charAt(start);
+                if (value.startsWith(PREFIX_ZXING_SSID)) {
+                    zxingUriElement = getZxingUriElement(value, PREFIX_ZXING_SSID);
+                    ssid = zxingUriElement.second;
+                    start = start + zxingUriElement.first + PREFIX_ZXING_SSID.length();
+                } else if (value.startsWith(PREFIX_ZXING_SECURITY)) {
+                    zxingUriElement = getZxingUriElement(value, PREFIX_ZXING_SECURITY);
+                    security = zxingUriElement.second;
+                    start = start + zxingUriElement.first + PREFIX_ZXING_SECURITY.length();
+                } else if (value.startsWith(PREFIX_ZXING_PASSWORD)) {
+                    zxingUriElement = getZxingUriElement(value, PREFIX_ZXING_PASSWORD);
+                    password = zxingUriElement.second;
+                    start = start + zxingUriElement.first + PREFIX_ZXING_PASSWORD.length();
+                } else if (value.startsWith(PREFIX_ZXING_HIDDEN_SSID)) {
+                    zxingUriElement = getZxingUriElement(value, PREFIX_ZXING_HIDDEN_SSID);
+                    hiddenSsidString = zxingUriElement.second;
+                    start = start + zxingUriElement.first
+                            + PREFIX_ZXING_HIDDEN_SSID.length();
+                } else if (value.startsWith(PREFIX_ZXING_TRANSITION_DISABLE)) {
+                    zxingUriElement = getZxingUriElement(value,
+                            PREFIX_ZXING_TRANSITION_DISABLE);
+                    transitionDisabledValue = zxingUriElement.second;
+                    start = start + zxingUriElement.first
+                            + PREFIX_ZXING_TRANSITION_DISABLE.length();
+                } else if (Character.isWhitespace(ch) || ch == URI_DELIMITER_CHAR) {
+                    // Skip space and DELIMITER_QR_CODE in URI when detecting prefix
+                    start++;
+                } else {
+                    zxingUriElement = getZxingUriElement(value, "" /* empty prefix */);
+                    String unsupportedUriPrefix = zxingUriElement.second;
+                    Log.i(TAG, "UnsupportedUriPrefix Found:" + unsupportedUriPrefix);
+                    start = start + zxingUriElement.first;
+                }
+            }
+        } else {
+            List<String> keyValueList =
+                    getKeyValueList(uri, PREFIX_ZXING_WIFI_NETWORK_CONFIG, DELIMITER_QR_CODE);
+            security = getValueOrNull(keyValueList, PREFIX_ZXING_SECURITY);
+            ssid = getValueOrNull(keyValueList, PREFIX_ZXING_SSID);
+            password = getValueOrNull(keyValueList, PREFIX_ZXING_PASSWORD);
+            hiddenSsidString = getValueOrNull(keyValueList, PREFIX_ZXING_HIDDEN_SSID);
+            transitionDisabledValue = getValueOrNull(keyValueList,
+                    PREFIX_ZXING_TRANSITION_DISABLE);
+
+            // "\", ";", "," and ":" are escaped with a backslash "\", should remove at first
+            security = removeBackSlash(security);
+            ssid = removeBackSlash(ssid);
+            password = removeBackSlash(password);
+        }
         boolean hiddenSsid = "true".equalsIgnoreCase(hiddenSsidString);
         boolean isTransitionDisabled = "1".equalsIgnoreCase(transitionDisabledValue);
-
-        // "\", ";", "," and ":" are escaped with a backslash "\", should remove at first
-        security = removeBackSlash(security);
-        ssid = removeBackSlash(ssid);
-        password = removeBackSlash(password);
         if (isValidConfig(security, ssid, password)) {
-            config = generatetWifiConfiguration(
+            config = generateWifiConfiguration(
                         security, ssid, password, hiddenSsid, WifiConfiguration.INVALID_NETWORK_ID,
                         isTransitionDisabled);
         }
@@ -146,6 +203,36 @@ public class WifiUriParser {
         }
         return new UriParserResults(UriParserResults.URI_SCHEME_ZXING_WIFI_NETWORK_CONFIG,
                 null, null, config);
+    }
+
+    private static Pair<Integer, String> getZxingUriElement(@NonNull String uriSubString,
+            @NonNull String prefixString) {
+        StringBuilder sb = new StringBuilder();
+        int numberOfCharHandled = 0;
+        boolean isPreviousCharEscaped = false;
+        for (int i = prefixString.length(); i < uriSubString.length(); i++) {
+            char ch = uriSubString.charAt(i);
+            numberOfCharHandled++;
+            if (ch == '\\') {
+                if (isPreviousCharEscaped) {
+                    // The '\' is the part of the uri field
+                    sb.append(ch);
+                    isPreviousCharEscaped = false;
+                    continue;
+                }
+                isPreviousCharEscaped = true;
+            } else if (ch == URI_DELIMITER_CHAR) {
+                if (!isPreviousCharEscaped) {
+                    break;
+                }
+                sb.append(ch);
+                isPreviousCharEscaped = false;
+            } else {
+                sb.append(ch);
+                isPreviousCharEscaped = false;
+            }
+        }
+        return new Pair<>(numberOfCharHandled, sb.toString());
     }
 
     /**
@@ -203,13 +290,15 @@ public class WifiUriParser {
         return sb.toString();
     }
 
-    private static String addQuotationIfNeeded(String input) {
+    private static String addQuotation(String input) {
         if (TextUtils.isEmpty(input)) {
             return "";
         }
 
-        if (input.length() >= 2 && input.startsWith("\"") && input.endsWith("\"")) {
-            return input;
+        if (!mockableIsFlagNewUriParsingForEscapeCharacterEnabled()) {
+            if (input.length() >= 2 && input.startsWith("\"") && input.endsWith("\"")) {
+                return input;
+            }
         }
 
         StringBuilder sb = new StringBuilder();
@@ -236,11 +325,11 @@ public class WifiUriParser {
      *
      * @return WifiConfiguration from parsing result
      */
-    private static WifiConfiguration generatetWifiConfiguration(
+    private static WifiConfiguration generateWifiConfiguration(
             String security, String ssid, String preSharedKey, boolean hiddenSsid, int networkId,
             boolean isTransitionDisabled) {
         final WifiConfiguration wifiConfiguration = new WifiConfiguration();
-        wifiConfiguration.SSID = addQuotationIfNeeded(ssid);
+        wifiConfiguration.SSID = addQuotation(ssid);
         wifiConfiguration.hiddenSSID = hiddenSsid;
         wifiConfiguration.networkId = networkId;
 
@@ -263,7 +352,7 @@ public class WifiUriParser {
                     && preSharedKey.matches("[0-9A-Fa-f]*")) {
                 wifiConfiguration.wepKeys[0] = preSharedKey;
             } else {
-                wifiConfiguration.wepKeys[0] = addQuotationIfNeeded(preSharedKey);
+                wifiConfiguration.wepKeys[0] = addQuotation(preSharedKey);
             }
         } else if (security.startsWith(SECURITY_WPA_PSK)) {
             List<SecurityParams> securityParamsList = new ArrayList<>();
@@ -281,17 +370,18 @@ public class WifiUriParser {
             if (preSharedKey.matches("[0-9A-Fa-f]{64}")) {
                 wifiConfiguration.preSharedKey = preSharedKey;
             } else {
-                wifiConfiguration.preSharedKey = addQuotationIfNeeded(preSharedKey);
+                wifiConfiguration.preSharedKey = addQuotation(preSharedKey);
             }
         } else if (security.startsWith(SECURITY_SAE)) {
             wifiConfiguration.setSecurityParams(WifiConfiguration.SECURITY_TYPE_SAE);
             if (preSharedKey.length() != 0) {
-                wifiConfiguration.preSharedKey = addQuotationIfNeeded(preSharedKey);
+                wifiConfiguration.preSharedKey = addQuotation(preSharedKey);
             }
         } else if (security.startsWith(SECURITY_ADB)) {
-            Log.i(TAG, "Specific security key: ADB");
+            Log.i(TAG, "Security key: ADB, the ssid and passphrase should NOT add quotation");
+            wifiConfiguration.SSID = ssid;
             if (preSharedKey.length() != 0) {
-                wifiConfiguration.preSharedKey = addQuotationIfNeeded(preSharedKey);
+                wifiConfiguration.preSharedKey = preSharedKey;
             }
         } else {
             throw new IllegalArgumentException("Unsupported security");

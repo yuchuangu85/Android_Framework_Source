@@ -88,7 +88,7 @@ public final class CredentialProviderInfoFactory {
             int userId,
             boolean isSystemProvider,
             boolean isPrimary)
-            throws PackageManager.NameNotFoundException {
+            throws PackageManager.NameNotFoundException, SecurityException, NullPointerException {
         return create(
                 context,
                 getServiceInfoOrThrow(serviceComponent, userId),
@@ -117,7 +117,7 @@ public final class CredentialProviderInfoFactory {
             boolean disableSystemAppVerificationForTests,
             boolean isEnabled,
             boolean isPrimary)
-            throws SecurityException {
+            throws SecurityException, NullPointerException {
         verifyProviderPermission(serviceInfo);
         if (isSystemProvider) {
             if (!isValidSystemProvider(
@@ -199,7 +199,7 @@ public final class CredentialProviderInfoFactory {
     }
 
     private static CredentialProviderInfo.Builder populateMetadata(
-            @NonNull Context context, ServiceInfo serviceInfo) {
+            @NonNull Context context, ServiceInfo serviceInfo) throws NullPointerException {
         requireNonNull(context, "context must not be null");
         final PackageManager pm = context.getPackageManager();
         CredentialProviderInfo.Builder builder = new CredentialProviderInfo.Builder(serviceInfo);

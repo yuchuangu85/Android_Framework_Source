@@ -109,7 +109,7 @@ public final class ExerciseSegment implements TimeInterval.TimeIntervalHolder {
     /** @hide */
     public ExerciseSegmentInternal toSegmentInternal() {
         return new ExerciseSegmentInternal()
-                .setStarTime(getStartTime().toEpochMilli())
+                .setStartTime(getStartTime().toEpochMilli())
                 .setEndTime(getEndTime().toEpochMilli())
                 .setSegmentType(getSegmentType())
                 .setRepetitionsCount(getRepetitionsCount());

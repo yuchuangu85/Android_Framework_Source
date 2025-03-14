@@ -76,6 +76,8 @@ import android.telephony.SubscriptionManager.OnSubscriptionsChangedListener;
 import android.telephony.TelephonyManager;
 import android.telephony.VoiceSpecificRegistrationInfo;
 import android.telephony.ims.stub.ImsRegistrationImplBase;
+import android.telephony.satellite.ISatelliteModemStateCallback;
+import android.telephony.satellite.SatelliteManager;
 import android.text.TextUtils;
 import android.util.EventLog;
 import android.util.LocalLog;
@@ -327,17 +329,9 @@ public class ServiceStateTracker extends Handler {
     private boolean mImsRegistrationOnOff = false;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private boolean mDeviceShuttingDown = false;
+    private CarrierDisplayNameData mCarrierDisplayNameData =
+            new CarrierDisplayNameData.Builder().build();
     /** Keep track of SPN display rules, so we only broadcast intent if something changes. */
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private String mCurSpn = null;
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private String mCurDataSpn = null;
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private String mCurPlmn = null;
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private boolean mCurShowPlmn = false;
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
-    private boolean mCurShowSpn = false;
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @VisibleForTesting
     public int mSubId = SubscriptionManager.INVALID_SUBSCRIPTION_ID;
@@ -365,6 +359,9 @@ public class ServiceStateTracker extends Handler {
 
     private Pattern mOperatorNameStringPattern;
     private PersistableBundle mCarrierConfig;
+
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
 
     private class SstSubscriptionsChangedListener extends OnSubscriptionsChangedListener {
 
@@ -452,7 +449,7 @@ public class ServiceStateTracker extends Handler {
                 // Once sub id becomes valid, we need to update the service provider name
                 // displayed on the UI again. The old SPN update intents sent to
                 // MobileSignalController earlier were actually ignored due to invalid sub id.
-                updateSpnDisplay();
+                updateCarrierDisplayName();
             }
             mSubId = curSubId;
         }
@@ -559,12 +556,12 @@ public class ServiceStateTracker extends Handler {
                 pollState();
                 // Depends on modem, ServiceState is not necessarily updated, so make sure updating
                 // SPN.
-                updateSpnDisplay();
+                updateCarrierDisplayName();
             } else if (action.equals(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED)) {
                 String lastKnownNetworkCountry = intent.getStringExtra(
                         TelephonyManager.EXTRA_LAST_KNOWN_NETWORK_COUNTRY);
                 if (!mLastKnownNetworkCountry.equals(lastKnownNetworkCountry)) {
-                    updateSpnDisplay();
+                    updateCarrierDisplayName();
                 }
             }
         }
@@ -627,6 +624,83 @@ public class ServiceStateTracker extends Handler {
      */
     private AccessNetworksManagerCallback mAccessNetworksManagerCallback = null;
 
+    /**
+     * Listens status of nb iot satellite modem.
+     */
+    private SatelliteModemStateListener mSatelliteModemStateListener = null;
+
+    /**
+     * SatelliteModemStateListener class
+     */
+    protected class SatelliteModemStateListener extends ISatelliteModemStateCallback.Stub {
+
+        /**
+         * Satellite Modem Connection Status. True when satellite is connected
+         */
+        private boolean mSatelliteNbIotConnected = false;
+
+        /**
+         * Marks the satellite display change as true.
+         */
+        private boolean mUpdateSatelliteCarrierDisplay = false;
+
+        @Override
+        public void onSatelliteModemStateChanged(int state) {
+            boolean isConnected = isInConnectedState();
+            if (isConnected != mSatelliteNbIotConnected) {
+                log("Satellite connection state is changed to " + isConnected);
+                mSatelliteNbIotConnected = isConnected;
+                mUpdateSatelliteCarrierDisplay = true;
+                // trigger pollStats() because the service state is already OOO in demo mode.
+                pollState();
+            }
+        }
+
+        @Override
+        public void onEmergencyModeChanged(boolean isEmergency) {}
+
+        @Override
+        public void onRegistrationFailure(int causeCode) {}
+
+        @Override
+        public void onTerrestrialNetworkAvailableChanged(boolean isAvailable) {}
+
+        /**
+         * Returns true when statellite is connected.
+         *
+         * Note that this connection state is only applicable carrier roaming nb iot satellite.
+         */
+        public boolean isInConnectedState() {
+            SatelliteController sc = SatelliteController.getInstance();
+            if (sc == null) {
+                return false;
+            }
+            int subId = sc.getSelectedSatelliteSubId();
+            if (subId == SubscriptionManager.INVALID_SUBSCRIPTION_ID
+                    || subId != mPhone.getSubId()
+                    || subId == sc.getNtnOnlySubscriptionId()) {
+                return false;
+            }
+            return sc.isInConnectedState();
+        }
+
+        /**
+         * Returns true if the satellite connection has changed and the satellite display needs
+         * to be updated.
+         */
+        public boolean needToUpdateSatelliteCarrierDisplay() {
+            return mUpdateSatelliteCarrierDisplay;
+        }
+
+        /**
+         * The satellite carrier display update is complete and is marked to not be updated any
+         * further.
+         */
+        public void doneForUpdateSatelliteCarrierDisplay() {
+            mUpdateSatelliteCarrierDisplay = false;
+        }
+    }
+
     public ServiceStateTracker(GsmCdmaPhone phone, CommandsInterface ci,
             FeatureFlags featureFlags) {
         mNitzState = TelephonyComponentFactory.getInstance()
@@ -634,6 +708,7 @@ public class ServiceStateTracker extends Handler {
                 .makeNitzStateMachine(phone);
         mPhone = phone;
         mCi = ci;
+        mFeatureFlags = featureFlags;
 
         mServiceStateStats = new ServiceStateStats(mPhone);
 
@@ -666,7 +741,9 @@ public class ServiceStateTracker extends Handler {
         mCarrierConfig = getCarrierConfig();
         CarrierConfigManager ccm = mPhone.getContext().getSystemService(CarrierConfigManager.class);
         // Callback which directly handle config change should be executed in handler thread
-        ccm.registerCarrierConfigChangeListener(this::post, mCarrierConfigChangeListener);
+        if (ccm != null) {
+            ccm.registerCarrierConfigChangeListener(this::post, mCarrierConfigChangeListener);
+        }
 
         mAccessNetworksManager = mPhone.getAccessNetworksManager();
         mOutOfServiceSS = new ServiceState();
@@ -1162,6 +1239,9 @@ public class ServiceStateTracker extends Handler {
 
         mDesiredPowerState = power;
         setPowerStateToDesired(forEmergencyCall, isSelectedPhoneForEmergencyCall, forceApply);
+        if (mDesiredPowerState) {
+            SatelliteController.getInstance().onSetCellularRadioPowerStateRequested(true);
+        }
     }
 
     /**
@@ -1240,7 +1320,7 @@ public class ServiceStateTracker extends Handler {
                 if (mUiccApplication == null
                         || mUiccApplication.getState() != AppState.APPSTATE_READY) {
                     mIsSimReady = false;
-                    updateSpnDisplay();
+                    updateCarrierDisplayName();
                 }
                 break;
 
@@ -1322,6 +1402,12 @@ public class ServiceStateTracker extends Handler {
                     // as a result of radio power request
                     // Hence, issuing shut down regardless of radio power response
                     mCi.requestShutdown(null);
+                }
+
+                ar = (AsyncResult) msg.obj;
+                if (ar.exception != null) {
+                    loge("EVENT_RADIO_POWER_OFF_DONE: exception=" + ar.exception);
+                    SatelliteController.getInstance().onPowerOffCellularRadioFailed();
                 }
                 break;
 
@@ -1413,7 +1499,7 @@ public class ServiceStateTracker extends Handler {
                 updateOtaspState();
                 if (mPhone.isPhoneTypeGsm()) {
                     mCdnr.updateEfFromUsim((SIMRecords) mIccRecords);
-                    updateSpnDisplay();
+                    updateCarrierDisplayName();
                 }
                 break;
 
@@ -1520,7 +1606,7 @@ public class ServiceStateTracker extends Handler {
 
             case EVENT_IMS_CAPABILITY_CHANGED:
                 if (DBG) log("EVENT_IMS_CAPABILITY_CHANGED");
-                updateSpnDisplay();
+                updateCarrierDisplayName();
                 mImsCapabilityChangedRegistrants.notifyRegistrants();
                 break;
 
@@ -1612,7 +1698,7 @@ public class ServiceStateTracker extends Handler {
                     mCdnr.updateEfFromRuim((RuimRecords) mIccRecords);
                     updatePhoneObject();
                     if (mPhone.isPhoneTypeCdma()) {
-                        updateSpnDisplay();
+                        updateCarrierDisplayName();
                     } else {
                         RuimRecords ruim = (RuimRecords) mIccRecords;
                         if (ruim != null) {
@@ -2750,59 +2836,42 @@ public class ServiceStateTracker extends Handler {
         }
     }
 
-    private void notifySpnDisplayUpdate(CarrierDisplayNameData data) {
-        int subId = mPhone.getSubId();
-        // Update ACTION_SERVICE_PROVIDERS_UPDATED if any value changes
-        if (mSubId != subId
-                || data.shouldShowPlmn() != mCurShowPlmn
-                || data.shouldShowSpn() != mCurShowSpn
-                || !TextUtils.equals(data.getSpn(), mCurSpn)
-                || !TextUtils.equals(data.getDataSpn(), mCurDataSpn)
-                || !TextUtils.equals(data.getPlmn(), mCurPlmn)) {
+    private void notifyCarrierDisplayNameDataChanged() {
+        final String log = String.format("notifyCarrierDisplayNameDataChanged: "
+                        + "changed sending intent, "
+                        + "rule=%d, CarrierDisplayNameData=%s, subId=%d",
+                getCarrierNameDisplayBitmask(mSS),
+                mCarrierDisplayNameData,
+                mPhone.getSubId());
+        mCdnrLogs.log(log);
+        if (DBG) log(log);
 
-            final String log = String.format("updateSpnDisplay: changed sending intent, "
-                            + "rule=%d, showPlmn='%b', plmn='%s', showSpn='%b', spn='%s', "
-                            + "dataSpn='%s', subId='%d'",
-                    getCarrierNameDisplayBitmask(mSS),
-                    data.shouldShowPlmn(),
-                    data.getPlmn(),
-                    data.shouldShowSpn(),
-                    data.getSpn(),
-                    data.getDataSpn(),
-                    subId);
-            mCdnrLogs.log(log);
-            if (DBG) log("updateSpnDisplay: " + log);
 
-            Intent intent = new Intent(TelephonyManager.ACTION_SERVICE_PROVIDERS_UPDATED);
-            intent.putExtra(TelephonyManager.EXTRA_SHOW_SPN, data.shouldShowSpn());
-            intent.putExtra(TelephonyManager.EXTRA_SPN, data.getSpn());
-            intent.putExtra(TelephonyManager.EXTRA_DATA_SPN, data.getDataSpn());
-            intent.putExtra(TelephonyManager.EXTRA_SHOW_PLMN, data.shouldShowPlmn());
-            intent.putExtra(TelephonyManager.EXTRA_PLMN, data.getPlmn());
-            SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
-            mPhone.getContext().sendStickyBroadcastAsUser(intent, UserHandle.ALL);
-
-            if (SubscriptionManager.isValidSubscriptionId(subId)) {
-                mSubscriptionManagerService.setCarrierName(subId, TextUtils.emptyIfNull(
-                        getCarrierName(data.shouldShowPlmn(), data.getPlmn(),
-                                data.shouldShowSpn(), data.getSpn())));
-            }
-        }
-        mCurShowSpn = data.shouldShowSpn();
-        mCurShowPlmn = data.shouldShowPlmn();
-        mCurSpn = data.getSpn();
-        mCurDataSpn = data.getDataSpn();
-        mCurPlmn = data.getPlmn();
+        Intent intent = new Intent(TelephonyManager.ACTION_SERVICE_PROVIDERS_UPDATED);
+        intent.putExtra(TelephonyManager.EXTRA_SHOW_SPN, mCarrierDisplayNameData.shouldShowSpn());
+        intent.putExtra(TelephonyManager.EXTRA_SPN, mCarrierDisplayNameData.getSpn());
+        intent.putExtra(TelephonyManager.EXTRA_DATA_SPN, mCarrierDisplayNameData.getDataSpn());
+        intent.putExtra(TelephonyManager.EXTRA_SHOW_PLMN, mCarrierDisplayNameData.shouldShowPlmn());
+        intent.putExtra(TelephonyManager.EXTRA_PLMN, mCarrierDisplayNameData.getPlmn());
+        SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
+        mPhone.getContext().sendStickyBroadcastAsUser(intent, UserHandle.ALL);
     }
 
     @NonNull
-    private String getCarrierName(boolean showPlmn, String plmn, boolean showSpn, String spn) {
+    private String getCarrierName(CarrierDisplayNameData cdnd) {
+        boolean showPlmn = cdnd.shouldShowPlmn();
+        boolean showSpn = cdnd.shouldShowSpn();
+        String plmn = cdnd.getPlmn();
+        String spn = cdnd.getSpn();
+
         String carrierName = "";
         if (showPlmn) {
             carrierName = plmn;
             if (showSpn) {
-                // Need to show both plmn and spn if both are not same.
-                if (!Objects.equals(spn, plmn)) {
+                if (TextUtils.isEmpty(carrierName)) {
+                    carrierName = spn;
+                } else if (!TextUtils.isEmpty(spn) && !Objects.equals(spn, carrierName)) {
+                    // Need to show both plmn and spn if both are not same.
                     String separator = mPhone.getContext().getString(
                             com.android.internal.R.string.kg_text_message_separator).toString();
                     carrierName = new StringBuilder().append(carrierName).append(separator)
@@ -2812,29 +2881,34 @@ public class ServiceStateTracker extends Handler {
         } else if (showSpn) {
             carrierName = spn;
         }
-        return carrierName;
+        return TextUtils.emptyIfNull(carrierName);
     }
 
-    private void updateSpnDisplayCdnr() {
-        log("updateSpnDisplayCdnr+");
-        CarrierDisplayNameData data = mCdnr.getCarrierDisplayNameData();
-        notifySpnDisplayUpdate(data);
-        log("updateSpnDisplayCdnr-");
-    }
-
-    @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     @VisibleForTesting
-    public void updateSpnDisplay() {
-        if (mCarrierConfig.getBoolean(
-                CarrierConfigManager.KEY_ENABLE_CARRIER_DISPLAY_NAME_RESOLVER_BOOL)) {
-            updateSpnDisplayCdnr();
-        } else {
-            updateSpnDisplayLegacy();
+    public void updateCarrierDisplayName() {
+        final boolean useCdnr = mCarrierConfig.getBoolean(
+                CarrierConfigManager.KEY_ENABLE_CARRIER_DISPLAY_NAME_RESOLVER_BOOL);
+
+        final CarrierDisplayNameData cdnd = useCdnr
+                ? mCdnr.getCarrierDisplayNameData()
+                : getCarrierDisplayNameLegacy();
+
+        final int subId = mPhone.getSubId();
+
+        // Avoid sending unnecessary updates
+        if (subId == mSubId && cdnd.equals(mCarrierDisplayNameData)) return;
+
+        if (SubscriptionManager.isValidSubscriptionId(subId)) {
+            mSubscriptionManagerService.setCarrierName(subId, getCarrierName(cdnd));
         }
+
+        mCarrierDisplayNameData = cdnd; // notify...() relies on the updated value
+        notifyCarrierDisplayNameDataChanged();
+
     }
 
-    private void updateSpnDisplayLegacy() {
-        log("updateSpnDisplayLegacy+");
+    private @NonNull CarrierDisplayNameData getCarrierDisplayNameLegacy() {
+        log("getCarrierDisplayNameLegacy+");
 
         String spn = null;
         String dataSpn = null;
@@ -2875,11 +2949,12 @@ public class ServiceStateTracker extends Handler {
                     .getStringArray(com.android.internal.R.array.wfcSpnFormats);
 
             if (voiceIdx < 0 || voiceIdx >= wfcSpnFormats.length) {
-                loge("updateSpnDisplay: KEY_WFC_SPN_FORMAT_IDX_INT out of bounds: " + voiceIdx);
+                loge("updateCarrierDisplayName: KEY_WFC_SPN_FORMAT_IDX_INT out of bounds: "
+                        + voiceIdx);
                 voiceIdx = 0;
             }
             if (dataIdx < 0 || dataIdx >= wfcSpnFormats.length) {
-                loge("updateSpnDisplay: KEY_WFC_DATA_SPN_FORMAT_IDX_INT out of bounds: "
+                loge("updateCarrierDisplayName: KEY_WFC_DATA_SPN_FORMAT_IDX_INT out of bounds: "
                         + dataIdx);
                 dataIdx = 0;
             }
@@ -2895,10 +2970,8 @@ public class ServiceStateTracker extends Handler {
         }
 
         String crossSimSpnFormat = null;
-        if (mPhone.getImsPhone() != null
-                && (mPhone.getImsPhone() != null)
-                && (mPhone.getImsPhone().getImsRegistrationTech()
-                == ImsRegistrationImplBase.REGISTRATION_TECH_CROSS_SIM)) {
+        if ((getImsRegistrationTech() == ImsRegistrationImplBase.REGISTRATION_TECH_CROSS_SIM)
+                && mPhone.isImsRegistered()) {
             // In Cross SIM Calling mode show SPN or PLMN + Cross SIM Calling
             //
             // 1) Show SPN + Cross SIM Calling If SIM has SPN and SPN display condition
@@ -2915,12 +2988,20 @@ public class ServiceStateTracker extends Handler {
                     .getStringArray(R.array.crossSimSpnFormats);
 
             if (crossSimSpnFormatIdx < 0 || crossSimSpnFormatIdx >= crossSimSpnFormats.length) {
-                loge("updateSpnDisplay: KEY_CROSS_SIM_SPN_FORMAT_INT out of bounds: "
+                loge("updateCarrierDisplayName: KEY_CROSS_SIM_SPN_FORMAT_INT out of bounds: "
                         + crossSimSpnFormatIdx);
                 crossSimSpnFormatIdx = 0;
             }
             crossSimSpnFormat = crossSimSpnFormats[crossSimSpnFormatIdx];
         }
+
+        String satellitePlmn = null;
+        SatelliteModemStateListener satelliteModemStateListener = getSatelliteModemStateListener();
+        if (satelliteModemStateListener != null
+                && satelliteModemStateListener.isInConnectedState()) {
+            satellitePlmn = getSatelliteDisplayName();
+        }
+        log("updateCarrierDisplayName: satellitePlmn=" + satellitePlmn);
 
         if (mPhone.isPhoneTypeGsm()) {
             // The values of plmn/showPlmn change in different scenarios.
@@ -2960,21 +3041,25 @@ public class ServiceStateTracker extends Handler {
                             .toString();
                     noService = true;
                 }
-                if (DBG) log("updateSpnDisplay: radio is on but out " +
-                        "of service, set plmn='" + plmn + "'");
+                if (DBG) {
+                    log("updateCarrierDisplayName: radio is on but out "
+                            + "of service, set plmn='" + plmn + "'");
+                }
             } else if (combinedRegState == ServiceState.STATE_IN_SERVICE) {
                 // In either home or roaming service
                 plmn = mSS.getOperatorAlpha();
                 showPlmn = !TextUtils.isEmpty(plmn) &&
                         ((rule & CARRIER_NAME_DISPLAY_BITMASK_SHOW_PLMN)
                                 == CARRIER_NAME_DISPLAY_BITMASK_SHOW_PLMN);
-                if (DBG) log("updateSpnDisplay: rawPlmn = " + plmn);
+                if (DBG) log("updateCarrierDisplayName: rawPlmn = " + plmn);
             } else {
                 // Power off state, such as airplane mode, show plmn as null
                 showPlmn = true;
                 plmn = null;
-                if (DBG) log("updateSpnDisplay: radio is off w/ showPlmn="
-                        + showPlmn + " plmn=" + plmn);
+                if (DBG) {
+                    log("updateCarrierDisplayName: radio is off w/ showPlmn="
+                            + showPlmn + " plmn=" + plmn);
+                }
             }
 
             // The value of spn/showSpn are same in different scenarios.
@@ -2986,8 +3071,13 @@ public class ServiceStateTracker extends Handler {
             showSpn = !noService && !TextUtils.isEmpty(spn)
                     && ((rule & CARRIER_NAME_DISPLAY_BITMASK_SHOW_SPN)
                     == CARRIER_NAME_DISPLAY_BITMASK_SHOW_SPN);
-            if (DBG) log("updateSpnDisplay: rawSpn = " + spn);
-            if (!TextUtils.isEmpty(crossSimSpnFormat)) {
+            if (DBG) log("updateCarrierDisplayName: rawSpn = " + spn);
+            if (!TextUtils.isEmpty(satellitePlmn)) {
+                plmn = satellitePlmn;
+                showPlmn = true;
+                showSpn = false;
+                log("updateCarrierDisplayName: Update satellite network name:" + plmn);
+            } else if (!TextUtils.isEmpty(crossSimSpnFormat)) {
                 if (!TextUtils.isEmpty(spn)) {
                     // Show SPN + Cross-SIM Calling If SIM has SPN and SPN display condition
                     // is satisfied or SPN override is enabled for this carrier.
@@ -3045,7 +3135,7 @@ public class ServiceStateTracker extends Handler {
 
             // mOperatorAlpha contains the ERI text
             plmn = mSS.getOperatorAlpha();
-            if (DBG) log("updateSpnDisplay: cdma rawPlmn = " + plmn);
+            if (DBG) log("updateCarrierDisplayName: cdma rawPlmn = " + plmn);
 
             showPlmn = plmn != null;
 
@@ -3057,8 +3147,8 @@ public class ServiceStateTracker extends Handler {
                 // todo: temporary hack; should have a better fix. This is to avoid using operator
                 // name from ServiceState (populated in processIwlanRegistrationInfo()) until
                 // wifi calling is actually enabled
-                log("updateSpnDisplay: overwriting plmn from " + plmn + " to null as radio " +
-                        "state is off");
+                log("updateCarrierDisplayName: overwriting plmn from "
+                        + plmn + " to null as radio " + "state is off");
                 plmn = null;
             }
 
@@ -3066,20 +3156,67 @@ public class ServiceStateTracker extends Handler {
                 plmn = Resources.getSystem().getText(com.android.internal.R.string
                         .lockscreen_carrier_default).toString();
                 if (DBG) {
-                    log("updateSpnDisplay: radio is on but out of svc, set plmn='" + plmn + "'");
+                    log("updateCarrierDisplayName: radio is on but out of svc, set plmn='"
+                            + plmn + "'");
                 }
             }
-
         }
 
-        notifySpnDisplayUpdate(new CarrierDisplayNameData.Builder()
+        log("getCarrierDisplayNameLegacy-");
+
+        return new CarrierDisplayNameData.Builder()
                 .setSpn(spn)
                 .setDataSpn(dataSpn)
                 .setShowSpn(showSpn)
                 .setPlmn(plmn)
                 .setShowPlmn(showPlmn)
-                .build());
-        log("updateSpnDisplayLegacy-");
+                .build();
+    }
+
+    private void updateSatelliteDisplayOverride() {
+        String satelliteDisplayName = getSatelliteDisplayName();
+        if (TextUtils.isEmpty(satelliteDisplayName)) {
+            // Return, if there is no value to override.
+            return;
+        }
+
+        SatelliteModemStateListener satelliteModemStateListener = getSatelliteModemStateListener();
+        String operator = mNewSS.getOperatorAlphaLong();
+        SatelliteController sc = SatelliteController.getInstance();
+        // Override satellite display name if device is in carrier roaming nb iot ntn mode
+        // and has a valid operator
+        if (satelliteModemStateListener != null
+                && satelliteModemStateListener.isInConnectedState()
+                || (!TextUtils.isEmpty(operator)
+                        && sc != null && sc.isInCarrierRoamingNbIotNtn())) {
+            // override satellite display name
+            mNewSS.setOperatorName(
+                    satelliteDisplayName, satelliteDisplayName, mNewSS.getOperatorNumeric());
+            log("Override satellite display name to " + satelliteDisplayName);
+        }
+    }
+
+    @Nullable
+    private SatelliteModemStateListener getSatelliteModemStateListener() {
+        if (mSatelliteModemStateListener != null) {
+            return mSatelliteModemStateListener;
+        }
+
+        SatelliteController sc = SatelliteController.getInstance();
+        if (sc != null) {
+            SatelliteModemStateListener listener = new SatelliteModemStateListener();
+            if (sc.registerForSatelliteModemStateChanged(listener)
+                    == SatelliteManager.SATELLITE_RESULT_SUCCESS) {
+                mSatelliteModemStateListener = listener;
+                log("created SatelliteModemStateListener");
+            }
+        }
+        return mSatelliteModemStateListener;
+    }
+
+    private String getSatelliteDisplayName() {
+        return mCarrierConfig.getString(
+                        CarrierConfigManager.KEY_SATELLITE_DISPLAY_NAME_STRING);
     }
 
     /**
@@ -3288,7 +3425,7 @@ public class ServiceStateTracker extends Handler {
         mImsRegistrationOnOff = registered;
 
         // It's possible ServiceState changes did not trigger SPN display update; we update it here.
-        updateSpnDisplay();
+        updateCarrierDisplayName();
     }
 
     public void onImsCapabilityChanged() {
@@ -3435,6 +3572,19 @@ public class ServiceStateTracker extends Handler {
         NetworkRegistrationInfo networkRegState = mNewSS.getNetworkRegistrationInfo(
                 NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
         setPhyCellInfoFromCellIdentity(mNewSS, networkRegState.getCellIdentity());
+
+        boolean hasSatelliteConnectionChanged = false;
+        SatelliteModemStateListener satelliteModemStateListener = getSatelliteModemStateListener();
+        if (satelliteModemStateListener != null) {
+            hasSatelliteConnectionChanged =
+                    satelliteModemStateListener.needToUpdateSatelliteCarrierDisplay();
+            if (hasSatelliteConnectionChanged) {
+                log("Poll ServiceState done : hasSatelliteConnectionChanged="
+                        + hasSatelliteConnectionChanged);
+                satelliteModemStateListener.doneForUpdateSatelliteCarrierDisplay();
+                updateSatelliteDisplayOverride();
+            }
+        }
 
         if (DBG) {
             log("Poll ServiceState done: oldSS=" + mSS);
@@ -3702,11 +3852,12 @@ public class ServiceStateTracker extends Handler {
         String eriText = mPhone.getCdmaEriText();
         boolean hasEriChanged = !TextUtils.equals(mEriText, eriText);
         mEriText = eriText;
-        // Trigger updateSpnDisplay when
+        // Trigger updateCarrierDisplayName when
         // 1. Service state is changed.
         // 2. phone type is Cdma or CdmaLte and ERI text has changed.
-        if (hasChanged || (!mPhone.isPhoneTypeGsm() && hasEriChanged)) {
-            updateSpnDisplay();
+        if (hasChanged || (!mPhone.isPhoneTypeGsm() && hasEriChanged)
+                || hasSatelliteConnectionChanged) {
+            updateCarrierDisplayName();
         }
 
         if (hasChanged) {
@@ -3723,23 +3874,26 @@ public class ServiceStateTracker extends Handler {
 
             tm.setNetworkOperatorNumericForPhone(mPhone.getPhoneId(), operatorNumeric);
 
-            // If the OPERATOR command hasn't returned a valid operator or the device is on IWLAN (
-            // because operatorNumeric would be SIM's mcc/mnc when device is on IWLAN), but if the
-            // device has camped on a cell either to attempt registration or for emergency services,
-            // then for purposes of setting the locale, we don't care if registration fails or is
-            // incomplete. Additionally, if there is no cellular service and ims is registered over
-            // the IWLAN, the locale will not be updated.
-            // CellIdentity can return a null MCC and MNC in CDMA
-            String localeOperator = operatorNumeric;
-            int dataNetworkType = mSS.getDataNetworkType();
-            if (dataNetworkType == TelephonyManager.NETWORK_TYPE_IWLAN
-                    || (dataNetworkType == TelephonyManager.NETWORK_TYPE_UNKNOWN
-                            && getImsRegistrationTech()
-                                    == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN)) {
-                // TODO(b/333346537#comment10): Complete solution would be ignore mcc/mnc reported
-                //  by the unsolicited indication OPERATOR from RIL, but only relies on MCC/MNC from
-                //  data registration or voice registration.
-                localeOperator = null;
+            String localeOperator = null;
+            if (!mFeatureFlags.ignoreMccMncFromOperatorForLocale()) {
+                // If the OPERATOR command hasn't returned a valid operator or the device is on
+                // IWLAN (because operatorNumeric would be SIM's mcc/mnc when device is on IWLAN),
+                // but if the device has camped on a cell either to attempt registration or for
+                // emergency services, then for purposes of setting the locale, we don't care if
+                // registration fails or is incomplete. Additionally, if there is no cellular
+                // service and ims is registered over the IWLAN, the locale will not be updated.
+                // CellIdentity can return a null MCC and MNC in CDMA
+                localeOperator = operatorNumeric;
+                int dataNetworkType = mSS.getDataNetworkType();
+                if (dataNetworkType == TelephonyManager.NETWORK_TYPE_IWLAN
+                        || (dataNetworkType == TelephonyManager.NETWORK_TYPE_UNKNOWN
+                        && getImsRegistrationTech()
+                        == ImsRegistrationImplBase.REGISTRATION_TECH_IWLAN)) {
+                    // TODO(b/333346537#comment10): Complete solution would be ignore mcc/mnc
+                    //  reported by the unsolicited indication OPERATOR from RIL, but only relies on
+                    //  MCC/MNC from data registration or voice registration.
+                    localeOperator = null;
+                }
             }
             if (isInvalidOperatorNumeric(localeOperator)) {
                 for (CellIdentity cid : prioritizedCids) {
@@ -4977,7 +5131,7 @@ public class ServiceStateTracker extends Handler {
      */
     public void powerOffRadioSafely() {
         synchronized (this) {
-            SatelliteController.getInstance().onCellularRadioPowerOffRequested();
+            SatelliteController.getInstance().onSetCellularRadioPowerStateRequested(false);
             if (DomainSelectionResolver.getInstance().isDomainSelectionSupported()) {
                 EmergencyStateTracker.getInstance().onCellularRadioPowerOffRequested();
             }
@@ -5268,11 +5422,7 @@ public class ServiceStateTracker extends Handler {
         pw.println(" mStartedGprsRegCheck=" + mStartedGprsRegCheck);
         pw.println(" mReportedGprsNoReg=" + mReportedGprsNoReg);
         pw.println(" mNotification=" + mNotification);
-        pw.println(" mCurSpn=" + mCurSpn);
-        pw.println(" mCurDataSpn=" + mCurDataSpn);
-        pw.println(" mCurShowSpn=" + mCurShowSpn);
-        pw.println(" mCurPlmn=" + mCurPlmn);
-        pw.println(" mCurShowPlmn=" + mCurShowPlmn);
+        pw.println(" mCarrierDisplayNameData=" + mCarrierDisplayNameData);
         pw.flush();
         pw.println(" mCurrentOtaspMode=" + mCurrentOtaspMode);
         pw.println(" mRoamingIndicator=" + mRoamingIndicator);
@@ -5541,6 +5691,7 @@ public class ServiceStateTracker extends Handler {
                         .setDomain(NetworkRegistrationInfo.DOMAIN_PS)
                         .setAccessNetworkTechnology(TelephonyManager.NETWORK_TYPE_IWLAN)
                         .setRegistrationState(NetworkRegistrationInfo.REGISTRATION_STATE_HOME)
+                        .setAvailableServices(List.of(NetworkRegistrationInfo.SERVICE_TYPE_DATA))
                         .build();
                 mNewSS.addNetworkRegistrationInfo(nri);
                 mNewSS.setOperatorAlphaLong(operator);

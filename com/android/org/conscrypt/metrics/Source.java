@@ -16,6 +16,11 @@
  */
 package com.android.org.conscrypt.metrics;
 
+import static com.android.org.conscrypt.metrics.ConscryptStatsLog.TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_GMS;
+import static com.android.org.conscrypt.metrics.ConscryptStatsLog.TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_MAINLINE;
+import static com.android.org.conscrypt.metrics.ConscryptStatsLog.TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_UNBUNDLED;
+import static com.android.org.conscrypt.metrics.ConscryptStatsLog.TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_UNKNOWN;
+
 import com.android.org.conscrypt.Internal;
 
 /**
@@ -26,8 +31,18 @@ import com.android.org.conscrypt.Internal;
  */
 @Internal
 public enum Source {
-    SOURCE_UNKNOWN,
-    SOURCE_MAINLINE,
-    SOURCE_GMS,
-    SOURCE_UNBUNDLED;
+    SOURCE_UNKNOWN(TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_UNKNOWN),
+    SOURCE_MAINLINE(TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_MAINLINE),
+    SOURCE_GMS(TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_GMS),
+    SOURCE_UNBUNDLED(TLS_HANDSHAKE_REPORTED__SOURCE__SOURCE_UNBUNDLED);
+
+    final int id;
+
+    public int getId() {
+        return this.id;
+    }
+
+    private Source(int id) {
+        this.id = id;
+    }
 }

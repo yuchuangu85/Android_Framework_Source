@@ -20,7 +20,6 @@ import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.appsearch.annotation.CanIgnoreReturnValue;
-import android.app.appsearch.flags.Flags;
 import android.app.appsearch.safeparcel.AbstractSafeParcelable;
 import android.app.appsearch.safeparcel.SafeParcelable;
 import android.app.appsearch.util.BundleUtil;
@@ -29,6 +28,8 @@ import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+
+import com.android.appsearch.flags.Flags;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,13 +46,13 @@ import java.util.Set;
  *
  * @see AppSearchSession#getByDocumentId
  */
-@SuppressWarnings("HiddenSuperclass")
+// TODO(b/384721898): Switch to JSpecify annotations
+@SuppressWarnings({"HiddenSuperclass", "JSpecifyNullness"})
 @SafeParcelable.Class(creator = "GetByDocumentIdRequestCreator")
 public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
 
     @FlaggedApi(Flags.FLAG_ENABLE_SAFE_PARCELABLE_2)
-    @NonNull
-    public static final Parcelable.Creator<GetByDocumentIdRequest> CREATOR =
+    public static final @NonNull Parcelable.Creator<GetByDocumentIdRequest> CREATOR =
             new GetByDocumentIdRequestCreator();
 
     /**
@@ -61,20 +62,17 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
      */
     public static final String PROJECTION_SCHEMA_TYPE_WILDCARD = "*";
 
-    @NonNull
     @Field(id = 1, getter = "getNamespace")
-    private final String mNamespace;
+    private final @NonNull String mNamespace;
 
-    @NonNull
     @Field(id = 2)
-    final List<String> mIds;
+    final @NonNull List<String> mIds;
 
-    @NonNull
     @Field(id = 3)
-    final Bundle mTypePropertyPaths;
+    final @NonNull Bundle mTypePropertyPaths;
 
     /** Cache of the ids. Comes from inflating mIds at first use. */
-    @Nullable private Set<String> mIdsCached;
+    private @Nullable Set<String> mIdsCached;
 
     @Constructor
     GetByDocumentIdRequest(
@@ -87,14 +85,12 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
     }
 
     /** Returns the namespace attached to the request. */
-    @NonNull
-    public String getNamespace() {
+    public @NonNull String getNamespace() {
         return mNamespace;
     }
 
     /** Returns the set of document IDs attached to the request. */
-    @NonNull
-    public Set<String> getIds() {
+    public @NonNull Set<String> getIds() {
         if (mIdsCached == null) {
             mIdsCached = Collections.unmodifiableSet(new ArraySet<>(mIds));
         }
@@ -109,8 +105,7 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
      * <p>Calling this function repeatedly is inefficient. Prefer to retain the Map returned by this
      * function, rather than calling it multiple times.
      */
-    @NonNull
-    public Map<String, List<String>> getProjections() {
+    public @NonNull Map<String, List<String>> getProjections() {
         Set<String> schemas = mTypePropertyPaths.keySet();
         Map<String, List<String>> typePropertyPathsMap = new ArrayMap<>(schemas.size());
         for (String schema : schemas) {
@@ -130,8 +125,7 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
      * <p>Calling this function repeatedly is inefficient. Prefer to retain the Map returned by this
      * function, rather than calling it multiple times.
      */
-    @NonNull
-    public Map<String, List<PropertyPath>> getProjectionPaths() {
+    public @NonNull Map<String, List<PropertyPath>> getProjectionPaths() {
         Set<String> schemas = mTypePropertyPaths.keySet();
         Map<String, List<PropertyPath>> typePropertyPathsMap = new ArrayMap<>(schemas.size());
         for (String schema : schemas) {
@@ -168,8 +162,7 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
 
         /** Adds one or more document IDs to the request. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addIds(@NonNull String... ids) {
+        public @NonNull Builder addIds(@NonNull String... ids) {
             Objects.requireNonNull(ids);
             resetIfBuilt();
             return addIds(Arrays.asList(ids));
@@ -177,8 +170,7 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
 
         /** Adds a collection of IDs to the request. */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addIds(@NonNull Collection<String> ids) {
+        public @NonNull Builder addIds(@NonNull Collection<String> ids) {
             Objects.requireNonNull(ids);
             resetIfBuilt();
             mIds.addAll(ids);
@@ -202,8 +194,7 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
          * @see SearchSpec.Builder#addProjectionPaths
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addProjection(
+        public @NonNull Builder addProjection(
                 @NonNull String schemaType, @NonNull Collection<String> propertyPaths) {
             Objects.requireNonNull(schemaType);
             Objects.requireNonNull(propertyPaths);
@@ -234,8 +225,7 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
          * @see SearchSpec.Builder#addProjectionPaths
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public Builder addProjectionPaths(
+        public @NonNull Builder addProjectionPaths(
                 @NonNull String schemaType, @NonNull Collection<PropertyPath> propertyPaths) {
             Objects.requireNonNull(schemaType);
             Objects.requireNonNull(propertyPaths);
@@ -247,8 +237,7 @@ public final class GetByDocumentIdRequest extends AbstractSafeParcelable {
         }
 
         /** Builds a new {@link GetByDocumentIdRequest}. */
-        @NonNull
-        public GetByDocumentIdRequest build() {
+        public @NonNull GetByDocumentIdRequest build() {
             mBuilt = true;
             return new GetByDocumentIdRequest(mNamespace, mIds, mProjectionTypePropertyPaths);
         }

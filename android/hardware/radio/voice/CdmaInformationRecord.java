@@ -1,18 +1,38 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 78fb79bcb32590a868b3eb7affb39ab90e4ca782 --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen/android/hardware/radio/voice/CdmaInformationRecord.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V3-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/3/android/hardware/radio/voice/CdmaInformationRecord.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash 576f05d082e9269bcf773b0c9b9112d507ab4b9a --stability vintf --min_sdk_version current -pout/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio_interface/4/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V4-java-source/gen/android/hardware/radio/voice/CdmaInformationRecord.java.d -o out/soong/.intermediates/hardware/interfaces/radio/aidl/android.hardware.radio.voice-V4-java-source/gen -Nhardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/4 hardware/interfaces/radio/aidl/aidl_api/android.hardware.radio.voice/4/android/hardware/radio/voice/CdmaInformationRecord.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.radio.voice;
 /** @hide */
 public class CdmaInformationRecord implements android.os.Parcelable
 {
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public int name = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public android.hardware.radio.voice.CdmaDisplayInfoRecord[] display;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public android.hardware.radio.voice.CdmaNumberInfoRecord[] number;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public android.hardware.radio.voice.CdmaSignalInfoRecord[] signal;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public android.hardware.radio.voice.CdmaRedirectingNumberInfoRecord[] redir;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public android.hardware.radio.voice.CdmaLineControlInfoRecord[] lineCtrl;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public android.hardware.radio.voice.CdmaT53ClirInfoRecord[] clir;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public android.hardware.radio.voice.CdmaT53AudioControlInfoRecord[] audioCtrl;
   @Override
    public final int getStability() { return android.os.Parcelable.PARCELABLE_STABILITY_VINTF; }
@@ -74,17 +94,41 @@ public class CdmaInformationRecord implements android.os.Parcelable
       _aidl_parcel.setDataPosition(_aidl_start_pos + _aidl_parcelable_size);
     }
   }
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int CDMA_MAX_NUMBER_OF_INFO_RECS = 10;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_DISPLAY = 0;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_CALLED_PARTY_NUMBER = 1;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_CALLING_PARTY_NUMBER = 2;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_CONNECTED_NUMBER = 3;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_SIGNAL = 4;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_REDIRECTING_NUMBER = 5;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_LINE_CONTROL = 6;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_EXTENDED_DISPLAY = 7;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_T53_CLIR = 8;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_T53_RELEASE = 9;
+  /** @deprecated Legacy CDMA is unsupported. */
+  @Deprecated
   public static final int NAME_T53_AUDIO_CONTROL = 10;
   @Override
   public String toString() {

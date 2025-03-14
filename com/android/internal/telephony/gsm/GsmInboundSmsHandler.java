@@ -38,6 +38,7 @@ import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.SmsStorageMonitor;
 import com.android.internal.telephony.VisualVoicemailSmsFilter;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.uicc.UsimServiceTable;
 
 /**
@@ -58,8 +59,8 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
      * Create a new GSM inbound SMS handler.
      */
     private GsmInboundSmsHandler(Context context, SmsStorageMonitor storageMonitor,
-            Phone phone, Looper looper) {
-        super("GsmInboundSmsHandler", context, storageMonitor, phone, looper);
+            Phone phone, Looper looper, FeatureFlags featureFlags) {
+        super("GsmInboundSmsHandler", context, storageMonitor, phone, looper, featureFlags);
         phone.mCi.setOnNewGsmSms(getHandler(), EVENT_NEW_SMS, null);
         mDataDownloadHandler = new UsimDataDownloadHandler(phone.mCi, phone.getPhoneId());
         mCellBroadcastServiceManager.enable();
@@ -129,9 +130,10 @@ public class GsmInboundSmsHandler extends InboundSmsHandler {
      * Wait for state machine to enter startup state. We can't send any messages until then.
      */
     public static GsmInboundSmsHandler makeInboundSmsHandler(Context context,
-            SmsStorageMonitor storageMonitor, Phone phone, Looper looper) {
+            SmsStorageMonitor storageMonitor, Phone phone, Looper looper,
+            FeatureFlags featureFlags) {
         GsmInboundSmsHandler handler =
-                new GsmInboundSmsHandler(context, storageMonitor, phone, looper);
+                new GsmInboundSmsHandler(context, storageMonitor, phone, looper, featureFlags);
         handler.start();
         return handler;
     }

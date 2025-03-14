@@ -1,4 +1,5 @@
 /* GENERATED SOURCE. DO NOT MODIFY. */
+// Android-added: keep DER classes for backwards compatibility
 package com.android.internal.org.bouncycastle.asn1;
 
 import java.math.BigInteger;
@@ -30,3 +31,4 @@ public class DERInteger
         super(value);
     }
 }
+// Android-added: keep DER classes for backwards compatibility

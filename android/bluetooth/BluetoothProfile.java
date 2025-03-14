@@ -126,10 +126,7 @@ public interface BluetoothProfile {
      */
     @SystemApi int MAP = 9;
 
-    /*
-     * SAP Profile
-     * @hide
-     */
+    /** SAP Profile */
     int SAP = 10;
 
     /**
@@ -238,12 +235,19 @@ public interface BluetoothProfile {
     int BATTERY = 30;
 
     /**
+     * Gaming Audio Profile
+     *
+     * @hide
+     */
+    int GMAP = 31;
+
+    /**
      * Max profile ID. This value should be updated whenever a new profile is added to match the
      * largest value assigned to a profile.
      *
      * @hide
      */
-    int MAX_PROFILE_ID = 30;
+    int MAX_PROFILE_ID = 31;
 
     /**
      * Default priority for devices that we try to auto-connect to and allow incoming connections

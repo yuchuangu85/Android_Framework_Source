@@ -21,9 +21,11 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.os.profiling.Flags;
+import android.text.TextUtils;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.util.Objects;
 
 /**
  * Encapsulates results of a single profiling request operation.
@@ -31,6 +33,7 @@ import java.lang.annotation.RetentionPolicy;
 @FlaggedApi(Flags.FLAG_TELEMETRY_APIS)
 public final class ProfilingResult implements Parcelable {
 
+    // LINT.IfChange(params)
     /** @see #getErrorCode */
     final @ErrorCode int mErrorCode;
 
@@ -42,6 +45,10 @@ public final class ProfilingResult implements Parcelable {
 
     /** @see #getErrorMessage */
     @Nullable final String mErrorMessage;
+
+    /** @see #getTriggerType */
+    final int mTriggerType;
+    // LINT.ThenChange(:from_parcel)
 
     /** The request was executed and succeeded. */
     public static final int ERROR_NONE = 0;
@@ -84,28 +91,37 @@ public final class ProfilingResult implements Parcelable {
     @Retention(RetentionPolicy.SOURCE)
     @interface ErrorCode {}
 
-    ProfilingResult(@ErrorCode int errorCode, String resultFilePath, String tag,
-            String errorMessage) {
+    /** @hide */
+    public ProfilingResult(@ErrorCode int errorCode, String resultFilePath, String tag,
+            String errorMessage, int triggerType) {
         mErrorCode = errorCode;
         mResultFilePath = resultFilePath;
         mTag = tag;
         mErrorMessage = errorMessage;
+        mTriggerType = triggerType;
     }
 
-    private ProfilingResult(@NonNull Parcel in) {
+    // LINT.IfChange(from_parcel)
+    /** @hide */
+    public ProfilingResult(@NonNull Parcel in) {
         mErrorCode = in.readInt();
         mResultFilePath = in.readString();
         mTag = in.readString();
         mErrorMessage = in.readString();
+        mTriggerType = in.readInt();
     }
+    // LINT.ThenChange(:to_parcel)
 
+    // LINT.IfChange(to_parcel)
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         dest.writeInt(mErrorCode);
         dest.writeString(mResultFilePath);
         dest.writeString(mTag);
         dest.writeString(mErrorMessage);
+        dest.writeInt(mTriggerType);
     }
+    // LINT.ThenChange(:equals)
 
     @Override
     public int describeContents() {
@@ -154,4 +170,42 @@ public final class ProfilingResult implements Parcelable {
     public @Nullable String getErrorMessage() {
         return mErrorMessage;
     }
+
+    /**
+     * Trigger type that started this profiling, or {@link ProfilingTrigger#TRIGGER_TYPE_NONE} for
+     * profiling not started by a trigger.
+     */
+    @FlaggedApi(Flags.FLAG_SYSTEM_TRIGGERED_PROFILING_NEW)
+    public int getTriggerType() {
+        return mTriggerType;
+    }
+
+    // LINT.IfChange(equals)
+    /** @hide */
+    @Override
+    public boolean equals(@Nullable Object other) {
+        if (other == null || !(other instanceof ProfilingResult)) {
+            return false;
+        }
+
+        final ProfilingResult o = (ProfilingResult) other;
+
+        if (Flags.systemTriggeredProfilingNew()) {
+            if (mTriggerType != o.getTriggerType()) {
+                return false;
+            }
+        }
+
+        return mErrorCode == o.getErrorCode()
+                && TextUtils.equals(mResultFilePath, o.getResultFilePath())
+                && TextUtils.equals(mTag, o.getTag())
+                && TextUtils.equals(mErrorMessage, o.getErrorMessage());
+    }
+
+    /** @hide */
+    @Override
+    public int hashCode() {
+        return Objects.hash(mErrorCode, mResultFilePath, mTag, mErrorMessage, mTriggerType);
+    }
+    // LINT.ThenChange(:params)
 }

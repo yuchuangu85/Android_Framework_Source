@@ -21,7 +21,7 @@ import android.health.connect.HealthConnectManager;
 import android.health.connect.datatypes.DataOrigin;
 import android.health.connect.datatypes.Record;
 import android.health.connect.datatypes.RecordTypeIdentifier;
-import android.health.connect.internal.datatypes.utils.RecordMapper;
+import android.health.connect.internal.datatypes.utils.HealthConnectMappings;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.ArraySet;
@@ -63,7 +63,10 @@ public final class ChangeLogTokenRequest implements Parcelable {
         }
         Set<String> invalidRecordTypes =
                 recordTypes.stream()
-                        .filter(recordType -> !RecordMapper.getInstance().hasRecordType(recordType))
+                        .filter(
+                                recordType ->
+                                        !HealthConnectMappings.getInstance()
+                                                .hasRecordType(recordType))
                         .map(Class::getName)
                         .collect(Collectors.toSet());
         if (!invalidRecordTypes.isEmpty()) {
@@ -73,10 +76,11 @@ public final class ChangeLogTokenRequest implements Parcelable {
     }
 
     private ChangeLogTokenRequest(@NonNull Parcel in) {
-        RecordMapper recordMapper = RecordMapper.getInstance();
+        HealthConnectMappings healthConnectMappings = HealthConnectMappings.getInstance();
         Set<Class<? extends Record>> recordTypes = new ArraySet<>();
         for (@RecordTypeIdentifier.RecordType int recordType : in.createIntArray()) {
-            recordTypes.add(recordMapper.getRecordIdToExternalRecordClassMap().get(recordType));
+            recordTypes.add(
+                    healthConnectMappings.getRecordIdToExternalRecordClassMap().get(recordType));
         }
         mRecordTypes = recordTypes;
         Set<DataOrigin> dataOrigin = new ArraySet<>();
@@ -158,7 +162,7 @@ public final class ChangeLogTokenRequest implements Parcelable {
         int[] recordTypes = new int[mRecordTypes.size()];
         int index = 0;
         for (Class<? extends Record> recordClass : mRecordTypes) {
-            recordTypes[index++] = RecordMapper.getInstance().getRecordType(recordClass);
+            recordTypes[index++] = HealthConnectMappings.getInstance().getRecordType(recordClass);
         }
         return recordTypes;
     }

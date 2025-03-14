@@ -16,6 +16,8 @@
 
 package android.bluetooth;
 
+import static java.util.Objects.requireNonNull;
+
 import android.annotation.IntDef;
 import android.annotation.IntRange;
 import android.annotation.NonNull;
@@ -26,10 +28,8 @@ import android.os.Parcelable;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * The {@link BluetoothLeBroadcastReceiveState} is used by the BASS server to expose information
@@ -181,54 +181,48 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
     private static String paSyncStateToString(int paSyncState) {
         switch (paSyncState) {
             case 0x00:
-                return "Not synchronized to PA: [" + Integer.toString(paSyncState) + "]";
+                return "Not synchronized to PA: [" + paSyncState + "]";
             case 0x01:
-                return "SyncInfo Request: [" + Integer.toString(paSyncState) + "]";
+                return "SyncInfo Request: [" + paSyncState + "]";
             case 0x02:
-                return "Synchronized to PA: [" + Integer.toString(paSyncState) + "]";
+                return "Synchronized to PA: [" + paSyncState + "]";
             case 0x03:
-                return "Failed to synchronize to PA: [" + Integer.toString(paSyncState) + "]";
+                return "Failed to synchronize to PA: [" + paSyncState + "]";
             case 0x04:
-                return "No PAST: [" + Integer.toString(paSyncState) + "]";
+                return "No PAST: [" + paSyncState + "]";
             default:
-                return "RFU: [" + Integer.toString(paSyncState) + "]";
+                return "RFU: [" + paSyncState + "]";
         }
     }
 
     private static String bigEncryptionStateToString(int bigEncryptionState) {
         switch (bigEncryptionState) {
             case 0x00:
-                return "Not encrypted: [" + Integer.toString(bigEncryptionState) + "]";
+                return "Not encrypted: [" + bigEncryptionState + "]";
             case 0x01:
-                return "Broadcast_Code required: [" + Integer.toString(bigEncryptionState) + "]";
+                return "Broadcast_Code required: [" + bigEncryptionState + "]";
             case 0x02:
-                return "Decrypting: [" + Integer.toString(bigEncryptionState) + "]";
+                return "Decrypting: [" + bigEncryptionState + "]";
             case 0x03:
-                return "Bad_Code (incorrect encryption key): ["
-                        + Integer.toString(bigEncryptionState)
-                        + "]";
+                return "Bad_Code (incorrect encryption key): [" + bigEncryptionState + "]";
             default:
-                return "RFU: [" + Integer.toString(bigEncryptionState) + "]";
+                return "RFU: [" + bigEncryptionState + "]";
         }
     }
 
     private static String bisSyncStateToString(Long bisSyncState, int bisSyncStateIndex) {
         if (bisSyncState == 0) {
             return "Not synchronized to BIS_index["
-                    + Integer.toString(bisSyncStateIndex)
+                    + bisSyncStateIndex
                     + "]: ["
-                    + String.valueOf(bisSyncState)
+                    + bisSyncState
                     + "]";
         } else if (bisSyncState > 0 && bisSyncState < 0xFFFFFFFF) {
-            return "Synchronized to BIS_index["
-                    + Integer.toString(bisSyncStateIndex)
-                    + "]: ["
-                    + String.valueOf(bisSyncState)
-                    + "]";
+            return "Synchronized to BIS_index[" + bisSyncStateIndex + "]: [" + bisSyncState + "]";
         } else if (bisSyncState == 0xFFFFFFFF) {
-            return "Failed to sync to BIG: [" + String.valueOf(bisSyncState) + "]";
+            return "Failed to sync to BIG: [" + bisSyncState + "]";
         } else {
-            return "[" + String.valueOf(bisSyncState) + "]";
+            return "[" + bisSyncState + "]";
         }
     }
 
@@ -257,7 +251,7 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
             throw new IllegalArgumentException(
                     "sourceId " + sourceId + " does not fall between 0x00 and 0xFF");
         }
-        Objects.requireNonNull(sourceDevice, "sourceDevice cannot be null");
+        requireNonNull(sourceDevice);
         if (sourceAddressType == BluetoothDevice.ADDRESS_TYPE_UNKNOWN) {
             throw new IllegalArgumentException("sourceAddressType cannot be ADDRESS_TYPE_UNKNOWN");
         }
@@ -266,7 +260,7 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
             throw new IllegalArgumentException(
                     "sourceAddressType " + sourceAddressType + " is invalid");
         }
-        Objects.requireNonNull(bisSyncState, "bisSyncState cannot be null");
+        requireNonNull(bisSyncState);
         if (bisSyncState.size() != numSubgroups) {
             throw new IllegalArgumentException(
                     "bisSyncState.size() "
@@ -274,7 +268,7 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
                             + " must be equal to numSubgroups "
                             + numSubgroups);
         }
-        Objects.requireNonNull(subgroupMetadata, "subgroupMetadata cannot be null");
+        requireNonNull(subgroupMetadata);
         if (subgroupMetadata.size() != numSubgroups) {
             throw new IllegalArgumentException(
                     "subgroupMetadata.size()  "
@@ -302,7 +296,7 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
             throw new IllegalArgumentException(
                     "badCode must be 16 bytes long of null, but is "
                             + badCode.length
-                            + " + bytes long");
+                            + " bytes long");
         }
         mSourceId = sourceId;
         mSourceAddressType = sourceAddressType;
@@ -487,6 +481,7 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
      * @hide
      */
     @Override
+    @SuppressWarnings("AndroidFrameworkEfficientParcelable") // No Creator match List<Long>
     public void writeToParcel(Parcel out, int flags) {
         out.writeInt(mSourceId);
         out.writeInt(mSourceAddressType);
@@ -495,14 +490,7 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
         out.writeInt(mBroadcastId);
         out.writeInt(mPaSyncState);
         out.writeInt(mBigEncryptionState);
-
-        if (mBadCode != null) {
-            out.writeInt(mBadCode.length);
-            out.writeByteArray(mBadCode);
-        } else {
-            // -1 indicates that there is no "bad broadcast code"
-            out.writeInt(-1);
-        }
+        out.writeByteArray(mBadCode);
         out.writeInt(mNumSubgroups);
         out.writeList(mBisSyncState);
         out.writeTypedList(mSubgroupMetadata);
@@ -517,27 +505,20 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
     public String toString() {
         String receiveState =
                 ("Receiver state: "
-                        + "\n  Source ID:"
-                        + mSourceId
-                        + "\n  Source Address Type:"
-                        + (int) mSourceAddressType
-                        + "\n  Source Address:"
-                        + mSourceDevice.toString()
-                        + "\n  Source Adv SID:"
-                        + mSourceAdvertisingSid
-                        + "\n  Broadcast ID:"
-                        + mBroadcastId
-                        + "\n  PA Sync State:"
-                        + paSyncStateToString(mPaSyncState)
-                        + "\n  BIG Encryption Status:"
-                        + bigEncryptionStateToString(mBigEncryptionState)
-                        + "\n  Bad Broadcast Code:"
-                        + Arrays.toString(mBadCode)
-                        + "\n  Number Of Subgroups:"
-                        + mNumSubgroups);
+                        + ("\n  Source ID:" + mSourceId)
+                        + ("\n  Source Address Type:" + (int) mSourceAddressType)
+                        + ("\n  Source Address:" + mSourceDevice.toString())
+                        + ("\n  Source Adv SID:" + mSourceAdvertisingSid)
+                        + ("\n  Broadcast ID:" + mBroadcastId)
+                        + ("\n  PA Sync State:" + paSyncStateToString(mPaSyncState))
+                        + ("\n  BIG Encryption Status:"
+                                + bigEncryptionStateToString(mBigEncryptionState))
+                        + ("\n  Bad Broadcast Code:" + Arrays.toString(mBadCode))
+                        + ("\n  Number Of Subgroups:" + mNumSubgroups));
         for (int i = 0; i < mNumSubgroups; i++) {
-            receiveState +=
-                    ("\n    Subgroup index:"
+            receiveState =
+                    receiveState
+                            + ("\n    Subgroup index:"
                                     + i
                                     + "\n      BIS Sync State:"
                                     + bisSyncStateToString(mBisSyncState.get(i), i))
@@ -570,21 +551,12 @@ public final class BluetoothLeBroadcastReceiveState implements Parcelable {
                     final int broadcastId = in.readInt();
                     final int paSyncState = in.readInt();
                     final int bigEncryptionState = in.readInt();
-                    final int badCodeLen = in.readInt();
-                    byte[] badCode = null;
-
-                    if (badCodeLen != -1) {
-                        badCode = new byte[badCodeLen];
-                        if (badCodeLen > 0) {
-                            in.readByteArray(badCode);
-                        }
-                    }
+                    final byte[] badCode = in.createByteArray();
                     final byte numSubGroups = in.readByte();
                     final List<Long> bisSyncState =
                             in.readArrayList(Long.class.getClassLoader(), Long.class);
                     final List<BluetoothLeAudioContentMetadata> subgroupMetadata =
-                            new ArrayList<>();
-                    in.readTypedList(subgroupMetadata, BluetoothLeAudioContentMetadata.CREATOR);
+                            in.createTypedArrayList(BluetoothLeAudioContentMetadata.CREATOR);
 
                     return new BluetoothLeBroadcastReceiveState(
                             sourceId,

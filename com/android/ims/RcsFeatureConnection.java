@@ -16,7 +16,6 @@
 
 package com.android.ims;
 
-import android.annotation.NonNull;
 import android.content.Context;
 import android.net.Uri;
 import android.os.IBinder;
@@ -113,17 +112,15 @@ public class RcsFeatureConnection extends FeatureConnection {
         }
     }
 
-    @VisibleForTesting
-    public AvailabilityCallbackManager mAvailabilityCallbackManager;
-    @VisibleForTesting
-    public RegistrationCallbackManager mRegistrationCallbackManager;
+    private final AvailabilityCallbackManager mAvailabilityCallbackManager;
+    private final RegistrationCallbackManager mRegistrationCallbackManager;
 
     public RcsFeatureConnection(Context context, int slotId, int subId, IImsRcsFeature feature,
             IImsConfig c, IImsRegistration r, ISipTransport s) {
         super(context, slotId, subId, c, r, s);
-        setBinder(feature != null ? feature.asBinder() : null);
         mAvailabilityCallbackManager = new AvailabilityCallbackManager(mContext);
         mRegistrationCallbackManager = new RegistrationCallbackManager(mContext);
+        setBinder(feature != null ? feature.asBinder() : null);
     }
 
     public void close() {

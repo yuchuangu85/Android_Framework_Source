@@ -34,6 +34,12 @@ public class EventLogTags {
   /** 60004 viewroot_draw_event (window|3),(event|3) */
   public static final int VIEWROOT_DRAW_EVENT = 60004;
 
+  /** 60005 surfaceview_layout (window|3),(format|1),(width|1),(height|1),(z|1),(sizeFrom|3),(attached|1),(lifecycleStrategy|1),(viewVisible|1) */
+  public static final int SURFACEVIEW_LAYOUT = 60005;
+
+  /** 60006 surfaceview_callback (window|3),(callback|3) */
+  public static final int SURFACEVIEW_CALLBACK = 60006;
+
   public static void writeImfImeAnimStart(String token, int animationType, float alpha, String currentInsets, String shownInsets, String hiddenInsets) {
     android.util.EventLog.writeEvent(IMF_IME_ANIM_START, token, animationType, alpha, currentInsets, shownInsets, hiddenInsets);
   }
@@ -64,5 +70,13 @@ public class EventLogTags {
 
   public static void writeViewrootDrawEvent(String window, String event) {
     android.util.EventLog.writeEvent(VIEWROOT_DRAW_EVENT, window, event);
+  }
+
+  public static void writeSurfaceviewLayout(String window, int format, int width, int height, int z, String sizefrom, int attached, int lifecyclestrategy, int viewvisible) {
+    android.util.EventLog.writeEvent(SURFACEVIEW_LAYOUT, window, format, width, height, z, sizefrom, attached, lifecyclestrategy, viewvisible);
+  }
+
+  public static void writeSurfaceviewCallback(String window, String callback) {
+    android.util.EventLog.writeEvent(SURFACEVIEW_CALLBACK, window, callback);
   }
 }

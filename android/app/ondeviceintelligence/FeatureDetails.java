@@ -19,12 +19,11 @@ package android.app.ondeviceintelligence;
 import static android.app.ondeviceintelligence.flags.Flags.FLAG_ENABLE_ON_DEVICE_INTELLIGENCE;
 
 import android.annotation.FlaggedApi;
+import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.os.Parcelable;
 import android.os.PersistableBundle;
-
-import androidx.annotation.IntDef;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -69,7 +68,7 @@ public final class FeatureDetails implements Parcelable {
             FEATURE_STATUS_DOWNLOADING,
             FEATURE_STATUS_AVAILABLE,
             FEATURE_STATUS_SERVICE_UNAVAILABLE
-    }, open = true)
+    })
     @Target({ElementType.TYPE_USE, ElementType.METHOD, ElementType.PARAMETER, ElementType.FIELD})
     @Retention(RetentionPolicy.SOURCE)
     public @interface Status {

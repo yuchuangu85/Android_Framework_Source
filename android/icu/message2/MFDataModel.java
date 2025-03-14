@@ -93,7 +93,7 @@ public class MFDataModel {
      */
     @Deprecated
     public interface Declaration {
-        // Provides a common type for InputDeclaration, LocalDeclaration, and UnsupportedStatement.
+        // Provides a common type for InputDeclaration, and LocalDeclaration
     }
 
     /**
@@ -135,29 +135,6 @@ public class MFDataModel {
         public LocalDeclaration(String name, Expression value) {
             this.name = name;
             this.value = value;
-        }
-    }
-
-    /**
-     * @deprecated This API is for technology preview only.
-     * @hide Only a subset of ICU is exposed in Android
-     * @hide draft / provisional / internal are hidden on Android
-     */
-    @Deprecated
-    public static class UnsupportedStatement implements Declaration {
-        public final String keyword;
-        public final String body;
-        public final List<Expression> expressions;
-
-        /**
-         * @deprecated This API is for technology preview only.
-         * @hide draft / provisional / internal are hidden on Android
-         */
-        @Deprecated
-        public UnsupportedStatement(String keyword, String body, List<Expression> expressions) {
-            this.keyword = keyword;
-            this.body = body;
-            this.expressions = expressions;
         }
     }
 
@@ -338,27 +315,6 @@ public class MFDataModel {
      * @hide draft / provisional / internal are hidden on Android
      */
     @Deprecated
-    public static class UnsupportedExpression implements Expression {
-        public final UnsupportedAnnotation annotation;
-        public final List<Attribute> attributes;
-
-        /**
-         * @deprecated This API is for technology preview only.
-         * @hide draft / provisional / internal are hidden on Android
-         */
-        @Deprecated
-        public UnsupportedExpression(UnsupportedAnnotation annotation, List<Attribute> attributes) {
-            this.annotation = annotation;
-            this.attributes = attributes;
-        }
-    }
-
-    /**
-     * @deprecated This API is for technology preview only.
-     * @hide Only a subset of ICU is exposed in Android
-     * @hide draft / provisional / internal are hidden on Android
-     */
-    @Deprecated
     public static class Attribute {
         public final String name;
         public final LiteralOrVariableRef value;
@@ -465,25 +421,6 @@ public class MFDataModel {
         public Option(String name, LiteralOrVariableRef value) {
             this.name = name;
             this.value = value;
-        }
-    }
-
-    /**
-     * @deprecated This API is for technology preview only.
-     * @hide Only a subset of ICU is exposed in Android
-     * @hide draft / provisional / internal are hidden on Android
-     */
-    @Deprecated
-    public static class UnsupportedAnnotation implements Annotation {
-        public final String source;
-
-        /**
-         * @deprecated This API is for technology preview only.
-         * @hide draft / provisional / internal are hidden on Android
-         */
-        @Deprecated
-        public UnsupportedAnnotation(String source) {
-            this.source = source;
         }
     }
 

@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash 03f1982c8e20e58494a4ff8c9736b1c257dfeb6c --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen/android/hardware/contexthub/IContextHub.java.d -o out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V3-java-source/gen -Nhardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3 hardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/3/android/hardware/contexthub/IContextHub.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 4 --hash df80fdbb6f95a8a2988bc72b7f08f891847b80eb --stability vintf --min_sdk_version current --ninja -d out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V4-java-source/gen/android/hardware/contexthub/IContextHub.java.d -o out/soong/.intermediates/hardware/interfaces/contexthub/aidl/android.hardware.contexthub-V4-java-source/gen -Nhardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/4 hardware/interfaces/contexthub/aidl/aidl_api/android.hardware.contexthub/4/android/hardware/contexthub/IContextHub.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.contexthub;
 public interface IContextHub extends android.os.IInterface
@@ -11,8 +15,8 @@ public interface IContextHub extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 3;
-  public static final String HASH = "03f1982c8e20e58494a4ff8c9736b1c257dfeb6c";
+  public static final int VERSION = 4;
+  public static final String HASH = "df80fdbb6f95a8a2988bc72b7f08f891847b80eb";
   /** Default implementation for IContextHub. */
   public static class Default implements android.hardware.contexthub.IContextHub
   {
@@ -63,6 +67,18 @@ public interface IContextHub extends android.os.IInterface
     @Override public void sendMessageDeliveryStatusToHub(int contextHubId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException
     {
     }
+    @Override public java.util.List<android.hardware.contexthub.HubInfo> getHubs() throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public java.util.List<android.hardware.contexthub.EndpointInfo> getEndpoints() throws android.os.RemoteException
+    {
+      return null;
+    }
+    @Override public android.hardware.contexthub.IEndpointCommunication registerEndpointHub(android.hardware.contexthub.IEndpointCallback callback, android.hardware.contexthub.HubInfo hubInfo) throws android.os.RemoteException
+    {
+      return null;
+    }
     @Override
     public int getInterfaceVersion() {
       return 0;
@@ -79,7 +95,7 @@ public interface IContextHub extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.contexthub.IContextHub
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {
@@ -283,6 +299,32 @@ public interface IContextHub extends android.os.IInterface
           data.enforceNoDataAvail();
           this.sendMessageDeliveryStatusToHub(_arg0, _arg1);
           reply.writeNoException();
+          break;
+        }
+        case TRANSACTION_getHubs:
+        {
+          java.util.List<android.hardware.contexthub.HubInfo> _result = this.getHubs();
+          reply.writeNoException();
+          reply.writeTypedList(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_getEndpoints:
+        {
+          java.util.List<android.hardware.contexthub.EndpointInfo> _result = this.getEndpoints();
+          reply.writeNoException();
+          reply.writeTypedList(_result, android.os.Parcelable.PARCELABLE_WRITE_RETURN_VALUE);
+          break;
+        }
+        case TRANSACTION_registerEndpointHub:
+        {
+          android.hardware.contexthub.IEndpointCallback _arg0;
+          _arg0 = android.hardware.contexthub.IEndpointCallback.Stub.asInterface(data.readStrongBinder());
+          android.hardware.contexthub.HubInfo _arg1;
+          _arg1 = data.readTypedObject(android.hardware.contexthub.HubInfo.CREATOR);
+          data.enforceNoDataAvail();
+          android.hardware.contexthub.IEndpointCommunication _result = this.registerEndpointHub(_arg0, _arg1);
+          reply.writeNoException();
+          reply.writeStrongInterface(_result);
           break;
         }
         default:
@@ -596,6 +638,69 @@ public interface IContextHub extends android.os.IInterface
           _data.recycle();
         }
       }
+      @Override public java.util.List<android.hardware.contexthub.HubInfo> getHubs() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        java.util.List<android.hardware.contexthub.HubInfo> _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getHubs, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getHubs is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.createTypedArrayList(android.hardware.contexthub.HubInfo.CREATOR);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public java.util.List<android.hardware.contexthub.EndpointInfo> getEndpoints() throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        java.util.List<android.hardware.contexthub.EndpointInfo> _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_getEndpoints, _data, _reply, 0);
+          if (!_status) {
+            throw new android.os.RemoteException("Method getEndpoints is unimplemented.");
+          }
+          _reply.readException();
+          _result = _reply.createTypedArrayList(android.hardware.contexthub.EndpointInfo.CREATOR);
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
+      @Override public android.hardware.contexthub.IEndpointCommunication registerEndpointHub(android.hardware.contexthub.IEndpointCallback callback, android.hardware.contexthub.HubInfo hubInfo) throws android.os.RemoteException
+      {
+        android.os.Parcel _data = android.os.Parcel.obtain(asBinder());
+        android.os.Parcel _reply = android.os.Parcel.obtain();
+        android.hardware.contexthub.IEndpointCommunication _result;
+        try {
+          _data.writeInterfaceToken(DESCRIPTOR);
+          _data.writeStrongInterface(callback);
+          _data.writeTypedObject(hubInfo, 0);
+          boolean _status = mRemote.transact(Stub.TRANSACTION_registerEndpointHub, _data, _reply, 0);
+          _reply.setPropagateAllowBlocking();
+          if (!_status) {
+            throw new android.os.RemoteException("Method registerEndpointHub is unimplemented.");
+          }
+          _reply.readException();
+          _result = android.hardware.contexthub.IEndpointCommunication.Stub.asInterface(_reply.readStrongBinder());
+        }
+        finally {
+          _reply.recycle();
+          _data.recycle();
+        }
+        return _result;
+      }
       @Override
       public int getInterfaceVersion() throws android.os.RemoteException {
         if (mCachedVersion == -1) {
@@ -646,6 +751,9 @@ public interface IContextHub extends android.os.IInterface
     static final int TRANSACTION_onNanSessionStateChanged = (android.os.IBinder.FIRST_CALL_TRANSACTION + 12);
     static final int TRANSACTION_setTestMode = (android.os.IBinder.FIRST_CALL_TRANSACTION + 13);
     static final int TRANSACTION_sendMessageDeliveryStatusToHub = (android.os.IBinder.FIRST_CALL_TRANSACTION + 14);
+    static final int TRANSACTION_getHubs = (android.os.IBinder.FIRST_CALL_TRANSACTION + 15);
+    static final int TRANSACTION_getEndpoints = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16);
+    static final int TRANSACTION_registerEndpointHub = (android.os.IBinder.FIRST_CALL_TRANSACTION + 17);
     static final int TRANSACTION_getInterfaceVersion = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777214);
     static final int TRANSACTION_getInterfaceHash = (android.os.IBinder.FIRST_CALL_TRANSACTION + 16777213);
   }
@@ -667,6 +775,9 @@ public interface IContextHub extends android.os.IInterface
   public void onNanSessionStateChanged(android.hardware.contexthub.NanSessionStateUpdate update) throws android.os.RemoteException;
   public void setTestMode(boolean enable) throws android.os.RemoteException;
   public void sendMessageDeliveryStatusToHub(int contextHubId, android.hardware.contexthub.MessageDeliveryStatus messageDeliveryStatus) throws android.os.RemoteException;
+  public java.util.List<android.hardware.contexthub.HubInfo> getHubs() throws android.os.RemoteException;
+  public java.util.List<android.hardware.contexthub.EndpointInfo> getEndpoints() throws android.os.RemoteException;
+  public android.hardware.contexthub.IEndpointCommunication registerEndpointHub(android.hardware.contexthub.IEndpointCallback callback, android.hardware.contexthub.HubInfo hubInfo) throws android.os.RemoteException;
   public int getInterfaceVersion() throws android.os.RemoteException;
   public String getInterfaceHash() throws android.os.RemoteException;
 }

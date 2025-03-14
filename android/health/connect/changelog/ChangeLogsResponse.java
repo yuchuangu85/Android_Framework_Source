@@ -20,6 +20,7 @@ import android.annotation.NonNull;
 import android.health.connect.HealthConnectManager;
 import android.health.connect.aidl.DeletedLogsParcel;
 import android.health.connect.aidl.RecordsParcel;
+import android.health.connect.datatypes.Metadata;
 import android.health.connect.datatypes.Record;
 import android.health.connect.internal.datatypes.RecordInternal;
 import android.health.connect.internal.datatypes.utils.InternalExternalRecordConverter;
@@ -33,7 +34,7 @@ import java.util.Objects;
 
 /**
  * Response class for {@link HealthConnectManager#getChangeLogs} This is the response to clients
- * fetching changes
+ * fetching changes.
  */
 public final class ChangeLogsResponse implements Parcelable {
     private final List<Record> mUpsertedRecords;
@@ -42,7 +43,7 @@ public final class ChangeLogsResponse implements Parcelable {
     private final boolean mHasMorePages;
 
     /**
-     * Response for {@link HealthConnectManager#getChangeLogs}
+     * Response for {@link HealthConnectManager#getChangeLogs}.
      *
      * @hide
      */
@@ -80,7 +81,7 @@ public final class ChangeLogsResponse implements Parcelable {
 
     @NonNull
     public static final Creator<ChangeLogsResponse> CREATOR =
-            new Creator<ChangeLogsResponse>() {
+            new Creator<>() {
                 @Override
                 public ChangeLogsResponse createFromParcel(Parcel in) {
                     return new ChangeLogsResponse(in);
@@ -106,22 +107,23 @@ public final class ChangeLogsResponse implements Parcelable {
 
     /**
      * Returns delete logs for records that have been deleted post the time when the token was
-     * requested from {@link HealthConnectManager#getChangeLogToken}
+     * requested from {@link HealthConnectManager#getChangeLogToken}.
      *
-     * <p>This contains record id of deleted record and the timestamp when the record was deleted.
+     * <p>This contains record ids of deleted records and the timestamps when the records were
+     * deleted.
      */
     @NonNull
     public List<DeletedLog> getDeletedLogs() {
         return mDeletedLogs;
     }
 
-    /** Returns token for future reads using {@link HealthConnectManager#getChangeLogs} */
+    /** Returns token for future reads using {@link HealthConnectManager#getChangeLogs}. */
     @NonNull
     public String getNextChangesToken() {
         return mNextChangesToken;
     }
 
-    /** Returns whether there are more pages available for read */
+    /** Returns whether there are more pages available for read. */
     public boolean hasMorePages() {
         return mHasMorePages;
     }
@@ -143,7 +145,14 @@ public final class ChangeLogsResponse implements Parcelable {
         dest.writeBoolean(mHasMorePages);
     }
 
-    /** A class to represent a delete log in ChangeLogsResponse */
+    /**
+     * A change log holds the {@link Metadata#getId()} of a deleted Record. For privacy, only unique
+     * identifiers of deleted records are returned.
+     *
+     * <p>Clients holding copies of data from Health Connect should keep a copy of these unique
+     * identifiers along with their contents. When receiving a {@link DeletedLog} in {@link
+     * ChangeLogsResponse}, use the identifiers to delete copy of the data.
+     */
     public static final class DeletedLog {
         private final String mDeletedRecordId;
         private final Instant mDeletedTime;
@@ -154,13 +163,13 @@ public final class ChangeLogsResponse implements Parcelable {
             mDeletedTime = Instant.ofEpochMilli(deletedTime);
         }
 
-        /** Returns record id of the record deleted */
+        /** Returns record id of the record deleted. */
         @NonNull
         public String getDeletedRecordId() {
             return mDeletedRecordId;
         }
 
-        /** Returns timestamp when the record was deleted */
+        /** Returns timestamp when the record was deleted. */
         @NonNull
         public Instant getDeletedTime() {
             return mDeletedTime;

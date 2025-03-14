@@ -37,6 +37,7 @@ public final class GetAdSelectionDataInput implements Parcelable {
     @NonNull private final String mCallerPackageName;
 
     @Nullable private final Uri mCoordinatorOriginUri;
+    @Nullable private final SellerConfiguration mSellerConfiguration;
 
     @NonNull
     public static final Creator<GetAdSelectionDataInput> CREATOR =
@@ -53,12 +54,14 @@ public final class GetAdSelectionDataInput implements Parcelable {
     private GetAdSelectionDataInput(
             @Nullable AdTechIdentifier seller,
             @NonNull String callerPackageName,
-            @Nullable Uri coordinatorOriginUri) {
+            @Nullable Uri coordinatorOriginUri,
+            @Nullable SellerConfiguration sellerConfiguration) {
         Objects.requireNonNull(callerPackageName);
 
         this.mSeller = seller;
         this.mCallerPackageName = callerPackageName;
         this.mCoordinatorOriginUri = coordinatorOriginUri;
+        this.mSellerConfiguration = sellerConfiguration;
     }
 
     private GetAdSelectionDataInput(@NonNull Parcel in) {
@@ -70,6 +73,9 @@ public final class GetAdSelectionDataInput implements Parcelable {
         this.mCallerPackageName = in.readString();
         this.mCoordinatorOriginUri =
                 AdServicesParcelableUtil.readNullableFromParcel(in, Uri.CREATOR::createFromParcel);
+        this.mSellerConfiguration =
+                AdServicesParcelableUtil.readNullableFromParcel(
+                        in, SellerConfiguration.CREATOR::createFromParcel);
     }
 
     @Override
@@ -78,14 +84,16 @@ public final class GetAdSelectionDataInput implements Parcelable {
             GetAdSelectionDataInput obj = (GetAdSelectionDataInput) o;
             return Objects.equals(mSeller, obj.mSeller)
                     && Objects.equals(mCallerPackageName, obj.mCallerPackageName)
-                    && Objects.equals(mCoordinatorOriginUri, obj.mCoordinatorOriginUri);
+                    && Objects.equals(mCoordinatorOriginUri, obj.mCoordinatorOriginUri)
+                    && Objects.equals(mSellerConfiguration, obj.mSellerConfiguration);
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mSeller, mCallerPackageName, mCoordinatorOriginUri);
+        return Objects.hash(
+                mSeller, mCallerPackageName, mCoordinatorOriginUri, mSellerConfiguration);
     }
 
     @Override
@@ -105,6 +113,10 @@ public final class GetAdSelectionDataInput implements Parcelable {
         AdServicesParcelableUtil.writeNullableToParcel(
                 dest,
                 mCoordinatorOriginUri,
+                (targetParcel, sourceOrigin) -> sourceOrigin.writeToParcel(targetParcel, flags));
+        AdServicesParcelableUtil.writeNullableToParcel(
+                dest,
+                mSellerConfiguration,
                 (targetParcel, sourceOrigin) -> sourceOrigin.writeToParcel(targetParcel, flags));
     }
 
@@ -133,6 +145,16 @@ public final class GetAdSelectionDataInput implements Parcelable {
     }
 
     /**
+     * Returns the seller configuration that the calling SDK can use to optimize the payload. If
+     * this is null, the service will default to the existing strategy of sending all the available
+     * data.
+     */
+    @Nullable
+    public SellerConfiguration getSellerConfiguration() {
+        return mSellerConfiguration;
+    }
+
+    /**
      * Builder for {@link GetAdSelectionDataInput} objects.
      *
      * @hide
@@ -141,6 +163,7 @@ public final class GetAdSelectionDataInput implements Parcelable {
         @Nullable private AdTechIdentifier mSeller;
         @Nullable private String mCallerPackageName;
         @Nullable private Uri mCoordinatorOrigin;
+        @Nullable private SellerConfiguration mSellerConfiguration;
 
         public Builder() {}
 
@@ -170,6 +193,19 @@ public final class GetAdSelectionDataInput implements Parcelable {
         }
 
         /**
+         * Sets the {@link SellerConfiguration} See {@link #getSellerConfiguration()} for more
+         * details.
+         *
+         * @hide
+         */
+        @NonNull
+        public GetAdSelectionDataInput.Builder setSellerConfiguration(
+                @Nullable SellerConfiguration sellerConfiguration) {
+            this.mSellerConfiguration = sellerConfiguration;
+            return this;
+        }
+
+        /**
          * Builds a {@link GetAdSelectionDataInput} instance.
          *
          * @throws NullPointerException if the CallerPackageName is null
@@ -178,7 +214,8 @@ public final class GetAdSelectionDataInput implements Parcelable {
         public GetAdSelectionDataInput build() {
             Objects.requireNonNull(mCallerPackageName);
 
-            return new GetAdSelectionDataInput(mSeller, mCallerPackageName, mCoordinatorOrigin);
+            return new GetAdSelectionDataInput(
+                    mSeller, mCallerPackageName, mCoordinatorOrigin, mSellerConfiguration);
         }
     }
 }

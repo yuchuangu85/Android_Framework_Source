@@ -16,16 +16,16 @@ public class AESWrapEngine
      */
     public AESWrapEngine()
     {
-        super(new AESEngine());
+        super(AESEngine.newInstance());
     }
 
     /**
-     * Create an AESWrapEngine where the underlying cipher is set to decrypt for wrapping, encrypt for unwrapping.
+     * Create an AESWrapEngine where the underlying cipher is (optionally) set to decrypt for wrapping, encrypt for unwrapping.
      *
      * @param useReverseDirection true if underlying cipher should be used in decryption mode, false otherwise.
      */
     public AESWrapEngine(boolean useReverseDirection)
     {
-        super(new AESEngine(), useReverseDirection);
+        super(AESEngine.newInstance(), useReverseDirection);
     }
 }

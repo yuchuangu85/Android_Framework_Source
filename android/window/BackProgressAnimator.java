@@ -16,11 +16,22 @@
 
 package android.window;
 
+import static android.window.BackEvent.EDGE_NONE;
+
+import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
+import static com.android.window.flags.Flags.predictiveBackTimestampApi;
+import static com.android.window.flags.Flags.predictiveBackSwipeEdgeNoneApi;
+
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.util.FloatProperty;
+import android.util.TimeUtils;
+import android.view.Choreographer;
 
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.dynamicanimation.animation.DynamicAnimation;
+import com.android.internal.dynamicanimation.animation.FlingAnimation;
+import com.android.internal.dynamicanimation.animation.FloatValueHolder;
 import com.android.internal.dynamicanimation.animation.SpringAnimation;
 import com.android.internal.dynamicanimation.animation.SpringForce;
 
@@ -33,25 +44,40 @@ import com.android.internal.dynamicanimation.animation.SpringForce;
  *
  * @hide
  */
-public class BackProgressAnimator {
+public class BackProgressAnimator implements DynamicAnimation.OnAnimationUpdateListener {
     /**
      *  A factor to scale the input progress by, so that it works better with the spring.
      *  We divide the output progress by this value before sending it to apps, so that apps
      *  always receive progress values in [0, 1].
      */
     private static final float SCALE_FACTOR = 100f;
+    private static final float FLING_FRICTION = 8f;
+    private static final float BUTTON_SPRING_STIFFNESS = 100;
     private final SpringAnimation mSpring;
     private ProgressCallback mCallback;
     private float mProgress = 0;
+    private float mVelocity = 0;
     private BackMotionEvent mLastBackEvent;
     private boolean mBackAnimationInProgress = false;
     @Nullable
     private Runnable mBackCancelledFinishRunnable;
+    @Nullable
+    private Runnable mBackInvokedFinishRunnable;
+    private FlingAnimation mBackInvokedFlingAnim;
+    private final SpringForce mGestureSpringForce = new SpringForce()
+            .setStiffness(SpringForce.STIFFNESS_MEDIUM)
+            .setDampingRatio(SpringForce.DAMPING_RATIO_NO_BOUNCY);
+    private final SpringForce mButtonSpringForce = new SpringForce()
+            .setDampingRatio(SpringForce.DAMPING_RATIO_NO_BOUNCY);
     private final DynamicAnimation.OnAnimationEndListener mOnAnimationEndListener =
             (animation, canceled, value, velocity) -> {
-                invokeBackCancelledRunnable();
+                if (mBackCancelledFinishRunnable != null) invokeBackCancelledRunnable();
+                if (mBackInvokedFinishRunnable != null) invokeBackInvokedRunnable();
                 reset();
             };
+    private final DynamicAnimation.OnAnimationUpdateListener mOnBackInvokedFlingUpdateListener =
+            (animation, progress, velocity) ->
+                    updateProgressValue(progress, velocity, animation.getLastFrameTime());
 
 
     private void setProgress(float progress) {
@@ -67,7 +93,6 @@ public class BackProgressAnimator {
                 @Override
                 public void setValue(BackProgressAnimator animator, float value) {
                     animator.setProgress(value);
-                    animator.updateProgressValue(value);
                 }
 
                 @Override
@@ -75,6 +100,13 @@ public class BackProgressAnimator {
                     return object.getProgress();
                 }
             };
+
+    @Override
+    public void onAnimationUpdate(DynamicAnimation animation, float value, float velocity) {
+        if (mBackInvokedFinishRunnable == null) {
+            updateProgressValue(value, velocity, animation.getLastFrameTime());
+        }
+    }
 
 
     /** A callback to be invoked when there's a progress value update from the animator. */
@@ -85,9 +117,8 @@ public class BackProgressAnimator {
 
     public BackProgressAnimator() {
         mSpring = new SpringAnimation(this, PROGRESS_PROP);
-        mSpring.setSpring(new SpringForce()
-                .setStiffness(SpringForce.STIFFNESS_MEDIUM)
-                .setDampingRatio(SpringForce.DAMPING_RATIO_NO_BOUNCY));
+        mSpring.addUpdateListener(this);
+        mSpring.setSpring(mGestureSpringForce);
     }
 
     /**
@@ -98,6 +129,11 @@ public class BackProgressAnimator {
     public void onBackProgressed(BackMotionEvent event) {
         if (!mBackAnimationInProgress) {
             return;
+        }
+        if (predictiveBackSwipeEdgeNoneApi()) {
+            if (event.getSwipeEdge() == EDGE_NONE) {
+                return;
+            }
         }
         mLastBackEvent = event;
         if (mSpring == null) {
@@ -114,11 +150,23 @@ public class BackProgressAnimator {
      *                 dispatches as the progress animation updates.
      */
     public void onBackStarted(BackMotionEvent event, ProgressCallback callback) {
-        reset();
         mLastBackEvent = event;
         mCallback = callback;
         mBackAnimationInProgress = true;
-        updateProgressValue(0);
+        updateProgressValue(/* progress */ 0, /* velocity */ 0,
+                /* frameTime */ System.nanoTime() / TimeUtils.NANOS_PER_MS);
+        if (predictiveBackSwipeEdgeNoneApi()) {
+            if (event.getSwipeEdge() == EDGE_NONE) {
+                mButtonSpringForce.setStiffness(BUTTON_SPRING_STIFFNESS);
+                mSpring.setSpring(mButtonSpringForce);
+                mSpring.animateToFinalPosition(SCALE_FACTOR);
+            } else {
+                mSpring.setSpring(mGestureSpringForce);
+                onBackProgressed(event);
+            }
+        } else {
+            onBackProgressed(event);
+        }
     }
 
     /**
@@ -127,8 +175,15 @@ public class BackProgressAnimator {
     public void reset() {
         if (mBackCancelledFinishRunnable != null) {
             // Ensure that last progress value that apps see is 0
-            updateProgressValue(0);
+            updateProgressValue(/* progress */ 0, /* velocity */ 0,
+                    /* frameTime */ System.nanoTime() / TimeUtils.NANOS_PER_MS);
             invokeBackCancelledRunnable();
+        } else if (mBackInvokedFinishRunnable != null) {
+            invokeBackInvokedRunnable();
+        }
+        if (mBackInvokedFlingAnim != null) {
+            mBackInvokedFlingAnim.cancel();
+            mBackInvokedFlingAnim = null;
         }
         mSpring.animateToFinalPosition(0);
         if (mSpring.canSkipToEnd()) {
@@ -144,12 +199,37 @@ public class BackProgressAnimator {
     }
 
     /**
+     * Animate the back progress animation a bit further with a high friction considering the
+     * current progress and velocity.
+     *
+     * @param finishCallback the callback to be invoked when the final destination is reached
+     */
+    public void onBackInvoked(@NonNull Runnable finishCallback) {
+        mBackInvokedFinishRunnable = finishCallback;
+        mSpring.animateToFinalPosition(0);
+
+        mBackInvokedFlingAnim = new FlingAnimation(new FloatValueHolder())
+                .setStartValue(mProgress)
+                .setFriction(FLING_FRICTION)
+                .setStartVelocity(mVelocity)
+                .setMinValue(0)
+                .setMaxValue(SCALE_FACTOR);
+        mBackInvokedFlingAnim.addUpdateListener(mOnBackInvokedFlingUpdateListener);
+        mBackInvokedFlingAnim.addEndListener(mOnAnimationEndListener);
+        mBackInvokedFlingAnim.start();
+        // do an animation-frame immediately to prevent idle frame
+        mBackInvokedFlingAnim.doAnimationFrame(
+                Choreographer.getInstance().getLastFrameTimeNanos() / TimeUtils.NANOS_PER_MS);
+    }
+
+    /**
      * Animate the back progress animation from current progress to start position.
      * This should be called when back is cancelled.
      *
      * @param finishCallback the callback to be invoked when the progress is reach to 0.
      */
     public void onBackCancelled(@NonNull Runnable finishCallback) {
+        mButtonSpringForce.setStiffness(SpringForce.STIFFNESS_MEDIUM);
         mBackCancelledFinishRunnable = finishCallback;
         mSpring.addEndListener(mOnAnimationEndListener);
         mSpring.animateToFinalPosition(0);
@@ -163,24 +243,57 @@ public class BackProgressAnimator {
         mBackCancelledFinishRunnable = null;
     }
 
+    /**
+     * Removes the finishCallback passed into {@link #onBackCancelled}
+     */
+    public void removeOnBackInvokedFinishCallback() {
+        if (mBackInvokedFlingAnim != null) {
+            mBackInvokedFlingAnim.removeUpdateListener(mOnBackInvokedFlingUpdateListener);
+            mBackInvokedFlingAnim.removeEndListener(mOnAnimationEndListener);
+        }
+        mBackInvokedFinishRunnable = null;
+    }
+
     /** Returns true if the back animation is in progress. */
-    boolean isBackAnimationInProgress() {
+    @VisibleForTesting(visibility = PACKAGE)
+    public boolean isBackAnimationInProgress() {
         return mBackAnimationInProgress;
     }
 
-    private void updateProgressValue(float progress) {
+    /**
+     * @return The last recorded velocity. Unit: change in progress per second
+     */
+    public float getVelocity() {
+        return mVelocity / SCALE_FACTOR;
+    }
+
+    private void updateProgressValue(float progress, float velocity, long frameTime) {
+        mVelocity = velocity;
         if (mLastBackEvent == null || mCallback == null || !mBackAnimationInProgress) {
             return;
         }
-        mCallback.onProgressUpdate(
-                new BackEvent(mLastBackEvent.getTouchX(), mLastBackEvent.getTouchY(),
-                        progress / SCALE_FACTOR, mLastBackEvent.getSwipeEdge()));
+        BackEvent backEvent;
+        if (predictiveBackTimestampApi()) {
+            backEvent = new BackEvent(mLastBackEvent.getTouchX(), mLastBackEvent.getTouchY(),
+                    progress / SCALE_FACTOR, mLastBackEvent.getSwipeEdge(), frameTime);
+        } else {
+            backEvent = new BackEvent(mLastBackEvent.getTouchX(), mLastBackEvent.getTouchY(),
+                    progress / SCALE_FACTOR, mLastBackEvent.getSwipeEdge());
+        }
+        mCallback.onProgressUpdate(backEvent);
     }
 
     private void invokeBackCancelledRunnable() {
         mSpring.removeEndListener(mOnAnimationEndListener);
         mBackCancelledFinishRunnable.run();
         mBackCancelledFinishRunnable = null;
+    }
+
+    private void invokeBackInvokedRunnable() {
+        mBackInvokedFlingAnim.removeUpdateListener(mOnBackInvokedFlingUpdateListener);
+        mBackInvokedFlingAnim.removeEndListener(mOnAnimationEndListener);
+        mBackInvokedFinishRunnable.run();
+        mBackInvokedFinishRunnable = null;
     }
 
 }

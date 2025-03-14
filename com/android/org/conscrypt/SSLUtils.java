@@ -39,6 +39,7 @@ import static com.android.org.conscrypt.NativeConstants.SSL3_RT_CHANGE_CIPHER_SP
 import static com.android.org.conscrypt.NativeConstants.SSL3_RT_HANDSHAKE;
 import static com.android.org.conscrypt.NativeConstants.SSL3_RT_HEADER_LENGTH;
 import static com.android.org.conscrypt.NativeConstants.SSL3_RT_MAX_PACKET_SIZE;
+
 import static java.lang.Math.min;
 import static java.nio.charset.StandardCharsets.US_ASCII;
 
@@ -51,6 +52,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Set;
+
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLPeerUnverifiedException;

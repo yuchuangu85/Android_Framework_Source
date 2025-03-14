@@ -15,6 +15,7 @@
  */
 package android.hardware.display;
 
+import android.annotation.FlaggedApi;
 import android.view.Display;
 import android.view.Surface;
 
@@ -111,14 +112,24 @@ public final class VirtualDisplay {
     }
 
     /**
-     * Sets the on/off state for a virtual display.
+     * Sets the rotation of the virtual display.
      *
-     * @param isOn Whether the display should be on or off.
-     * @hide
+     * @param rotation the new rotation of the display. May be one of {@link Surface#ROTATION_0},
+     *     {@link Surface#ROTATION_90}, {@link Surface#ROTATION_180}, {@link Surface#ROTATION_270}.
+     *     Upon creation, the rotation of the virtual display is always {@link Surface#ROTATION_0}.
      */
-    public void setDisplayState(boolean isOn) {
-        if (mToken != null) {
-            mGlobal.setVirtualDisplayState(mToken, isOn);
+    @FlaggedApi(android.companion.virtualdevice.flags.Flags.FLAG_VIRTUAL_DISPLAY_ROTATION_API)
+    public void setRotation(@Surface.Rotation int rotation) {
+        if (!android.companion.virtualdevice.flags.Flags.virtualDisplayRotationApi()) {
+            return;
+        }
+        if (rotation != Surface.ROTATION_0 && rotation != Surface.ROTATION_90
+                && rotation != Surface.ROTATION_180 && rotation != Surface.ROTATION_270) {
+            throw new IllegalArgumentException(
+                    "Invalid virtual display rotation value: " + rotation);
+        }
+        if (mToken != null && mDisplay.getRotation() != rotation) {
+            mGlobal.setVirtualDisplayRotation(mToken, rotation);
         }
     }
 

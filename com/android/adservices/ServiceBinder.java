@@ -41,7 +41,7 @@ public abstract class ServiceBinder<T> {
      */
     public abstract void unbindFromService();
 
-    /** Get the {@link ServiceBinder} suitable for the configuration. */
+    /** Gets the {@link ServiceBinder} suitable for the configuration. */
     public static <T2> ServiceBinder<T2> getServiceBinder(
             Context context, String serviceIntentAction, Function<IBinder, T2> converter) {
         return new AndroidServiceBinder<>(context, serviceIntentAction, converter);

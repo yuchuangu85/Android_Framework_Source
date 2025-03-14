@@ -83,8 +83,8 @@ public class LocalizedNumberRangeFormatter extends NumberRangeFormatterSettings<
      * Disassociate the locale from this formatter.
      *
      * @return The fluent chain.
-     * @hide draft / provisional / internal are hidden on Android
      */
+    @android.annotation.FlaggedApi(com.android.icu.Flags.FLAG_ICU_25Q2_API)
     public UnlocalizedNumberRangeFormatter withoutLocale() {
         return new UnlocalizedNumberRangeFormatter(this, KEY_LOCALE, null);
     }

@@ -22,7 +22,10 @@ import android.compat.annotation.UnsupportedAppUsage;
 import android.content.om.OverlayableInfo;
 import android.content.res.loader.AssetsProvider;
 import android.content.res.loader.ResourcesProvider;
+import android.ravenwood.annotation.RavenwoodClassLoadHook;
+import android.ravenwood.annotation.RavenwoodKeepWholeClass;
 import android.text.TextUtils;
+import android.util.Log;
 
 import com.android.internal.annotations.GuardedBy;
 
@@ -45,7 +48,10 @@ import java.util.Objects;
  * making the creation of AssetManagers very cheap.
  * @hide
  */
+@RavenwoodKeepWholeClass
+@RavenwoodClassLoadHook(RavenwoodClassLoadHook.LIBANDROID_LOADING_HOOK)
 public final class ApkAssets {
+    private static final boolean DEBUG = false;
 
     /**
      * The apk assets contains framework resource values specified by the system.
@@ -120,13 +126,26 @@ public final class ApkAssets {
 
     @Nullable
     @GuardedBy("this")
-    private final StringBlock mStringBlock;  // null or closed if mNativePtr = 0.
+    private StringBlock mStringBlock;  // null or closed if mNativePtr = 0.
 
     @PropertyFlags
     private final int mFlags;
 
+    private final boolean mIsOverlay;
+
     @Nullable
     private final AssetsProvider mAssets;
+
+    @NonNull
+    private String mName;
+
+    private static final int UPTODATE_FALSE = 0;
+    private static final int UPTODATE_TRUE = 1;
+    private static final int UPTODATE_ALWAYS_TRUE = 2;
+
+    // Start with the only value that may change later and would force a native call to
+    // double check it.
+    private int mPreviousUpToDateResult = UPTODATE_TRUE;
 
     /**
      * Creates a new ApkAssets instance from the given path on disk.
@@ -298,40 +317,44 @@ public final class ApkAssets {
 
     private ApkAssets(@FormatType int format, @NonNull String path, @PropertyFlags int flags,
             @Nullable AssetsProvider assets) throws IOException {
+        this(format, flags, assets, path);
         Objects.requireNonNull(path, "path");
-        mFlags = flags;
         mNativePtr = nativeLoad(format, path, flags, assets);
         mStringBlock = new StringBlock(nativeGetStringBlock(mNativePtr), true /*useSparse*/);
-        mAssets = assets;
     }
 
     private ApkAssets(@FormatType int format, @NonNull FileDescriptor fd,
             @NonNull String friendlyName, @PropertyFlags int flags, @Nullable AssetsProvider assets)
             throws IOException {
+        this(format, flags, assets, friendlyName);
         Objects.requireNonNull(fd, "fd");
         Objects.requireNonNull(friendlyName, "friendlyName");
-        mFlags = flags;
         mNativePtr = nativeLoadFd(format, fd, friendlyName, flags, assets);
         mStringBlock = new StringBlock(nativeGetStringBlock(mNativePtr), true /*useSparse*/);
-        mAssets = assets;
     }
 
     private ApkAssets(@FormatType int format, @NonNull FileDescriptor fd,
             @NonNull String friendlyName, long offset, long length, @PropertyFlags int flags,
             @Nullable AssetsProvider assets) throws IOException {
+        this(format, flags, assets, friendlyName);
         Objects.requireNonNull(fd, "fd");
         Objects.requireNonNull(friendlyName, "friendlyName");
-        mFlags = flags;
         mNativePtr = nativeLoadFdOffsets(format, fd, friendlyName, offset, length, flags, assets);
         mStringBlock = new StringBlock(nativeGetStringBlock(mNativePtr), true /*useSparse*/);
-        mAssets = assets;
     }
 
     private ApkAssets(@PropertyFlags int flags, @Nullable AssetsProvider assets) {
-        mFlags = flags;
+        this(FORMAT_APK, flags, assets, "empty");
         mNativePtr = nativeLoadEmpty(flags, assets);
         mStringBlock = null;
+    }
+
+    private ApkAssets(@FormatType int format, @PropertyFlags int flags,
+            @Nullable AssetsProvider assets, @NonNull String name) {
+        mFlags = flags;
         mAssets = assets;
+        mIsOverlay = format == FORMAT_IDMAP;
+        if (DEBUG) mName = name;
     }
 
     @UnsupportedAppUsage
@@ -344,7 +367,7 @@ public final class ApkAssets {
     /** @hide */
     public @NonNull String getDebugName() {
         synchronized (this) {
-            return nativeGetDebugName(mNativePtr);
+            return mNativePtr == 0 ? "<destroyed>" : nativeGetDebugName(mNativePtr);
         }
     }
 
@@ -412,13 +435,53 @@ public final class ApkAssets {
         }
     }
 
+    private static double intervalMs(long beginNs, long endNs) {
+        return (endNs - beginNs) / 1000000.0;
+    }
+
     /**
      * Returns false if the underlying APK was changed since this ApkAssets was loaded.
      */
     public boolean isUpToDate() {
-        synchronized (this) {
-            return nativeIsUpToDate(mNativePtr);
+        // This function is performance-critical - it's called multiple times on every Resources
+        // object creation, and on few other cache accesses - so it's important to avoid the native
+        // call when we know for sure what it will return (which is the case for both ALWAYS_TRUE
+        // and FALSE).
+        if (mPreviousUpToDateResult != UPTODATE_TRUE) {
+            return mPreviousUpToDateResult == UPTODATE_ALWAYS_TRUE;
         }
+        final long beforeTs, afterLockTs, afterNativeTs, afterUnlockTs;
+        if (DEBUG) beforeTs = System.nanoTime();
+        final int res;
+        synchronized (this) {
+            if (DEBUG) afterLockTs = System.nanoTime();
+            res = nativeIsUpToDate(mNativePtr);
+            if (DEBUG) afterNativeTs = System.nanoTime();
+        }
+        if (DEBUG) {
+            afterUnlockTs = System.nanoTime();
+            if (afterUnlockTs - beforeTs >= 10L * 1000000) {
+                Log.d("ApkAssets", "isUpToDate(" + mName + ") took "
+                        + intervalMs(beforeTs, afterUnlockTs)
+                        + " ms: " + intervalMs(beforeTs, afterLockTs)
+                        + " / " + intervalMs(afterLockTs, afterNativeTs)
+                        + " / " + intervalMs(afterNativeTs, afterUnlockTs));
+            }
+        }
+        mPreviousUpToDateResult = res;
+        return res != UPTODATE_FALSE;
+    }
+
+    public boolean isSystem() {
+        return (mFlags & PROPERTY_SYSTEM) != 0;
+    }
+
+    public boolean isSharedLib() {
+        return (mFlags & PROPERTY_DYNAMIC) != 0;
+    }
+
+    public boolean isOverlay() {
+        return mIsOverlay;
     }
 
     @Override
@@ -466,7 +529,7 @@ public final class ApkAssets {
     private static native @NonNull String nativeGetAssetPath(long ptr);
     private static native @NonNull String nativeGetDebugName(long ptr);
     private static native long nativeGetStringBlock(long ptr);
-    @CriticalNative private static native boolean nativeIsUpToDate(long ptr);
+    @CriticalNative private static native int nativeIsUpToDate(long ptr);
     private static native long nativeOpenXml(long ptr, @NonNull String fileName) throws IOException;
     private static native @Nullable OverlayableInfo nativeGetOverlayableInfo(long ptr,
             String overlayableName) throws IOException;

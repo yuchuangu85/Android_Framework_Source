@@ -17,6 +17,7 @@
 package libcore.icu;
 
 import android.compat.annotation.UnsupportedAppUsage;
+import android.icu.lang.UCharacter;
 import android.icu.text.DateTimePatternGenerator;
 import android.icu.text.TimeZoneFormat;
 import android.icu.util.Currency;
@@ -26,6 +27,7 @@ import android.icu.util.ULocale;
 import com.android.icu.util.ExtendedCalendar;
 import com.android.icu.util.LocaleNative;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -35,6 +37,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Stream;
+
 import libcore.util.BasicLruCache;
 
 /**
@@ -325,7 +329,8 @@ public final class ICU {
     return set.toArray(new Locale[set.size()]);
   }
 
-  public static Locale[] getAvailableLocales() {
+  // This method returns availableLocalesCache array as-it-is. Do not leak it.
+  private static Locale[] getAvailableLocalesInternal() {
     if (availableLocalesCache == null) {
       synchronized (ICU.class) {
         if (availableLocalesCache == null) {
@@ -333,7 +338,15 @@ public final class ICU {
         }
       }
     }
-    return availableLocalesCache.clone();
+    return availableLocalesCache;
+  }
+
+  public static Locale[] getAvailableLocales() {
+    return getAvailableLocalesInternal().clone();
+  }
+
+  public static Stream<Locale> streamAvailableLocales() {
+    return Arrays.stream(getAvailableLocalesInternal());
   }
 
   /**
@@ -755,6 +768,20 @@ public final class ICU {
 
   public static String getGMTZeroFormatString(Locale locale) {
     return TimeZoneFormat.getInstance(locale).getGMTZeroFormat();
+  }
+
+    /**
+     * If {@link java.lang.Character} calls {@link UCharacter#hasBinaryProperty(int, int)} directly,
+     * Dex2oatImageTest.TestExtension gtest fails. dex2oat fails to initialize the class because
+     * class verification fails and returns kAccessChecksFailure error when creating
+     * a boot image extension.
+     * This method is created to avoid the class initialization and verification failure.
+     * If this method creates any actual runtime circular dependency between {@link Character}
+     * and {@link UCharacter#hasBinaryProperty(int, int)}, consider use the ICU4C API instead.
+     * https://developer.android.com/ndk/reference/group/icu4c#u_hasbinaryproperty
+     */
+  public static boolean hasBinaryProperty(int ch, int property) {
+      return UCharacter.hasBinaryProperty(ch, property);
   }
 
 }

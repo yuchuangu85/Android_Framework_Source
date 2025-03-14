@@ -112,7 +112,7 @@ public class SimResponse extends IRadioSimResponse.Stub {
             android.hardware.radio.sim.CarrierRestrictions carrierRestrictions,
             int multiSimPolicy) {
         RILRequest rr = mRil.processResponse(HAL_SERVICE_SIM, responseInfo);
-        boolean carrierLockInfoSupported = mRil.getHalVersion(HAL_SERVICE_SIM).greater(
+        boolean carrierLockInfoSupported = mRil.getHalVersion(HAL_SERVICE_SIM).greaterOrEqual(
                 RIL.RADIO_HAL_VERSION_2_2);
         if (rr == null) {
             return;
@@ -123,19 +123,34 @@ public class SimResponse extends IRadioSimResponse.Stub {
         if (!carrierRestrictions.allowedCarriersPrioritized) {
             carrierRestrictionDefault = CarrierRestrictionRules.CARRIER_RESTRICTION_DEFAULT_ALLOWED;
         }
-
-        CarrierRestrictionRules ret = CarrierRestrictionRules.newBuilder().setAllowedCarriers(
-                RILUtils.convertHalCarrierList(
-                        carrierRestrictions.allowedCarriers)).setExcludedCarriers(
-                RILUtils.convertHalCarrierList(
-                        carrierRestrictions.excludedCarriers)).setDefaultCarrierRestriction(
-                carrierRestrictionDefault).setMultiSimPolicy(policy).setCarrierRestrictionStatus(
-                carrierRestrictions.status).setAllowedCarrierInfo(
-                RILUtils.convertAidlCarrierInfoList(
-                        carrierRestrictions.allowedCarrierInfoList)).setExcludedCarrierInfo(
-                RILUtils.convertAidlCarrierInfoList(
-                        carrierRestrictions.excludedCarrierInfoList)).setCarrierLockInfoFeature(
-                carrierLockInfoSupported).build();
+        CarrierRestrictionRules ret = null;
+        if (carrierLockInfoSupported) {
+            // In order to support the old API { @link TelephonyManager#getAllowedCarriers() } we
+            // are parsing the allowedCarrierInfoList to CarrierIdentifier List also along with
+            // CarrierInfo List
+            ret = CarrierRestrictionRules.newBuilder().setAllowedCarriers(
+                    RILUtils.convertAidlCarrierInfoListToHalCarrierList(
+                            carrierRestrictions.allowedCarrierInfoList)).setExcludedCarriers(
+                    RILUtils.convertAidlCarrierInfoListToHalCarrierList(
+                            carrierRestrictions.excludedCarrierInfoList)).
+                    setDefaultCarrierRestriction(
+                    carrierRestrictionDefault).setMultiSimPolicy(
+                    policy).setCarrierRestrictionStatus(
+                    carrierRestrictions.status).setAllowedCarrierInfo(
+                    RILUtils.convertAidlCarrierInfoList(
+                            carrierRestrictions.allowedCarrierInfoList)).setExcludedCarrierInfo(
+                    RILUtils.convertAidlCarrierInfoList(
+                            carrierRestrictions.excludedCarrierInfoList)).setCarrierLockInfoFeature(
+                            true).build();
+        } else {
+            ret = CarrierRestrictionRules.newBuilder().setAllowedCarriers(
+                    RILUtils.convertHalCarrierList(
+                            carrierRestrictions.allowedCarriers)).setExcludedCarriers(
+                    RILUtils.convertHalCarrierList(
+                            carrierRestrictions.excludedCarriers)).setDefaultCarrierRestriction(
+                    carrierRestrictionDefault).setMultiSimPolicy(
+                    policy).build();
+        }
         if (responseInfo.error == RadioError.NONE) {
             RadioResponse.sendMessageResponse(rr.mResult, ret);
         }

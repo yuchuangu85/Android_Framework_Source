@@ -70,7 +70,8 @@ public class TelephonyNetworkAgent extends NetworkAgent {
      * The callbacks that are used to pass information to {@link DataNetwork} and
      * {@link QosCallbackTracker}.
      */
-    private final @NonNull Set<TelephonyNetworkAgentCallback> mTelephonyNetworkAgentCallbacks =
+    @NonNull
+    private final Set<TelephonyNetworkAgentCallback> mTelephonyNetworkAgentCallbacks =
             new ArraySet<>();
 
     /**
@@ -110,7 +111,7 @@ public class TelephonyNetworkAgent extends NetworkAgent {
 
         /**
          * Called when a qos callback is registered with a filter.
-         *
+         * <p>
          * Any QoS events that are sent with the same callback id after this method is called are a
          * no-op.
          *
@@ -267,7 +268,7 @@ public class TelephonyNetworkAgent extends NetworkAgent {
      * @param filter the filter being registered
      */
     @Override
-    public void onQosCallbackRegistered(final int qosCallbackId, final @NonNull QosFilter filter) {
+    public void onQosCallbackRegistered(final int qosCallbackId, @NonNull final QosFilter filter) {
         if (mAbandoned) {
             log("The agent is already abandoned. Ignored onQosCallbackRegistered.");
             return;
@@ -278,7 +279,7 @@ public class TelephonyNetworkAgent extends NetworkAgent {
 
     /**
      * Called when a qos callback is registered with a filter.
-     *
+     * <p>
      * Any QoS events that are sent with the same callback id after this method is called are a
      * no-op.
      *

@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.uicc;
 
+import static com.android.internal.telephony.util.TelephonyUtils.FORCE_VERBOSE_STATE_LOGGING;
+
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -34,6 +36,7 @@ import android.util.Log;
 import android.util.Pair;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.MccTable;
 import com.android.internal.telephony.gsm.SimTlv;
@@ -59,7 +62,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public abstract class IccRecords extends Handler implements IccConstants {
     private static final String LOG_TAG = "IccRecords";
     protected static final boolean DBG = true;
-    private static final boolean FORCE_VERBOSE_STATE_LOGGING = false; /* stopship if true */
     protected static final boolean VDBG =  FORCE_VERBOSE_STATE_LOGGING ||
             Rlog.isLoggable(LOG_TAG, Log.VERBOSE);
 
@@ -1299,10 +1301,18 @@ public abstract class IccRecords extends Handler implements IccConstants {
                 return null;
             }
 
+            if (rsp.exception instanceof CommandException commandException) {
+                switch (commandException.getCommandError()) {
+                    case REQUEST_NOT_SUPPORTED:
+                        throw new UnsupportedOperationException(commandException);
+                    default:
+                        // handle other exceptions in the rsp.exception conditional below
+                }
+            }
             if (rsp.exception != null) {
                 loge("getIccSimChallengeResponse exception: " + rsp.exception);
                 //TODO: propagate better exceptions up to the user now that we have them available
-                //in the call stack.
+                //in the call stack (see CommandException switch above).
                 return null;
             }
 

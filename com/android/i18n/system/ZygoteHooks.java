@@ -27,6 +27,9 @@ import android.icu.text.DecimalFormatSymbols;
 import android.icu.util.TimeZone;
 import android.icu.util.ULocale;
 
+import com.android.i18n.util.ATrace;
+import com.android.icu.util.UResourceBundleNative;
+
 import dalvik.annotation.compat.VersionCodes;
 
 /**
@@ -49,6 +52,7 @@ public final class ZygoteHooks {
      */
     @libcore.api.IntraCoreApi
     public static void onBeginPreload() {
+        ATrace.traceBegin("IcuZygoteHooksOnBeginPreload");
         // Pin ICU data in memory from this point that would normally be held by soft references.
         // Without this, any references created immediately below or during class preloading
         // would be collected when the Zygote GC runs in gcAndFinalize().
@@ -67,6 +71,7 @@ public final class ZygoteHooks {
 
         // Preload the String[] ZoneMeta#ZONEIDS. See http://b/73282298
         ZoneMeta.getAvailableIDs(TimeZone.SystemTimeZoneType.ANY, null, null);
+        ATrace.traceEnd();
     }
 
     /**
@@ -74,6 +79,7 @@ public final class ZygoteHooks {
      */
     @libcore.api.IntraCoreApi
     public static void onEndPreload() {
+        ATrace.traceBegin("IcuZygoteHooksOnEndPreload");
         // All cache references created by ICU from this point will be soft.
         CacheValue.setStrength(CacheValue.Strength.SOFT);
 
@@ -85,6 +91,11 @@ public final class ZygoteHooks {
         // It's in the end of preload because preload and ICU4J initialization should succeed
         // without this property. Otherwise, it indicates that the Android patch is not working.
         System.setProperty(PROP_ICUBINARY_DATA_PATH, AndroidDataFiles.generateIcuDataPath());
+
+        // Cache the timezone bundles, e.g. metaZones.res, in Zygote due to app compat.
+        // http://b/339899412
+        UResourceBundleNative.cacheTimeZoneBundles();
+        ATrace.traceEnd();
     }
 
     /**

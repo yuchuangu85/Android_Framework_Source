@@ -128,7 +128,7 @@ public interface MiscObjectIdentifiers
     ASN1ObjectIdentifier cryptlib_algorithm_blowfish_OFB = cryptlib_algorithm.branch("1.4");
 
     //
-    // Blake2b
+    // Blake2b/Blake2s
     //
     ASN1ObjectIdentifier blake2 = new ASN1ObjectIdentifier("1.3.6.1.4.1.1722.12.2");
 
@@ -142,6 +142,10 @@ public interface MiscObjectIdentifiers
     ASN1ObjectIdentifier id_blake2s224 = blake2.branch("2.7");
     ASN1ObjectIdentifier id_blake2s256 = blake2.branch("2.8");
 
+    ASN1ObjectIdentifier blake3 = blake2.branch("3");
+
+    ASN1ObjectIdentifier blake3_256 = blake3.branch("8");
+
     //
     // Scrypt
     ASN1ObjectIdentifier id_scrypt = new ASN1ObjectIdentifier("1.3.6.1.4.1.11591.4.11");
@@ -152,4 +156,15 @@ public interface MiscObjectIdentifiers
     //        iso(1)  identified-organization(3) dod(6) internet(1) private(4)
     //        enterprise(1) OpenCA(18227) Algorithms(2) id-alg-composite(1) }
     ASN1ObjectIdentifier id_alg_composite = new ASN1ObjectIdentifier("1.3.6.1.4.1.18227.2.1");
+
+    // -- To be replaced by IANA
+    //
+    //id-composite-key OBJECT IDENTIFIER ::= {
+    //
+    //    joint-iso-itu-t(2) country(16) us(840) organization(1) entrust(114027)
+    //
+    //    Algorithm(80) Composite(4) CompositeKey(1)
+    ASN1ObjectIdentifier id_composite_key = new ASN1ObjectIdentifier("2.16.840.1.114027.80.4.1");
+
+    ASN1ObjectIdentifier id_oracle_pkcs12_trusted_key_usage = new ASN1ObjectIdentifier("2.16.840.1.113894.746875.1.1");
 }

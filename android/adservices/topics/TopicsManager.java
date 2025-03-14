@@ -16,6 +16,7 @@
 package android.adservices.topics;
 
 import static android.adservices.common.AdServicesPermissions.ACCESS_ADSERVICES_TOPICS;
+import static android.adservices.common.AdServicesStatusUtils.SERVICE_UNAVAILABLE_ERROR_MESSAGE;
 
 import android.adservices.common.AdServicesStatusUtils;
 import android.adservices.common.CallerMetadata;
@@ -37,7 +38,7 @@ import androidx.annotation.RequiresApi;
 import com.android.adservices.AdServicesCommon;
 import com.android.adservices.LoggerFactory;
 import com.android.adservices.ServiceBinder;
-import com.android.adservices.shared.common.ServiceUnavailableException;
+import com.android.adservices.shared.common.exception.ServiceUnavailableException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -80,7 +81,7 @@ public final class TopicsManager {
     @NonNull
     public static TopicsManager get(@NonNull Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            throw new ServiceUnavailableException();
+            throw new ServiceUnavailableException(SERVICE_UNAVAILABLE_ERROR_MESSAGE);
         }
         // On TM+, context.getSystemService() does more than just call constructor.
         return (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
@@ -95,7 +96,7 @@ public final class TopicsManager {
      */
     public TopicsManager(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            throw new ServiceUnavailableException();
+            throw new ServiceUnavailableException(SERVICE_UNAVAILABLE_ERROR_MESSAGE);
         }
         // In case the TopicsManager is initiated from inside a sdk_sandbox process the fields
         // will be immediately rewritten by the initialize method below.
@@ -126,7 +127,7 @@ public final class TopicsManager {
     private ITopicsService getService() {
         ITopicsService service = mServiceBinder.getService();
         if (service == null) {
-            throw new ServiceUnavailableException();
+            throw new ServiceUnavailableException(SERVICE_UNAVAILABLE_ERROR_MESSAGE);
         }
         return service;
     }

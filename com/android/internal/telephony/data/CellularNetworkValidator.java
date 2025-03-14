@@ -41,6 +41,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConfigurationManager;
 import com.android.internal.telephony.PhoneFactory;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.nano.TelephonyProto.TelephonyEvent;
 import com.android.internal.telephony.subscription.SubscriptionInfoInternal;
@@ -77,7 +78,7 @@ public class CellularNetworkValidator {
 
     private int mState = STATE_IDLE;
     private int mSubId;
-    private boolean mReleaseAfterValidation;
+    private boolean mRequireTestPass;
 
     private ValidationCallback mValidationCallback;
     private final Context mContext;
@@ -88,6 +89,8 @@ public class CellularNetworkValidator {
     public ConnectivityNetworkCallback mNetworkCallback;
     private final ValidatedNetworkCache mValidatedNetworkCache = new ValidatedNetworkCache();
 
+    @NonNull
+    private final FeatureFlags mFlags;
     private class ValidatedNetworkCache {
         // A cache with fixed size. It remembers 10 most recently successfully validated networks.
         private static final int VALIDATED_NETWORK_CACHE_SIZE = 10;
@@ -206,11 +209,12 @@ public class CellularNetworkValidator {
     /**
      * Create instance.
      */
-    public static CellularNetworkValidator make(Context context) {
+    public static CellularNetworkValidator make(Context context,
+            @NonNull FeatureFlags featureFlags) {
         if (sInstance != null) {
             logd("createCellularNetworkValidator failed. Instance already exists.");
         } else {
-            sInstance = new CellularNetworkValidator(context);
+            sInstance = new CellularNetworkValidator(context, featureFlags);
         }
 
         return sInstance;
@@ -232,8 +236,9 @@ public class CellularNetworkValidator {
     }
 
     @VisibleForTesting
-    public CellularNetworkValidator(Context context) {
+    public CellularNetworkValidator(Context context, @NonNull FeatureFlags featureFlags) {
         mContext = context;
+        mFlags = featureFlags;
         mConnectivityManager = (ConnectivityManager)
                 mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
     }
@@ -242,7 +247,7 @@ public class CellularNetworkValidator {
      * API to start a validation
      */
     public synchronized void validate(int subId, long timeoutInMs,
-            boolean releaseAfterValidation, ValidationCallback callback) {
+            boolean requireTestPass, ValidationCallback callback) {
         // If it's already validating the same subscription, do nothing.
         if (subId == mSubId) return;
 
@@ -261,14 +266,15 @@ public class CellularNetworkValidator {
         mState = STATE_VALIDATING;
         mSubId = subId;
         mValidationCallback = callback;
-        mReleaseAfterValidation = releaseAfterValidation;
+        mRequireTestPass = requireTestPass;
 
         logd("Start validating subId " + mSubId + " timeoutInMs " + timeoutInMs
-                + " mReleaseAfterValidation " + mReleaseAfterValidation);
+                + " mRequireTestPass " + mRequireTestPass);
 
         mNetworkCallback = new ConnectivityNetworkCallback(subId);
 
-        mConnectivityManager.requestNetwork(createNetworkRequest(), mNetworkCallback, mHandler);
+        mConnectivityManager.requestNetwork(
+                createNetworkRequest(subId), mNetworkCallback, mHandler);
         mHandler.postDelayed(() -> onValidationTimeout(subId), timeoutInMs);
     }
 
@@ -309,13 +315,22 @@ public class CellularNetworkValidator {
         return mState != STATE_IDLE;
     }
 
-    private NetworkRequest createNetworkRequest() {
-        return new NetworkRequest.Builder()
+    private NetworkRequest createNetworkRequest(int subId) {
+        NetworkRequest.Builder req = new NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
                 .setNetworkSpecifier(new TelephonyNetworkSpecifier.Builder()
-                        .setSubscriptionId(mSubId).build())
-                .build();
+                        .setSubscriptionId(subId).build());
+
+        // Satellite is considered valid as long as it can serve restricted requests.
+        Phone target = PhoneFactory.getPhone(SubscriptionManager.getPhoneId(subId));
+        boolean isSatellite = target != null
+                && target.getServiceState().isUsingNonTerrestrialNetwork();
+        if (isSatellite) {
+            req.addTransportType(NetworkCapabilities.TRANSPORT_SATELLITE)
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
+        }
+        return req.build();
     }
 
     private synchronized void reportValidationResult(boolean passed, int subId) {
@@ -329,8 +344,10 @@ public class CellularNetworkValidator {
         if (mState == STATE_VALIDATING) {
             mValidationCallback.onValidationDone(passed, mSubId);
             mState = STATE_VALIDATED;
+            boolean keepRequest = mFlags.keepPingRequest()
+                    ? (passed || !mRequireTestPass) : (!mRequireTestPass && passed);
             // If validation passed and per request to NOT release after validation, delay cleanup.
-            if (!mReleaseAfterValidation && passed) {
+            if (keepRequest) {
                 mHandler.postDelayed(this::stopValidation, 500);
             } else {
                 stopValidation();

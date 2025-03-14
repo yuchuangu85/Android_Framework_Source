@@ -86,6 +86,20 @@ public class HealthConnectException extends RuntimeException {
     }
 
     /**
+     * Initializes an {@link HealthConnectException} with a result code, message and the cause.
+     *
+     * @param errorCode One of the constants documented in {@link HealthConnectException}.
+     * @param message The detailed error message.
+     * @param cause The Throwable that caused the exception to happen.
+     * @hide
+     */
+    public HealthConnectException(
+            @ErrorCode int errorCode, @Nullable String message, @Nullable Throwable cause) {
+        super(message, cause);
+        mErrorCode = errorCode;
+    }
+
+    /**
      * Initializes an {@link HealthConnectException} with a result code.
      *
      * @param errorCode One of the constants documented in {@link HealthConnectException}.

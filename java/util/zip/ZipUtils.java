@@ -26,6 +26,7 @@
 package java.util.zip;
 
 import java.nio.ByteBuffer;
+import java.nio.DirectByteBuffer;
 import java.nio.file.attribute.FileTime;
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -169,6 +170,14 @@ class ZipUtils {
         return (b[off] & 0xff) | ((b[off + 1] & 0xff) << 8);
     }
 
+    // Android-changed: don't keep CEN bytes in heap memory after initialization.
+    /**
+     * Fetches unsigned 16-bit value from buffer at current position.
+     */
+    public static final int get16(DirectByteBuffer bb, int pos) {
+        return bb.getShort(pos) & 0xffff;
+    }
+
     /**
      * Fetches unsigned 32-bit value from byte array at specified offset.
      * The bytes are assumed to be in Intel (little-endian) byte order.
@@ -177,12 +186,29 @@ class ZipUtils {
         return (get16(b, off) | ((long)get16(b, off+2) << 16)) & 0xffffffffL;
     }
 
+    // Android-changed: don't keep CEN bytes in heap memory after initialization.
+    /**
+     * Fetches unsigned 32-bit value from buffer at current position.
+     */
+    public static final long get32(DirectByteBuffer bb, int pos) {
+        return bb.getInt(pos) & 0xffffffffL;
+    }
+
     /**
      * Fetches signed 64-bit value from byte array at specified offset.
      * The bytes are assumed to be in Intel (little-endian) byte order.
      */
     public static final long get64(byte b[], int off) {
         return get32(b, off) | (get32(b, off+4) << 32);
+    }
+
+    // Android-changed: don't keep CEN bytes in heap memory after initialization.
+    /**
+     * Fetches signed 64-bit value from byte array at specified offset.
+     * The bytes are assumed to be in Intel (little-endian) byte order.
+     */
+    public static final long get64(DirectByteBuffer bb, int pos) {
+        return bb.getLong(pos) & 0xffffffffffffffffL;
     }
 
     /**
@@ -259,24 +285,38 @@ class ZipUtils {
     static final long ZIP64_LOCOFF(byte[] b) { return LL(b, 8);}   // zip64 end offset
 
     // central directory header (CEN) fields
+    // BEGIN Android-changed: don't keep CEN bytes in heap memory after initialization.
     static final long CENSIG(byte[] b, int pos) { return LG(b, pos + 0); }
     static final int  CENVEM(byte[] b, int pos) { return SH(b, pos + 4); }
     static final int  CENVEM_FA(byte[] b, int pos) { return CH(b, pos + 5); } // file attribute compatibility
+    static final int  CENVEM_FA(DirectByteBuffer b, int pos) { return b.get(pos + 5); } // file attribute compatibility
     static final int  CENVER(byte[] b, int pos) { return SH(b, pos + 6); }
     static final int  CENFLG(byte[] b, int pos) { return SH(b, pos + 8); }
+    static final int  CENFLG(DirectByteBuffer b, int pos) { return get16(b, pos + 8); }
     static final int  CENHOW(byte[] b, int pos) { return SH(b, pos + 10);}
+    static final int  CENHOW(DirectByteBuffer b, int pos) { return get16(b, pos + 10);}
     static final long CENTIM(byte[] b, int pos) { return LG(b, pos + 12);}
+    static final long CENTIM(DirectByteBuffer b, int pos) { return get32(b, pos + 12);}
     static final long CENCRC(byte[] b, int pos) { return LG(b, pos + 16);}
+    static final long CENCRC(DirectByteBuffer b, int pos) { return get32(b, pos + 16);}
     static final long CENSIZ(byte[] b, int pos) { return LG(b, pos + 20);}
+    static final long CENSIZ(DirectByteBuffer b, int pos) { return get32(b, pos + 20);}
     static final long CENLEN(byte[] b, int pos) { return LG(b, pos + 24);}
+    static final long CENLEN(DirectByteBuffer b, int pos) { return get32(b, pos + 24);}
     static final int  CENNAM(byte[] b, int pos) { return SH(b, pos + 28);}
+    static final int  CENNAM(DirectByteBuffer b, int pos) { return get16(b, pos + 28);}
     static final int  CENEXT(byte[] b, int pos) { return SH(b, pos + 30);}
+    static final int  CENEXT(DirectByteBuffer b, int pos) { return get16(b, pos + 30);}
     static final int  CENCOM(byte[] b, int pos) { return SH(b, pos + 32);}
+    static final int  CENCOM(DirectByteBuffer b, int pos) { return get16(b, pos + 32);}
     static final int  CENDSK(byte[] b, int pos) { return SH(b, pos + 34);}
     static final int  CENATT(byte[] b, int pos) { return SH(b, pos + 36);}
     static final long CENATX(byte[] b, int pos) { return LG(b, pos + 38);}
     static final int  CENATX_PERMS(byte[] b, int pos) { return SH(b, pos + 40);} // posix permission data
+    static final int  CENATX_PERMS(DirectByteBuffer b, int pos) { return get16(b, pos + 40);} // posix permission data
     static final long CENOFF(byte[] b, int pos) { return LG(b, pos + 42);}
+    static final long CENOFF(DirectByteBuffer b, int pos) { return get32(b, pos + 42);}
+    // END Android-changed: don't keep CEN bytes in heap memory after initialization.
 
     // The END header is followed by a variable length comment of size < 64k.
     static final long END_MAXLEN = 0xFFFF + ENDHDR;

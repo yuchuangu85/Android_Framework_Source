@@ -77,12 +77,14 @@ public abstract class OpenSSLContextImpl extends SSLContextSpi {
     // END Android-added: Restore missing constructor that is used by apps
 
     /**
-     * Constuctor for the DefaultSSLContextImpl.  The unused boolean parameter is solely to
+     * Constructor for the DefaultSSLContextImpl.  The unused boolean parameter is solely to
      * indicate that this constructor is desired.
      */
     @SuppressWarnings("StaticAssignmentInConstructor")
     OpenSSLContextImpl(String[] protocols, boolean unused)
             throws GeneralSecurityException, IOException {
+        // TODO(prb): It looks like nowadays we can push the synchronisation into
+        // DefaultSSLContextImpl itself, but put it in its own CL for safety.
         synchronized (DefaultSSLContextImpl.class) {
             this.protocols = null;
             // This is the only place defaultSslContextImpl is read or written so all

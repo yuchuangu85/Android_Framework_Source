@@ -25,6 +25,7 @@ import android.annotation.SystemService;
 import android.annotation.TestApi;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
@@ -172,7 +173,7 @@ public class ActivityTaskManager {
         }
     }
 
-    /** Removes root tasks of the activity types from the system. */
+    /** Removes root tasks of the activity types from the Default TDA of all displays. */
     @RequiresPermission(android.Manifest.permission.MANAGE_ACTIVITY_TASKS)
     public void removeRootTasksWithActivityTypes(@NonNull int[] activityTypes) {
         try {
@@ -483,6 +484,19 @@ public class ActivityTaskManager {
     }
 
     /**
+     * @return Whether the app could be universal resizeable (assuming it's on a large screen and
+     * ignoring possible overrides)
+     * @hide
+     */
+    public boolean canBeUniversalResizeable(@NonNull ApplicationInfo appInfo) {
+        try {
+            return getService().canBeUniversalResizeable(appInfo);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Detaches the navigation bar from the app it was attached to during a transition.
      * @hide
      */
@@ -534,10 +548,9 @@ public class ActivityTaskManager {
             dest.writeIntArray(childTaskUserIds);
             dest.writeInt(visible ? 1 : 0);
             dest.writeInt(position);
-            super.writeToParcel(dest, flags);
+            super.writeTaskToParcel(dest, flags);
         }
 
-        @Override
         void readFromParcel(Parcel source) {
             bounds = source.readTypedObject(Rect.CREATOR);
             childTaskIds = source.createIntArray();
@@ -546,7 +559,7 @@ public class ActivityTaskManager {
             childTaskUserIds = source.createIntArray();
             visible = source.readInt() > 0;
             position = source.readInt();
-            super.readFromParcel(source);
+            super.readTaskFromParcel(source);
         }
 
         public static final @NonNull Creator<RootTaskInfo> CREATOR = new Creator<>() {

@@ -12,7 +12,6 @@ import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.content.res.AssetManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Process;
@@ -22,8 +21,6 @@ import androidx.annotation.Nullable;
 
 import org.jni_zero.JNINamespace;
 
-import org.chromium.base.compat.ApiHelperForM;
-import org.chromium.base.compat.ApiHelperForO;
 import org.chromium.build.BuildConfig;
 
 /** This class provides Android application context related utility methods. */
@@ -114,17 +111,19 @@ public class ContextUtils {
      * @param appContext The new application context.
      */
     public static void initApplicationContextForTests(Context appContext) {
+        Context prevValue = sApplicationContext;
         initJavaSideApplicationContext(appContext);
-        Holder.sSharedPreferences = fetchAppSharedPreferences();
-    }
 
-    /**
-     * Tests that use the applicationContext may unintentionally use the Context
-     * set by a previously run test.
-     */
-    public static void clearApplicationContextForTests() {
-        sApplicationContext = null;
-        Holder.sSharedPreferences = null;
+        // initApplicationContext() lets <clinit> create sSharedPreferences, but that does not work
+        // when setting it multiple times.
+        SharedPreferences prevPrefs = Holder.sSharedPreferences;
+        Holder.sSharedPreferences = fetchAppSharedPreferences();
+
+        ResettersForTesting.register(
+                () -> {
+                    sApplicationContext = prevValue;
+                    Holder.sSharedPreferences = prevPrefs;
+                });
     }
 
     private static void initJavaSideApplicationContext(Context appContext) {
@@ -134,23 +133,6 @@ public class ContextUtils {
             appContext = new ContextWrapper(appContext);
         }
         sApplicationContext = appContext;
-    }
-
-    /**
-     * In most cases, {@link Context#getAssets()} can be used directly. Modified resources are
-     * used downstream and are set up on application startup, and this method provides access to
-     * regular assets before that initialization is complete.
-     *
-     * This method should ONLY be used for accessing files within the assets folder.
-     *
-     * @return Application assets.
-     */
-    public static AssetManager getApplicationAssets() {
-        Context context = getApplicationContext();
-        while (context instanceof ContextWrapper) {
-            context = ((ContextWrapper) context).getBaseContext();
-        }
-        return context.getAssets();
     }
 
     /**
@@ -173,14 +155,28 @@ public class ContextUtils {
         }
     }
 
-    /** @return The name of the current process. E.g. "org.chromium.chrome:privileged_process0". */
+    /**
+     * @return The name of the current process. E.g. "org.chromium.chrome:privileged_process0".
+     */
     public static String getProcessName() {
-        return ApiCompatibilityUtils.getProcessName();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return Application.getProcessName();
+        }
+        try {
+            Class<?> activityThreadClazz = Class.forName("android.app.ActivityThread");
+            return (String) activityThreadClazz.getMethod("currentProcessName").invoke(null);
+        } catch (Exception e) {
+            // If fallback logic is ever needed, refer to:
+            // https://chromium-review.googlesource.com/c/chromium/src/+/905563/1
+            throw JavaUtils.throwUnchecked(e);
+        }
     }
 
-    /** @return Whether the current process is 64-bit. */
+    /**
+     * @return Whether the current process is 64-bit.
+     */
     public static boolean isProcess64Bit() {
-        return ApiHelperForM.isProcess64Bit();
+        return Process.is64Bit();
     }
 
     /**
@@ -312,8 +308,7 @@ public class ContextUtils {
             Handler scheduler,
             int flags) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            return ApiHelperForO.registerReceiver(
-                    context, receiver, filter, permission, scheduler, flags);
+            return context.registerReceiver(receiver, filter, permission, scheduler, flags);
         } else {
             return context.registerReceiver(receiver, filter, permission, scheduler);
         }

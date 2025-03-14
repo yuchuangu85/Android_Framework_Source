@@ -20,6 +20,7 @@ import static android.annotation.SdkConstant.SdkConstantType.BROADCAST_INTENT_AC
 
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
+import android.annotation.NonNull;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SystemApi;
@@ -32,10 +33,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.os.Build;
 import android.os.RemoteException;
+import android.os.UserHandle;
 import android.permission.flags.Flags;
 import android.util.ArraySet;
-
-import androidx.annotation.NonNull;
 
 import java.lang.annotation.Retention;
 
@@ -43,7 +43,7 @@ import java.lang.annotation.Retention;
  * This class provides the core API for ECM (Enhanced Confirmation Mode). ECM is a feature that
  * restricts access to protected **settings** (i.e., sensitive resources) by restricted **apps**
  * (apps from from dangerous sources, such as sideloaded packages or packages downloaded from a web
- * browser).
+ * browser), or restricts settings globally based on device state.
  *
  * <p>Specifically, this class provides the ability to:
  *
@@ -71,6 +71,9 @@ import java.lang.annotation.Retention;
  *       particular app restricted is an implementation detail of ECM. However, the user is able to
  *       clear any restricted app's restriction status (i.e, un-restrict it), after which ECM will
  *       consider the app **not restricted**.
+ *   <li>A setting may be globally restricted based on device state. In this case, any app may be
+ *       automatically considered *restricted*, regardless of the app's restriction state. Users
+ *       cannot un-restrict the app, in these cases.
  * </ol>
  *
  * Why is ECM needed? Consider the following (pre-ECM) scenario:
@@ -200,6 +203,19 @@ public final class EnhancedConfirmationManager {
     public static final String ACTION_SHOW_ECM_RESTRICTED_SETTING_DIALOG =
             "android.app.ecm.action.SHOW_ECM_RESTRICTED_SETTING_DIALOG";
 
+    /**
+     * The setting is restricted because of the phone state of the device
+     * @hide
+     */
+    public static final String REASON_PHONE_STATE = "phone_state";
+
+    /**
+     * The setting is restricted because the restricted app op is set for the given package
+     * @hide
+     */
+    public static final String REASON_PACKAGE_RESTRICTED = "package_restricted";
+
+
     /** A map of ECM states to their corresponding app op states */
     @Retention(java.lang.annotation.RetentionPolicy.SOURCE)
     @IntDef(prefix = {"ECM_STATE_"}, value = {EcmState.ECM_STATE_NOT_GUARDED,
@@ -313,6 +329,9 @@ public final class EnhancedConfirmationManager {
      * <p>This should be called from the "Restricted setting" dialog (which {@link
      * #createRestrictedSettingDialogIntent} directs to) upon being presented to the user.
      *
+     * <p>This restriction clearing does not apply to any settings that are restricted based on
+     * global device state
+     *
      * @param packageName package name of the application which should be considered acknowledged
      * @throws NameNotFoundException if the provided package was not found
      */
@@ -344,8 +363,17 @@ public final class EnhancedConfirmationManager {
             @NonNull String settingIdentifier) throws NameNotFoundException {
         Intent intent = new Intent(ACTION_SHOW_ECM_RESTRICTED_SETTING_DIALOG);
         intent.putExtra(Intent.EXTRA_PACKAGE_NAME, packageName);
-        intent.putExtra(Intent.EXTRA_UID, getPackageUid(packageName));
+        int uid = getPackageUid(packageName);
+        intent.putExtra(Intent.EXTRA_UID, uid);
         intent.putExtra(Intent.EXTRA_SUBJECT, settingIdentifier);
+        try {
+            String restrictionReason = mService.getRestrictionReason(packageName,
+                    settingIdentifier, UserHandle.getUserHandleForUid(uid).getIdentifier());
+            intent.putExtra(Intent.EXTRA_REASON, restrictionReason);
+        } catch (SecurityException | RemoteException e) {
+            // The caller of this method does not have permission to read the ECM state, so we
+            // won't include it in the return
+        }
         return intent;
     }
 

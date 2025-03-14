@@ -118,7 +118,7 @@ public final class BaseLocale {
 
     private static boolean useOldIsoCodes() {
         return !(VMRuntime.getSdkVersion() >= VersionCodes.VANILLA_ICE_CREAM &&
-                Compatibility.isChangeEnabled(USE_NEW_ISO_LOCALE_CODES));
+                VMRuntime.getRuntime().getTargetSdkVersion() >= VersionCodes.VANILLA_ICE_CREAM);
     }
     // END Android-added: flag to control Locale behaviour with legacy locales.
 
@@ -290,7 +290,10 @@ public final class BaseLocale {
     }
     // END Android-added: Add a static method to clear the stale entries in Zygote
 
-    private static final class Key {
+
+    /** @hide */
+    // VisibleForTesting
+    public static final class Key {
         /**
          * Keep a SoftReference to the Key data if normalized (actually used
          * as a cache key) and not initialized via the constant creation path.
@@ -300,18 +303,24 @@ public final class BaseLocale {
          * Locale#createConstant.
          */
         private final SoftReference<BaseLocale> holderRef;
-        private final BaseLocale holder;
+        // Android-changed: Avoid GC-ing BaseLocale and throwing NPE in createObject(). b/348646292
+        // private final BaseLocale holder;
+        private BaseLocale holder;
 
         private final boolean normalized;
         private final int hash;
 
-        private Key(String language, String script, String region,
+        /** @hide */
+        // VisibleForTesting
+        public Key(String language, String script, String region,
                     String variant, boolean normalize) {
             BaseLocale locale = new BaseLocale(language, script, region, variant, normalize);
             this.normalized = normalize;
             if (normalized) {
                 this.holderRef = new SoftReference<>(locale);
-                this.holder = null;
+                // Android-changed: Avoid GC-ing BaseLocale and throwing NPE in createObject().
+                // this.holder = null;
+                this.holder = locale;
             } else {
                 this.holderRef = null;
                 this.holder = locale;
@@ -349,7 +358,13 @@ public final class BaseLocale {
         }
 
         private BaseLocale getBaseLocale() {
-            return (holder == null) ? holderRef.get() : holder;
+            // Android-changed: Avoid GC-ing BaseLocale and throwing NPE in createObject().
+            // return (holder == null) ? holderRef.get() : holder;
+            BaseLocale baseLocale = holder;
+            if (baseLocale != null) {
+                return baseLocale;
+            }
+            return holderRef.get();
         }
 
         @Override
@@ -383,9 +398,18 @@ public final class BaseLocale {
             return new Key(locale.getLanguage(), locale.getScript(),
                     locale.getRegion(), locale.getVariant(), true);
         }
+
+        // Android-added: Avoid GC-ing BaseLocale and throwing NPE in createObject(). b/348646292
+        private void softenReferenceIfNormalized() {
+            if (normalized) {
+                holder = null;
+            }
+        }
     }
 
-    private static class Cache extends LocaleObjectCache<Key, BaseLocale> {
+    /** @hide */
+    // VisibleForTesting
+    public static class Cache extends LocaleObjectCache<Key, BaseLocale> {
 
         private static final Cache CACHE = new Cache();
 
@@ -399,7 +423,18 @@ public final class BaseLocale {
 
         @Override
         protected BaseLocale createObject(Key key) {
-            return Key.normalize(key).getBaseLocale();
+            // Android-changed: Avoid GC-ing BaseLocale and throwing NPE here. b/348646292
+            // return Key.normalize(key).getBaseLocale();
+            key = Key.normalize(key);
+            // LocaleObjectCache holds 2 soft references of a BaseLocale object indirectly, via the
+            // normalized Key and CacheEntry, i.e. the value object. Thus, we have to
+            // soften the reference here, or otherwise, the BaseLocale object will never be GC-ed.
+            // We have to keep a strong reference before key.getBaseLocale() is called here.
+            // Otherwise, key.getBaseLocale() may return null if the BaseLocale has been GC-ed
+            // between the calls of normalizeKey(Key) and this method.
+            BaseLocale baseLocale = key.getBaseLocale();
+            key.softenReferenceIfNormalized();
+            return baseLocale;
         }
     }
 }

@@ -110,17 +110,20 @@ public final class UwbOemExtensionCallbackListener extends IUwbOemExtensionCallb
             if (mCallback == null || mExecutor == null) {
                 return;
             }
+            UwbManager.UwbOemExtensionCallback callback;
+            Executor executor;
             final long identity = Binder.clearCallingIdentity();
             try {
+                callback = mCallback;
+                executor = mExecutor;
                 if (SdkLevel.isAtLeastU()) {
-                    mExecutor.execute(() ->
-                            mCallback.onDeviceStatusNotificationReceived(deviceStateBundle));
+                    executor.execute(() ->
+                           callback.onDeviceStatusNotificationReceived(deviceStateBundle));
                 }
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
         }
-
     }
 
     @Override

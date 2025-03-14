@@ -16,13 +16,24 @@
 
 package android.health.connect.accesslog;
 
+import static android.health.connect.datatypes.MedicalResource.validateMedicalResourceType;
+import static android.health.connect.datatypes.validation.ValidationUtils.validateIntDefValue;
+
+import static com.android.healthfitness.flags.Flags.FLAG_PERSONAL_HEALTH_RECORD;
+import static com.android.healthfitness.flags.Flags.personalHealthRecord;
+
+import static java.util.Objects.requireNonNull;
+
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
 import android.health.connect.Constants;
+import android.health.connect.datatypes.MedicalDataSource;
+import android.health.connect.datatypes.MedicalResource.MedicalResourceType;
 import android.health.connect.datatypes.Record;
 import android.health.connect.datatypes.RecordTypeIdentifier;
-import android.health.connect.internal.datatypes.utils.RecordMapper;
+import android.health.connect.internal.datatypes.utils.HealthConnectMappings;
 import android.os.Parcel;
 import android.os.Parcelable;
 
@@ -30,8 +41,9 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
+import java.util.Set;
 
 /**
  * A class to represent access log which is logged whenever a package requests a read on a record
@@ -41,10 +53,12 @@ import java.util.Objects;
  */
 @SystemApi
 public final class AccessLog implements Parcelable {
-    private final List<Class<? extends Record>> mRecordTypesList = new ArrayList<>();
-    private final String mPackageName;
-    private final Instant mAccessTime;
+    @NonNull private final String mPackageName;
+    @NonNull private final Instant mAccessTime;
     @OperationType.OperationTypes private final int mOperationType;
+    @NonNull private final List<Class<? extends Record>> mRecordTypesList = new ArrayList<>();
+    @NonNull @MedicalResourceType private Set<Integer> mMedicalResourceTypes = new HashSet<>();
+    private boolean mIsMedicalDataSourceAccessed = false;
 
     /**
      * Creates an access logs object that can be used to get access log request for {@code
@@ -61,28 +75,71 @@ public final class AccessLog implements Parcelable {
             @NonNull @RecordTypeIdentifier.RecordType List<Integer> recordTypes,
             long accessTimeInMillis,
             @OperationType.OperationTypes int operationType) {
-        Objects.requireNonNull(packageName);
-        Objects.requireNonNull(recordTypes);
+        requireNonNull(packageName);
+        requireNonNull(recordTypes);
 
         mPackageName = packageName;
-        RecordMapper recordMapper = RecordMapper.getInstance();
+        HealthConnectMappings healthConnectMappings = HealthConnectMappings.getInstance();
         for (@RecordTypeIdentifier.RecordType int recordType : recordTypes) {
             mRecordTypesList.add(
-                    recordMapper.getRecordIdToExternalRecordClassMap().get(recordType));
+                    healthConnectMappings.getRecordIdToExternalRecordClassMap().get(recordType));
         }
         mAccessTime = Instant.ofEpochMilli(accessTimeInMillis);
         mOperationType = operationType;
     }
 
-    private AccessLog(Parcel in) {
-        RecordMapper recordMapper = RecordMapper.getInstance();
-        for (@RecordTypeIdentifier.RecordType int recordType : in.createIntArray()) {
-            mRecordTypesList.add(
-                    recordMapper.getRecordIdToExternalRecordClassMap().get(recordType));
+    /**
+     * Creates an access logs object that can be used to get access log request for {@code
+     * packageName}
+     *
+     * @param packageName name of the package that requested an access
+     * @param accessTimeInMillis time when the access was requested
+     * @param operationType Type of access
+     * @param medicalResourceTypes Set of {@link MedicalResourceType}s that was accessed by the app
+     * @param isMedicalDataSourceAccessed Whether or not any {@link MedicalDataSource}s was accessed
+     * @hide
+     */
+    public AccessLog(
+            @NonNull String packageName,
+            long accessTimeInMillis,
+            @OperationType.OperationTypes int operationType,
+            @NonNull @MedicalResourceType Set<Integer> medicalResourceTypes,
+            boolean isMedicalDataSourceAccessed) {
+        if (!personalHealthRecord()) {
+            throw new UnsupportedOperationException(
+                    "Constructing AccessLog for medical data is not supported");
         }
-        mPackageName = in.readString();
+        requireNonNull(packageName);
+        OperationType.validateOperationType(operationType);
+        requireNonNull(medicalResourceTypes);
+        for (@MedicalResourceType int medicalResourceType : medicalResourceTypes) {
+            validateMedicalResourceType(medicalResourceType);
+        }
+        mPackageName = packageName;
+        mAccessTime = Instant.ofEpochMilli(accessTimeInMillis);
+        mOperationType = operationType;
+        mMedicalResourceTypes = medicalResourceTypes;
+        mIsMedicalDataSourceAccessed = isMedicalDataSourceAccessed;
+    }
+
+    private AccessLog(Parcel in) {
+        HealthConnectMappings healthConnectMappings = HealthConnectMappings.getInstance();
+
+        int[] recordTypes = requireNonNull(in.createIntArray());
+        for (@RecordTypeIdentifier.RecordType int recordType : recordTypes) {
+            mRecordTypesList.add(
+                    healthConnectMappings.getRecordIdToExternalRecordClassMap().get(recordType));
+        }
+        mPackageName = requireNonNull(in.readString());
         mAccessTime = Instant.ofEpochMilli(in.readLong());
         mOperationType = in.readInt();
+        if (personalHealthRecord()) {
+            int[] medicalResourceTypes = requireNonNull(in.createIntArray());
+            for (@MedicalResourceType int medicalResourceType : medicalResourceTypes) {
+                mMedicalResourceTypes.add(medicalResourceType);
+            }
+            mIsMedicalDataSourceAccessed = in.readBoolean();
+        }
     }
 
     @NonNull
@@ -123,6 +180,20 @@ public final class AccessLog implements Parcelable {
         return mOperationType;
     }
 
+    /** Returns Set of {@link MedicalResourceType}s that was accessed by the app */
+    @NonNull
+    @MedicalResourceType
+    @FlaggedApi(FLAG_PERSONAL_HEALTH_RECORD)
+    public Set<Integer> getMedicalResourceTypes() {
+        return mMedicalResourceTypes;
+    }
+
+    /** Returns whether or not any {@link MedicalDataSource}s was accessed by the app */
+    @FlaggedApi(FLAG_PERSONAL_HEALTH_RECORD)
+    public boolean isMedicalDataSourceAccessed() {
+        return mIsMedicalDataSourceAccessed;
+    }
+
     /** Identifier for Operation type. */
     public static final class OperationType {
 
@@ -139,6 +210,18 @@ public final class AccessLog implements Parcelable {
         @IntDef({OPERATION_TYPE_UPSERT, OPERATION_TYPE_DELETE, OPERATION_TYPE_READ})
         @Retention(RetentionPolicy.SOURCE)
         public @interface OperationTypes {}
+
+        /**
+         * Validates the provided {@code operationType} is in the valid set.
+         *
+         * <p>Throws {@link IllegalArgumentException} if not.
+         */
+        private static void validateOperationType(@OperationTypes int operationType) {
+            validateIntDefValue(
+                    operationType,
+                    Set.of(OPERATION_TYPE_UPSERT, OPERATION_TYPE_DELETE, OPERATION_TYPE_READ),
+                    OperationTypes.class.getSimpleName());
+        }
 
         private OperationType() {}
     }
@@ -158,14 +241,19 @@ public final class AccessLog implements Parcelable {
     @Override
     public void writeToParcel(@NonNull Parcel dest, int flags) {
         int recordTypeCount = mRecordTypesList.size();
-        RecordMapper recordMapper = RecordMapper.getInstance();
+        HealthConnectMappings healthConnectMappings = HealthConnectMappings.getInstance();
         @RecordTypeIdentifier.RecordType int[] recordTypes = new int[recordTypeCount];
         for (int i = 0; i < recordTypeCount; i++) {
-            recordTypes[i] = recordMapper.getRecordType(mRecordTypesList.get(i));
+            recordTypes[i] = healthConnectMappings.getRecordType(mRecordTypesList.get(i));
         }
         dest.writeIntArray(recordTypes);
         dest.writeString(mPackageName);
         dest.writeLong(mAccessTime.toEpochMilli());
         dest.writeInt(mOperationType);
+        if (personalHealthRecord()) {
+            dest.writeIntArray(
+                    mMedicalResourceTypes.stream().mapToInt(Integer::intValue).toArray());
+            dest.writeBoolean(mIsMedicalDataSourceAccessed);
+        }
     }
 }

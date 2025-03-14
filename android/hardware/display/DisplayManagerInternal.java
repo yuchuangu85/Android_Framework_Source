@@ -37,6 +37,7 @@ import android.window.ScreenCapture;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -91,9 +92,10 @@ public abstract class DisplayManagerInternal {
             boolean waitForNegativeProximity);
 
     /**
-     * Returns {@code true} if the proximity sensor screen-off function is available.
+     * Returns {@code true} if the proximity sensor screen-off function is available for the given
+     * display.
      */
-    public abstract boolean isProximitySensorAvailable();
+    public abstract boolean isProximitySensorAvailable(int displayId);
 
     /**
      * Registers a display group listener which will be informed of the addition, removal, or change
@@ -430,12 +432,79 @@ public abstract class DisplayManagerInternal {
      */
     public abstract IntArray getDisplayGroupIds();
 
+
+    /**
+     * Get all display ids belonging to the display group with given id.
+     */
+    public abstract int[] getDisplayIdsForGroup(int groupId);
+
+    /**
+     * Get the mapping of display group ids to the display ids that belong to them.
+     */
+    public abstract SparseArray<int[]> getDisplayIdsByGroupsIds();
+
+    /**
+     * Get all available display ids.
+     */
+    public abstract IntArray getDisplayIds();
+
+    /**
+     * Get group id for given display id
+     */
+    public abstract int getGroupIdForDisplay(int displayId);
+
     /**
      * Called upon presentation started/ended on the display.
      * @param displayId the id of the display where presentation started.
      * @param isShown whether presentation is shown.
      */
     public abstract void onPresentation(int displayId, boolean isShown);
+
+    /**
+     * Called upon the usage of stylus.
+     */
+    public abstract void stylusGestureStarted(long eventTime);
+
+    /**
+     * Called by {@link com.android.server.wm.ContentRecorder} to verify whether
+     * the display is allowed to mirror primary display's content.
+     * @param displayId the id of the display where we mirror to.
+     * @return true if the mirroring dialog is confirmed (display is enabled), or
+     * {@link com.android.server.display.ExternalDisplayPolicy#ENABLE_ON_CONNECT}
+     * system property is enabled.
+     */
+    public abstract boolean isDisplayReadyForMirroring(int displayId);
+
+    /**
+     * Called by {@link  com.android.server.display.DisplayBackupHelper} when backup files were
+     * restored and are ready to be reloaded.
+     */
+    public abstract void reloadTopologies(int userId);
+
+
+    /**
+     * Used by the window manager to override the per-display screen brightness based on the
+     * current foreground activity.
+     *
+     * The key of the array is the displayId. If a displayId is missing from the array, this is
+     * equivalent to clearing any existing brightness overrides for that display.
+     *
+     * This method must only be called by the window manager.
+     */
+    public abstract void setScreenBrightnessOverrideFromWindowManager(
+            SparseArray<DisplayBrightnessOverrideRequest> brightnessOverrides);
+
+    /**
+     * Describes a request for overriding the brightness of a single display.
+     */
+    public static class DisplayBrightnessOverrideRequest {
+        // An override of the screen brightness.
+        // Set to PowerManager.BRIGHTNESS_INVALID if there's no override.
+        public float brightness = PowerManager.BRIGHTNESS_INVALID_FLOAT;
+
+        // Tag used to identify the app window requesting the brightness override.
+        public CharSequence tag;
+    }
 
     /**
      * Describes the requested power state of the display.
@@ -458,17 +527,26 @@ public abstract class DisplayManagerInternal {
         public static final int POLICY_DIM = 2;
         // Policy: Make the screen bright as usual.
         public static final int POLICY_BRIGHT = 3;
+        // The maximum policy constant. Useful for iterating through all constants in tests.
+        public static final int POLICY_MAX = POLICY_BRIGHT;
 
         // The basic overall policy to apply: off, doze, dim or bright.
         public int policy;
+
+        // The reason behind the current policy.
+        @Display.StateReason
+        public int policyReason;
 
         // If true, the proximity sensor overrides the screen state when an object is
         // nearby, turning it off temporarily until the object is moved away.
         public boolean useProximitySensor;
 
-        // An override of the screen brightness.
+        // A global override of the screen brightness, applied to all displays.
         // Set to PowerManager.BRIGHTNESS_INVALID if there's no override.
         public float screenBrightnessOverride;
+
+        // Tag used to identify the reason for the global brightness override.
+        public CharSequence screenBrightnessOverrideTag;
 
         // An override of the screen auto-brightness adjustment factor in the range -1 (dimmer) to
         // 1 (brighter). Set to Float.NaN if there's no override.
@@ -500,8 +578,12 @@ public abstract class DisplayManagerInternal {
         public float dozeScreenBrightness;
         public int dozeScreenStateReason;
 
+        // Override that makes display use normal brightness while dozing.
+        public boolean useNormalBrightnessForDoze;
+
         public DisplayPowerRequest() {
             policy = POLICY_BRIGHT;
+            policyReason = Display.STATE_REASON_DEFAULT_POLICY;
             useProximitySensor = false;
             screenBrightnessOverride = PowerManager.BRIGHTNESS_INVALID_FLOAT;
             screenAutoBrightnessAdjustmentOverride = Float.NaN;
@@ -522,8 +604,10 @@ public abstract class DisplayManagerInternal {
 
         public void copyFrom(DisplayPowerRequest other) {
             policy = other.policy;
+            policyReason = other.policyReason;
             useProximitySensor = other.useProximitySensor;
             screenBrightnessOverride = other.screenBrightnessOverride;
+            screenBrightnessOverrideTag = other.screenBrightnessOverrideTag;
             screenAutoBrightnessAdjustmentOverride = other.screenAutoBrightnessAdjustmentOverride;
             screenLowPowerBrightnessFactor = other.screenLowPowerBrightnessFactor;
             blockScreenOn = other.blockScreenOn;
@@ -532,6 +616,7 @@ public abstract class DisplayManagerInternal {
             dozeScreenBrightness = other.dozeScreenBrightness;
             dozeScreenState = other.dozeScreenState;
             dozeScreenStateReason = other.dozeScreenStateReason;
+            useNormalBrightnessForDoze = other.useNormalBrightnessForDoze;
         }
 
         @Override
@@ -544,8 +629,9 @@ public abstract class DisplayManagerInternal {
             return other != null
                     && policy == other.policy
                     && useProximitySensor == other.useProximitySensor
-                    && floatEquals(screenBrightnessOverride,
-                            other.screenBrightnessOverride)
+                    && floatEquals(screenBrightnessOverride, other.screenBrightnessOverride)
+                    && Objects.equals(screenBrightnessOverrideTag,
+                            other.screenBrightnessOverrideTag)
                     && floatEquals(screenAutoBrightnessAdjustmentOverride,
                             other.screenAutoBrightnessAdjustmentOverride)
                     && screenLowPowerBrightnessFactor
@@ -555,7 +641,8 @@ public abstract class DisplayManagerInternal {
                     && boostScreenBrightness == other.boostScreenBrightness
                     && floatEquals(dozeScreenBrightness, other.dozeScreenBrightness)
                     && dozeScreenState == other.dozeScreenState
-                    && dozeScreenStateReason == other.dozeScreenStateReason;
+                    && dozeScreenStateReason == other.dozeScreenStateReason
+                    && useNormalBrightnessForDoze == other.useNormalBrightnessForDoze;
         }
 
         private boolean floatEquals(float f1, float f2) {
@@ -581,7 +668,8 @@ public abstract class DisplayManagerInternal {
                     + ", dozeScreenBrightness=" + dozeScreenBrightness
                     + ", dozeScreenState=" + Display.stateToString(dozeScreenState)
                     + ", dozeScreenStateReason="
-                            + Display.stateReasonToString(dozeScreenStateReason);
+                            + Display.stateReasonToString(dozeScreenStateReason)
+                    + ", useNormalBrightnessForDoze=" + useNormalBrightnessForDoze;
         }
 
         public static String policyToString(int policy) {
@@ -686,8 +774,12 @@ public abstract class DisplayManagerInternal {
         public RefreshRateRange range;
 
         public RefreshRateLimitation(@RefreshRateLimitType int type, float min, float max) {
+            this(type, new RefreshRateRange(min, max));
+        }
+
+        public RefreshRateLimitation(@RefreshRateLimitType int type, RefreshRateRange range) {
             this.type = type;
-            range = new RefreshRateRange(min, max);
+            this.range = range;
         }
 
         @Override
@@ -739,6 +831,15 @@ public abstract class DisplayManagerInternal {
          *                  on is done.
          */
         void onBlockingScreenOn(Runnable unblocker);
+
+        /**
+         * Called while display is turning to screen state other than state ON to notify that any
+         * pending work from the previous blockScreenOn call should have been cancelled.
+         */
+        void cancelBlockScreenOn();
+
+        /** Whether auto brightness update in doze is allowed */
+        boolean allowAutoBrightnessInDoze();
     }
 
     /** A session token that associates a internal display with a {@link DisplayOffloader}. */
@@ -748,6 +849,9 @@ public abstract class DisplayManagerInternal {
 
         /** Whether the session is active. */
         boolean isActive();
+
+        /** Whether auto brightness update in doze is allowed */
+        boolean allowAutoBrightnessInDoze();
 
         /**
          * Update the brightness from the offload chip.
@@ -766,6 +870,12 @@ public abstract class DisplayManagerInternal {
          *                  {@link DisplayManager} that it can continue turning screen on.
          */
         boolean blockScreenOn(Runnable unblocker);
+
+        /**
+         * Called while display is turning to screen state other than state ON to notify that any
+         * pending work from the previous blockScreenOn call should have been cancelled.
+         */
+        void cancelBlockScreenOn();
 
         /**
          * Get the brightness levels used to determine automatic brightness based on lux levels.

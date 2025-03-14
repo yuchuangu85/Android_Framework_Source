@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
  * Using: out/host/linux-x86/bin/aidl --lang=java -Weverything -Wno-missing-permission-annotation --min_sdk_version current --ninja -d out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen/android/content/pm/StagedApexInfo.java.d -o out/soong/.intermediates/frameworks/native/libs/binder/packagemanager_aidl-java-source/gen -Nframeworks/native/libs/binder/aidl frameworks/native/libs/binder/aidl/android/content/pm/StagedApexInfo.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.content.pm;
 /**
@@ -64,6 +68,24 @@ public class StagedApexInfo implements android.os.Parcelable
       }
       _aidl_parcel.setDataPosition(_aidl_start_pos + _aidl_parcelable_size);
     }
+  }
+  @Override
+  public boolean equals(Object other) {
+    if (this == other) return true;
+    if (other == null) return false;
+    if (!(other instanceof StagedApexInfo)) return false;
+    StagedApexInfo that = (StagedApexInfo)other;
+    if (!java.util.Objects.deepEquals(moduleName, that.moduleName)) return false;
+    if (!java.util.Objects.deepEquals(diskImagePath, that.diskImagePath)) return false;
+    if (!java.util.Objects.deepEquals(versionCode, that.versionCode)) return false;
+    if (!java.util.Objects.deepEquals(versionName, that.versionName)) return false;
+    if (!java.util.Objects.deepEquals(hasClassPathJars, that.hasClassPathJars)) return false;
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    return java.util.Arrays.deepHashCode(java.util.Arrays.asList(moduleName, diskImagePath, versionCode, versionName, hasClassPathJars).toArray());
   }
   @Override
   public int describeContents() {

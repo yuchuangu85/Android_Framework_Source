@@ -120,6 +120,12 @@ public class CellularIdentifierDisclosureNotifier {
                 return;
             }
 
+            // Don't notify if the modem vendor indicates this is a benign disclosure.
+            if (disclosure.isBenign()) {
+                Rlog.i(TAG, "Ignoring identifier disclosure that is claimed to be benign.");
+                return;
+            }
+
             // Schedule incrementAndNotify from within the lock because we're sure at this point
             // that we're enabled. This allows incrementAndNotify to avoid re-checking mEnabled
             // because we know that any actions taken on disabled will be scheduled after this

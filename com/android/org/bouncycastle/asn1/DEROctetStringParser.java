@@ -6,6 +6,8 @@ import java.io.InputStream;
 
 /**
  * Parser for DER encoded OCTET STRINGS
+ * 
+ * @deprecated Check for 'ASN1OctetStringParser' instead 
  * @hide This class is not part of the Android public SDK API
  */
 public class DEROctetStringParser

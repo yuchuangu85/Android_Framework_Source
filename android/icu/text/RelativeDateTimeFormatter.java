@@ -75,8 +75,10 @@ import android.icu.util.UResourceBundle;
  * </pre>
  * </blockquote>
  * <p>
- * In the future, we may add more forms, such as abbreviated/short forms
- * (3 secs ago), and relative day periods ("yesterday afternoon"), etc.
+ * The Style parameter allows selection of different length styles:
+ * LONG ("3 seconds ago"), SHORT ("3 sec. ago"), NARROW ("3s ago").
+ * In the future, we may add more forms, such as relative day periods
+ * ("yesterday afternoon"), etc.
  */
 public final class RelativeDateTimeFormatter {
 
@@ -147,11 +149,51 @@ public final class RelativeDateTimeFormatter {
 
         /**
          * Quarters
-         * @deprecated This API is ICU internal only.
          * @hide draft / provisional / internal are hidden on Android
          */
-        @Deprecated
         QUARTERS,
+
+        /**
+         * Sundays
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        SUNDAYS,
+
+        /**
+         * Mondays
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        MONDAYS,
+
+        /**
+         * Tuesdays
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        TUESDAYS,
+
+        /**
+         * Wednesdays
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        WEDNESDAYS,
+
+        /**
+         * Thursdays
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        THURSDAYS,
+
+        /**
+         * Fridays
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        FRIDAYS,
+
+        /**
+         * Saturdays
+         * @hide draft / provisional / internal are hidden on Android
+         */
+        SATURDAYS,
     }
 
     /**
@@ -688,8 +730,13 @@ public final class RelativeDateTimeFormatter {
             case HOUR:      relunit = RelativeUnit.HOURS; break;
             case MINUTE:    relunit = RelativeUnit.MINUTES; break;
             case SECOND:    break; // set above
-            default: // SUNDAY..SATURDAY
-                throw new UnsupportedOperationException("formatNumeric does not currently support RelativeUnit.SUNDAY..SATURDAY");
+            case SUNDAY:    relunit = RelativeUnit.SUNDAYS; break;
+            case MONDAY:    relunit = RelativeUnit.MONDAYS; break;
+            case TUESDAY:   relunit = RelativeUnit.TUESDAYS; break;
+            case WEDNESDAY: relunit = RelativeUnit.WEDNESDAYS; break;
+            case THURSDAY:  relunit = RelativeUnit.THURSDAYS; break;
+            case FRIDAY:    relunit = RelativeUnit.FRIDAYS; break;
+            case SATURDAY:  relunit = RelativeUnit.SATURDAYS; break;
         }
         Direction direction = Direction.NEXT;
         if (Double.compare(offset,0.0) < 0) { // needed to handle -0.0
@@ -1117,13 +1164,13 @@ public final class RelativeDateTimeFormatter {
             MONTH(RelativeUnit.MONTHS, AbsoluteUnit.MONTH),
             QUARTER(RelativeUnit.QUARTERS, AbsoluteUnit.QUARTER),
             YEAR(RelativeUnit.YEARS, AbsoluteUnit.YEAR),
-            SUNDAY(null, AbsoluteUnit.SUNDAY),
-            MONDAY(null, AbsoluteUnit.MONDAY),
-            TUESDAY(null, AbsoluteUnit.TUESDAY),
-            WEDNESDAY(null, AbsoluteUnit.WEDNESDAY),
-            THURSDAY(null, AbsoluteUnit.THURSDAY),
-            FRIDAY(null, AbsoluteUnit.FRIDAY),
-            SATURDAY(null, AbsoluteUnit.SATURDAY);
+            SUNDAY(RelativeUnit.SUNDAYS, AbsoluteUnit.SUNDAY),
+            MONDAY(RelativeUnit.MONDAYS, AbsoluteUnit.MONDAY),
+            TUESDAY(RelativeUnit.TUESDAYS, AbsoluteUnit.TUESDAY),
+            WEDNESDAY(RelativeUnit.WEDNESDAYS, AbsoluteUnit.WEDNESDAY),
+            THURSDAY(RelativeUnit.THURSDAYS, AbsoluteUnit.THURSDAY),
+            FRIDAY(RelativeUnit.FRIDAYS, AbsoluteUnit.FRIDAY),
+            SATURDAY(RelativeUnit.SATURDAYS, AbsoluteUnit.SATURDAY);
 
             RelativeUnit relUnit;
             AbsoluteUnit absUnit;

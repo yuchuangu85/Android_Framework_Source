@@ -39,10 +39,11 @@ import java.lang.annotation.Target;
  * suspend the thread for essential work and may become blocked. Use with caution. Do not use
  * this annotation for long-running methods, including usually-fast, but generally unbounded,
  * methods. In particular, the code should not perform significant I/O operations or acquire
- * native locks that can be held for a long time. (Some logging or native allocations, which
- * internally acquire native locks for a short time, are generally OK. However, as the cost
- * of several such operations adds up, the {@literal @}{@code CriticalNative} performance gain
- * can become insignificant and overshadowed by potential GC delays.)
+ * native locks that can be held for a long time. Never acquire a native lock that can also be held
+ * while a thread invokes Java code. That virtually guarantees deadlocks. (Otherwise some logging or
+ * native allocations, which internally acquire native locks for a short time, are generally OK.
+ * However, as the cost of several such operations adds up, the {@literal @}{@code CriticalNative}
+ * performance gain can become insignificant and overshadowed by potential GC delays.)
  * </p>
  *
  * <p>

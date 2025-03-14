@@ -25,6 +25,8 @@
 
 package java.lang;
 
+import dalvik.annotation.optimization.CriticalNative;
+
 import java.util.Random;
 import jdk.internal.math.DoubleConsts;
 import jdk.internal.vm.annotation.IntrinsicCandidate;
@@ -164,6 +166,7 @@ public final class StrictMath {
     // public static double sin(double a) {
     //     return FdLibm.Sin.compute(a);
     // }
+    @CriticalNative
     public static native double sin(double a);
 
     /**
@@ -180,6 +183,7 @@ public final class StrictMath {
     // public static double cos(double a) {
     //     return FdLibm.Cos.compute(a);
     // }
+    @CriticalNative
     public static native double cos(double a);
 
     /**
@@ -196,6 +200,7 @@ public final class StrictMath {
     // public static double tan(double a) {
     //     return FdLibm.Tan.compute(a);
     // }
+    @CriticalNative
     public static native double tan(double a);
 
     /**
@@ -213,6 +218,7 @@ public final class StrictMath {
     // public static double asin(double a) {
     //     return FdLibm.Asin.compute(a);
     // }
+    @CriticalNative
     public static native double asin(double a);
 
     /**
@@ -230,6 +236,7 @@ public final class StrictMath {
     // public static double acos(double a) {
     //     return FdLibm.Acos.compute(a);
     // }
+    @CriticalNative
     public static native double acos(double a);
 
     /**
@@ -250,6 +257,7 @@ public final class StrictMath {
     // public static double atan(double a) {
     //     return FdLibm.Atan.compute(a);
     // }
+    @CriticalNative
     public static native double atan(double a);
 
     /**
@@ -306,6 +314,7 @@ public final class StrictMath {
     }
     */
     // END Android-changed: Reimplement in native
+    @CriticalNative
     public static native double exp(double a);
 
     /**
@@ -329,6 +338,7 @@ public final class StrictMath {
     // public static double log(double a) {
     //     return FdLibm.Log.compute(a);
     // }
+    @CriticalNative
     public static native double log(double a);
 
     /**
@@ -355,6 +365,7 @@ public final class StrictMath {
     // public static double log10(double a) {
     //     return FdLibm.Log10.compute(a);
     // }
+    @CriticalNative
     public static native double log10(double a);
 
     /**
@@ -378,6 +389,7 @@ public final class StrictMath {
     // public static double sqrt(double a) {
     //     return FdLibm.Sqrt.compute(a);
     // }
+    @CriticalNative
     public static native double sqrt(double a);
 
     /**
@@ -410,6 +422,7 @@ public final class StrictMath {
     }
     */
     // END Android-changed: Reimplement in native
+    @CriticalNative
     public static native double cbrt(double a);
 
     /**
@@ -438,6 +451,7 @@ public final class StrictMath {
     // public static double IEEEremainder(double f1, double f2) {
     //     return FdLibm.IEEEremainder.compute(f1, f2);
     // }
+    @CriticalNative
     public static native double IEEEremainder(double f1, double f2);
 
     /**
@@ -628,6 +642,7 @@ public final class StrictMath {
     // public static double atan2(double y, double x) {
     //     return FdLibm.Atan2.compute(y, x);
     // }
+    @CriticalNative
     public static native double atan2(double y, double x);
 
     /**
@@ -767,6 +782,7 @@ public final class StrictMath {
     }
     */
     // END Android-changed: Reimplement in native
+    @CriticalNative
     public static native double pow(double a, double b);
 
     /**
@@ -2171,6 +2187,7 @@ public final class StrictMath {
     // public static double sinh(double x) {
     //     return FdLibm.Sinh.compute(x);
     // }
+    @CriticalNative
     public static native double sinh(double x);
 
     /**
@@ -2199,6 +2216,7 @@ public final class StrictMath {
     // public static double cosh(double x) {
     //     return FdLibm.Cosh.compute(x);
     // }
+    @CriticalNative
     public static native double cosh(double x);
 
     /**
@@ -2234,6 +2252,7 @@ public final class StrictMath {
     // public static double tanh(double x) {
     //     return FdLibm.Tanh.compute(x);
     // }
+    @CriticalNative
     public static native double tanh(double x);
 
     /**
@@ -2265,6 +2284,7 @@ public final class StrictMath {
     }
     */
     // END Android-changed: Reimplement in native
+    @CriticalNative
     public static native double hypot(double x, double y);
 
     /**
@@ -2297,6 +2317,7 @@ public final class StrictMath {
     // public static double expm1(double x) {
     //     return FdLibm.Expm1.compute(x);
     // }
+    @CriticalNative
     public static native double expm1(double x);
 
     /**
@@ -2332,6 +2353,7 @@ public final class StrictMath {
     // public static double log1p(double x) {
     //     return FdLibm.Log1p.compute(x);
     // }
+    @CriticalNative
     public static native double log1p(double x);
 
     /**

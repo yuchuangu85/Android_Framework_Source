@@ -23,6 +23,7 @@ import java.util.Arrays;
  * Compatibility utility for Arrays.
  * @hide This class is not part of the Android public SDK API
  */
+@Internal
 public final class ArrayUtils {
     private ArrayUtils() {}
 
@@ -38,6 +39,7 @@ public final class ArrayUtils {
     }
 
     @SafeVarargs
+    @SuppressWarnings("varargs")
     public static <T> T[] concatValues(T[] a1, T... values) {
         return concat(a1, values);
     }
@@ -74,5 +76,12 @@ public final class ArrayUtils {
             result[front++] = array[back--];
         }
         return result;
+    }
+
+    /**
+     * Checks if given array is null or has zero elements.
+     */
+    public static <T> boolean isEmpty(T[] array) {
+        return array == null || array.length == 0;
     }
 }

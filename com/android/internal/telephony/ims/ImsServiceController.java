@@ -28,6 +28,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.IInterface;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.permission.LegacyPermissionManager;
@@ -51,6 +52,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.ExponentialBackoff;
 import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.util.TelephonyUtils;
+import com.android.internal.telephony.util.WorkerThread;
 
 import java.io.PrintWriter;
 import java.util.HashSet;
@@ -196,7 +198,7 @@ public class ImsServiceController {
             }
             if (mCallbacks != null) {
                 // Will trigger an unbind.
-                mCallbacks.imsServiceBindPermanentError(getComponentName());
+                mCallbacks.imsServiceBindPermanentError(getComponentName(), mBoundUser);
             }
         }
 
@@ -217,7 +219,8 @@ public class ImsServiceController {
         /**
          * Called by ImsServiceController when a new MMTEL or RCS feature has been created.
          */
-        void imsServiceFeatureCreated(int slotId, int feature, ImsServiceController controller);
+        void imsServiceFeatureCreated(int slotId, int subId, int feature,
+                ImsServiceController controller);
         /**
          * Called by ImsServiceController when a new MMTEL or RCS feature has been removed.
          */
@@ -234,7 +237,7 @@ public class ImsServiceController {
          * Called by the ImsServiceController when there has been an error binding that is
          * not recoverable, such as the ImsService returning a null binder.
          */
-        void imsServiceBindPermanentError(ComponentName name);
+        void imsServiceBindPermanentError(ComponentName name, UserHandle user);
     }
 
     /**
@@ -263,7 +266,7 @@ public class ImsServiceController {
     // Enable ImsServiceControllerTest and SipDelegateManagerTest cases if this is re-enabled.
     private static final boolean ENFORCE_SINGLE_SERVICE_FOR_SIP_TRANSPORT = false;
     private final ComponentName mComponentName;
-    private final HandlerThread mHandlerThread = new HandlerThread("ImsServiceControllerHandler");
+    private final HandlerThread mHandlerThread;
     private final Handler mHandler;
     private final LegacyPermissionManager mPermissionManager;
     private final FeatureFlags mFeatureFlags;
@@ -273,6 +276,7 @@ public class ImsServiceController {
 
     private boolean mIsBound = false;
     private boolean mIsBinding = false;
+    private UserHandle mBoundUser = null;
     // Set of a pair of slotId->feature
     private Set<ImsFeatureConfiguration.FeatureSlotPair> mImsFeatures;
     private SparseIntArray mSlotIdToSubIdMap;
@@ -337,7 +341,7 @@ public class ImsServiceController {
                 if (mIsBound) {
                     return;
                 }
-                bind(mImsFeatures, mSlotIdToSubIdMap);
+                bind(mBoundUser, mImsFeatures, mSlotIdToSubIdMap);
             }
         }
     };
@@ -360,8 +364,17 @@ public class ImsServiceController {
         mContext = context;
         mComponentName = componentName;
         mCallbacks = callbacks;
-        mHandlerThread.start();
-        mHandler = new Handler(mHandlerThread.getLooper());
+        Looper looper;
+        if (featureFlags.threadShred()) {
+            mHandlerThread = null;
+            mHandler = new Handler(WorkerThread.get().getLooper());
+            looper = WorkerThread.get().getLooper();
+        } else {
+            mHandlerThread = new HandlerThread("ImsServiceControllerHandler");
+            mHandlerThread.start();
+            mHandler = new Handler(mHandlerThread.getLooper());
+            looper = mHandlerThread.getLooper();
+        }
         mBackoff = new ExponentialBackoff(
                 mRebindRetry.getStartDelay(),
                 mRebindRetry.getMaximumDelay(),
@@ -371,7 +384,7 @@ public class ImsServiceController {
         mPermissionManager = (LegacyPermissionManager) mContext.getSystemService(
                 Context.LEGACY_PERMISSION_SERVICE);
         mRepo = repo;
-        mImsEnablementTracker = new ImsEnablementTracker(mHandlerThread.getLooper(), componentName);
+        mImsEnablementTracker = new ImsEnablementTracker(looper, componentName);
         mFeatureFlags = featureFlags;
         mPackageManager = mContext.getPackageManager();
         if (mPackageManager != null) {
@@ -402,6 +415,7 @@ public class ImsServiceController {
         mRepo = repo;
         mFeatureFlags = featureFlags;
         mImsEnablementTracker = new ImsEnablementTracker(handler.getLooper(), componentName);
+        mHandlerThread = null;
     }
 
     /**
@@ -413,17 +427,18 @@ public class ImsServiceController {
      * @return {@link true} if the service is in the process of being bound, {@link false} if it
      * has failed.
      */
-    public boolean bind(Set<ImsFeatureConfiguration.FeatureSlotPair> imsFeatureSet,
-            SparseIntArray  slotIdToSubIdMap) {
+    public boolean bind(UserHandle user, Set<ImsFeatureConfiguration.FeatureSlotPair> imsFeatureSet,
+            SparseIntArray slotIdToSubIdMap) {
         synchronized (mLock) {
             if (!mIsBound && !mIsBinding) {
                 mIsBinding = true;
+                mBoundUser = user;
                 sanitizeFeatureConfig(imsFeatureSet);
                 mImsFeatures = imsFeatureSet;
                 mSlotIdToSubIdMap = slotIdToSubIdMap;
                 // Set the number of slots that support the feature
                 mImsEnablementTracker.setNumOfSlots(mSlotIdToSubIdMap.size());
-                grantPermissionsToService();
+                grantPermissionsToService(user);
                 Intent imsServiceIntent = new Intent(getServiceInterface()).setComponent(
                         mComponentName);
                 mImsServiceConnection = new ImsServiceConnection();
@@ -432,8 +447,8 @@ public class ImsServiceController {
                 mLocalLog.log("binding " + imsFeatureSet);
                 Log.i(LOG_TAG, "Binding ImsService:" + mComponentName);
                 try {
-                    boolean bindSucceeded = mContext.bindService(imsServiceIntent,
-                            mImsServiceConnection, serviceFlags);
+                    boolean bindSucceeded = mContext.bindServiceAsUser(imsServiceIntent,
+                            mImsServiceConnection, serviceFlags, user);
                     if (!bindSucceeded) {
                         mLocalLog.log("    binding failed, retrying in "
                                 + mBackoff.getCurrentDelay() + " mS");
@@ -482,6 +497,7 @@ public class ImsServiceController {
             changeImsServiceFeatures(new HashSet<>(), mSlotIdToSubIdMap);
             mIsBound = false;
             mIsBinding = false;
+            mBoundUser = null;
             setServiceController(null);
             unbindService();
         }
@@ -605,6 +621,13 @@ public class ImsServiceController {
 
     public ComponentName getComponentName() {
         return mComponentName;
+    }
+
+    /**
+     * @return The UserHandle that this controller is bound to or null if bound to no service.
+     */
+    public UserHandle getBoundUser() {
+        return mBoundUser;
     }
 
     /**
@@ -766,7 +789,7 @@ public class ImsServiceController {
 
     // Grant runtime permissions to ImsService. PermissionManager ensures that the ImsService is
     // system/signed before granting permissions.
-    private void grantPermissionsToService() {
+    private void grantPermissionsToService(UserHandle user) {
         mLocalLog.log("grant permissions to " + getComponentName());
         Log.i(LOG_TAG, "Granting Runtime permissions to:" + getComponentName());
         String[] pkgToGrant = {mComponentName.getPackageName()};
@@ -774,8 +797,7 @@ public class ImsServiceController {
             if (mPermissionManager != null) {
                 CountDownLatch latch = new CountDownLatch(1);
                 mPermissionManager.grantDefaultPermissionsToEnabledImsServices(
-                        pkgToGrant, UserHandle.of(UserHandle.myUserId()), Runnable::run,
-                        isSuccess -> {
+                        pkgToGrant, user, Runnable::run, isSuccess -> {
                             if (isSuccess) {
                                 latch.countDown();
                             } else {
@@ -807,7 +829,8 @@ public class ImsServiceController {
             Log.i(LOG_TAG, "supports emergency calling on slot " + featurePair.slotId);
         }
         // Signal ImsResolver to change supported ImsFeatures for this ImsServiceController
-        mCallbacks.imsServiceFeatureCreated(featurePair.slotId, featurePair.featureType, this);
+        mCallbacks.imsServiceFeatureCreated(featurePair.slotId, subId, featurePair.featureType,
+                this);
     }
 
     // This method should only be called when synchronized on mLock
@@ -978,10 +1001,11 @@ public class ImsServiceController {
     @Override
     public String toString() {
         synchronized (mLock) {
-            return "[ImsServiceController: componentName=" + getComponentName() + ", features="
-                    + mImsFeatures + ", isBinding=" + mIsBinding + ", isBound=" + mIsBound
-                    + ", serviceController=" + getImsServiceController() + ", rebindDelay="
-                    + getRebindDelay() + "]";
+            return "[ImsServiceController: componentName=" + getComponentName() + ", boundUser="
+                    + mBoundUser + ", features=" + mImsFeatures + ", isBinding=" + mIsBinding
+                    + ", isBound=" + mIsBound + ", serviceController=" + getImsServiceController()
+                    + ", rebindDelay=" + getRebindDelay() + ", slotToSubIdMap=" + mSlotIdToSubIdMap
+                    + "]";
         }
     }
 

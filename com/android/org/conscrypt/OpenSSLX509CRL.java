@@ -18,6 +18,7 @@
 package com.android.org.conscrypt;
 
 import com.android.org.conscrypt.OpenSSLX509CertificateFactory.ParsingException;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -42,6 +43,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TimeZone;
+
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
 import javax.security.auth.x500.X500Principal;
@@ -279,11 +281,13 @@ final class OpenSSLX509CRL extends X509CRL {
     }
 
     @Override
+    @SuppressWarnings({"JavaUtilDate"}) // Needed for API compatibility
     public Date getThisUpdate() {
         return (Date) thisUpdate.clone();
     }
 
     @Override
+    @SuppressWarnings({"JavaUtilDate"}) // Needed for API compatibility
     public Date getNextUpdate() {
         return (Date) nextUpdate.clone();
     }
@@ -413,7 +417,7 @@ final class OpenSSLX509CRL extends X509CRL {
     }
 
     @Override
-    @SuppressWarnings("deprecation")
+    @SuppressWarnings("Finalize")
     protected void finalize() throws Throwable {
         try {
             long toFree = mContext;

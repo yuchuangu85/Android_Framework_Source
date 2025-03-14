@@ -443,16 +443,16 @@ final class HeapByteBuffer
 
     @Override
     public char getChar() {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getCharUnaligned(scope(), hb, byteOffset(nextGetIndex(2)), bigEndian);
-        return Bits.getChar(this, ix(nextGetIndex(2)), bigEndian);
+        return getCharUnchecked(nextGetIndex(2));
     }
 
     @Override
     public char getChar(int i) {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getCharUnaligned(scope(), hb, byteOffset(checkIndex(i, 2)), bigEndian);
-        return Bits.getChar(this, ix(checkIndex(i, 2)), bigEndian);
+        return getCharUnchecked(checkIndex(i, 2));
     }
 
 
@@ -462,9 +462,9 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SCOPED_MEMORY_ACCESS.putCharUnaligned(scope(), hb, byteOffset(nextPutIndex(2)), x, bigEndian);
-        Bits.putChar(this, ix(nextPutIndex(2)), x, bigEndian);
+        putCharUnchecked(nextPutIndex(2), x);
         return this;
 
 
@@ -474,7 +474,13 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     char getCharUnchecked(int i) {
-        return Bits.getChar(this, ix(i), bigEndian);
+        int ix = ix(i);
+        byte[] src = hb;
+        if (bigEndian) {
+            return (char) ((src[ix] << 8) | (src[ix + 1] & 0xff));
+        } else {
+            return (char) ((src[ix + 1] << 8) | (src[ix] & 0xff));
+        }
     }
 
     @Override
@@ -488,9 +494,9 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SSCOPED_MEMORY_ACCESS.putCharUnaligned(scope(), hb, byteOffset(checkIndex(i, 2)), x, bigEndian);
-        Bits.putChar(this, ix(checkIndex(i, 2)), x, bigEndian);
+        putCharUnchecked(checkIndex(i, 2), x);
         return this;
 
 
@@ -500,7 +506,16 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     void putCharUnchecked(int i, char x) {
-        Bits.putChar(this, ix(i), x, bigEndian);
+        int ix = ix(i);
+        byte[] dst = hb;
+
+        if (bigEndian) {
+            dst[ix++] = (byte) ((x >> 8) & 0xff);
+            dst[ix  ] = (byte) ((x >> 0) & 0xff);
+        } else {
+            dst[ix++] = (byte) ((x >> 0) & 0xff);
+            dst[ix  ] = (byte) ((x >> 8) & 0xff);
+        }
     }
 
     @Override
@@ -547,16 +562,16 @@ final class HeapByteBuffer
 
     @Override
     public short getShort() {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getShortUnaligned(scope(), hb, byteOffset(nextGetIndex(2)), bigEndian);
-        return Bits.getShort(this, ix(nextGetIndex(2)), bigEndian);
+        return getShortUnchecked(nextGetIndex(2));
     }
 
     @Override
     public short getShort(int i) {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getShortUnaligned(scope(), hb, byteOffset(checkIndex(i, 2)), bigEndian);
-        return Bits.getShort(this, ix(checkIndex(i, 2)), bigEndian);
+        return getShortUnchecked(checkIndex(i, 2));
     }
 
 
@@ -564,7 +579,13 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     short getShortUnchecked(int i) {
-        return Bits.getShort(this, ix(i), bigEndian);
+        byte[] src = hb;
+        int ix = ix(i);
+        if (bigEndian) {
+            return (short) ((src[ix] << 8) | (src[ix + 1] & 0xff));
+        } else {
+            return (short) ((src[ix + 1] << 8) | (src[ix] & 0xff));
+        }
     }
 
     @Override
@@ -578,9 +599,9 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SCOPED_MEMORY_ACCESS.putShortUnaligned(scope(), hb, byteOffset(nextPutIndex(2)), x, bigEndian);
-        Bits.putShort(this, ix(nextPutIndex(2)), x, bigEndian);
+        putShortUnchecked(nextPutIndex(2), x);
         return this;
 
 
@@ -590,9 +611,11 @@ final class HeapByteBuffer
     @Override
     public ByteBuffer putShort(int i, short x) {
 
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
+        throwIfReadOnly();
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SCOPED_MEMORY_ACCESS.putShortUnaligned(scope(), hb, byteOffset(checkIndex(i, 2)), x, bigEndian);
-        Bits.putShort(this, ix(checkIndex(i, 2)), x, bigEndian);
+        putShortUnchecked(checkIndex(i, 2), x);
         return this;
 
 
@@ -602,7 +625,15 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     void putShortUnchecked(int i, short x) {
-        Bits.putShort(this, ix(i), x, bigEndian);
+        byte[] dst = hb;
+        int ix = ix(i);
+        if (bigEndian) {
+            dst[ix++] = (byte) ((x >> 8) & 0xff);
+            dst[ix  ] = (byte) ((x >> 0) & 0xff);
+        } else {
+            dst[ix++] = (byte) ((x >> 0) & 0xff);
+            dst[ix  ] = (byte) ((x >> 8) & 0xff);
+        }
     }
 
     @Override
@@ -649,16 +680,16 @@ final class HeapByteBuffer
 
     @Override
     public int getInt() {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getIntUnaligned(scope(), hb, byteOffset(nextGetIndex(4)), bigEndian);
-        return Bits.getInt(this, ix(nextGetIndex(4)), bigEndian);
+        return getIntUnchecked(nextGetIndex(4));
     }
 
     @Override
     public int getInt(int i) {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getIntUnaligned(scope(), hb, byteOffset(checkIndex(i, 4)), bigEndian);
-        return Bits.getInt(this, ix(checkIndex(i, 4)), bigEndian);
+        return getIntUnchecked(checkIndex(i, 4));
     }
 
 
@@ -666,7 +697,19 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     int getIntUnchecked(int i) {
-        return Bits.getInt(this, ix(i), bigEndian);
+        int ix = ix(i);
+        byte[] src = hb;
+        if (bigEndian) {
+            return (((src[ix++] & 0xff) << 24) |
+                    ((src[ix++] & 0xff) << 16) |
+                    ((src[ix++] & 0xff) <<  8) |
+                    ((src[ix  ] & 0xff)      ));
+        } else {
+            return (((src[ix++] & 0xff)      ) |
+                    ((src[ix++] & 0xff) <<  8) |
+                    ((src[ix++] & 0xff) << 16) |
+                    ((src[ix  ] & 0xff) << 24));
+        }
     }
 
     @Override
@@ -680,9 +723,9 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SCOPED_MEMORY_ACCESS.putIntUnaligned(scope(), hb, byteOffset(nextPutIndex(4)), x, bigEndian);
-        Bits.putInt(this, ix(nextPutIndex(4)), x, bigEndian);
+        putIntUnchecked(nextPutIndex(4), x);
         return this;
 
 
@@ -694,9 +737,9 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SCOPED_MEMORY_ACCESS.putIntUnaligned(scope(), hb, byteOffset(checkIndex(i, 4)), x, bigEndian);
-        Bits.putInt(this, ix(checkIndex(i, 4)), x, bigEndian);
+        putIntUnchecked(checkIndex(i, 4), x);
         return this;
 
 
@@ -706,7 +749,20 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     void putIntUnchecked(int i, int x) {
-        Bits.putInt(this, ix(i), x, bigEndian);
+        int ix = ix(i);
+        byte[] dst = hb;
+
+        if (bigEndian) {
+            dst[ix++] = (byte) ((x >> 24) & 0xff);
+            dst[ix++] = (byte) ((x >> 16) & 0xff);
+            dst[ix++] = (byte) ((x >>  8) & 0xff);
+            dst[ix  ] = (byte) ((x      ) & 0xff);
+        } else {
+            dst[ix++] = (byte) ((x      ) & 0xff);
+            dst[ix++] = (byte) ((x >>  8) & 0xff);
+            dst[ix++] = (byte) ((x >> 16) & 0xff);
+            dst[ix  ] = (byte) ((x >> 24) & 0xff);
+        }
     }
 
     @Override
@@ -752,16 +808,16 @@ final class HeapByteBuffer
 
     @Override
     public long getLong() {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getLongUnaligned(scope(), hb, byteOffset(nextGetIndex(8)), bigEndian);
-        return Bits.getLong(this, ix(nextGetIndex(8)), bigEndian);
+        return getLongUnchecked(nextGetIndex(8));
     }
 
     @Override
     public long getLong(int i) {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // return SCOPED_MEMORY_ACCESS.getLongUnaligned(scope(), hb, byteOffset(checkIndex(i, 8)), bigEndian);
-        return Bits.getLong(this, ix(checkIndex(i, 8)), bigEndian);
+        return getLongUnchecked(checkIndex(i, 8));
     }
 
 
@@ -769,7 +825,30 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     long getLongUnchecked(int i) {
-        return Bits.getLong(this, ix(i), bigEndian);
+        int ix = ix(i);
+        byte[] src = hb;
+
+        if (bigEndian) {
+            int h = ((src[ix++] & 0xff) << 24) |
+                    ((src[ix++] & 0xff) << 16) |
+                    ((src[ix++] & 0xff) <<  8) |
+                    ((src[ix++] & 0xff) <<  0);
+            int l = ((src[ix++] & 0xff) << 24) |
+                    ((src[ix++] & 0xff) << 16) |
+                    ((src[ix++] & 0xff) <<  8) |
+                    ((src[ix  ] & 0xff) <<  0);
+            return (((long) h) << 32L) | (((long) l) & 0xffffffffL);
+        } else {
+            int l = ((src[ix++] & 0xff) <<  0) |
+                    ((src[ix++] & 0xff) <<  8) |
+                    ((src[ix++] & 0xff) << 16) |
+                    ((src[ix++] & 0xff) << 24);
+            int h = ((src[ix++] & 0xff) <<  0) |
+                    ((src[ix++] & 0xff) <<  8) |
+                    ((src[ix++] & 0xff) << 16) |
+                    ((src[ix  ] & 0xff) << 24);
+            return (((long) h) << 32L) | (((long) l) & 0xffffffffL);
+        }
     }
 
     @Override
@@ -783,9 +862,9 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SCOPED_MEMORY_ACCESS.putLongUnaligned(scope(), hb, byteOffset(nextPutIndex(8)), x, bigEndian);
-        Bits.putLong(this, ix(nextPutIndex(8)), x, bigEndian);
+        putLongUnchecked(nextPutIndex(8), x);
         return this;
 
 
@@ -797,9 +876,9 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // SCOPED_MEMORY_ACCESS.putLongUnaligned(scope(), hb, byteOffset(checkIndex(i, 8)), x, bigEndian);
-        Bits.putLong(this, ix(checkIndex(i, 8)), x, bigEndian);
+        putLongUnchecked(checkIndex(i, 8), x);
         return this;
 
 
@@ -809,7 +888,31 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     void putLongUnchecked(int i, long x) {
-        Bits.putLong(this, ix(i), x, bigEndian);
+        int ix = ix(i);
+        byte[] dst = hb;
+        if (bigEndian) {
+            int t = (int) (x >> 32);
+            dst[ix++] = (byte) ((t >> 24) & 0xff);
+            dst[ix++] = (byte) ((t >> 16) & 0xff);
+            dst[ix++] = (byte) ((t >>  8) & 0xff);
+            dst[ix++] = (byte) ((t >>  0) & 0xff);
+            t = (int) x;
+            dst[ix++] = (byte) ((t >> 24) & 0xff);
+            dst[ix++] = (byte) ((t >> 16) & 0xff);
+            dst[ix++] = (byte) ((t >>  8) & 0xff);
+            dst[ix  ] = (byte) ((t >>  0) & 0xff);
+        } else {
+            int t = (int) x;
+            dst[ix++] = (byte) ((t >>  0) & 0xff);
+            dst[ix++] = (byte) ((t >>  8) & 0xff);
+            dst[ix++] = (byte) ((t >> 16) & 0xff);
+            dst[ix++] = (byte) ((t >> 24) & 0xff);
+            t = (int) (x >> 32);
+            dst[ix++] = (byte) ((t >>  0) & 0xff);
+            dst[ix++] = (byte) ((t >>  8) & 0xff);
+            dst[ix++] = (byte) ((t >> 16) & 0xff);
+            dst[ix  ] = (byte) ((t >> 24) & 0xff);
+        }
     }
 
     @Override
@@ -856,18 +959,18 @@ final class HeapByteBuffer
 
     @Override
     public float getFloat() {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // int x = SCOPED_MEMORY_ACCESS.getIntUnaligned(scope(), hb, byteOffset(nextGetIndex(4)), bigEndian);
         // return Float.intBitsToFloat(x);
-        return Bits.getFloat(this, ix(nextGetIndex(4)), bigEndian);
+        return getFloatUnchecked(nextGetIndex(4));
     }
 
     @Override
     public float getFloat(int i) {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // int x = SCOPED_MEMORY_ACCESS.getIntUnaligned(scope(), hb, byteOffset(checkIndex(i, 4)), bigEndian);
         // return Float.intBitsToFloat(x);
-        return Bits.getFloat(this, ix(checkIndex(i, 4)), bigEndian);
+        return getFloatUnchecked(checkIndex(i, 4));
     }
 
 
@@ -875,7 +978,7 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     float getFloatUnchecked(int i) {
-        return Bits.getFloat(this, ix(i), bigEndian);
+        return Float.intBitsToFloat(getIntUnchecked(i));
     }
 
     @Override
@@ -889,10 +992,10 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // int y = Float.floatToRawIntBits(x);
         // SCOPED_MEMORY_ACCESS.putIntUnaligned(scope(), hb, byteOffset(nextPutIndex(4)), y, bigEndian);
-        Bits.putFloat(this, ix(nextPutIndex(4)), x, bigEndian);
+        putFloatUnchecked(nextPutIndex(4), x);
         return this;
 
 
@@ -904,10 +1007,10 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // int y = Float.floatToRawIntBits(x);
         // SCOPED_MEMORY_ACCESS.putIntUnaligned(scope(), hb, byteOffset(checkIndex(i, 4)), y, bigEndian);
-        Bits.putFloat(this, ix(checkIndex(i, 4)), x, bigEndian);
+        putFloatUnchecked(checkIndex(i, 4), x);
         return this;
 
 
@@ -917,7 +1020,7 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     void putFloatUnchecked(int i, float x) {
-        Bits.putFloat(this, ix(i), x, bigEndian);
+        putIntUnchecked(i, Float.floatToRawIntBits(x));
     }
 
     @Override
@@ -964,18 +1067,18 @@ final class HeapByteBuffer
 
     @Override
     public double getDouble() {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // long x = SCOPED_MEMORY_ACCESS.getLongUnaligned(scope(), hb, byteOffset(nextGetIndex(8)), bigEndian);
         // return Double.longBitsToDouble(x);
-        return Bits.getDouble(this, ix(nextGetIndex(8)), bigEndian);
+        return getDoubleUnchecked(nextGetIndex(8));
     }
 
     @Override
     public double getDouble(int i) {
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // long x = SCOPED_MEMORY_ACCESS.getLongUnaligned(scope(), hb, byteOffset(checkIndex(i, 8)), bigEndian);
         // return Double.longBitsToDouble(x);
-        return Bits.getDouble(this, ix(checkIndex(i, 8)), bigEndian);
+        return getDoubleUnchecked(checkIndex(i, 8));
     }
 
 
@@ -983,7 +1086,7 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     double getDoubleUnchecked(int i) {
-        return Bits.getDouble(this, ix(i), bigEndian);
+        return Double.longBitsToDouble(getLongUnchecked(i));
     }
 
     @Override
@@ -997,10 +1100,10 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // long y = Double.doubleToRawLongBits(x);
         // SCOPED_MEMORY_ACCESS.putLongUnaligned(scope(), hb, byteOffset(nextPutIndex(8)), y, bigEndian);
-        Bits.putDouble(this, ix(nextPutIndex(8)), x, bigEndian);
+        putDoubleUnchecked(nextPutIndex(8), x);
         return this;
 
 
@@ -1012,10 +1115,10 @@ final class HeapByteBuffer
 
         // Android-added: Merge the Read-only buffer class with this Read-Write buffer class.
         throwIfReadOnly();
-        // Android-changed: Use Bits instead of ScopedMemoryAccess to be supported yet.
+        // Android-changed: Avoid unsupported ScopedMemoryAccess.
         // long y = Double.doubleToRawLongBits(x);
         // SCOPED_MEMORY_ACCESS.putLongUnaligned(scope(), hb, byteOffset(checkIndex(i, 8)), y, bigEndian);
-        Bits.putDouble(this, ix(checkIndex(i, 8)), x, bigEndian);
+        putDoubleUnchecked(checkIndex(i, 8), x);
         return this;
 
 
@@ -1025,7 +1128,7 @@ final class HeapByteBuffer
     // BEGIN Android-added: {get,put}*Unchecked() accessors.
     @Override
     void putDoubleUnchecked(int i, double x) {
-        Bits.putDouble(this, ix(i), x, bigEndian);
+        putLongUnchecked(i, Double.doubleToRawLongBits(x));
     }
 
     @Override

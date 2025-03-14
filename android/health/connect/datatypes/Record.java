@@ -22,6 +22,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.SystemApi;
 import android.health.connect.internal.datatypes.RecordInternal;
+import android.health.connect.internal.datatypes.utils.HealthConnectMappings;
 
 import java.util.Objects;
 
@@ -40,7 +41,7 @@ public abstract class Record {
         Objects.requireNonNull(annotation);
         validateIntDefValue(
                 annotation.recordIdentifier(),
-                RecordTypeIdentifier.VALID_TYPES,
+                HealthConnectMappings.getInstance().getAllRecordTypeIdentifiers(),
                 RecordTypeIdentifier.class.getSimpleName());
         mRecordIdentifier = annotation.recordIdentifier();
         mMetadata = metadata;

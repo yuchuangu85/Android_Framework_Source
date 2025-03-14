@@ -41,6 +41,7 @@ import com.android.internal.telephony.WspTypeDecoder;
 import com.android.internal.telephony.cdma.sms.BearerData;
 import com.android.internal.telephony.cdma.sms.CdmaSmsAddress;
 import com.android.internal.telephony.cdma.sms.SmsEnvelope;
+import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.util.HexDump;
 
 import java.io.ByteArrayOutputStream;
@@ -78,8 +79,9 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
      * Create a new inbound SMS handler for CDMA.
      */
     private CdmaInboundSmsHandler(Context context, SmsStorageMonitor storageMonitor,
-            Phone phone, CdmaSMSDispatcher smsDispatcher, Looper looper) {
-        super("CdmaInboundSmsHandler", context, storageMonitor, phone, looper);
+            Phone phone, CdmaSMSDispatcher smsDispatcher, Looper looper,
+            FeatureFlags featureFlags) {
+        super("CdmaInboundSmsHandler", context, storageMonitor, phone, looper, featureFlags);
         mSmsDispatcher = smsDispatcher;
         phone.mCi.setOnNewCdmaSms(getHandler(), EVENT_NEW_SMS, null);
 
@@ -171,9 +173,9 @@ public class CdmaInboundSmsHandler extends InboundSmsHandler {
      */
     public static CdmaInboundSmsHandler makeInboundSmsHandler(Context context,
             SmsStorageMonitor storageMonitor, Phone phone, CdmaSMSDispatcher smsDispatcher,
-            Looper looper) {
+            Looper looper, FeatureFlags featureFlags) {
         CdmaInboundSmsHandler handler = new CdmaInboundSmsHandler(context, storageMonitor,
-                phone, smsDispatcher, looper);
+                phone, smsDispatcher, looper, featureFlags);
         handler.start();
         return handler;
     }

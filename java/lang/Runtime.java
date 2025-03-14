@@ -26,33 +26,30 @@
 
 package java.lang;
 
-import dalvik.annotation.optimization.FastNative;
-import java.io.*;
-import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-import java.util.StringTokenizer;
+import static android.system.OsConstants._SC_NPROCESSORS_CONF;
 
+import com.android.libcore.Flags;
+
+import dalvik.annotation.compat.VersionCodes;
+import dalvik.annotation.optimization.FastNative;
 import dalvik.system.BlockGuard;
-import sun.reflect.CallerSensitive;
-import java.lang.ref.FinalizerReference;
-import java.util.ArrayList;
-import java.util.List;
 import dalvik.system.DelegateLastClassLoader;
 import dalvik.system.PathClassLoader;
-import dalvik.system.VMDebug;
 import dalvik.system.VMRuntime;
-import sun.reflect.Reflection;
 
-import libcore.io.IoUtils;
 import libcore.io.Libcore;
 import libcore.util.EmptyArray;
-import static android.system.OsConstants._SC_NPROCESSORS_CONF;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.StringTokenizer;
+
+import sun.reflect.CallerSensitive;
+import sun.reflect.Reflection;
 
 /**
  * Every Java application has a single instance of class
@@ -920,19 +917,31 @@ public class Runtime {
         }
     }
 
+    // BEGIN Android-changed: Different implementation of load0(Class, String).
     synchronized void load0(Class<?> fromClass, String filename) {
-        if (!(new File(filename).isAbsolute())) {
+        File file = new File(filename);
+        if (!(file.isAbsolute())) {
             throw new UnsatisfiedLinkError(
                 "Expecting an absolute path of the library: " + filename);
         }
         if (filename == null) {
             throw new NullPointerException("filename == null");
         }
+        if (Flags.readOnlyDynamicCodeLoad()) {
+            if (!file.toPath().getFileSystem().isReadOnly() && file.canWrite()) {
+                if (VMRuntime.getSdkVersion() >= VersionCodes.VANILLA_ICE_CREAM) {
+                    System.logW("Attempt to load writable file: " + filename
+                            + ". This will throw on a future Android version");
+                }
+            }
+        }
+
         String error = nativeLoad(filename, fromClass.getClassLoader(), fromClass);
         if (error != null) {
             throw new UnsatisfiedLinkError(error);
         }
     }
+    // END Android-changed: Different implementation of load0(Class, String).
 
     /**
      * Loads the native library specified by the {@code libname}

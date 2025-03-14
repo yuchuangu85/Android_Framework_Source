@@ -22,6 +22,8 @@ import android.annotation.SystemApi;
 import android.os.Parcel;
 import android.os.Parcelable;
 
+import java.util.Objects;
+
 /**
  * APF program support capabilities. APF stands for Android Packet Filtering and it is a flexible
  * way to drop unwanted network packets to save power.
@@ -102,15 +104,22 @@ public final class ApfCapabilities implements Parcelable {
                 && apfPacketFormat == other.apfPacketFormat;
     }
 
+    @Override
+    public int hashCode() {
+        // hashCode it is not implemented in R. Therefore it would be dangerous for
+        // NetworkStack to depend on it.
+        return Objects.hash(apfVersionSupported, maximumApfProgramSize, apfPacketFormat);
+    }
+
     /**
      * Determines whether the APF interpreter advertises support for the data buffer access opcodes
      * LDDW (LoaD Data Word) and STDW (STore Data Word). Full LDDW (LoaD Data Word) and
-     * STDW (STore Data Word) support is present from APFv4 on.
+     * STDW (STore Data Word) support is present from APFv3 on.
      *
      * @return {@code true} if the IWifiStaIface#readApfPacketFilterData is supported.
      */
     public boolean hasDataAccess() {
-        return apfVersionSupported >= 4;
+        return apfVersionSupported > 2;
     }
 
     /**

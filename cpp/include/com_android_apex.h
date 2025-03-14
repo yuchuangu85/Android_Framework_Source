@@ -52,8 +52,9 @@ namespace com {
                 const bool isActive_;
                 const std::optional<int64_t> lastUpdateMillis_;
                 const bool provideSharedApexLibs_;
+                const std::string partition_;
                 public:
-                ApexInfo(std::string moduleName, std::string modulePath, std::optional<std::string> preinstalledModulePath, int64_t versionCode, std::string versionName, bool isFactory, bool isActive, std::optional<int64_t> lastUpdateMillis, bool provideSharedApexLibs);
+                ApexInfo(std::string moduleName, std::string modulePath, std::optional<std::string> preinstalledModulePath, int64_t versionCode, std::string versionName, bool isFactory, bool isActive, std::optional<int64_t> lastUpdateMillis, bool provideSharedApexLibs, std::string partition);
                 const std::string& getModuleName() const;
                 bool hasModuleName() const;
                 const std::string& getModulePath() const;
@@ -72,6 +73,8 @@ namespace com {
                 bool hasLastUpdateMillis() const;
                 const bool& getProvideSharedApexLibs() const;
                 bool hasProvideSharedApexLibs() const;
+                const std::string& getPartition() const;
+                bool hasPartition() const;
                 static ApexInfo read(xmlNode *root);
                 void write(std::ostream& _out, const std::string& _name) const;
             };

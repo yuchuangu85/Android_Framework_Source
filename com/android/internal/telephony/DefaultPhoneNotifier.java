@@ -25,11 +25,14 @@ import android.telephony.BarringInfo;
 import android.telephony.CallQuality;
 import android.telephony.CellIdentity;
 import android.telephony.CellInfo;
+import android.telephony.CellularIdentifierDisclosure;
 import android.telephony.LinkCapacityEstimate;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PhoneCapability;
 import android.telephony.PhysicalChannelConfig;
 import android.telephony.PreciseCallState;
 import android.telephony.PreciseDataConnectionState;
+import android.telephony.SecurityAlgorithmUpdate;
 import android.telephony.ServiceState;
 import android.telephony.TelephonyDisplayInfo;
 import android.telephony.TelephonyManager.DataEnabledReason;
@@ -40,6 +43,7 @@ import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsCallSession;
 import android.telephony.ims.ImsReasonInfo;
 import android.telephony.ims.MediaQualityStatus;
+import android.telephony.satellite.NtnSignalStrength;
 
 import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.telephony.Rlog;
@@ -135,13 +139,9 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
 
         int subId = sender.getSubId();
 
-        if (mFeatureFlags.notifyDataActivityChangedWithSlot()) {
-            int phoneId = sender.getPhoneId();
-            mTelephonyRegistryMgr.notifyDataActivityChanged(phoneId, subId,
-                    sender.getDataActivityState());
-        } else {
-            mTelephonyRegistryMgr.notifyDataActivityChanged(subId, sender.getDataActivityState());
-        }
+        int phoneId = sender.getPhoneId();
+        mTelephonyRegistryMgr.notifyDataActivityChanged(phoneId, subId,
+                sender.getDataActivityState());
     }
 
     @Override
@@ -307,14 +307,28 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     }
 
     @Override
-    public void notifyCallbackModeStarted(Phone sender, @EmergencyCallbackModeType int type) {
-        mTelephonyRegistryMgr.notifyCallBackModeStarted(sender.getPhoneId(),
-                sender.getSubId(), type);
+    public void notifyCallbackModeStarted(Phone sender, @EmergencyCallbackModeType int type,
+            long durationMillis) {
+        if (!mFeatureFlags.emergencyCallbackModeNotification()) return;
+
+        mTelephonyRegistryMgr.notifyCallbackModeStarted(sender.getPhoneId(),
+                sender.getSubId(), type, durationMillis);
+    }
+
+    @Override
+    public void notifyCallbackModeRestarted(Phone sender, @EmergencyCallbackModeType int type,
+            long durationMillis) {
+        if (!mFeatureFlags.emergencyCallbackModeNotification()) return;
+
+        mTelephonyRegistryMgr.notifyCallbackModeRestarted(sender.getPhoneId(),
+                sender.getSubId(), type, durationMillis);
     }
 
     @Override
     public void notifyCallbackModeStopped(Phone sender, @EmergencyCallbackModeType int type,
             @EmergencyCallbackModeStopReason int reason) {
+        if (!mFeatureFlags.emergencyCallbackModeNotification()) return;
+
         mTelephonyRegistryMgr.notifyCallbackModeStopped(sender.getPhoneId(),
                 sender.getSubId(), type, reason);
     }
@@ -322,6 +336,43 @@ public class DefaultPhoneNotifier implements PhoneNotifier {
     @Override
     public void notifyCarrierRoamingNtnModeChanged(Phone sender, boolean active) {
         mTelephonyRegistryMgr.notifyCarrierRoamingNtnModeChanged(sender.getSubId(), active);
+    }
+
+    @Override
+    public void notifyCarrierRoamingNtnEligibleStateChanged(Phone sender, boolean eligible) {
+        mTelephonyRegistryMgr.notifyCarrierRoamingNtnEligibleStateChanged(
+                sender.getSubId(), eligible);
+    }
+
+    @Override
+    public void notifyCarrierRoamingNtnAvailableServicesChanged(
+            Phone sender, @NetworkRegistrationInfo.ServiceType int[] availableServices) {
+        mTelephonyRegistryMgr.notifyCarrierRoamingNtnAvailableServicesChanged(
+                sender.getSubId(), availableServices);
+    }
+
+    @Override
+    public void notifyCarrierRoamingNtnSignalStrengthChanged(Phone sender,
+            @NonNull NtnSignalStrength ntnSignalStrength) {
+        mTelephonyRegistryMgr.notifyCarrierRoamingNtnSignalStrengthChanged(
+                sender.getSubId(), ntnSignalStrength);
+    }
+
+    @Override
+    public void notifySecurityAlgorithmsChanged(Phone sender, SecurityAlgorithmUpdate update) {
+        if (!mFeatureFlags.securityAlgorithmsUpdateIndications()) return;
+
+        mTelephonyRegistryMgr.notifySecurityAlgorithmsChanged(sender.getPhoneId(),
+                sender.getSubId(), update);
+    }
+
+    @Override
+    public void notifyCellularIdentifierDisclosedChanged(Phone sender,
+            CellularIdentifierDisclosure disclosure) {
+        if (!mFeatureFlags.cellularIdentifierDisclosureIndications()) return;
+
+        mTelephonyRegistryMgr.notifyCellularIdentifierDisclosedChanged(sender.getPhoneId(),
+                sender.getSubId(), disclosure);
     }
 
     /**

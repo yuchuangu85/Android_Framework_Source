@@ -11,18 +11,20 @@ import java.security.spec.ECPrivateKeySpec;
 import java.security.spec.EllipticCurve;
 import java.util.Enumeration;
 
+import com.android.internal.org.bouncycastle.asn1.ASN1BitString;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encoding;
 import com.android.internal.org.bouncycastle.asn1.ASN1Integer;
 import com.android.internal.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
-import com.android.internal.org.bouncycastle.asn1.DERBitString;
 import com.android.internal.org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import com.android.internal.org.bouncycastle.asn1.x509.AlgorithmIdentifier;
 import com.android.internal.org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
+import com.android.internal.org.bouncycastle.asn1.x9.ECNamedCurveTable;
 import com.android.internal.org.bouncycastle.asn1.x9.X962Parameters;
 import com.android.internal.org.bouncycastle.asn1.x9.X9ObjectIdentifiers;
 import com.android.internal.org.bouncycastle.crypto.params.ECDomainParameters;
+import com.android.internal.org.bouncycastle.crypto.params.ECNamedDomainParameters;
 import com.android.internal.org.bouncycastle.crypto.params.ECPrivateKeyParameters;
 import com.android.internal.org.bouncycastle.jcajce.provider.asymmetric.util.EC5Util;
 import com.android.internal.org.bouncycastle.jcajce.provider.asymmetric.util.ECUtil;
@@ -31,7 +33,9 @@ import com.android.internal.org.bouncycastle.jcajce.provider.config.ProviderConf
 import com.android.internal.org.bouncycastle.jce.interfaces.ECPointEncoder;
 import com.android.internal.org.bouncycastle.jce.interfaces.PKCS12BagAttributeCarrier;
 import com.android.internal.org.bouncycastle.jce.provider.BouncyCastleProvider;
+import com.android.internal.org.bouncycastle.jce.spec.ECNamedCurveParameterSpec;
 import com.android.internal.org.bouncycastle.math.ec.ECCurve;
+import com.android.internal.org.bouncycastle.util.Arrays;
 
 /**
  * @hide This class is not part of the Android public SDK API
@@ -41,15 +45,19 @@ public class BCECPrivateKey
 {
     static final long serialVersionUID = 994553197664784084L;
 
-    private String          algorithm = "EC";
-    private boolean         withCompression;
+    private String algorithm = "EC";
+    private boolean withCompression;
 
-    private transient BigInteger              d;
-    private transient ECParameterSpec         ecSpec;
-    private transient ProviderConfiguration   configuration;
-    private transient DERBitString            publicKey;
+    private transient BigInteger d;
+    private transient ECParameterSpec ecSpec;
+    private transient ProviderConfiguration configuration;
+    private transient ASN1BitString publicKey;
+    private transient PrivateKeyInfo privateKeyInfo;
+    private transient byte[] encoding;
 
+    private transient ECPrivateKeyParameters baseKey;
     private transient PKCS12BagAttributeCarrierImpl attrCarrier = new PKCS12BagAttributeCarrierImpl();
+
 
     protected BCECPrivateKey()
     {
@@ -63,6 +71,7 @@ public class BCECPrivateKey
         this.algorithm = key.getAlgorithm();
         this.ecSpec = key.getParams();
         this.configuration = configuration;
+        this.baseKey = convertToBaseKey(this);
     }
 
     public BCECPrivateKey(
@@ -88,6 +97,7 @@ public class BCECPrivateKey
         }
 
         this.configuration = configuration;
+        this.baseKey = convertToBaseKey(this);
     }
 
 
@@ -100,6 +110,7 @@ public class BCECPrivateKey
         this.d = spec.getS();
         this.ecSpec = spec.getParams();
         this.configuration = configuration;
+        this.baseKey = convertToBaseKey(this);
     }
 
     public BCECPrivateKey(
@@ -113,6 +124,7 @@ public class BCECPrivateKey
         this.attrCarrier = key.attrCarrier;
         this.publicKey = key.publicKey;
         this.configuration = key.configuration;
+        this.baseKey = key.baseKey;
     }
 
     public BCECPrivateKey(
@@ -125,6 +137,7 @@ public class BCECPrivateKey
         this.algorithm = algorithm;
         this.d = params.getD();
         this.configuration = configuration;
+        this.baseKey = params;
 
         if (spec == null)
         {
@@ -155,6 +168,7 @@ public class BCECPrivateKey
         this.algorithm = algorithm;
         this.d = params.getD();
         this.configuration = configuration;
+        this.baseKey = params;
 
         if (spec == null)
         {
@@ -193,10 +207,11 @@ public class BCECPrivateKey
         this.d = params.getD();
         this.ecSpec = null;
         this.configuration = configuration;
+        this.baseKey = params;
     }
 
     BCECPrivateKey(
-        String         algorithm,
+        String algorithm,
         PrivateKeyInfo info,
         ProviderConfiguration configuration)
         throws IOException
@@ -217,7 +232,7 @@ public class BCECPrivateKey
         ASN1Encodable privKey = info.parsePrivateKey();
         if (privKey instanceof ASN1Integer)
         {
-            ASN1Integer          derD = ASN1Integer.getInstance(privKey);
+            ASN1Integer derD = ASN1Integer.getInstance(privKey);
 
             this.d = derD.getValue();
         }
@@ -228,6 +243,7 @@ public class BCECPrivateKey
             this.d = ec.getKey();
             this.publicKey = ec.getPublicKey();
         }
+        this.baseKey = convertToBaseKey(this);
     }
 
     public String getAlgorithm()
@@ -253,40 +269,71 @@ public class BCECPrivateKey
      */
     public byte[] getEncoded()
     {
-        X962Parameters  params = ECUtils.getDomainParametersFromName(ecSpec, withCompression);
+        if (encoding == null)
+        {
+            PrivateKeyInfo info = getPrivateKeyInfo();
 
-        int orderBitLength;
-        if (ecSpec == null)
-        {
-            orderBitLength = ECUtil.getOrderBitLength(configuration, null, this.getS());
-        }
-        else
-        {
-            orderBitLength = ECUtil.getOrderBitLength(configuration, ecSpec.getOrder(), this.getS());
-        }
-        
-        PrivateKeyInfo          info;
-        com.android.internal.org.bouncycastle.asn1.sec.ECPrivateKey            keyStructure;
+            if (info == null)
+            {
+                return null;
+            }
 
-        if (publicKey != null)
-        {
-            keyStructure = new com.android.internal.org.bouncycastle.asn1.sec.ECPrivateKey(orderBitLength, this.getS(), publicKey, params);
-        }
-        else
-        {
-            keyStructure = new com.android.internal.org.bouncycastle.asn1.sec.ECPrivateKey(orderBitLength, this.getS(), params);
+            try
+            {
+                encoding = info.getEncoded(ASN1Encoding.DER);
+            }
+            catch (IOException e)
+            {
+                return null;
+            }
         }
 
-        try
-        {
-            info = new PrivateKeyInfo(new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, params), keyStructure);
+        return Arrays.clone(encoding);
+    }
 
-            return info.getEncoded(ASN1Encoding.DER);
-        }
-        catch (IOException e)
+    private PrivateKeyInfo getPrivateKeyInfo()
+    {
+        if (privateKeyInfo == null)
         {
-            return null;
+            X962Parameters params = ECUtils.getDomainParametersFromName(ecSpec, withCompression);
+
+            int orderBitLength;
+            if (ecSpec == null)
+            {
+                orderBitLength = ECUtil.getOrderBitLength(configuration, null, this.getS());
+            }
+            else
+            {
+                orderBitLength = ECUtil.getOrderBitLength(configuration, ecSpec.getOrder(), this.getS());
+            }
+
+            com.android.internal.org.bouncycastle.asn1.sec.ECPrivateKey keyStructure;
+
+            if (publicKey != null)
+            {
+                keyStructure = new com.android.internal.org.bouncycastle.asn1.sec.ECPrivateKey(orderBitLength, this.getS(), publicKey, params);
+            }
+            else
+            {
+                keyStructure = new com.android.internal.org.bouncycastle.asn1.sec.ECPrivateKey(orderBitLength, this.getS(), params);
+            }
+
+            try
+            {
+                privateKeyInfo = new PrivateKeyInfo(new AlgorithmIdentifier(X9ObjectIdentifiers.id_ecPublicKey, params), keyStructure);
+            }
+            catch (IOException e)
+            {
+                return null;
+            }
         }
+
+        return privateKeyInfo;
+    }
+
+    public ECPrivateKeyParameters engineGetKeyParameters()
+    {
+        return baseKey;
     }
 
     public ECParameterSpec getParams()
@@ -300,7 +347,6 @@ public class BCECPrivateKey
         {
             return null;
         }
-        
         return EC5Util.convertSpec(ecSpec);
     }
 
@@ -323,10 +369,10 @@ public class BCECPrivateKey
     {
         return d;
     }
-    
+
     public void setBagAttribute(
         ASN1ObjectIdentifier oid,
-        ASN1Encodable        attribute)
+        ASN1Encodable attribute)
     {
         attrCarrier.setBagAttribute(oid, attribute);
     }
@@ -344,19 +390,37 @@ public class BCECPrivateKey
 
     public void setPointFormat(String style)
     {
-       withCompression = !("UNCOMPRESSED".equalsIgnoreCase(style));
+        withCompression = !("UNCOMPRESSED".equalsIgnoreCase(style));
     }
 
     public boolean equals(Object o)
     {
-        if (!(o instanceof BCECPrivateKey))
+        if (o instanceof ECPrivateKey)
         {
-            return false;
+            ECPrivateKey other = (ECPrivateKey)o;
+
+            PrivateKeyInfo info = this.getPrivateKeyInfo();
+            PrivateKeyInfo otherInfo = (other instanceof BCECPrivateKey) ? ((BCECPrivateKey)other).getPrivateKeyInfo() : PrivateKeyInfo.getInstance(other.getEncoded());
+
+            if (info == null || otherInfo == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                boolean algEquals = Arrays.constantTimeAreEqual(info.getPrivateKeyAlgorithm().getEncoded(), otherInfo.getPrivateKeyAlgorithm().getEncoded());
+                boolean keyEquals = Arrays.constantTimeAreEqual(this.getS().toByteArray(), other.getS().toByteArray());
+
+                return algEquals & keyEquals;
+            }
+            catch (IOException e)
+            {
+                return false;
+            }
         }
 
-        BCECPrivateKey other = (BCECPrivateKey)o;
-
-        return getD().equals(other.getD()) && (engineGetSpec().equals(other.engineGetSpec()));
+        return false;
     }
 
     public int hashCode()
@@ -369,7 +433,7 @@ public class BCECPrivateKey
         return ECUtil.privateKeyToString("EC", d, engineGetSpec());
     }
 
-    private DERBitString getPublicKeyDetails(BCECPublicKey pub)
+    private ASN1BitString getPublicKeyDetails(BCECPublicKey pub)
     {
         try
         {
@@ -405,5 +469,32 @@ public class BCECPrivateKey
         out.defaultWriteObject();
 
         out.writeObject(this.getEncoded());
+    }
+
+    private static ECPrivateKeyParameters convertToBaseKey(BCECPrivateKey key)
+    {
+        com.android.internal.org.bouncycastle.jce.interfaces.ECPrivateKey k = (com.android.internal.org.bouncycastle.jce.interfaces.ECPrivateKey)key;
+        com.android.internal.org.bouncycastle.jce.spec.ECParameterSpec s = k.getParameters();
+
+        if (s == null)
+        {
+            s = BouncyCastleProvider.CONFIGURATION.getEcImplicitlyCa();
+        }
+
+        if (k.getParameters() instanceof ECNamedCurveParameterSpec)
+        {
+            String name = ((ECNamedCurveParameterSpec)k.getParameters()).getName();
+            if (name != null)
+            {
+                return new ECPrivateKeyParameters(
+                    k.getD(),
+                    new ECNamedDomainParameters(ECNamedCurveTable.getOID(name),
+                        s.getCurve(), s.getG(), s.getN(), s.getH(), s.getSeed()));
+            }
+        }
+
+        return new ECPrivateKeyParameters(
+                k.getD(),
+                new ECDomainParameters(s.getCurve(), s.getG(), s.getN(), s.getH(), s.getSeed()));
     }
 }

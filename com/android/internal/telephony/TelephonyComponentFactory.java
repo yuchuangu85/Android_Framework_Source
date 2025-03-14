@@ -289,12 +289,20 @@ public class TelephonyComponentFactory {
         return new GsmCdmaCallTracker(phone, featureFlags);
     }
 
-    public SmsStorageMonitor makeSmsStorageMonitor(Phone phone) {
-        return new SmsStorageMonitor(phone);
+    /**
+     * Create {@link SmsStorageMonitor} instance.
+     *
+     * @param phone Phone instance
+     * @param flags Android feature flags
+     *
+     * @return The created instance
+     */
+    public SmsStorageMonitor makeSmsStorageMonitor(Phone phone, @NonNull FeatureFlags flags) {
+        return new SmsStorageMonitor(phone, flags);
     }
 
-    public SmsUsageMonitor makeSmsUsageMonitor(Context context) {
-        return new SmsUsageMonitor(context);
+    public SmsUsageMonitor makeSmsUsageMonitor(Context context, FeatureFlags flags) {
+        return new SmsUsageMonitor(context, flags);
     }
 
     public ServiceStateTracker makeServiceStateTracker(GsmCdmaPhone phone, CommandsInterface ci,
@@ -331,8 +339,16 @@ public class TelephonyComponentFactory {
         return new CarrierActionAgent(phone);
     }
 
-    public CarrierResolver makeCarrierResolver(Phone phone) {
-        return new CarrierResolver(phone);
+    /**
+     * Create {@link CarrierResolver} instance
+     *
+     * @param phone The phone instance
+     * @param flags Android feature flags
+     *
+     * @return The created instance
+     */
+    public CarrierResolver makeCarrierResolver(Phone phone, FeatureFlags flags) {
+        return new CarrierResolver(phone, flags);
     }
 
     public IccPhoneBookInterfaceManager makeIccPhoneBookInterfaceManager(Phone phone) {

@@ -16,12 +16,15 @@
 
 package android.view;
 
-import static android.os.Build.VERSION_CODES.JELLY_BEAN_MR1;
 import static android.view.WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE;
 import static android.view.WindowInsetsAnimation.Callback.DISPATCH_MODE_STOP;
+import static android.view.flags.Flags.FLAG_TOOLKIT_VIEWGROUP_SET_REQUESTED_FRAME_RATE_API;
+import static android.view.flags.Flags.toolkitViewgroupSetRequestedFrameRateApi;
+import static android.view.flags.Flags.scrollCaptureTargetZOrderFix;
 
 import android.animation.LayoutTransition;
 import android.annotation.CallSuper;
+import android.annotation.FlaggedApi;
 import android.annotation.IdRes;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -55,7 +58,6 @@ import android.util.Log;
 import android.util.Pools;
 import android.util.Pools.SynchronizedPool;
 import android.util.SparseArray;
-import android.util.SparseBooleanArray;
 import android.view.WindowInsetsAnimation.Bounds;
 import android.view.WindowInsetsAnimation.Callback.DispatchMode;
 import android.view.accessibility.AccessibilityEvent;
@@ -450,6 +452,14 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
     private static final int FLAG_SHOW_CONTEXT_MENU_WITH_COORDS = 0x20000000;
 
     /**
+     * When set, this indicates that the frame rate is passed down from the parent.
+     */
+    private static final int FLAG_PROPAGATED_FRAME_RATE = 0x40000000;
+
+    private static boolean sToolkitViewGroupFrameRateApiFlagValue =
+            toolkitViewgroupSetRequestedFrameRateApi();
+
+    /**
      * Indicates which types of drawing caches are to be kept in memory.
      * This field should be made private, so it is hidden from the SDK.
      * {@hide}
@@ -718,10 +728,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         mGroupFlags |= FLAG_ANIMATION_DONE;
         mGroupFlags |= FLAG_ANIMATION_CACHE;
         mGroupFlags |= FLAG_ALWAYS_DRAWN_WITH_CACHE;
-
-        if (mContext.getApplicationInfo().targetSdkVersion >= Build.VERSION_CODES.HONEYCOMB) {
-            mGroupFlags |= FLAG_SPLIT_MOTION_EVENTS;
-        }
+        mGroupFlags |= FLAG_SPLIT_MOTION_EVENTS;
 
         setDescendantFocusability(FOCUS_BEFORE_DESCENDANTS);
 
@@ -1503,6 +1510,19 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         }
 
         return null;
+    }
+
+    /** @hide */
+    @Override
+    public void findAutofillableViewsByTraversal(@NonNull List<View> autofillableViews) {
+        super.findAutofillableViewsByTraversal(autofillableViews);
+
+        final int childrenCount = mChildrenCount;
+        final View[] children = mChildren;
+        for (int i = 0; i < childrenCount; i++) {
+            View child = children[i];
+            child.findAutofillableViewsByTraversal(autofillableViews);
+        }
     }
 
     @Override
@@ -2803,9 +2823,10 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                     if (alreadyDispatchedToNewTouchTarget && target == newTouchTarget) {
                         handled = true;
                     } else {
-                        final boolean cancelChild = resetCancelNextUpFlag(target.child)
-                                || intercepted;
-                        if (dispatchTransformedTouchEvent(ev, cancelChild,
+                        final boolean cancelChild =
+                                (target.child != null && resetCancelNextUpFlag(target.child))
+                                        || intercepted;
+                        if (target.child != null && dispatchTransformedTouchEvent(ev, cancelChild,
                                 target.child, target.pointerIdBits)) {
                             handled = true;
                         }
@@ -2815,7 +2836,9 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                             } else {
                                 predecessor.next = next;
                             }
-                            target.recycle();
+                            if (!target.isRecycled()) {
+                                target.recycle();
+                            }
                             target = next;
                             continue;
                         }
@@ -3084,74 +3107,74 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
      */
     private boolean dispatchTransformedTouchEvent(MotionEvent event, boolean cancel,
             View child, int desiredPointerIdBits) {
-        final boolean handled;
-
-        // Canceling motions is a special case.  We don't need to perform any transformations
-        // or filtering.  The important part is the action, not the contents.
         final int oldAction = event.getAction();
-        if (cancel || oldAction == MotionEvent.ACTION_CANCEL) {
-            event.setAction(MotionEvent.ACTION_CANCEL);
-            if (child == null) {
-                handled = super.dispatchTouchEvent(event);
-            } else {
-                handled = child.dispatchTouchEvent(event);
+        try {
+            final boolean handled;
+            if (cancel) {
+                event.setAction(MotionEvent.ACTION_CANCEL);
             }
-            event.setAction(oldAction);
-            return handled;
-        }
 
-        // Calculate the number of pointers to deliver.
-        final int oldPointerIdBits = event.getPointerIdBits();
-        final int newPointerIdBits = oldPointerIdBits & desiredPointerIdBits;
+            // Calculate the number of pointers to deliver.
+            final int oldPointerIdBits = event.getPointerIdBits();
+            int newPointerIdBits = oldPointerIdBits & desiredPointerIdBits;
 
-        // If for some reason we ended up in an inconsistent state where it looks like we
-        // might produce a motion event with no pointers in it, then drop the event.
-        if (newPointerIdBits == 0) {
-            return false;
-        }
-
-        // If the number of pointers is the same and we don't need to perform any fancy
-        // irreversible transformations, then we can reuse the motion event for this
-        // dispatch as long as we are careful to revert any changes we make.
-        // Otherwise we need to make a copy.
-        final MotionEvent transformedEvent;
-        if (newPointerIdBits == oldPointerIdBits) {
-            if (child == null || child.hasIdentityMatrix()) {
-                if (child == null) {
-                    handled = super.dispatchTouchEvent(event);
+            // If for some reason we ended up in an inconsistent state where it looks like we
+            // might produce a non-cancel motion event with no pointers in it, then drop the event.
+            // Make sure that we don't drop any cancel events.
+            if (newPointerIdBits == 0) {
+                if (event.getAction() != MotionEvent.ACTION_CANCEL) {
+                    return false;
                 } else {
-                    final float offsetX = mScrollX - child.mLeft;
-                    final float offsetY = mScrollY - child.mTop;
-                    event.offsetLocation(offsetX, offsetY);
-
-                    handled = child.dispatchTouchEvent(event);
-
-                    event.offsetLocation(-offsetX, -offsetY);
+                    newPointerIdBits = oldPointerIdBits;
                 }
-                return handled;
-            }
-            transformedEvent = MotionEvent.obtain(event);
-        } else {
-            transformedEvent = event.split(newPointerIdBits);
-        }
-
-        // Perform any necessary transformations and dispatch.
-        if (child == null) {
-            handled = super.dispatchTouchEvent(transformedEvent);
-        } else {
-            final float offsetX = mScrollX - child.mLeft;
-            final float offsetY = mScrollY - child.mTop;
-            transformedEvent.offsetLocation(offsetX, offsetY);
-            if (! child.hasIdentityMatrix()) {
-                transformedEvent.transform(child.getInverseMatrix());
             }
 
-            handled = child.dispatchTouchEvent(transformedEvent);
-        }
+            // If the number of pointers is the same and we don't need to perform any fancy
+            // irreversible transformations, then we can reuse the motion event for this
+            // dispatch as long as we are careful to revert any changes we make.
+            // Otherwise we need to make a copy.
+            final MotionEvent transformedEvent;
+            if (newPointerIdBits == oldPointerIdBits) {
+                if (child == null || child.hasIdentityMatrix()) {
+                    if (child == null) {
+                        handled = super.dispatchTouchEvent(event);
+                    } else {
+                        final float offsetX = mScrollX - child.mLeft;
+                        final float offsetY = mScrollY - child.mTop;
+                        event.offsetLocation(offsetX, offsetY);
 
-        // Done.
-        transformedEvent.recycle();
-        return handled;
+                        handled = child.dispatchTouchEvent(event);
+
+                        event.offsetLocation(-offsetX, -offsetY);
+                    }
+                    return handled;
+                }
+                transformedEvent = MotionEvent.obtain(event);
+            } else {
+                transformedEvent = event.split(newPointerIdBits);
+            }
+
+            // Perform any necessary transformations and dispatch.
+            if (child == null) {
+                handled = super.dispatchTouchEvent(transformedEvent);
+            } else {
+                final float offsetX = mScrollX - child.mLeft;
+                final float offsetY = mScrollY - child.mTop;
+                transformedEvent.offsetLocation(offsetX, offsetY);
+                if (!child.hasIdentityMatrix()) {
+                    transformedEvent.transform(child.getInverseMatrix());
+                }
+
+                handled = child.dispatchTouchEvent(transformedEvent);
+            }
+
+            // Done.
+            transformedEvent.recycle();
+            return handled;
+
+        } finally {
+            event.setAction(oldAction);
+        }
     }
 
     /**
@@ -3599,48 +3622,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
                 childIndex = getAndVerifyPreorderedIndex(childrenCount, i, customOrder);
             } catch (IndexOutOfBoundsException e) {
                 childIndex = i;
-                if (mContext.getApplicationInfo().targetSdkVersion < Build.VERSION_CODES.M) {
-                    Log.w(TAG, "Bad getChildDrawingOrder while collecting assist @ "
-                            + i + " of " + childrenCount, e);
-                    // At least one app is failing when we call getChildDrawingOrder
-                    // at this point, so deal semi-gracefully with it by falling back
-                    // on the basic order.
-                    customOrder = false;
-                    if (i > 0) {
-                        // If we failed at the first index, there really isn't
-                        // anything to do -- we will just proceed with the simple
-                        // sequence order.
-                        // Otherwise, we failed in the middle, so need to come up
-                        // with an order for the remaining indices and use that.
-                        // Failed at the first one, easy peasy.
-                        int[] permutation = new int[childrenCount];
-                        SparseBooleanArray usedIndices = new SparseBooleanArray();
-                        // Go back and collected the indices we have done so far.
-                        for (int j = 0; j < i; j++) {
-                            permutation[j] = getChildDrawingOrder(childrenCount, j);
-                            usedIndices.put(permutation[j], true);
-                        }
-                        // Fill in the remaining indices with indices that have not
-                        // yet been used.
-                        int nextIndex = 0;
-                        for (int j = i; j < childrenCount; j++) {
-                            while (usedIndices.get(nextIndex, false)) {
-                                nextIndex++;
-                            }
-                            permutation[j] = nextIndex;
-                            nextIndex++;
-                        }
-                        // Build the final view list.
-                        preorderedList = new ArrayList<>(childrenCount);
-                        for (int j = 0; j < childrenCount; j++) {
-                            final int index = permutation[j];
-                            final View child = mChildren[index];
-                            preorderedList.add(child);
-                        }
-                    }
-                } else {
-                    throw e;
-                }
+                throw e;
             }
             final View child = getAndVerifyPreorderedView(preorderedList, mChildren,
                     childIndex);
@@ -4536,6 +4518,11 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         final View[] children = mChildren;
         for (int i = 0; i < count; i++) {
             final View child = children[i];
+            if (child == null) {
+                throw new IllegalStateException(getClass().getSimpleName() + " contains null " +
+                        "child at index " + i + " when traversal in dispatchGetDisplayList," +
+                        " the view may have been removed.");
+            }
             if (((child.mViewFlags & VISIBILITY_MASK) == VISIBLE || child.getAnimation() != null)) {
                 recreateChildDisplayList(child);
             }
@@ -5388,6 +5375,12 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         }
 
         touchAccessibilityNodeProviderIfNeeded(child);
+
+        // If a propagated value exists, pass it to the child.
+        if (sToolkitViewGroupFrameRateApiFlagValue && !Float.isNaN(getRequestedFrameRate())
+                && (mGroupFlags & FLAG_PROPAGATED_FRAME_RATE) != 0) {
+            child.overrideFrameRate(getRequestedFrameRate(), getForcedOverrideFrameRateFlag());
+        }
     }
 
     /**
@@ -7109,12 +7102,12 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             } else if (childDimension == LayoutParams.MATCH_PARENT) {
                 // Child wants to be our size... find out how big it should
                 // be
-                resultSize = View.sUseZeroUnspecifiedMeasureSpec ? 0 : size;
+                resultSize = size;
                 resultMode = MeasureSpec.UNSPECIFIED;
             } else if (childDimension == LayoutParams.WRAP_CONTENT) {
                 // Child wants to determine its own size.... find out how
                 // big it should be
-                resultSize = View.sUseZeroUnspecifiedMeasureSpec ? 0 : size;
+                resultSize = size;
                 resultMode = MeasureSpec.UNSPECIFIED;
             }
             break;
@@ -7667,6 +7660,11 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             @NonNull Rect localVisibleRect, @NonNull Point windowOffset,
             @NonNull Consumer<ScrollCaptureTarget> targets) {
 
+        // Only visible views can be captured.
+        if (getVisibility() != View.VISIBLE) {
+            return;
+        }
+
         if (getClipToPadding() && !localVisibleRect.intersect(mPaddingLeft, mPaddingTop,
                     (mRight - mLeft)  - mPaddingRight, (mBottom - mTop) - mPaddingBottom)) {
             return;
@@ -7675,19 +7673,39 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
         // Dispatch to self first.
         super.dispatchScrollCaptureSearch(localVisibleRect, windowOffset, targets);
 
+        final int childrenCount = mChildrenCount;
+        if (childrenCount == 0) {
+            return;
+        }
+
         // Skip children if descendants excluded.
         if ((getScrollCaptureHint() & SCROLL_CAPTURE_HINT_EXCLUDE_DESCENDANTS) != 0) {
             return;
         }
-
         final Rect tmpRect = getTempRect();
-        final int childCount = getChildCount();
-        for (int i = 0; i < childCount; i++) {
-            View child = getChildAt(i);
+
+        ArrayList<View> preorderedList = null;
+        boolean customOrder = false;
+        if (scrollCaptureTargetZOrderFix()) {
+            preorderedList = buildOrderedChildList();
+            customOrder = preorderedList == null && isChildrenDrawingOrderEnabled();
+        }
+        final View[] children = mChildren;
+        for (int i = 0; i < childrenCount; i++) {
+            View child;
+            if (scrollCaptureTargetZOrderFix()) {
+                // Traverse children in the same order they will be drawn (honors Z if set)
+                final int childIndex = getAndVerifyPreorderedIndex(childrenCount, i, customOrder);
+                child = getAndVerifyPreorderedView(preorderedList, children, childIndex);
+            } else {
+                child = children[i];
+            }
+
             // Only visible views can be captured.
             if (child.getVisibility() != View.VISIBLE) {
                 continue;
             }
+
             // Offset the given rectangle (in parent's local coordinates) into child's coordinate
             // space and clip the result to the child View's bounds, padding and clipRect as needed.
             // If the resulting rectangle is not empty, the request is forwarded to the child.
@@ -7715,6 +7733,9 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             if (rectIsVisible) {
                 child.dispatchScrollCaptureSearch(tmpRect, childWindowOffset, targets);
             }
+        }
+        if (preorderedList != null) {
+            preorderedList.clear();
         }
     }
 
@@ -8662,8 +8683,7 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             }
 
             final boolean hasRtlSupport = c.getApplicationInfo().hasRtlSupport();
-            final int targetSdkVersion = c.getApplicationInfo().targetSdkVersion;
-            if (targetSdkVersion < JELLY_BEAN_MR1 || !hasRtlSupport) {
+            if (!hasRtlSupport) {
                 mMarginFlags |= RTL_COMPATIBILITY_MODE_MASK;
             }
 
@@ -9030,6 +9050,10 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             target.child = child;
             target.pointerIdBits = pointerIdBits;
             return target;
+        }
+
+        public boolean isRecycled() {
+            return child == null;
         }
 
         public void recycle() {
@@ -9492,5 +9516,76 @@ public abstract class ViewGroup extends View implements ViewParent, ViewManager 
             return parent.findOnBackInvokedDispatcherForChild(this, requester);
         }
         return null;
+    }
+
+    /**
+     * You can set the preferred frame rate for a ViewGroup using a positive number
+     * or by specifying the preferred frame rate category using constants, including
+     * REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE, REQUESTED_FRAME_RATE_CATEGORY_LOW,
+     * REQUESTED_FRAME_RATE_CATEGORY_NORMAL, REQUESTED_FRAME_RATE_CATEGORY_HIGH.
+     * Keep in mind that the preferred frame rate affects the frame rate for the next frame,
+     * so use this method carefully. It's important to note that the preference is valid as
+     * long as the ViewGroup is invalidated. Please also be aware that the requested frame rate
+     * will not propagate to child views.
+     *
+     * @param frameRate the preferred frame rate of the ViewGroup.
+     */
+    @Override
+    @FlaggedApi(FLAG_TOOLKIT_VIEWGROUP_SET_REQUESTED_FRAME_RATE_API)
+    public void setRequestedFrameRate(float frameRate) {
+        if (sToolkitViewGroupFrameRateApiFlagValue) {
+            if (getForcedOverrideFrameRateFlag()) {
+                return;
+            }
+            super.setRequestedFrameRate(frameRate);
+            // If frameRate is Float.NaN, it means it's set to the default value.
+            // We only want to make the flag true, when the value is not Float.nan
+            setSelfRequestedFrameRateFlag(!Float.isNaN(getRequestedFrameRate()));
+            mGroupFlags &= ~FLAG_PROPAGATED_FRAME_RATE;
+        }
+    }
+
+    /**
+     * You can set the preferred frame rate for a ViewGroup and its children using a positive number
+     * or by specifying the preferred frame rate category using constants, including
+     * REQUESTED_FRAME_RATE_CATEGORY_NO_PREFERENCE, REQUESTED_FRAME_RATE_CATEGORY_LOW,
+     * REQUESTED_FRAME_RATE_CATEGORY_NORMAL, REQUESTED_FRAME_RATE_CATEGORY_HIGH.
+     * Keep in mind that the preferred frame rate affects the frame rate for the next frame,
+     * so use this method carefully. It's important to note that the preference is valid as
+     * long as the ViewGroup or any of its children is invalidated.
+     * To undo the frame rate propagation, call the API with REQUESTED_FRAME_RATE_CATEGORY_DEFAULT.
+     *
+     * @param frameRate the preferred frame rate of the ViewGroup.
+     * @param forceOverride indicate whether it should override the frame rate of
+     *        all the children with the given frame rate.
+     */
+    @FlaggedApi(FLAG_TOOLKIT_VIEWGROUP_SET_REQUESTED_FRAME_RATE_API)
+    public void propagateRequestedFrameRate(float frameRate, boolean forceOverride) {
+        if (sToolkitViewGroupFrameRateApiFlagValue) {
+            // Skip setting the frame rate if it's currently in forced override mode.
+            if (getForcedOverrideFrameRateFlag()) {
+                return;
+            }
+
+            // frame rate could be set previously with setRequestedFrameRate
+            // or propagateRequestedFrameRate
+            setSelfRequestedFrameRateFlag(false);
+            overrideFrameRate(frameRate, forceOverride);
+            setSelfRequestedFrameRateFlag(true);
+        }
+    }
+
+    @Override
+    void overrideFrameRate(float frameRate, boolean forceOverride) {
+        // if it's in forceOverrid mode or has no self requested frame rate,
+        // it will override the frame rate.
+        if (forceOverride || !getSelfRequestedFrameRateFlag()) {
+            super.overrideFrameRate(frameRate, forceOverride);
+            mGroupFlags |= FLAG_PROPAGATED_FRAME_RATE;
+
+            for (int i = 0; i < getChildCount(); i++) {
+                getChildAt(i).overrideFrameRate(frameRate, forceOverride);
+            }
+        }
     }
 }

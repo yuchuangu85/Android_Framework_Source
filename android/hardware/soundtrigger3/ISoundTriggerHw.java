@@ -1,6 +1,10 @@
 /*
  * This file is auto-generated.  DO NOT MODIFY.
- * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 2 --hash 6b24e60ad261e3ff56106efd86ce6aa7ef5621b0 --stability vintf --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.soundtrigger.types_interface/2/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/soundtrigger/aidl/android.hardware.soundtrigger3-V2-java-source/gen/android/hardware/soundtrigger3/ISoundTriggerHw.java.d -o out/soong/.intermediates/hardware/interfaces/soundtrigger/aidl/android.hardware.soundtrigger3-V2-java-source/gen -Nhardware/interfaces/soundtrigger/aidl/aidl_api/android.hardware.soundtrigger3/2 hardware/interfaces/soundtrigger/aidl/aidl_api/android.hardware.soundtrigger3/2/android/hardware/soundtrigger3/ISoundTriggerHw.aidl
+ * Using: out/host/linux-x86/bin/aidl --lang=java --structured --version 3 --hash f2ec48a74490bf9d5675f48cb89ecdb3e5cd9c35 --stability vintf --min_sdk_version current -pout/soong/.intermediates/system/hardware/interfaces/media/android.media.soundtrigger.types_interface/3/preprocessed.aidl --ninja -d out/soong/.intermediates/hardware/interfaces/soundtrigger/aidl/android.hardware.soundtrigger3-V3-java-source/gen/android/hardware/soundtrigger3/ISoundTriggerHw.java.d -o out/soong/.intermediates/hardware/interfaces/soundtrigger/aidl/android.hardware.soundtrigger3-V3-java-source/gen -Nhardware/interfaces/soundtrigger/aidl/aidl_api/android.hardware.soundtrigger3/3 hardware/interfaces/soundtrigger/aidl/aidl_api/android.hardware.soundtrigger3/3/android/hardware/soundtrigger3/ISoundTriggerHw.aidl
+ *
+ * DO NOT CHECK THIS FILE INTO A CODE TREE (e.g. git, etc..).
+ * ALWAYS GENERATE THIS FILE FROM UPDATED AIDL COMPILER
+ * AS A BUILD INTERMEDIATE ONLY. THIS IS NOT SOURCE CODE.
  */
 package android.hardware.soundtrigger3;
 public interface ISoundTriggerHw extends android.os.IInterface
@@ -11,8 +15,8 @@ public interface ISoundTriggerHw extends android.os.IInterface
    * getInterfaceVersion} returns as that is the version of the interface
    * that the remote object is implementing.
    */
-  public static final int VERSION = 2;
-  public static final String HASH = "6b24e60ad261e3ff56106efd86ce6aa7ef5621b0";
+  public static final int VERSION = 3;
+  public static final String HASH = "f2ec48a74490bf9d5675f48cb89ecdb3e5cd9c35";
   /** Default implementation for ISoundTriggerHw. */
   public static class Default implements android.hardware.soundtrigger3.ISoundTriggerHw
   {
@@ -70,7 +74,7 @@ public interface ISoundTriggerHw extends android.os.IInterface
   /** Local-side IPC implementation stub class. */
   public static abstract class Stub extends android.os.Binder implements android.hardware.soundtrigger3.ISoundTriggerHw
   {
-    /** Construct the stub at attach it to the interface. */
+    /** Construct the stub and attach it to the interface. */
     @SuppressWarnings("this-escape")
     public Stub()
     {

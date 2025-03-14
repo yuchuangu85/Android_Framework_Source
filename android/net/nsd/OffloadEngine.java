@@ -21,6 +21,8 @@ import android.annotation.LongDef;
 import android.annotation.NonNull;
 import android.annotation.SystemApi;
 
+import com.android.net.flags.Flags;
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
@@ -34,7 +36,7 @@ import java.lang.annotation.RetentionPolicy;
  *
  * @hide
  */
-@FlaggedApi("com.android.net.flags.register_nsd_offload_engine_api")
+@FlaggedApi(Flags.FLAG_REGISTER_NSD_OFFLOAD_ENGINE_API)
 @SystemApi
 public interface OffloadEngine {
     /**

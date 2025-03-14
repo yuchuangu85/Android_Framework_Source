@@ -33,6 +33,7 @@ public class IkeContext implements EapAuthenticator.EapContext {
             "config_auto_address_family_selection_cellular_prefer_ipv4";
     public static final String CONFIG_AUTO_NATT_KEEPALIVES_CELLULAR_TIMEOUT_OVERRIDE_SECONDS =
             "config_auto_natt_keepalives_cellular_timeout_override_seconds";
+    public static final String CONFIG_USE_CACHED_ADDRS = "config_use_cached_addrs";
 
     private final @IkeMetrics.IkeCaller int mIkeCaller;
     private final Looper mLooper;

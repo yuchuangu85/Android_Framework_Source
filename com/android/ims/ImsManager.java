@@ -518,6 +518,26 @@ public class ImsManager implements FeatureUpdates {
     }
 
     /**
+     * Returns true if Calling/Data/Messaging features should be checked on this device.
+     */
+    private static boolean minimalTelephonyCdmCheck() {
+        // Check SDK version of the vendor partition.
+        final int vendorApiLevel = SystemProperties.getInt(
+                "ro.vendor.api_level", Build.VERSION.DEVICE_INITIAL_SDK_INT);
+        if (vendorApiLevel < Build.VERSION_CODES.VANILLA_ICE_CREAM) return false;
+
+        return Flags.minimalTelephonyCdmCheck();
+    }
+
+    /**
+     * @return true if this device supports telephony calling, false if it does not.
+     */
+    private static boolean isTelephonyCallingSupportedOnDevice(Context context) {
+        return minimalTelephonyCdmCheck() && context.getPackageManager().hasSystemFeature(
+                        PackageManager.FEATURE_TELEPHONY_CALLING);
+    }
+
+    /**
      * Sets the callback that will be called when events related to IMS metric collection occur.
      * <p>
      * Note: Subsequent calls to this method will replace the previous stats callback.
@@ -1018,6 +1038,11 @@ public class ImsManager implements FeatureUpdates {
             loge("isCallComposerEnabledByUser: TelephonyManager is null, returning false");
             return false;
         }
+        if (!isTelephonyCallingSupportedOnDevice(mContext)) {
+            loge("isCallComposerEnabledByUser: FEATURE_TELEPHONY_CALLING not supported,"
+                    + " returning false");
+            return false;
+        }
         return mTelephonyManager.getCallComposerStatus()
                 == TelephonyManager.CALL_COMPOSER_STATUS_ON;
     }
@@ -1029,6 +1054,11 @@ public class ImsManager implements FeatureUpdates {
         TelephonyManager tm = mContext.getSystemService(TelephonyManager.class);
         if (tm == null) {
             loge("isBusinessOnlyCallComposerEnabledByUser: TelephonyManager is null");
+            return false;
+        }
+        if (!isTelephonyCallingSupportedOnDevice(mContext)) {
+            loge("isBusinessOnlyCallComposerEnabledByUser: FEATURE_TELEPHONY_CALLING not"
+                    + " supported, returning false");
             return false;
         }
         return tm.getCallComposerStatus() == TelephonyManager.CALL_COMPOSER_STATUS_BUSINESS_ONLY;
@@ -3716,10 +3746,6 @@ public class ImsManager implements FeatureUpdates {
      * {@code false} otherwise.
      */
     private boolean overrideWfcRoamingModeWhileUsingNTN() {
-        if (!Flags.carrierEnabledSatelliteFlag()) {
-            return false;
-        }
-
         if (mTelephonyManager == null) {
             return false;
         }

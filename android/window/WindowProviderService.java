@@ -49,9 +49,11 @@ import android.view.WindowManagerImpl;
  *
  * @hide
  */
+@SuppressWarnings("HiddenSuperclass")
 @TestApi
 @UiContext
-public abstract class WindowProviderService extends Service implements WindowProvider {
+public abstract class WindowProviderService extends Service implements WindowProvider,
+        ConfigurationDispatcher {
 
     private static final String TAG = WindowProviderService.class.getSimpleName();
 
@@ -239,5 +241,15 @@ public abstract class WindowProviderService extends Service implements WindowPro
         super.onDestroy();
         mController.detachIfNeeded();
         mCallbacksController.clearCallbacks();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @hide
+     */
+    @Override
+    public void dispatchConfigurationChanged(@NonNull Configuration configuration) {
+        onConfigurationChanged(configuration);
     }
 }

@@ -31,6 +31,8 @@ import com.android.internal.annotations.VisibleForTesting;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicReference;
+
 
 /**
  * StatsEvent builds and stores the buffer sent over the statsd socket.
@@ -59,6 +61,7 @@ import java.util.Arrays;
  * @hide
  **/
 @SystemApi
+@android.ravenwood.annotation.RavenwoodKeepWholeClass
 public final class StatsEvent {
     // Type Ids.
     /**
@@ -846,29 +849,37 @@ public final class StatsEvent {
     }
 
     private static final class Buffer {
-        private static Object sLock = new Object();
 
-        @GuardedBy("sLock")
-        private static Buffer sPool;
+        private static AtomicReference<Buffer> sPool = new AtomicReference<>();
 
         private byte[] mBytes;
         private boolean mOverflow = false;
         private int mMaxSize = MAX_PULL_PAYLOAD_SIZE;
 
+        // The initial size of the buffer 512 bytes. The buffer will be expanded
+        // if needed up to mMaxSize.
+        private static final int INITIAL_BUFFER_SIZE = 512;
+
         @NonNull
         private static Buffer obtain() {
-            final Buffer buffer;
-            synchronized (sLock) {
-                buffer = null == sPool ? new Buffer() : sPool;
-                sPool = null;
+            Buffer buffer = sPool.getAndSet(null);
+            if (buffer == null) {
+                buffer = new Buffer();
+            } else {
+                buffer.reset();
             }
-            buffer.reset();
             return buffer;
         }
 
         private Buffer() {
-            final ByteBuffer tempBuffer = ByteBuffer.allocateDirect(MAX_PUSH_PAYLOAD_SIZE);
-            mBytes = tempBuffer.hasArray() ? tempBuffer.array() : new byte [MAX_PUSH_PAYLOAD_SIZE];
+            // b/366165284, b/192105193 - the allocateDirect() reduces the churn
+            // of passing a byte[] from Java to native. However, it's only
+            // useful for pushed atoms. In the case of pulled atom, the
+            // allocateDirect doesn't help anything as the data is later copied
+            // to a new array in build(). In addition, when the buffer is to be expanded, it
+            // also allocates a new array.
+            final ByteBuffer tempBuffer = ByteBuffer.allocateDirect(INITIAL_BUFFER_SIZE);
+            mBytes = tempBuffer.hasArray() ? tempBuffer.array() : new byte [INITIAL_BUFFER_SIZE];
         }
 
         @NonNull
@@ -879,11 +890,7 @@ public final class StatsEvent {
         private void release() {
             // Recycle this Buffer if its size is MAX_PUSH_PAYLOAD_SIZE or under.
             if (mMaxSize <= MAX_PUSH_PAYLOAD_SIZE) {
-                synchronized (sLock) {
-                    if (null == sPool) {
-                        sPool = this;
-                    }
-                }
+                sPool.compareAndSet(null, this);
             }
         }
 

@@ -7,9 +7,7 @@ package org.chromium.base;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.Application;
-import android.app.Application.ActivityLifecycleCallbacks;
 import android.content.SharedPreferences;
-import android.os.Bundle;
 import android.view.Window;
 
 import androidx.annotation.AnyThread;
@@ -20,8 +18,6 @@ import androidx.annotation.VisibleForTesting;
 import org.jni_zero.CalledByNative;
 import org.jni_zero.JNINamespace;
 import org.jni_zero.NativeMethods;
-
-import org.chromium.build.BuildConfig;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
@@ -34,14 +30,15 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import javax.annotation.concurrent.GuardedBy;
 
 /**
- * Provides information about the current activity's status, and a way
- * to register / unregister listeners for state changes.
- * TODO(https://crbug.com/470582): ApplicationStatus will not work on WebView/WebLayer, and
- * should be moved out of base and into //chrome. It should not be relied upon for //components.
+ * Provides information about the current activity's status, and a way to register / unregister
+ * listeners for state changes. TODO(crbug.com/40411113): ApplicationStatus will not work on
+ * WebView/WebLayer, and should be moved out of base and into //chrome. It should not be relied upon
+ * for //components.
  */
 @JNINamespace("base::android")
 public class ApplicationStatus {
@@ -320,55 +317,17 @@ public class ApplicationStatus {
                 });
 
         application.registerActivityLifecycleCallbacks(
-                new ActivityLifecycleCallbacks() {
+                new ActivityLifecycleCallbacksAdapter() {
                     @Override
-                    public void onActivityCreated(
-                            final Activity activity, Bundle savedInstanceState) {
-                        onStateChange(activity, ActivityState.CREATED);
-                        Window.Callback callback = activity.getWindow().getCallback();
-                        activity.getWindow()
-                                .setCallback(createWindowCallbackProxy(activity, callback));
-                    }
-
-                    @Override
-                    public void onActivityDestroyed(Activity activity) {
-                        onStateChange(activity, ActivityState.DESTROYED);
-                        checkCallback(activity);
-                    }
-
-                    @Override
-                    public void onActivityPaused(Activity activity) {
-                        onStateChange(activity, ActivityState.PAUSED);
-                        checkCallback(activity);
-                    }
-
-                    @Override
-                    public void onActivityResumed(Activity activity) {
-                        onStateChange(activity, ActivityState.RESUMED);
-                        checkCallback(activity);
-                    }
-
-                    @Override
-                    public void onActivitySaveInstanceState(Activity activity, Bundle outState) {
-                        checkCallback(activity);
-                    }
-
-                    @Override
-                    public void onActivityStarted(Activity activity) {
-                        onStateChange(activity, ActivityState.STARTED);
-                        checkCallback(activity);
-                    }
-
-                    @Override
-                    public void onActivityStopped(Activity activity) {
-                        onStateChange(activity, ActivityState.STOPPED);
-                        checkCallback(activity);
-                    }
-
-                    private void checkCallback(Activity activity) {
-                        if (BuildConfig.ENABLE_ASSERTS) {
+                    public void onStateChanged(Activity activity, @ActivityState int newState) {
+                        if (newState == ActivityState.CREATED) {
+                            Window.Callback callback = activity.getWindow().getCallback();
+                            activity.getWindow()
+                                    .setCallback(createWindowCallbackProxy(activity, callback));
+                        } else {
                             assert reachesWindowCallback(activity.getWindow().getCallback());
                         }
+                        onStateChange(activity, newState);
                     }
                 });
     }
@@ -636,6 +595,25 @@ public class ApplicationStatus {
     }
 
     /**
+     * Cleanup Activity info from an app Task that is no longer reachable.
+     *
+     * @param taskId The id of the Task that is no longer running.
+     * @return Whether any tasks were cleaned up.
+     */
+    public static boolean cleanupInvalidTask(int taskId) {
+        List<Activity> inaccessibleActivities = new ArrayList<>();
+        for (Entry<Activity, Integer> activityTaskInfo : sActivityTaskId.entrySet()) {
+            if (taskId == activityTaskInfo.getValue()) {
+                inaccessibleActivities.add(activityTaskInfo.getKey());
+            }
+        }
+        for (Activity activity : inaccessibleActivities) {
+            onStateChange(activity, ActivityState.DESTROYED);
+        }
+        return !inaccessibleActivities.isEmpty();
+    }
+
+    /**
      * Registers the given listener to receive state changes for all activities.
      *
      * @param listener Listener to receive state changes.
@@ -667,8 +645,10 @@ public class ApplicationStatus {
 
         ActivityInfo info = sActivityInfo.get(activity);
         assert info != null
-                : "destroyed: " + activity.isDestroyed() + " finishing: " + activity.isFinishing();
-        assert info.getStatus() != ActivityState.DESTROYED;
+                : String.format(
+                        "Found untracked Activity: %s isDestroyed=%s isFinishing=%s",
+                        activity, activity.isDestroyed(), activity.isFinishing());
+        assert info.getStatus() != ActivityState.DESTROYED : activity.toString();
         info.getListeners().addObserver(listener);
     }
 
@@ -727,6 +707,7 @@ public class ApplicationStatus {
             if (sGeneralActivityStateListeners != null) sGeneralActivityStateListeners.clear();
             if (sTaskVisibilityListeners != null) sTaskVisibilityListeners.clear();
             sActivityInfo.clear();
+            sActivityTaskId.clear();
             if (sWindowFocusListeners != null) sWindowFocusListeners.clear();
             sCurrentApplicationState = ApplicationState.UNKNOWN;
             sActivity = null;

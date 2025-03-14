@@ -3,9 +3,11 @@ package com.android.internal.org.bouncycastle.asn1.ocsp;
 
 import com.android.internal.org.bouncycastle.asn1.ASN1Choice;
 import com.android.internal.org.bouncycastle.asn1.ASN1Encodable;
+import com.android.internal.org.bouncycastle.asn1.ASN1Null;
 import com.android.internal.org.bouncycastle.asn1.ASN1Object;
 import com.android.internal.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.internal.org.bouncycastle.asn1.ASN1TaggedObject;
+import com.android.internal.org.bouncycastle.asn1.ASN1Util;
 import com.android.internal.org.bouncycastle.asn1.DERNull;
 import com.android.internal.org.bouncycastle.asn1.DERTaggedObject;
 
@@ -46,22 +48,25 @@ public class CertStatus
     private CertStatus(
         ASN1TaggedObject    choice)
     {
-        this.tagNo = choice.getTagNo();
+        int tagNo = choice.getTagNo();
 
-        switch (choice.getTagNo())
+        switch (tagNo)
         {
         case 0:
-            value = DERNull.INSTANCE;
+            value = ASN1Null.getInstance(choice, false);
             break;
         case 1:
             value = RevokedInfo.getInstance(choice, false);
             break;
         case 2:
-            value = DERNull.INSTANCE;
+            // UnknownInfo ::= NULL
+            value = ASN1Null.getInstance(choice, false);
             break;
         default:
-            throw new IllegalArgumentException("Unknown tag encountered: " + choice.getTagNo());
+            throw new IllegalArgumentException("Unknown tag encountered: " + ASN1Util.getTagText(choice));
         }
+
+        this.tagNo = tagNo;
     }
 
     public static CertStatus getInstance(
@@ -83,7 +88,7 @@ public class CertStatus
         ASN1TaggedObject obj,
         boolean          explicit)
     {
-        return getInstance(obj.getObject()); // must be explicitly tagged
+        return getInstance(obj.getExplicitBaseTagged()); // must be explicitly tagged
     }
     
     public int getTagNo()

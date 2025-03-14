@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.satellite.metrics;
 
+import static android.telephony.TelephonyManager.UNKNOWN_CARRIER_ID;
+
 import android.annotation.NonNull;
 import android.telephony.satellite.SatelliteManager;
 import android.util.Log;
@@ -27,7 +29,6 @@ import com.android.internal.telephony.metrics.SatelliteStats;
  */
 public class ProvisionMetricsStats {
     private static final String TAG = ProvisionMetricsStats.class.getSimpleName();
-    private static final boolean DBG = false;
 
     private static ProvisionMetricsStats sInstance = null;
 
@@ -37,6 +38,8 @@ public class ProvisionMetricsStats {
     private int mProvisioningStartTimeSec;
     private boolean mIsProvisionRequest;
     private boolean mIsCanceled;
+    private int mCarrierId;
+    private boolean mIsNtnOnlyCarrier;
 
     private ProvisionMetricsStats() {
         initializeProvisionParams();
@@ -80,6 +83,18 @@ public class ProvisionMetricsStats {
         return this;
     }
 
+    /** Sets the Carrier of NTN satellite */
+    public ProvisionMetricsStats setCarrierId(int carrierId) {
+        mCarrierId = carrierId;
+        return this;
+    }
+
+    /** Capture the latest provisioned state for satellite service */
+    public ProvisionMetricsStats setIsNtnOnlyCarrier(boolean isNtnOnlyCarrier) {
+        mIsNtnOnlyCarrier = isNtnOnlyCarrier;
+        return this;
+    }
+
     /** Report the provision metrics atoms to PersistAtomsStorage in telephony */
     public void reportProvisionMetrics() {
         SatelliteStats.SatelliteProvisionParams provisionParams =
@@ -89,9 +104,11 @@ public class ProvisionMetricsStats {
                                 (System.currentTimeMillis() / 1000) - mProvisioningStartTimeSec)
                         .setIsProvisionRequest(mIsProvisionRequest)
                         .setIsCanceled(mIsCanceled)
+                        .setCarrierId(mCarrierId)
+                        .setIsNtnOnlyCarrier(mIsNtnOnlyCarrier)
                         .build();
         SatelliteStats.getInstance().onSatelliteProvisionMetrics(provisionParams);
-        logd("reportProvisionMetrics: " + provisionParams.toString());
+        logd("reportProvisionMetrics: " + provisionParams);
         initializeProvisionParams();
     }
 
@@ -100,11 +117,11 @@ public class ProvisionMetricsStats {
         mProvisioningStartTimeSec = INVALID_TIME;
         mIsProvisionRequest = false;
         mIsCanceled = false;
+        mCarrierId = UNKNOWN_CARRIER_ID;
+        mIsNtnOnlyCarrier = false;
     }
 
     private static void logd(@NonNull String log) {
-        if (DBG) {
-            Log.d(TAG, log);
-        }
+        Log.d(TAG, log);
     }
 }

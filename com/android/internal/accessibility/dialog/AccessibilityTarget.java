@@ -16,10 +16,9 @@
 
 package com.android.internal.accessibility.dialog;
 
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.GESTURE;
 import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.HARDWARE;
 import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.SOFTWARE;
-import static com.android.internal.accessibility.util.ShortcutUtils.optInValueToSettings;
-import static com.android.internal.accessibility.util.ShortcutUtils.optOutValueFromSettings;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -30,12 +29,12 @@ import android.graphics.drawable.Drawable;
 import android.os.UserHandle;
 import android.view.View;
 import android.view.accessibility.AccessibilityManager;
-import android.view.accessibility.Flags;
 
 import com.android.internal.accessibility.common.ShortcutConstants;
 import com.android.internal.accessibility.common.ShortcutConstants.AccessibilityFragmentType;
 import com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType;
 import com.android.internal.accessibility.dialog.TargetAdapter.ViewHolder;
+import com.android.internal.accessibility.util.ShortcutUtils;
 import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.Set;
@@ -67,6 +66,10 @@ public abstract class AccessibilityTarget implements TargetOperations, OnTargetS
     public AccessibilityTarget(Context context, @UserShortcutType int shortcutType,
             @AccessibilityFragmentType int fragmentType, boolean isShortcutSwitched, String id,
             int uid, CharSequence label, Drawable icon, String key) {
+        if (!isRecognizedShortcutType(shortcutType)) {
+            throw new IllegalArgumentException(
+                    "Unexpected shortcut type " + ShortcutUtils.convertToKey(shortcutType));
+        }
         mContext = context;
         mShortcutType = shortcutType;
         mFragmentType = fragmentType;
@@ -97,38 +100,24 @@ public abstract class AccessibilityTarget implements TargetOperations, OnTargetS
         holder.mStatusView.setVisibility(View.GONE);
     }
 
+    @SuppressLint("MissingPermission")
     @Override
     public void onSelected() {
         final AccessibilityManager am =
                 getContext().getSystemService(AccessibilityManager.class);
-        switch (getShortcutType()) {
-            case SOFTWARE:
-                am.notifyAccessibilityButtonClicked(getContext().getDisplayId(), getId());
-                return;
-            case HARDWARE:
-                am.performAccessibilityShortcut(getId());
-                return;
-            default:
-                throw new IllegalStateException("Unexpected shortcut type");
+        if (am == null) {
+            return;
         }
+        am.performAccessibilityShortcut(getContext().getDisplayId(), mShortcutType, getId());
     }
 
     @SuppressLint("MissingPermission")
     @Override
     public void onCheckedChanged(boolean isChecked) {
         setShortcutEnabled(isChecked);
-        if (Flags.migrateEnableShortcuts()) {
-            final AccessibilityManager am =
-                    getContext().getSystemService(AccessibilityManager.class);
-            am.enableShortcutsForTargets(
-                    isChecked, getShortcutType(), Set.of(mId), UserHandle.myUserId());
-        } else {
-            if (isChecked) {
-                optInValueToSettings(getContext(), getShortcutType(), getId());
-            } else {
-                optOutValueFromSettings(getContext(), getShortcutType(), getId());
-            }
-        }
+        final AccessibilityManager am = getContext().getSystemService(AccessibilityManager.class);
+        am.enableShortcutsForTargets(
+                isChecked, getShortcutType(), Set.of(mId), UserHandle.myUserId());
     }
 
     public void setStateDescription(CharSequence stateDescription) {
@@ -187,5 +176,19 @@ public abstract class AccessibilityTarget implements TargetOperations, OnTargetS
 
     public String getKey() {
         return mKey;
+    }
+
+    /**
+     * Determines if the provided shortcut type is valid for use with AccessibilityTargets.
+     * @param shortcutType shortcut type to check.
+     * @return {@code true} if the shortcut type can be used, {@code false} otherwise.
+     */
+    @VisibleForTesting
+    public static boolean isRecognizedShortcutType(@UserShortcutType int shortcutType) {
+        int mask = SOFTWARE | HARDWARE;
+        if (android.provider.Flags.a11yStandaloneGestureEnabled()) {
+            mask = mask | GESTURE;
+        }
+        return (shortcutType != 0 && (shortcutType & mask) == shortcutType);
     }
 }

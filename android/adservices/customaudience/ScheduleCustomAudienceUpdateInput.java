@@ -38,6 +38,7 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
     @NonNull private final String mCallerPackageName;
     @NonNull private final Duration mMinDelay;
     @NonNull private final List<PartialCustomAudience> mPartialCustomAudienceList;
+    private final boolean mShouldReplacePendingUpdates;
 
     @NonNull
     public static final Creator<ScheduleCustomAudienceUpdateInput> CREATOR =
@@ -64,6 +65,7 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         mCallerPackageName = builder.mCallerPackageName;
         mMinDelay = builder.mMinDelay;
         mPartialCustomAudienceList = builder.mPartialCustomAudienceList;
+        mShouldReplacePendingUpdates = builder.mShouldReplacePendingUpdates;
     }
 
     private ScheduleCustomAudienceUpdateInput(@NonNull Parcel in) {
@@ -73,6 +75,7 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         mCallerPackageName = in.readString();
         mMinDelay = Duration.ofMillis(in.readLong());
         mPartialCustomAudienceList = in.createTypedArrayList(PartialCustomAudience.CREATOR);
+        mShouldReplacePendingUpdates = in.readBoolean();
     }
 
     @Override
@@ -88,6 +91,7 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         dest.writeString(mCallerPackageName);
         dest.writeLong(mMinDelay.toMillis());
         dest.writeTypedList(mPartialCustomAudienceList);
+        dest.writeBoolean(mShouldReplacePendingUpdates);
     }
 
     /** Returns the {@link Uri} from which the Custom Audience is to be fetched */
@@ -109,6 +113,14 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
     }
 
     /**
+     * Returns {@code true} if any pending scheduled updates should be canceled and replaced with
+     * the update detailed in the current {@link ScheduleCustomAudienceUpdateInput}.
+     */
+    public boolean shouldReplacePendingUpdates() {
+        return mShouldReplacePendingUpdates;
+    }
+
+    /**
      * Returns the list of {@link PartialCustomAudience} which are sent along with the request to
      * download the update for Custom Audience
      */
@@ -117,11 +129,13 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         return mPartialCustomAudienceList;
     }
 
+
     /** Returns the hash of {@link ScheduleCustomAudienceUpdateInput} object's data. */
     @Override
     public int hashCode() {
         return Objects.hash(mUpdateUri, mCallerPackageName, mMinDelay, mPartialCustomAudienceList);
     }
+
 
     /**
      * @return {@code true} only if two {@link ScheduleCustomAudienceUpdateInput} objects contain
@@ -135,7 +149,8 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         return mUpdateUri.equals(that.mUpdateUri)
                 && mCallerPackageName.equals(that.mCallerPackageName)
                 && mMinDelay.equals(that.mMinDelay)
-                && Objects.equals(mPartialCustomAudienceList, that.mPartialCustomAudienceList);
+                && Objects.equals(mPartialCustomAudienceList, that.mPartialCustomAudienceList)
+                && mShouldReplacePendingUpdates == that.mShouldReplacePendingUpdates;
     }
 
     /**
@@ -143,17 +158,20 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
      */
     @Override
     public String toString() {
-        return "ScheduleCustomAudienceUpdateInput {"
-                + "updateUri="
+        return "ScheduleCustomAudienceUpdateInput{"
+                + "mUpdateUri="
                 + mUpdateUri
-                + ", callerPackageName="
+                + ", mCallerPackageName="
                 + mCallerPackageName
-                + ", delayTimeMinutes="
-                + mMinDelay.toMinutes()
-                + ", partialCustomAudienceList="
+                + ", mMinDelay="
+                + mMinDelay
+                + ", mPartialCustomAudienceList="
                 + mPartialCustomAudienceList
+                + ", mShouldReplacePendingUpdates="
+                + mShouldReplacePendingUpdates
                 + '}';
     }
+
 
     /** Builder for {@link ScheduleCustomAudienceUpdateInput} objects. */
     public static final class Builder {
@@ -161,6 +179,7 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         @NonNull private Duration mMinDelay;
         @NonNull private String mCallerPackageName;
         @NonNull private List<PartialCustomAudience> mPartialCustomAudienceList;
+        boolean mShouldReplacePendingUpdates;
 
         /**
          * Instantiates a {@link ScheduleCustomAudienceUpdateInput.Builder} with the following
@@ -169,7 +188,7 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
          * @param callerPackageName the caller app's package name
          * @param minDelay minimum delay time duration for which the update is to be deferred
          * @param partialCustomAudienceList list of partial Custom Audiences that are overridden by
-         *     MMP on update
+         *     on-device ad tech's SDK on update
          */
         public Builder(
                 @NonNull Uri updateUri,
@@ -224,8 +243,8 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         }
 
         /**
-         * Sets list of Partial Custom Audiences that are sent to the DSP server when making a
-         * request to download updates for Custom Audience
+         * Sets list of Partial Custom Audiences that are sent to the buyer ad tech server when
+         * making a request to download updates for Custom Audience
          *
          * <p>See {@link #getPartialCustomAudienceList()} for more details
          */
@@ -233,6 +252,17 @@ public final class ScheduleCustomAudienceUpdateInput implements Parcelable {
         public Builder setPartialCustomAudienceList(
                 @NonNull List<PartialCustomAudience> partialCustomAudiences) {
             this.mPartialCustomAudienceList = partialCustomAudiences;
+            return this;
+        }
+
+        /**
+         * Sets whether any pending scheduled updates should be deleted and replaced with this.
+         *
+         * <p>See {@link #shouldReplacePendingUpdates()} for more details
+         */
+        @NonNull
+        public Builder setShouldReplacePendingUpdates(boolean shouldReplacePendingUpdates) {
+            this.mShouldReplacePendingUpdates = shouldReplacePendingUpdates;
             return this;
         }
 

@@ -16,18 +16,34 @@
 
 package com.android.internal.accessibility.util;
 
+import static android.provider.Settings.Secure.ACCESSIBILITY_BUTTON_MODE;
+import static android.provider.Settings.Secure.ACCESSIBILITY_BUTTON_MODE_FLOATING_MENU;
+import static android.provider.Settings.Secure.ACCESSIBILITY_BUTTON_MODE_GESTURE;
+import static android.provider.Settings.Secure.ACCESSIBILITY_BUTTON_MODE_NAVIGATION_BAR;
+
 import static com.android.internal.accessibility.AccessibilityShortcutController.MAGNIFICATION_CONTROLLER_NAME;
 import static com.android.internal.accessibility.common.ShortcutConstants.AccessibilityFragmentType.INVISIBLE_TOGGLE;
 import static com.android.internal.accessibility.common.ShortcutConstants.SERVICES_SEPARATOR;
 import static com.android.internal.accessibility.common.ShortcutConstants.USER_SHORTCUT_TYPES;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.DEFAULT;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.GESTURE;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.HARDWARE;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.KEY_GESTURE;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.QUICK_SETTINGS;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.SOFTWARE;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.TRIPLETAP;
+import static com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType.TWOFINGER_DOUBLETAP;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.annotation.NonNull;
+import android.annotation.SuppressLint;
+import android.annotation.UserIdInt;
 import android.content.ComponentName;
 import android.content.Context;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.ArraySet;
+import android.util.Slog;
 import android.view.accessibility.AccessibilityManager;
 
 import com.android.internal.accessibility.common.ShortcutConstants.UserShortcutType;
@@ -45,6 +61,7 @@ public final class ShortcutUtils {
 
     private static final TextUtils.SimpleStringSplitter sStringColonSplitter =
             new TextUtils.SimpleStringSplitter(SERVICES_SEPARATOR);
+    private static final String TAG = "AccessibilityShortcutUtils";
 
     /**
      * Opts in component id into colon-separated {@link UserShortcutType}
@@ -141,19 +158,42 @@ public final class ShortcutUtils {
     }
 
     /**
-     * Returns if a {@code shortcutType} shortcut contains {@code componentId}.
+     * Returns if a {@code shortcutType} shortcut contains {@code componentName}.
      *
      * @param context The current context.
      * @param shortcutType The preferred shortcut type user selected.
-     * @param componentId The component id that need to be checked.
-     * @return {@code true} if a component id is contained.
+     * @param componentName The component that need to be checked.
+     * @return {@code true} if the shortcut contains {@code componentName}.
      */
-    public static boolean isShortcutContained(Context context, @UserShortcutType int shortcutType,
-            @NonNull String componentId) {
-        final AccessibilityManager am = (AccessibilityManager) context.getSystemService(
-                Context.ACCESSIBILITY_SERVICE);
-        final List<String> requiredTargets = am.getAccessibilityShortcutTargets(shortcutType);
-        return requiredTargets.contains(componentId);
+    @SuppressLint("MissingPermission")
+    public static boolean isShortcutContained(
+            Context context, @UserShortcutType int shortcutType, @NonNull String componentName) {
+        AccessibilityManager manager = context.getSystemService(AccessibilityManager.class);
+        if (manager != null) {
+            return manager
+                    .getAccessibilityShortcutTargets(shortcutType).contains(componentName);
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * Returns every shortcut type that currently has the provided componentName as a target.
+     * Types are returned as a singular flag integer.
+     * If none have the componentName, returns {@link UserShortcutType#DEFAULT}
+     */
+    public static int getEnabledShortcutTypes(
+            Context context, String componentName) {
+        final AccessibilityManager am = context.getSystemService(AccessibilityManager.class);
+        if (am == null) return DEFAULT;
+
+        int shortcutTypes = DEFAULT;
+        for (int shortcutType : USER_SHORTCUT_TYPES) {
+            if (am.getAccessibilityShortcutTargets(shortcutType).contains(componentName)) {
+                shortcutTypes |= shortcutType;
+            }
+        }
+        return shortcutTypes;
     }
 
     /**
@@ -162,22 +202,43 @@ public final class ShortcutUtils {
      * @param type The shortcut type.
      * @return Mapping key in Settings.
      */
+    @SuppressLint("SwitchIntDef")
     public static String convertToKey(@UserShortcutType int type) {
-        switch (type) {
-            case UserShortcutType.SOFTWARE:
-                return Settings.Secure.ACCESSIBILITY_BUTTON_TARGETS;
-            case UserShortcutType.HARDWARE:
-                return Settings.Secure.ACCESSIBILITY_SHORTCUT_TARGET_SERVICE;
-            case UserShortcutType.TRIPLETAP:
-                return Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED;
-            case UserShortcutType.TWOFINGER_DOUBLETAP:
-                return Settings.Secure.ACCESSIBILITY_MAGNIFICATION_TWO_FINGER_TRIPLE_TAP_ENABLED;
-            case UserShortcutType.QUICK_SETTINGS:
-                return Settings.Secure.ACCESSIBILITY_QS_TARGETS;
-            default:
-                throw new IllegalArgumentException(
-                        "Unsupported user shortcut type: " + type);
-        }
+        return switch (type) {
+            case SOFTWARE -> Settings.Secure.ACCESSIBILITY_BUTTON_TARGETS;
+            case GESTURE -> Settings.Secure.ACCESSIBILITY_GESTURE_TARGETS;
+            case HARDWARE -> Settings.Secure.ACCESSIBILITY_SHORTCUT_TARGET_SERVICE;
+            case TRIPLETAP -> Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED;
+            case TWOFINGER_DOUBLETAP ->
+                    Settings.Secure.ACCESSIBILITY_MAGNIFICATION_TWO_FINGER_TRIPLE_TAP_ENABLED;
+            case QUICK_SETTINGS -> Settings.Secure.ACCESSIBILITY_QS_TARGETS;
+            case KEY_GESTURE -> Settings.Secure.ACCESSIBILITY_KEY_GESTURE_TARGETS;
+            default -> throw new IllegalArgumentException(
+                    "Unsupported user shortcut type: " + type);
+        };
+    }
+
+    /**
+     * Converts {@link Settings.Secure} key to {@link UserShortcutType}.
+     *
+     * @param key The shortcut key in Settings.
+     * @return The mapped type
+     */
+    @UserShortcutType
+    public static int convertToType(String key) {
+        return switch (key) {
+            case Settings.Secure.ACCESSIBILITY_BUTTON_TARGETS -> SOFTWARE;
+            case Settings.Secure.ACCESSIBILITY_GESTURE_TARGETS -> GESTURE;
+            case Settings.Secure.ACCESSIBILITY_QS_TARGETS -> QUICK_SETTINGS;
+            case Settings.Secure.ACCESSIBILITY_SHORTCUT_TARGET_SERVICE -> HARDWARE;
+            case Settings.Secure.ACCESSIBILITY_DISPLAY_MAGNIFICATION_ENABLED ->
+                    TRIPLETAP;
+            case Settings.Secure.ACCESSIBILITY_MAGNIFICATION_TWO_FINGER_TRIPLE_TAP_ENABLED ->
+                    TWOFINGER_DOUBLETAP;
+            case Settings.Secure.ACCESSIBILITY_KEY_GESTURE_TARGETS -> KEY_GESTURE;
+            default -> throw new IllegalArgumentException(
+                    "Unsupported user shortcut key: " + key);
+        };
     }
 
     /**
@@ -192,8 +253,7 @@ public final class ShortcutUtils {
      */
     public static void updateInvisibleToggleAccessibilityServiceEnableState(
             Context context, Set<String> componentNames, int userId) {
-        final AccessibilityManager am = (AccessibilityManager) context.getSystemService(
-                Context.ACCESSIBILITY_SERVICE);
+        final AccessibilityManager am = context.getSystemService(AccessibilityManager.class);
         if (am == null) return;
 
         final List<AccessibilityServiceInfo> installedServices =
@@ -224,7 +284,9 @@ public final class ShortcutUtils {
                 boolean enableA11yService = servicesWithShortcuts.contains(componentName);
                 AccessibilityUtils.setAccessibilityServiceState(
                         context,
-                        ComponentName.unflattenFromString(componentName), enableA11yService);
+                        ComponentName.unflattenFromString(componentName),
+                        enableA11yService,
+                        userId);
             }
         }
     }
@@ -269,5 +331,43 @@ public final class ShortcutUtils {
             }
             return Collections.unmodifiableSet(targets);
         }
+    }
+
+    /**
+     * Retrieves the button mode of the provided context.
+     * Returns -1 if the button mode is undefined.
+     * Valid button modes:
+     * {@link Settings.Secure#ACCESSIBILITY_BUTTON_MODE_NAVIGATION_BAR},
+     * {@link Settings.Secure#ACCESSIBILITY_BUTTON_MODE_FLOATING_MENU},
+     * {@link Settings.Secure#ACCESSIBILITY_BUTTON_MODE_GESTURE}
+     */
+    public static int getButtonMode(Context context, @UserIdInt int userId) {
+        return Settings.Secure.getIntForUser(context.getContentResolver(),
+                ACCESSIBILITY_BUTTON_MODE, /* default value = */ -1, userId);
+    }
+
+    /**
+     * Sets the button mode of the provided context.
+     * Must be a valid button mode, or it will return false.
+     * Returns true if the setting was changed, false otherwise.
+     * Valid button modes:
+     * {@link Settings.Secure#ACCESSIBILITY_BUTTON_MODE_NAVIGATION_BAR},
+     * {@link Settings.Secure#ACCESSIBILITY_BUTTON_MODE_FLOATING_MENU},
+     * {@link Settings.Secure#ACCESSIBILITY_BUTTON_MODE_GESTURE}
+     */
+    public static boolean setButtonMode(Context context, int mode, @UserIdInt int userId) {
+        // Input validation
+        if (getButtonMode(context, userId) == mode) {
+            return false;
+        }
+        if ((mode
+                & (ACCESSIBILITY_BUTTON_MODE_NAVIGATION_BAR
+                | ACCESSIBILITY_BUTTON_MODE_FLOATING_MENU
+                | ACCESSIBILITY_BUTTON_MODE_GESTURE)) != mode) {
+            Slog.w(TAG, "Tried to set button mode to unexpected value " + mode);
+            return false;
+        }
+        return Settings.Secure.putIntForUser(
+                context.getContentResolver(), ACCESSIBILITY_BUTTON_MODE, mode, userId);
     }
 }

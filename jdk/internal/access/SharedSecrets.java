@@ -43,7 +43,11 @@ public class SharedSecrets {
     private static JavaAWTAccess javaAWTAccess;
     private static JavaAWTFontAccess javaAWTFontAccess;
     private static JavaBeansAccess javaBeansAccess;
+    */
+    // END Android-removed: Pruned unused access interfaces.
     private static JavaLangAccess javaLangAccess;
+    // BEGIN Android-removed: Pruned unused access interfaces.
+    /*
     private static JavaLangInvokeAccess javaLangInvokeAccess;
     private static JavaLangModuleAccess javaLangModuleAccess;
     private static JavaLangRefAccess javaLangRefAccess;
@@ -111,12 +115,16 @@ public class SharedSecrets {
     public static void setJavaUtilJarAccess(JavaUtilJarAccess access) {
         javaUtilJarAccess = access;
     }
+    */
+    // END Android-removed: Pruned unused access interfaces.
     public static void setJavaLangAccess(JavaLangAccess jla) {
         javaLangAccess = jla;
     }
     public static JavaLangAccess getJavaLangAccess() {
         return javaLangAccess;
     }
+    // BEGIN Android-removed: Pruned unused access interfaces.
+    /*
     public static void setJavaLangInvokeAccess(JavaLangInvokeAccess jlia) {
         javaLangInvokeAccess = jlia;
     }

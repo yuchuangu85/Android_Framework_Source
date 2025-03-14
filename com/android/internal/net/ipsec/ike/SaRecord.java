@@ -675,6 +675,8 @@ public abstract class SaRecord implements AutoCloseable {
 
             mInitiatorSpiResource = initSpi;
             mResponderSpiResource = respSpi;
+            mInitiatorSpiResource.bindToIkeSaRecord();
+            mResponderSpiResource.bindToIkeSaRecord();
 
             mSkD = skD;
             mSkPi = skPi;
@@ -925,6 +927,8 @@ public abstract class SaRecord implements AutoCloseable {
         @Override
         public void close() {
             super.close();
+            mInitiatorSpiResource.unbindFromIkeSaRecord();
+            mResponderSpiResource.unbindFromIkeSaRecord();
             mInitiatorSpiResource.close();
             mResponderSpiResource.close();
         }

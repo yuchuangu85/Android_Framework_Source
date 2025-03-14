@@ -31,6 +31,19 @@ import java.util.Set;
 public final class ValidationUtils {
     public static final String INTDEF_VALIDATION_ERROR_PREFIX = "Unknown Intdef value";
 
+    /** Requires integer value to be within the range. */
+    public static void requireInRange(int value, int lowerBound, int upperBound, String name) {
+        if (value < lowerBound) {
+            throw new IllegalArgumentException(
+                    name + " must not be less than " + lowerBound + ", currently " + value);
+        }
+
+        if (value > upperBound) {
+            throw new IllegalArgumentException(
+                    name + " must not be more than " + upperBound + ", currently " + value);
+        }
+    }
+
     /** Requires long value to be within the range. */
     public static void requireInRange(long value, long lowerBound, long upperBound, String name) {
         if (value < lowerBound) {

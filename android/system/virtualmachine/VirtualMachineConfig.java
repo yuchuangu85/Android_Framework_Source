@@ -34,12 +34,19 @@ import android.annotation.TestApi;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.net.LocalSocket;
+import android.net.LocalSocketAddress;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.os.PersistableBundle;
 import android.sysprop.HypervisorProperties;
+import android.system.virtualizationservice.AssignedDevices;
+import android.system.virtualizationservice.CpuOptions;
+import android.system.virtualizationservice.CustomMemoryBackingFile;
 import android.system.virtualizationservice.DiskImage;
 import android.system.virtualizationservice.Partition;
+import android.system.virtualizationservice.SharedPath;
+import android.system.virtualizationservice.UsbConfig;
 import android.system.virtualizationservice.VirtualMachineAppConfig;
 import android.system.virtualizationservice.VirtualMachinePayloadConfig;
 import android.system.virtualizationservice.VirtualMachineRawConfig;
@@ -47,7 +54,6 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.android.system.virtualmachine.flags.Flags;
-
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -58,6 +64,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -78,9 +86,12 @@ public final class VirtualMachineConfig {
     private static final String TAG = "VirtualMachineConfig";
 
     private static String[] EMPTY_STRING_ARRAY = {};
+    private static final String U_BOOT_PREBUILT_PATH_ARM = "/apex/com.android.virt/etc/u-boot.bin";
+    private static final String U_BOOT_PREBUILT_PATH_X86 = "/apex/com.android.virt/etc/u-boot.rom";
 
     // These define the schema of the config file persisted on disk.
-    private static final int VERSION = 8;
+    // Please bump up the version number when adding a new key.
+    private static final int VERSION = 10;
     private static final String KEY_VERSION = "version";
     private static final String KEY_PACKAGENAME = "packageName";
     private static final String KEY_APKPATH = "apkPath";
@@ -91,19 +102,22 @@ public final class VirtualMachineConfig {
     private static final String KEY_PROTECTED_VM = "protectedVm";
     private static final String KEY_MEMORY_BYTES = "memoryBytes";
     private static final String KEY_CPU_TOPOLOGY = "cpuTopology";
+    private static final String KEY_CONSOLE_INPUT_DEVICE = "consoleInputDevice";
     private static final String KEY_ENCRYPTED_STORAGE_BYTES = "encryptedStorageBytes";
     private static final String KEY_VM_OUTPUT_CAPTURED = "vmOutputCaptured";
     private static final String KEY_VM_CONSOLE_INPUT_SUPPORTED = "vmConsoleInputSupported";
+    private static final String KEY_CONNECT_VM_CONSOLE = "connectVmConsole";
     private static final String KEY_VENDOR_DISK_IMAGE_PATH = "vendorDiskImagePath";
     private static final String KEY_OS = "os";
     private static final String KEY_EXTRA_APKS = "extraApks";
+    private static final String KEY_SHOULD_BOOST_UCLAMP = "shouldBoostUclamp";
+    private static final String KEY_SHOULD_USE_HUGEPAGES = "shouldUseHugepages";
 
     /** @hide */
     @Retention(RetentionPolicy.SOURCE)
-    @IntDef(prefix = "DEBUG_LEVEL_", value = {
-            DEBUG_LEVEL_NONE,
-            DEBUG_LEVEL_FULL
-    })
+    @IntDef(
+            prefix = "DEBUG_LEVEL_",
+            value = {DEBUG_LEVEL_NONE, DEBUG_LEVEL_FULL})
     public @interface DebugLevel {}
 
     /**
@@ -159,9 +173,7 @@ public final class VirtualMachineConfig {
 
     @DebugLevel private final int mDebugLevel;
 
-    /**
-     * Whether to run the VM in protected mode, so the host can't access its memory.
-     */
+    /** Whether to run the VM in protected mode, so the host can't access its memory. */
     private final boolean mProtectedVm;
 
     /**
@@ -173,9 +185,10 @@ public final class VirtualMachineConfig {
     /** CPU topology configuration of the VM. */
     @CpuTopology private final int mCpuTopology;
 
-    /**
-     * Path within the APK to the payload config file that defines software aspects of the VM.
-     */
+    /** The serial device for VM console input. */
+    @Nullable private final String mConsoleInputDevice;
+
+    /** Path within the APK to the payload config file that defines software aspects of the VM. */
     @Nullable private final String mPayloadConfigPath;
 
     /** Name of the payload binary file within the APK that will be executed within the VM. */
@@ -193,10 +206,17 @@ public final class VirtualMachineConfig {
     /** Whether the app can write console input to the VM */
     private final boolean mVmConsoleInputSupported;
 
+    /** Whether to connect the VM console to a host console. */
+    private final boolean mConnectVmConsole;
+
     @Nullable private final File mVendorDiskImage;
 
     /** OS name of the VM using payload binaries. */
     @NonNull @OsName private final String mOs;
+
+    private final boolean mShouldBoostUclamp;
+
+    private final boolean mShouldUseHugepages;
 
     @Retention(RetentionPolicy.SOURCE)
     @StringDef(
@@ -211,7 +231,6 @@ public final class VirtualMachineConfig {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     @OsName
     public static final String MICRODROID = "microdroid";
 
@@ -226,11 +245,15 @@ public final class VirtualMachineConfig {
             boolean protectedVm,
             long memoryBytes,
             @CpuTopology int cpuTopology,
+            @Nullable String consoleInputDevice,
             long encryptedStorageBytes,
             boolean vmOutputCaptured,
             boolean vmConsoleInputSupported,
+            boolean connectVmConsole,
             @Nullable File vendorDiskImage,
-            @NonNull @OsName String os) {
+            @NonNull @OsName String os,
+            boolean shouldBoostUclamp,
+            boolean shouldUseHugepages) {
         // This is only called from Builder.build(); the builder handles parameter validation.
         mPackageName = packageName;
         mApkPath = apkPath;
@@ -246,11 +269,15 @@ public final class VirtualMachineConfig {
         mProtectedVm = protectedVm;
         mMemoryBytes = memoryBytes;
         mCpuTopology = cpuTopology;
+        mConsoleInputDevice = consoleInputDevice;
         mEncryptedStorageBytes = encryptedStorageBytes;
         mVmOutputCaptured = vmOutputCaptured;
         mVmConsoleInputSupported = vmConsoleInputSupported;
+        mConnectVmConsole = connectVmConsole;
         mVendorDiskImage = vendorDiskImage;
         mOs = os;
+        mShouldBoostUclamp = shouldBoostUclamp;
+        mShouldUseHugepages = shouldUseHugepages;
     }
 
     /** Loads a config from a file. */
@@ -325,12 +352,17 @@ public final class VirtualMachineConfig {
             builder.setMemoryBytes(memoryBytes);
         }
         builder.setCpuTopology(b.getInt(KEY_CPU_TOPOLOGY));
+        String consoleInputDevice = b.getString(KEY_CONSOLE_INPUT_DEVICE);
+        if (consoleInputDevice != null) {
+            builder.setConsoleInputDevice(consoleInputDevice);
+        }
         long encryptedStorageBytes = b.getLong(KEY_ENCRYPTED_STORAGE_BYTES);
         if (encryptedStorageBytes != 0) {
             builder.setEncryptedStorageBytes(encryptedStorageBytes);
         }
         builder.setVmOutputCaptured(b.getBoolean(KEY_VM_OUTPUT_CAPTURED));
         builder.setVmConsoleInputSupported(b.getBoolean(KEY_VM_CONSOLE_INPUT_SUPPORTED));
+        builder.setConnectVmConsole(b.getBoolean(KEY_CONNECT_VM_CONSOLE));
 
         String vendorDiskImagePath = b.getString(KEY_VENDOR_DISK_IMAGE_PATH);
         if (vendorDiskImagePath != null) {
@@ -345,6 +377,9 @@ public final class VirtualMachineConfig {
                 builder.addExtraApk(extraApk);
             }
         }
+
+        builder.setShouldBoostUclamp(b.getBoolean(KEY_SHOULD_BOOST_UCLAMP));
+        builder.setShouldUseHugepages(b.getBoolean(KEY_SHOULD_USE_HUGEPAGES));
 
         return builder.build();
     }
@@ -376,6 +411,9 @@ public final class VirtualMachineConfig {
         b.putInt(KEY_DEBUGLEVEL, mDebugLevel);
         b.putBoolean(KEY_PROTECTED_VM, mProtectedVm);
         b.putInt(KEY_CPU_TOPOLOGY, mCpuTopology);
+        if (mConsoleInputDevice != null) {
+            b.putString(KEY_CONSOLE_INPUT_DEVICE, mConsoleInputDevice);
+        }
         if (mMemoryBytes > 0) {
             b.putLong(KEY_MEMORY_BYTES, mMemoryBytes);
         }
@@ -384,6 +422,7 @@ public final class VirtualMachineConfig {
         }
         b.putBoolean(KEY_VM_OUTPUT_CAPTURED, mVmOutputCaptured);
         b.putBoolean(KEY_VM_CONSOLE_INPUT_SUPPORTED, mVmConsoleInputSupported);
+        b.putBoolean(KEY_CONNECT_VM_CONSOLE, mConnectVmConsole);
         if (mVendorDiskImage != null) {
             b.putString(KEY_VENDOR_DISK_IMAGE_PATH, mVendorDiskImage.getAbsolutePath());
         }
@@ -392,6 +431,8 @@ public final class VirtualMachineConfig {
             String[] extraApks = mExtraApks.toArray(new String[0]);
             b.putStringArray(KEY_EXTRA_APKS, extraApks);
         }
+        b.putBoolean(KEY_SHOULD_BOOST_UCLAMP, mShouldBoostUclamp);
+        b.putBoolean(KEY_SHOULD_USE_HUGEPAGES, mShouldUseHugepages);
         b.writeToStream(output);
     }
 
@@ -414,7 +455,6 @@ public final class VirtualMachineConfig {
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     @NonNull
     public List<String> getExtraApks() {
         return mExtraApks;
@@ -544,17 +584,38 @@ public final class VirtualMachineConfig {
     }
 
     /**
+     * Returns whether to connect the VM console to a host console.
+     *
+     * @see Builder#setConnectVmConsole
+     * @hide
+     */
+    public boolean isConnectVmConsole() {
+        return mConnectVmConsole;
+    }
+
+    /**
      * Returns the OS of the VM.
      *
      * @see Builder#setOs
      * @hide
      */
     @TestApi
-    @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
     @NonNull
     @OsName
     public String getOs() {
         return mOs;
+    }
+
+    /**
+     * Returns whether this VM enabled the hint to use transparent huge pages.
+     *
+     * @see Builder#setShouldUseHugepages
+     * @hide
+     */
+    @SystemApi
+    @FlaggedApi(Flags.FLAG_PROMOTE_SET_SHOULD_USE_HUGEPAGES_TO_SYSTEM_API)
+    public boolean shouldUseHugepages() {
+        return mShouldUseHugepages;
     }
 
     /**
@@ -577,7 +638,9 @@ public final class VirtualMachineConfig {
                 && this.mEncryptedStorageBytes == other.mEncryptedStorageBytes
                 && this.mVmOutputCaptured == other.mVmOutputCaptured
                 && this.mVmConsoleInputSupported == other.mVmConsoleInputSupported
+                && this.mConnectVmConsole == other.mConnectVmConsole
                 && (this.mVendorDiskImage == null) == (other.mVendorDiskImage == null)
+                && Objects.equals(this.mConsoleInputDevice, other.mConsoleInputDevice)
                 && Objects.equals(this.mPayloadConfigPath, other.mPayloadConfigPath)
                 && Objects.equals(this.mPayloadBinaryName, other.mPayloadBinaryName)
                 && Objects.equals(this.mPackageName, other.mPackageName)
@@ -592,6 +655,34 @@ public final class VirtualMachineConfig {
             Log.d(TAG, "cannot open", e);
             return null;
         }
+    }
+
+    private void startCrosvmVirtiofs(
+            String sharedPath,
+            int host_uid,
+            int guest_uid,
+            int guest_gid,
+            String tagName,
+            int mask,
+            String socketPath)
+            throws IOException {
+        String ugidMapValue =
+                String.format("%d %d %d %d %d /", guest_uid, guest_gid, host_uid, host_uid, mask);
+        String cfgArg = String.format("ugid_map='%s'", ugidMapValue);
+        ProcessBuilder pb =
+                new ProcessBuilder(
+                        "/apex/com.android.virt/bin/crosvm",
+                        "device",
+                        "fs",
+                        "--socket=" + socketPath,
+                        "--tag=" + tagName,
+                        "--shared-dir=" + sharedPath,
+                        "--cfg",
+                        cfgArg,
+                        "--disable-sandbox",
+                        "--skip-pivot-root=true");
+
+        pb.start();
     }
 
     VirtualMachineRawConfig toVsRawConfig() throws IllegalStateException, IOException {
@@ -621,6 +712,15 @@ public final class VirtualMachineConfig {
                 Optional.ofNullable(customImageConfig.getBootloaderPath())
                         .map((path) -> openOrNull(new File(path), MODE_READ_ONLY))
                         .orElse(null);
+
+        if (config.kernel == null && config.bootloader == null) {
+          if (Arrays.stream(Build.SUPPORTED_ABIS).anyMatch("x86_64"::equals)) {
+            config.bootloader = openOrNull(new File(U_BOOT_PREBUILT_PATH_X86), MODE_READ_ONLY);
+          } else {
+            config.bootloader = openOrNull(new File(U_BOOT_PREBUILT_PATH_ARM), MODE_READ_ONLY);
+          }
+        }
+
         config.params =
                 Optional.ofNullable(customImageConfig.getParams())
                         .map((params) -> TextUtils.join(" ", params))
@@ -633,23 +733,110 @@ public final class VirtualMachineConfig {
         for (int i = 0; i < config.disks.length; i++) {
             config.disks[i] = new DiskImage();
             config.disks[i].writable = customImageConfig.getDisks()[i].isWritable();
+            String diskImagePath = customImageConfig.getDisks()[i].getImagePath();
+            if (diskImagePath != null) {
+                config.disks[i].image =
+                        ParcelFileDescriptor.open(
+                                new File(diskImagePath),
+                                config.disks[i].writable ? MODE_READ_WRITE : MODE_READ_ONLY);
+            }
 
-            config.disks[i].image =
-                    ParcelFileDescriptor.open(
-                            new File(customImageConfig.getDisks()[i].getImagePath()),
-                            config.disks[i].writable ? MODE_READ_WRITE : MODE_READ_ONLY);
-            config.disks[i].partitions = new Partition[0];
+            List<Partition> partitions = new ArrayList<>();
+            for (VirtualMachineCustomImageConfig.Partition p :
+                    customImageConfig.getDisks()[i].getPartitions()) {
+                Partition part = new Partition();
+                part.label = p.name;
+                part.image =
+                        ParcelFileDescriptor.open(
+                                new File(p.imagePath),
+                                p.writable ? MODE_READ_WRITE : MODE_READ_ONLY);
+                part.writable = p.writable;
+                part.guid = TextUtils.isEmpty(p.guid) ? null : p.guid;
+                partitions.add(part);
+            }
+            config.disks[i].partitions = partitions.toArray(new Partition[0]);
+        }
+
+        config.sharedPaths =
+                new SharedPath
+                        [Optional.ofNullable(customImageConfig.getSharedPaths())
+                                .map(arr -> arr.length)
+                                .orElse(0)];
+        for (int i = 0; i < config.sharedPaths.length; i++) {
+            config.sharedPaths[i] = customImageConfig.getSharedPaths()[i].toParcelable();
+            if (config.sharedPaths[i].appDomain) {
+                try {
+                    String socketPath = customImageConfig.getSharedPaths()[i].getSocketPath();
+                    startCrosvmVirtiofs(
+                            config.sharedPaths[i].sharedPath,
+                            config.sharedPaths[i].hostUid,
+                            config.sharedPaths[i].guestUid,
+                            config.sharedPaths[i].guestGid,
+                            config.sharedPaths[i].tag,
+                            config.sharedPaths[i].mask,
+                            socketPath);
+                    long startTime = System.currentTimeMillis();
+                    long deadline = startTime + 5000;
+                    // TODO: use socketpair instead of crosvm creating the named sockets.
+                    while (!Files.exists(Path.of(socketPath))
+                            && System.currentTimeMillis() < deadline) {
+                        Thread.sleep(200);
+                    }
+                    if (!Files.exists(Path.of(socketPath))) {
+                        throw new IOException("Timeout waiting for socket: " + socketPath);
+                    }
+                    LocalSocket socket = new LocalSocket();
+                    socket.connect(
+                            new LocalSocketAddress(
+                                    socketPath, LocalSocketAddress.Namespace.FILESYSTEM));
+                    config.sharedPaths[i].socketFd =
+                            ParcelFileDescriptor.dup(socket.getFileDescriptor());
+                } catch (IOException | InterruptedException e) {
+                    Log.e(TAG, "startCrosvmVirtiofs failed", e);
+                    throw new RuntimeException(e);
+                }
+            }
         }
 
         config.displayConfig =
                 Optional.ofNullable(customImageConfig.getDisplayConfig())
                         .map(dc -> dc.toParcelable())
                         .orElse(null);
+        config.gpuConfig =
+                Optional.ofNullable(customImageConfig.getGpuConfig())
+                        .map(dc -> dc.toParcelable())
+                        .orElse(null);
         config.protectedVm = this.mProtectedVm;
         config.memoryMib = bytesToMebiBytes(mMemoryBytes);
-        config.cpuTopology = (byte) this.mCpuTopology;
-        config.devices = EMPTY_STRING_ARRAY;
+        switch (this.mCpuTopology) {
+            case CPU_TOPOLOGY_MATCH_HOST:
+                config.cpuOptions = new CpuOptions();
+                config.cpuOptions.cpuTopology = CpuOptions.CpuTopology.matchHost(true);
+                break;
+            default:
+                config.cpuOptions = new CpuOptions();
+                config.cpuOptions.cpuTopology = CpuOptions.CpuTopology.cpuCount(1);
+                break;
+        }
+        config.consoleInputDevice = mConsoleInputDevice;
+        config.devices = AssignedDevices.devices(EMPTY_STRING_ARRAY);
         config.platformVersion = "~1.0";
+        config.audioConfig =
+                Optional.ofNullable(customImageConfig.getAudioConfig())
+                        .map(ac -> ac.toParcelable())
+                        .orElse(null);
+        config.balloon = customImageConfig.useAutoMemoryBalloon();
+        config.usbConfig =
+                Optional.ofNullable(customImageConfig.getUsbConfig())
+                        .map(
+                                uc -> {
+                                    UsbConfig usbConfig = new UsbConfig();
+                                    usbConfig.controller = uc.getUsbController();
+                                    return usbConfig;
+                                })
+                        .orElse(null);
+        config.teeServices = EMPTY_STRING_ARRAY;
+        config.customMemoryBackingFiles = new CustomMemoryBackingFile[0];
         return config;
     }
 
@@ -675,11 +862,9 @@ public final class VirtualMachineConfig {
             VirtualMachinePayloadConfig payloadConfig = new VirtualMachinePayloadConfig();
             payloadConfig.payloadBinaryName = mPayloadBinaryName;
             payloadConfig.extraApks = Collections.emptyList();
-            vsConfig.payload =
-                    VirtualMachineAppConfig.Payload.payloadConfig(payloadConfig);
+            vsConfig.payload = VirtualMachineAppConfig.Payload.payloadConfig(payloadConfig);
         } else {
-            vsConfig.payload =
-                    VirtualMachineAppConfig.Payload.configPath(mPayloadConfigPath);
+            vsConfig.payload = VirtualMachineAppConfig.Payload.configPath(mPayloadConfigPath);
         }
         vsConfig.osName = mOs;
         switch (mDebugLevel) {
@@ -694,16 +879,21 @@ public final class VirtualMachineConfig {
         vsConfig.memoryMib = bytesToMebiBytes(mMemoryBytes);
         switch (mCpuTopology) {
             case CPU_TOPOLOGY_MATCH_HOST:
-                vsConfig.cpuTopology = android.system.virtualizationservice.CpuTopology.MATCH_HOST;
+                vsConfig.cpuOptions = new CpuOptions();
+                vsConfig.cpuOptions.cpuTopology = CpuOptions.CpuTopology.matchHost(true);
                 break;
             default:
-                vsConfig.cpuTopology = android.system.virtualizationservice.CpuTopology.ONE_CPU;
+                vsConfig.cpuOptions = new CpuOptions();
+                vsConfig.cpuOptions.cpuTopology = CpuOptions.CpuTopology.cpuCount(1);
                 break;
         }
+
         if (mVendorDiskImage != null) {
             VirtualMachineAppConfig.CustomConfig customConfig =
                     new VirtualMachineAppConfig.CustomConfig();
             customConfig.devices = EMPTY_STRING_ARRAY;
+            customConfig.extraKernelCmdlineParams = EMPTY_STRING_ARRAY;
+            customConfig.teeServices = EMPTY_STRING_ARRAY;
             try {
                 customConfig.vendorImage =
                         ParcelFileDescriptor.open(mVendorDiskImage, MODE_READ_ONLY);
@@ -714,6 +904,10 @@ public final class VirtualMachineConfig {
             }
             vsConfig.customConfig = customConfig;
         }
+
+        vsConfig.boostUclamp = mShouldBoostUclamp;
+        vsConfig.hugePages = mShouldUseHugepages;
+
         return vsConfig;
     }
 
@@ -786,11 +980,15 @@ public final class VirtualMachineConfig {
         private boolean mProtectedVmSet;
         private long mMemoryBytes;
         @CpuTopology private int mCpuTopology = CPU_TOPOLOGY_ONE_CPU;
+        @Nullable private String mConsoleInputDevice;
         private long mEncryptedStorageBytes;
         private boolean mVmOutputCaptured = false;
         private boolean mVmConsoleInputSupported = false;
+        private boolean mConnectVmConsole = false;
         @Nullable private File mVendorDiskImage;
         @NonNull @OsName private String mOs = DEFAULT_OS;
+        private boolean mShouldBoostUclamp = false;
+        private boolean mShouldUseHugepages = false;
 
         /**
          * Creates a builder for the given context.
@@ -862,6 +1060,11 @@ public final class VirtualMachineConfig {
                 throw new IllegalStateException("debug level must be FULL to use console input");
             }
 
+            if (mConnectVmConsole && mDebugLevel != DEBUG_LEVEL_FULL) {
+                throw new IllegalStateException(
+                        "debug level must be FULL to connect to the console");
+            }
+
             return new VirtualMachineConfig(
                     packageName,
                     apkPath,
@@ -873,11 +1076,15 @@ public final class VirtualMachineConfig {
                     mProtectedVm,
                     mMemoryBytes,
                     mCpuTopology,
+                    mConsoleInputDevice,
                     mEncryptedStorageBytes,
                     mVmOutputCaptured,
                     mVmConsoleInputSupported,
+                    mConnectVmConsole,
                     mVendorDiskImage,
-                    mOs);
+                    mOs,
+                    mShouldBoostUclamp,
+                    mShouldUseHugepages);
         }
 
         /**
@@ -906,7 +1113,6 @@ public final class VirtualMachineConfig {
          * @hide
          */
         @TestApi
-        @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
         @NonNull
         public Builder addExtraApk(@NonNull String packageName) {
             mExtraApks.add(requireNonNull(packageName, "extra APK package name must not be null"));
@@ -916,7 +1122,8 @@ public final class VirtualMachineConfig {
         /**
          * Sets the path within the APK to the payload config file that defines software aspects of
          * the VM. The file is a JSON file; see
-         * packages/modules/Virtualization/microdroid/payload/config/src/lib.rs for the format.
+         * packages/modules/Virtualization/libs/libmicrodroid_payload_metadata/config/src/lib.rs for
+         * the format.
          *
          * @hide
          */
@@ -1055,6 +1262,17 @@ public final class VirtualMachineConfig {
         }
 
         /**
+         * Sets the serial device for VM console input.
+         *
+         * @see android.system.virtualizationservice.ConsoleInputDevice
+         * @hide
+         */
+        public Builder setConsoleInputDevice(@Nullable String consoleInputDevice) {
+            mConsoleInputDevice = consoleInputDevice;
+            return this;
+        }
+
+        /**
          * Sets the size (in bytes) of encrypted storage available to the VM. If not set, no
          * encrypted storage is provided.
          *
@@ -1125,12 +1343,28 @@ public final class VirtualMachineConfig {
         }
 
         /**
+         * Sets whether to connect the VM console to a host console. Default is {@code false}.
+         *
+         * <p>Setting this as {@code true} will allow the shell to directly communicate with the VM
+         * console through the connected host console.
+         *
+         * <p>The {@linkplain #setDebugLevel debug level} must be {@link #DEBUG_LEVEL_FULL} to be
+         * set as true.
+         *
+         * @hide
+         */
+        @NonNull
+        public Builder setConnectVmConsole(boolean supported) {
+            mConnectVmConsole = supported;
+            return this;
+        }
+
+        /**
          * Sets the path to the disk image with vendor-specific modules.
          *
          * @hide
          */
         @TestApi
-        @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
         @RequiresPermission(VirtualMachine.USE_CUSTOM_VIRTUAL_MACHINE_PERMISSION)
         @NonNull
         public Builder setVendorDiskImage(@NonNull File vendorDiskImage) {
@@ -1147,11 +1381,41 @@ public final class VirtualMachineConfig {
          * @hide
          */
         @TestApi
-        @FlaggedApi(Flags.FLAG_AVF_V_TEST_APIS)
         @RequiresPermission(VirtualMachine.USE_CUSTOM_VIRTUAL_MACHINE_PERMISSION)
         @NonNull
         public Builder setOs(@NonNull @OsName String os) {
             mOs = requireNonNull(os, "os must not be null");
+            return this;
+        }
+
+        /** @hide */
+        public Builder setShouldBoostUclamp(boolean shouldBoostUclamp) {
+            mShouldBoostUclamp = shouldBoostUclamp;
+            return this;
+        }
+
+        /**
+         * Hints whether the VM should make use of the transparent huge pages feature.
+         *
+         * <p>Note: this API just provides a hint, whether the VM will actually use transparent huge
+         * pages additionally depends on the following:
+         *
+         * <ul>
+         *   <li>{@code /sys/kernel/mm/transparent_hugepages/shmem_enabled} should be configured
+         *       with the value {@code 'advise'}.
+         *   <li>Android host kernel version should be at least {@code android15-5.15}
+         * </ul>
+         *
+         * @see https://docs.kernel.org/admin-guide/mm/transhuge.html
+         * @see
+         *     https://cs.android.com/android/platform/superproject/main/+/main:packages/modules/Virtualization/docs/hugepages.md
+         * @hide
+         */
+        @SystemApi
+        @FlaggedApi(Flags.FLAG_PROMOTE_SET_SHOULD_USE_HUGEPAGES_TO_SYSTEM_API)
+        @NonNull
+        public Builder setShouldUseHugepages(boolean shouldUseHugepages) {
+            mShouldUseHugepages = shouldUseHugepages;
             return this;
         }
     }

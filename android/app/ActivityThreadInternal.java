@@ -17,6 +17,7 @@
 package android.app;
 
 import android.content.ComponentCallbacks2;
+import android.content.Context;
 
 import java.util.ArrayList;
 
@@ -28,7 +29,7 @@ import java.util.ArrayList;
 interface ActivityThreadInternal {
     ContextImpl getSystemContext();
 
-    ContextImpl getSystemUiContextNoCreate();
+    Context getSystemUiContextNoCreate();
 
     boolean isInDensityCompatMode();
 

@@ -5,12 +5,25 @@
 package org.chromium.net;
 
 /**
- * Version based on chrome/VERSION.
+ * Build version information for Cronet API code.
+ *
+ * <p>Note that this class will not necessarily return the same information as
+ * {@link org.chromium.net.impl.ImplVersion}. Notably, in the case of Cronet
+ * being loaded via Google Play Services, the API and impl are shipped
+ * separately and the app can end up running impl code that was not built from
+ * the same version as the API code.
+ *
+ * <p>CAUTION: this class is part of Cronet API code, but is called directly
+ * from impl code - be very careful when changing the API/ABI of this class, and
+ * keep in mind the caller code is not necessarily built from the same version
+ * as this code.
+ *
+ * @see org.chromium.net.impl.ImplVersion
  * {@hide as it's only used internally}
  */
 public class ApiVersion {
-    private static final String CRONET_VERSION = "121.0.6167.71";
-    private static final int API_LEVEL = 26;
+    private static final String CRONET_VERSION = "133.0.6876.3";
+    private static final int API_LEVEL = 34;
     /**
      * The minimum API level of implementations that are compatible with this API.
      * The last API level which broke backwards API compatibility. In other words, the
@@ -21,7 +34,7 @@ public class ApiVersion {
      * used together various unexpected Errors, like AbstractMethodError, may result.
      */
     private static final int MIN_COMPATIBLE_API_LEVEL = 3;
-    private static final String LAST_CHANGE = "4b7cc55f9aca1fe017b847e8e10091161961ddab-refs/branch-heads/6167@{#1425}";
+    private static final String LAST_CHANGE = "dba20708ac7c0069ed00b5debe9da8f855e38be0-refs/heads/main@{#1419267}";
 
     /**
      * Private constructor. All members of this class should be static.
@@ -41,7 +54,9 @@ public class ApiVersion {
     }
 
     /**
-     * The minimum API level of implementations that are compatible with this API.
+     * The *minimum* API level of implementations that are compatible with this API.
+     * Not to be confused with the *current* API level, which is returned by {@link
+     * #getMaximumAvailableApiLevel}.
      * Returns the last API level which broke backwards API compatibility. In other words, the
      * Cronet API that this class is part of won't work with Cronet implementations that implement
      * API levels less than this value. That is if

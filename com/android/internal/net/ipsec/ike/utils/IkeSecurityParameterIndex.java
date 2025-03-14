@@ -48,10 +48,17 @@ public final class IkeSecurityParameterIndex implements AutoCloseable {
     private final long mSpi;
     private final CloseGuard mCloseGuard = new CloseGuard();
 
+    /**
+     * Whether this SPI has been used to construct an IkeSaRecord. If it is bound, then this SPI
+     * cannot be released unless it is unbound from the IkeSaRecord.
+     */
+    private boolean mIsBoundToIkeSaRecord;
+
     // Package private constructor that MUST only be called from IkeSpiGenerator
     IkeSecurityParameterIndex(InetAddress sourceAddress, long spi) {
         mSourceAddress = sourceAddress;
         mSpi = spi;
+        mIsBoundToIkeSaRecord = false;
         mCloseGuard.open("close");
     }
 
@@ -73,6 +80,10 @@ public final class IkeSecurityParameterIndex implements AutoCloseable {
     /** Release an SPI that was previously reserved. */
     @Override
     public void close() {
+        if (mIsBoundToIkeSaRecord) {
+            return;
+        }
+
         sAssignedIkeSpis.remove(new Pair<InetAddress, Long>(mSourceAddress, mSpi));
         mCloseGuard.close();
     }
@@ -105,5 +116,26 @@ public final class IkeSecurityParameterIndex implements AutoCloseable {
 
         sAssignedIkeSpis.remove(new Pair<InetAddress, Long>(mSourceAddress, mSpi));
         mSourceAddress = newSourceAddress;
+    }
+
+    /**
+     * Bind this SPI to an IkeSaRecord
+     *
+     * <p>This MUST ONLY be called from an IkeSaRecord
+     */
+    public void bindToIkeSaRecord() {
+        if (mIsBoundToIkeSaRecord) {
+            throw new IllegalStateException("Already bound");
+        }
+        mIsBoundToIkeSaRecord = true;
+    }
+
+    /**
+     * Unbind this SPI from an IkeSaRecord
+     *
+     * <p>This MUST ONLY be called from an IkeSaRecord
+     */
+    public void unbindFromIkeSaRecord() {
+        mIsBoundToIkeSaRecord = false;
     }
 }

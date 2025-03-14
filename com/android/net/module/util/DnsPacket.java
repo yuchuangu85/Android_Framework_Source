@@ -50,7 +50,7 @@ import java.util.Objects;
  *
  * @hide
  */
-public abstract class DnsPacket {
+public class DnsPacket {
     /**
      * Type of the canonical name for an alias. Refer to RFC 1035 section 3.2.2.
      */
@@ -515,7 +515,14 @@ public abstract class DnsPacket {
     protected final DnsHeader mHeader;
     protected final List<DnsRecord>[] mRecords;
 
-    protected DnsPacket(@NonNull byte[] data) throws ParseException {
+    /**
+     * Returns the list of DNS records for a given section.
+     */
+    public List<DnsRecord> getRecords(@RecordType int section) {
+        return mRecords[section];
+    }
+
+    public DnsPacket(@NonNull byte[] data) throws ParseException {
         if (null == data) {
             throw new ParseException("Parse header failed, null input data");
         }
@@ -548,7 +555,7 @@ public abstract class DnsPacket {
      *
      * Note that authority records section and additional records section is not supported.
      */
-    protected DnsPacket(@NonNull DnsHeader header, @NonNull List<DnsRecord> qd,
+    public DnsPacket(@NonNull DnsHeader header, @NonNull List<DnsRecord> qd,
             @NonNull List<DnsRecord> an) {
         mHeader = Objects.requireNonNull(header);
         mRecords = new List[NUM_SECTIONS];

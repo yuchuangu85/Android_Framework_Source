@@ -102,6 +102,7 @@ public class DeviceStateMonitor extends Handler {
     private final RegistrantList mPhysicalChannelConfigRegistrants = new RegistrantList();
     private final RegistrantList mSignalStrengthReportDecisionCallbackRegistrants =
             new RegistrantList();
+    private final RegistrantList mScreenStateRegistrants = new RegistrantList();
 
     private final NetworkRequest mWifiNetworkRequest =
             new NetworkRequest.Builder()
@@ -217,7 +218,13 @@ public class DeviceStateMonitor extends Handler {
                 public void onDisplayAdded(int displayId) { }
 
                 @Override
-                public void onDisplayRemoved(int displayId) { }
+                public void onDisplayRemoved(int displayId) {
+                    /* adapter for virtual display removed */
+                    boolean screenOn = isScreenOn();
+                    Message msg = obtainMessage(EVENT_SCREEN_STATE_CHANGED);
+                    msg.arg1 = screenOn ? 1 : 0;
+                    sendMessage(msg);
+                }
 
                 @Override
                 public void onDisplayChanged(int displayId) {
@@ -509,6 +516,7 @@ public class DeviceStateMonitor extends Handler {
     private void onUpdateDeviceState(int eventType, boolean state) {
         final boolean shouldEnableBarringInfoReportsOld = shouldEnableBarringInfoReports();
         final boolean wasHighPowerEnabled = shouldEnableHighPowerConsumptionIndications();
+        boolean wasScreenOn = mIsScreenOn;
         switch (eventType) {
             case EVENT_SCREEN_STATE_CHANGED:
                 if (mIsScreenOn == state) return;
@@ -611,11 +619,16 @@ public class DeviceStateMonitor extends Handler {
         }
 
         // Determine whether to notify registrants about the non-terrestrial signal strength change.
-        if (mFeatureFlags.oemEnabledSatelliteFlag()) {
-            if (shouldEnableSignalStrengthReports()) {
-                mSignalStrengthReportDecisionCallbackRegistrants.notifyResult(true);
-            } else {
-                mSignalStrengthReportDecisionCallbackRegistrants.notifyResult(false);
+        if (shouldEnableSignalStrengthReports()) {
+            mSignalStrengthReportDecisionCallbackRegistrants.notifyResult(true);
+        } else {
+            mSignalStrengthReportDecisionCallbackRegistrants.notifyResult(false);
+        }
+
+        if (mFeatureFlags.carrierRoamingNbIotNtn()) {
+            // Determine whether to notify registrants about the screen on, off state change.
+            if (wasScreenOn != mIsScreenOn) {
+                mScreenStateRegistrants.notifyResult(mIsScreenOn);
             }
         }
     }
@@ -800,12 +813,39 @@ public class DeviceStateMonitor extends Handler {
      * @param obj AsyncResult.userObj when the message is delivered
      */
     public void registerForSignalStrengthReportDecision(Handler h, int what, Object obj) {
-        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
-            Rlog.d(TAG, "oemEnabledSatelliteFlag is disabled");
+        Registrant r = new Registrant(h, what, obj);
+        mSignalStrengthReportDecisionCallbackRegistrants.add(r);
+    }
+
+    /**
+     * Unregister for Screen on, off notifications changed.
+     * @param h Handler to notify
+     */
+    public void unregisterForScreenStateChanged(Handler h) {
+        if (!mFeatureFlags.carrierRoamingNbIotNtn()) {
+            Rlog.d(TAG, "unregisterForScreenStateChanged: carrierRoamingNbIotNtn is disabled");
+            return;
+        }
+
+        mScreenStateRegistrants.remove(h);
+    }
+
+    /**
+     * Register a callback to receive the screen on or off.
+     * @param h Handler to notify
+     * @param what msg.what when the message is delivered
+     * @param obj AsyncResult.userObj when the message is delivered
+     */
+    public void registerForScreenStateChanged(Handler h, int what, Object obj) {
+        if (!mFeatureFlags.carrierRoamingNbIotNtn()) {
+            Rlog.d(TAG, "registerForScreenStateChanged: carrierRoamingNbIotNtn is disabled");
             return;
         }
         Registrant r = new Registrant(h, what, obj);
-        mSignalStrengthReportDecisionCallbackRegistrants.add(r);
+        mScreenStateRegistrants.add(r);
+
+        // Initial notification
+        mScreenStateRegistrants.notifyResult(mIsScreenOn);
     }
 
     /**
@@ -813,10 +853,6 @@ public class DeviceStateMonitor extends Handler {
      * @param h Handler to notify
      */
     public void unregisterForSignalStrengthReportDecision(Handler h) {
-        if (!mFeatureFlags.oemEnabledSatelliteFlag()) {
-            Rlog.d(TAG, "oemEnabledSatelliteFlag is disabled");
-            return;
-        }
         mSignalStrengthReportDecisionCallbackRegistrants.remove(h);
     }
 

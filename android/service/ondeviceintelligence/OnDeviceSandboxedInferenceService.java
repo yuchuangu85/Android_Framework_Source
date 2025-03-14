@@ -21,8 +21,8 @@ import static android.app.ondeviceintelligence.flags.Flags.FLAG_ENABLE_ON_DEVICE
 
 import static com.android.internal.util.function.pooled.PooledLambda.obtainMessage;
 
-import android.annotation.CallbackExecutor;
 import android.annotation.CallSuper;
+import android.annotation.CallbackExecutor;
 import android.annotation.FlaggedApi;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -51,6 +51,7 @@ import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.IBinder;
 import android.os.ICancellationSignal;
+import android.os.IRemoteCallback;
 import android.os.Looper;
 import android.os.OutcomeReceiver;
 import android.os.ParcelFileDescriptor;
@@ -73,7 +74,7 @@ import java.util.function.Consumer;
 
 /**
  * Abstract base class for performing inference in a isolated process. This service exposes its
- * methods via {@link android.app.ondeviceintelligence.OnDeviceIntelligenceManager}.
+ * methods via {@link OnDeviceIntelligenceManager}.
  *
  * <p> A service that provides methods to perform on-device inference both in streaming and
  * non-streaming fashion. Also, provides a way to register a storage service that will be used to
@@ -100,6 +101,11 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
     private static final String TAG = OnDeviceSandboxedInferenceService.class.getSimpleName();
 
     /**
+     * @hide
+     */
+    public static final String INFERENCE_INFO_BUNDLE_KEY = "inference_info";
+
+    /**
      * The {@link Intent} that must be declared as handled by the service. To be supported, the
      * service must also require the
      * {@link android.Manifest.permission#BIND_ON_DEVICE_SANDBOXED_INFERENCE_SERVICE}
@@ -123,6 +129,16 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
      * @hide
      */
     public static final String MODEL_UNLOADED_BUNDLE_KEY = "model_unloaded";
+    /**
+     * @hide
+     */
+    public static final String MODEL_LOADED_BROADCAST_INTENT =
+        "android.service.ondeviceintelligence.MODEL_LOADED";
+    /**
+     * @hide
+     */
+    public static final String MODEL_UNLOADED_BROADCAST_INTENT =
+        "android.service.ondeviceintelligence.MODEL_UNLOADED";
 
     /**
      * @hide
@@ -148,9 +164,12 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
         if (SERVICE_INTERFACE.equals(intent.getAction())) {
             return new IOnDeviceSandboxedInferenceService.Stub() {
                 @Override
-                public void registerRemoteStorageService(IRemoteStorageService storageService) {
+                public void registerRemoteStorageService(IRemoteStorageService storageService,
+                        IRemoteCallback remoteCallback) throws RemoteException {
                     Objects.requireNonNull(storageService);
                     mRemoteStorageService = storageService;
+                    remoteCallback.sendResult(
+                            Bundle.EMPTY); //to notify caller uid to system-server.
                 }
 
                 @Override
@@ -452,7 +471,7 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
             IResponseCallback callback) {
         return new ProcessingCallback() {
             @Override
-            public void onResult(@androidx.annotation.NonNull Bundle result) {
+            public void onResult(@NonNull Bundle result) {
                 try {
                     callback.onSuccess(result);
                 } catch (RemoteException e) {
@@ -488,7 +507,7 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
             IStreamingResponseCallback callback) {
         return new StreamingProcessingCallback() {
             @Override
-            public void onPartialResult(@androidx.annotation.NonNull Bundle partialResult) {
+            public void onPartialResult(@NonNull Bundle partialResult) {
                 try {
                     callback.onNewContent(partialResult);
                 } catch (RemoteException e) {
@@ -497,7 +516,7 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
             }
 
             @Override
-            public void onResult(@androidx.annotation.NonNull Bundle result) {
+            public void onResult(@NonNull Bundle result) {
                 try {
                     callback.onSuccess(result);
                 } catch (RemoteException e) {
@@ -530,7 +549,7 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
     }
 
     private RemoteCallback wrapRemoteCallback(
-            @androidx.annotation.NonNull Consumer<Bundle> contentCallback) {
+            @NonNull Consumer<Bundle> contentCallback) {
         return new RemoteCallback(
                 result -> {
                     if (result != null) {
@@ -585,7 +604,7 @@ public abstract class OnDeviceSandboxedInferenceService extends Service {
 
             @Override
             public void onError(
-                    @androidx.annotation.NonNull OnDeviceIntelligenceException error) {
+                    @NonNull OnDeviceIntelligenceException error) {
                 try {
                     callback.onFailure(error.getErrorCode(), error.getMessage());
                 } catch (RemoteException e) {

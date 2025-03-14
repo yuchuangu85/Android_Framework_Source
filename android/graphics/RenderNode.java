@@ -16,6 +16,7 @@
 
 package android.graphics;
 
+import android.animation.Animator;
 import android.annotation.BytesLong;
 import android.annotation.ColorInt;
 import android.annotation.FloatRange;
@@ -278,7 +279,8 @@ public final class RenderNode {
          * @hide
          */
         default void positionChanged(long frameNumber, int left, int top, int right, int bottom,
-                int clipLeft, int clipTop, int clipRight, int clipBottom) {
+                int clipLeft, int clipTop, int clipRight, int clipBottom,
+                int nodeWidth, int nodeHeight) {
             positionChanged(frameNumber, left, top, right, bottom);
         }
 
@@ -303,11 +305,12 @@ public final class RenderNode {
          * @hide */
         static boolean callPositionChanged2(WeakReference<PositionUpdateListener> weakListener,
                 long frameNumber, int left, int top, int right, int bottom,
-                int clipLeft, int clipTop, int clipRight, int clipBottom) {
+                int clipLeft, int clipTop, int clipRight, int clipBottom,
+                int nodeWidth, int nodeHeight) {
             final PositionUpdateListener listener = weakListener.get();
             if (listener != null) {
                 listener.positionChanged(frameNumber, left, top, right, bottom, clipLeft,
-                        clipTop, clipRight, clipBottom);
+                        clipTop, clipRight, clipBottom, nodeWidth, nodeHeight);
                 return true;
             } else {
                 return false;
@@ -400,10 +403,11 @@ public final class RenderNode {
 
         @Override
         public void positionChanged(long frameNumber, int left, int top, int right, int bottom,
-                int clipLeft, int clipTop, int clipRight, int clipBottom) {
+                int clipLeft, int clipTop, int clipRight, int clipBottom,
+                int nodeWidth, int nodeHeight) {
             for (PositionUpdateListener pul : mListeners) {
                 pul.positionChanged(frameNumber, left, top, right, bottom, clipLeft, clipTop,
-                        clipRight, clipBottom);
+                        clipRight, clipBottom, nodeWidth, nodeHeight);
             }
         }
 
@@ -1639,7 +1643,7 @@ public final class RenderNode {
      */
     public interface AnimationHost {
         /** @hide */
-        void registerAnimatingRenderNode(RenderNode animator);
+        void registerAnimatingRenderNode(RenderNode renderNode, Animator animator);
 
         /** @hide */
         void registerVectorDrawableAnimator(NativeVectorDrawableAnimator animator);
@@ -1654,7 +1658,7 @@ public final class RenderNode {
             throw new IllegalStateException("Cannot start this animator on a detached view!");
         }
         nAddAnimator(mNativeRenderNode, animator.getNativeAnimator());
-        mAnimationHost.registerAnimatingRenderNode(this);
+        mAnimationHost.registerAnimatingRenderNode(this, animator);
     }
 
     /** @hide */

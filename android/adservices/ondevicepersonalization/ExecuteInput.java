@@ -31,17 +31,28 @@ import java.util.Objects;
  * The input data for {@link IsolatedWorker#onExecute(ExecuteInput, android.os.OutcomeReceiver)}.
  *
  */
-@FlaggedApi(Flags.FLAG_ON_DEVICE_PERSONALIZATION_APIS_ENABLED)
 public final class ExecuteInput {
     @NonNull private final String mAppPackageName;
-    @Nullable private final ByteArrayParceledSlice mSerializedAppParams;
     @NonNull private final Object mAppParamsLock = new Object();
+    @Nullable private ByteArrayParceledSlice mSerializedAppParams;
     @NonNull private volatile PersistableBundle mAppParams = null;
 
     /** @hide */
     public ExecuteInput(@NonNull ExecuteInputParcel parcel) {
         mAppPackageName = Objects.requireNonNull(parcel.getAppPackageName());
         mSerializedAppParams = parcel.getSerializedAppParams();
+    }
+
+    /** Creates an {@link ExecuteInput}.
+     *
+     * @param appPackageName the package name of the calling app.
+     * @param appParams the parameters provided by the app to the {@link IsolatedService}. The
+     * service defines the expected keys in this {@link PersistableBundle}.
+     */
+    @FlaggedApi(Flags.FLAG_DATA_CLASS_MISSING_CTORS_AND_GETTERS_ENABLED)
+    public ExecuteInput(@NonNull String appPackageName, @NonNull PersistableBundle appParams) {
+        mAppPackageName = Objects.requireNonNull(appPackageName);
+        mAppParams = Objects.requireNonNull(appParams);
     }
 
     /**
@@ -68,6 +79,7 @@ public final class ExecuteInput {
                         ? PersistableBundleUtils.fromByteArray(
                                 mSerializedAppParams.getByteArray())
                         : PersistableBundle.EMPTY;
+                mSerializedAppParams = null;
                 return mAppParams;
             } catch (Exception e) {
                 throw new IllegalStateException(e);

@@ -78,6 +78,269 @@ public class IkeMetrics {
             IkeMetricsInterface.IKE_SESSION_TERMINATED__SESSION_TYPE__SESSION_CHILD;
 
     /**
+     * Values for DhGroups from DhGroups enum proto
+     *
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            prefix = {"DH_GROUP_"},
+            value = {
+                DH_GROUP_UNSPECIFIED,
+                DH_GROUP_NONE,
+                DH_GROUP_1024_BIT_MODP,
+                DH_GROUP_1536_BIT_MODP,
+                DH_GROUP_2048_BIT_MODP,
+                DH_GROUP_3072_BIT_MODP,
+                DH_GROUP_4096_BIT_MODP,
+                DH_GROUP_CURVE_25519,
+            })
+    public @interface DhGroups {}
+
+    /** @hide */
+    public static final int DH_GROUP_UNSPECIFIED =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_UNSPECIFIED;
+
+    /** @hide */
+    public static final int DH_GROUP_NONE =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_NONE;
+
+    /** @hide */
+    public static final int DH_GROUP_1024_BIT_MODP =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_1024_BIT_MODP;
+
+    /** @hide */
+    public static final int DH_GROUP_1536_BIT_MODP =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_1536_BIT_MODP;
+
+    /** @hide */
+    public static final int DH_GROUP_2048_BIT_MODP =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_2048_BIT_MODP;
+
+    /** @hide */
+    public static final int DH_GROUP_3072_BIT_MODP =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_3072_BIT_MODP;
+
+    /** @hide */
+    public static final int DH_GROUP_4096_BIT_MODP =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_4096_BIT_MODP;
+
+    /** @hide */
+    public static final int DH_GROUP_CURVE_25519 =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__DH_GROUP__DH_GROUP_CURVE_25519;
+
+    /**
+     * Values for IntegrityAlgorithms from IntegrityAlgorithms enum proto
+     *
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            prefix = {"INTEGRITY_ALGORITHM_"},
+            value = {
+                INTEGRITY_ALGORITHM_UNSPECIFIED,
+                INTEGRITY_ALGORITHM_NONE,
+                INTEGRITY_ALGORITHM_HMAC_SHA1_96,
+                INTEGRITY_ALGORITHM_AES_XCBC_96,
+                INTEGRITY_ALGORITHM_AES_CMAC_96,
+                INTEGRITY_ALGORITHM_HMAC_SHA2_256_128,
+                INTEGRITY_ALGORITHM_HMAC_SHA2_384_192,
+                INTEGRITY_ALGORITHM_HMAC_SHA2_512_256,
+            })
+    public @interface IntegrityAlgorithms {}
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_UNSPECIFIED =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_UNSPECIFIED;
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_NONE =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_NONE;
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_HMAC_SHA1_96 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_HMAC_SHA1_96;
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_AES_XCBC_96 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_AES_XCBC_96;
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_AES_CMAC_96 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_AES_CMAC_96;
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_HMAC_SHA2_256_128 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_HMAC_SHA2_256_128;
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_HMAC_SHA2_384_192 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_HMAC_SHA2_384_192;
+
+    /** @hide */
+    public static final int INTEGRITY_ALGORITHM_HMAC_SHA2_512_256 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__INTEGRITY_ALGORITHM__INTEGRITY_ALGORITHM_HMAC_SHA2_512_256;
+
+    /**
+     * Values for PrfAlgorithms from PrfAlgorithms enum proto
+     *
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            prefix = {"PSEUDORANDOM_FUNCTION_"},
+            value = {
+                PSEUDORANDOM_FUNCTION_UNSPECIFIED,
+                PSEUDORANDOM_FUNCTION_HMAC_SHA1,
+                PSEUDORANDOM_FUNCTION_AES128_XCBC,
+                PSEUDORANDOM_FUNCTION_SHA2_256,
+                PSEUDORANDOM_FUNCTION_SHA2_384,
+                PSEUDORANDOM_FUNCTION_SHA2_512,
+                PSEUDORANDOM_FUNCTION_AES128_CMAC,
+            })
+    public @interface PrfAlgorithms {}
+
+    /** @hide */
+    public static final int PSEUDORANDOM_FUNCTION_UNSPECIFIED =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__PRF_ALGORITHMS__PSEUDORANDOM_FUNCTION_UNSPECIFIED;
+
+    /** @hide */
+    public static final int PSEUDORANDOM_FUNCTION_HMAC_SHA1 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__PRF_ALGORITHMS__PSEUDORANDOM_FUNCTION_HMAC_SHA1;
+
+    /** @hide */
+    public static final int PSEUDORANDOM_FUNCTION_AES128_XCBC =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__PRF_ALGORITHMS__PSEUDORANDOM_FUNCTION_AES128_XCBC;
+
+    /** @hide */
+    public static final int PSEUDORANDOM_FUNCTION_SHA2_256 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__PRF_ALGORITHMS__PSEUDORANDOM_FUNCTION_SHA2_256;
+
+    /** @hide */
+    public static final int PSEUDORANDOM_FUNCTION_SHA2_384 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__PRF_ALGORITHMS__PSEUDORANDOM_FUNCTION_SHA2_384;
+
+    /** @hide */
+    public static final int PSEUDORANDOM_FUNCTION_SHA2_512 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__PRF_ALGORITHMS__PSEUDORANDOM_FUNCTION_SHA2_512;
+
+    /** @hide */
+    public static final int PSEUDORANDOM_FUNCTION_AES128_CMAC =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__PRF_ALGORITHMS__PSEUDORANDOM_FUNCTION_AES128_CMAC;
+
+    /**
+     * Values for EncryptionAlgorithms from EncryptionAlgorithms enum proto
+     *
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            prefix = {"ENCRYPTION_ALGORITHM_"},
+            value = {
+                ENCRYPTION_ALGORITHM_UNSPECIFIED,
+                ENCRYPTION_ALGORITHM_3DES,
+                ENCRYPTION_ALGORITHM_AES_CBC,
+                ENCRYPTION_ALGORITHM_AES_CTR,
+                ENCRYPTION_ALGORITHM_AES_GCM_8,
+                ENCRYPTION_ALGORITHM_AES_GCM_12,
+                ENCRYPTION_ALGORITHM_AES_GCM_16,
+                ENCRYPTION_ALGORITHM_CHACHA20_POLY1305,
+            })
+    public @interface EncryptionAlgorithms {}
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_UNSPECIFIED =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_UNSPECIFIED;
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_3DES =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_3DES;
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_AES_CBC =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_AES_CBC;
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_AES_CTR =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_AES_CTR;
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_AES_GCM_8 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_AES_GCM_8;
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_AES_GCM_12 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_AES_GCM_12;
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_AES_GCM_16 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_AES_GCM_16;
+
+    /** @hide */
+    public static final int ENCRYPTION_ALGORITHM_CHACHA20_POLY1305 =
+            IkeMetricsInterface
+                    .NEGOTIATED_SECURITY_ASSOCIATION__ENCRYPTION_ALGORITHM__ENCRYPTION_ALGORITHM_CHACHA20_POLY1305;
+
+    /**
+     * Values for KeyLengths from KeyLengths enum proto
+     *
+     * @hide
+     */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(
+            prefix = {"KEY_LEN_"},
+            value = {
+                KEY_LEN_UNSPECIFIED,
+                KEY_LEN_UNUSED,
+                KEY_LEN_AES_128,
+                KEY_LEN_AES_192,
+                KEY_LEN_AES_256,
+            })
+    public @interface KeyLengths {}
+
+    /** @hide */
+    public static final int KEY_LEN_UNSPECIFIED =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__KEY_LENGTH__KEY_LEN_UNSPECIFIED;
+
+    /** @hide */
+    public static final int KEY_LEN_UNUSED =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__KEY_LENGTH__KEY_LEN_UNUSED;
+
+    /** @hide */
+    public static final int KEY_LEN_AES_128 =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__KEY_LENGTH__KEY_LEN_AES_128;
+
+    /** @hide */
+    public static final int KEY_LEN_AES_192 =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__KEY_LENGTH__KEY_LEN_AES_192;
+
+    /** @hide */
+    public static final int KEY_LEN_AES_256 =
+            IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION__KEY_LENGTH__KEY_LEN_AES_256;
+
+    /**
      * Values for State from IkeState enum proto
      *
      * @hide
@@ -428,5 +691,34 @@ public class IkeMetrics {
                 numberOfOnGoing,
                 resultSuccess,
                 ikeState);
+    }
+
+    /**
+     * Log an atom when IKE or Child SA negotiation completed (success or failure).
+     *
+     * <p>This method captures negotiated security association transforms or any failures during
+     * negotiation.
+     */
+    public void logSaNegotiation(
+            @IkeCaller int ikeCaller,
+            @IkeSessionType int ikeSessionType,
+            @IkeState int ikeState,
+            @DhGroups int dhGroup,
+            @EncryptionAlgorithms int encryptionAlgorithm,
+            @KeyLengths int keyLength,
+            @IntegrityAlgorithms int integrityAlgorithm,
+            @PrfAlgorithms int prfAlgorithm,
+            @IkeError int ikeError) {
+        IkeMetricsInterface.write(
+                IkeMetricsInterface.NEGOTIATED_SECURITY_ASSOCIATION,
+                ikeCaller,
+                ikeSessionType,
+                ikeState,
+                dhGroup,
+                encryptionAlgorithm,
+                keyLength,
+                integrityAlgorithm,
+                prfAlgorithm,
+                ikeError);
     }
 }

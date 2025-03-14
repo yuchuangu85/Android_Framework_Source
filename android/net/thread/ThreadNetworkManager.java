@@ -26,6 +26,7 @@ import android.content.Context;
 import android.os.RemoteException;
 
 import com.android.net.module.util.CollectionUtils;
+import com.android.net.thread.flags.Flags;
 
 import java.util.Collections;
 import java.util.List;
@@ -35,7 +36,7 @@ import java.util.List;
  *
  * @hide
  */
-@FlaggedApi(ThreadNetworkFlags.FLAG_THREAD_ENABLED)
+@FlaggedApi(Flags.FLAG_THREAD_ENABLED)
 @SystemApi
 @SystemService(ThreadNetworkManager.SERVICE_NAME)
 public final class ThreadNetworkManager {
@@ -78,6 +79,19 @@ public final class ThreadNetworkManager {
      */
     public static final String PERMISSION_THREAD_NETWORK_PRIVILEGED =
             "android.permission.THREAD_NETWORK_PRIVILEGED";
+
+    /**
+     * Permission allows accessing Thread network state and performing certain testing-related
+     * operations.
+     *
+     * <p>This is the same value as android.Manifest.permission.THREAD_NETWORK_TESTING. That symbol
+     * is not available on U while this feature needs to support Android U TV devices, so here is
+     * making a copy of android.Manifest.permission.THREAD_NETWORK_TESTING.
+     *
+     * @hide
+     */
+    public static final String PERMISSION_THREAD_NETWORK_TESTING =
+            "android.permission.THREAD_NETWORK_TESTING";
 
     /**
      * This user restriction specifies if Thread network is disallowed on the device. If Thread

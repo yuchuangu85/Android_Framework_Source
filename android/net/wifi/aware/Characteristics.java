@@ -16,8 +16,13 @@
 
 package android.net.wifi.aware;
 
+import static com.android.ranging.flags.Flags.FLAG_RANGING_RTT_ENABLED;
+
+import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.IntRange;
+import android.annotation.SystemApi;
+import android.net.wifi.WifiAnnotations;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Parcel;
@@ -62,6 +67,16 @@ public final class Characteristics implements Parcelable {
     public static final String KEY_SUPPORT_NAN_PAIRING = "key_support_nan_pairing";
     /** @hide */
     public static final String KEY_SUPPORT_SUSPENSION = "key_support_suspension";
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    public static final String KEY_SUPPORT_PERIODIC_RANGING = "key_support_periodic_ranging";
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    public static final String KEY_MAX_SUPPORTED_RANGING_PKT_BANDWIDTH =
+            "key_max_supported_ranging_pkt_bandwidth";
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    public static final String KEY_MAX_SUPPORTED_RX_CHAINS = "key_max_supported_rx_chains";
 
     private final Bundle mCharacteristics;
 
@@ -185,6 +200,78 @@ public final class Characteristics implements Parcelable {
      */
     public boolean isSuspensionSupported() {
         return mCharacteristics.getBoolean(KEY_SUPPORT_SUSPENSION);
+    }
+
+    /**
+     * Check if Periodic Ranging is supported.
+     * Periodic Ranging on Aware allows applications to get the asynchronous ranging
+     * report periodically.
+     * @return True if supported, false otherwise.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public boolean isPeriodicRangingSupported() {
+        return mCharacteristics.getBoolean(KEY_SUPPORT_PERIODIC_RANGING);
+    }
+
+    /** @hide */
+    @IntDef(flag = true, prefix = { "SUPPORTED_RX_CHAINS_" }, value = {
+            SUPPORTED_RX_CHAINS_UNSPECIFIED,
+            SUPPORTED_RX_CHAINS_1,
+            SUPPORTED_RX_CHAINS_2,
+            SUPPORTED_RX_CHAINS_3,
+            SUPPORTED_RX_CHAINS_4,
+    })
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SupportedRxChains {}
+
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_1 = 1;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_2 = 2;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_3 = 3;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_4 = 4;
+    /** @hide */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public static final int SUPPORTED_RX_CHAINS_UNSPECIFIED = 0;
+
+    /**
+     * Get the supported number of receive chains.
+     *
+     * @return Number of supported receive chains.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public @SupportedRxChains int getMaxSupportedRxChains() {
+        return mCharacteristics.getInt(KEY_MAX_SUPPORTED_RX_CHAINS);
+    }
+
+    /**
+     * Get Max supported ranging per packet Bandwidth
+     *
+     * @return the bandwidth representation of the Wi-Fi channel from
+     * {@link ScanResult#CHANNEL_WIDTH_20MHZ}, {@link ScanResult#CHANNEL_WIDTH_40MHZ},
+     * {@link ScanResult#CHANNEL_WIDTH_80MHZ}, {@link ScanResult#CHANNEL_WIDTH_160MHZ},
+     * or {@link ScanResult#CHANNEL_WIDTH_320MHZ}.
+     * @hide
+     */
+    @FlaggedApi(FLAG_RANGING_RTT_ENABLED)
+    @SystemApi
+    public @WifiAnnotations.ChannelWidth int getMaxSupportedRangingPacketBandwidth() {
+        return mCharacteristics.getInt(KEY_MAX_SUPPORTED_RANGING_PKT_BANDWIDTH);
     }
 
     /** @hide */

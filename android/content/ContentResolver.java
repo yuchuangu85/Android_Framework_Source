@@ -23,6 +23,8 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
+import android.annotation.SpecialUsers.CanBeALL;
+import android.annotation.SpecialUsers.CanBeCURRENT;
 import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.TestApi;
@@ -2709,7 +2711,7 @@ public abstract class ContentResolver implements ContentInterface {
     public final void registerContentObserverAsUser(@NonNull Uri uri,
             boolean notifyForDescendants,
             @NonNull ContentObserver observer,
-            @NonNull UserHandle userHandle) {
+            @NonNull @CanBeALL @CanBeCURRENT UserHandle userHandle) {
         Objects.requireNonNull(uri, "uri");
         Objects.requireNonNull(observer, "observer");
         Objects.requireNonNull(userHandle, "userHandle");
@@ -2722,10 +2724,10 @@ public abstract class ContentResolver implements ContentInterface {
 
     /** @hide - designated user version */
     @UnsupportedAppUsage
-    public final void registerContentObserver(Uri uri, boolean notifyForDescendents,
-            ContentObserver observer, @UserIdInt int userHandle) {
+    public final void registerContentObserver(Uri uri, boolean notifyForDescendants,
+            ContentObserver observer, @CanBeALL @CanBeCURRENT @UserIdInt int userHandle) {
         try {
-            getContentService().registerContentObserver(uri, notifyForDescendents,
+            getContentService().registerContentObserver(uri, notifyForDescendants,
                     observer.getContentObserver(), userHandle, mTargetSdkVersion);
         } catch (RemoteException e) {
             throw e.rethrowFromSystemServer();

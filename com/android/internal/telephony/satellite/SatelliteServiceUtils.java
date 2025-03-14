@@ -16,6 +16,9 @@
 
 package com.android.internal.telephony.satellite;
 
+import static android.telephony.ServiceState.STATE_EMERGENCY_ONLY;
+import static android.telephony.ServiceState.STATE_IN_SERVICE;
+
 import static java.util.stream.Collectors.joining;
 
 import android.annotation.NonNull;
@@ -24,19 +27,33 @@ import android.content.Context;
 import android.os.AsyncResult;
 import android.os.Binder;
 import android.os.PersistableBundle;
+import android.telephony.AccessNetworkConstants;
+import android.telephony.CarrierConfigManager;
+import android.telephony.CellIdentity;
+import android.telephony.DropBoxManagerLoggerBackend;
 import android.telephony.NetworkRegistrationInfo;
+import android.telephony.PersistentLogger;
 import android.telephony.Rlog;
+import android.telephony.ServiceState;
+import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.satellite.AntennaPosition;
+import android.telephony.satellite.EarfcnRange;
 import android.telephony.satellite.NtnSignalStrength;
 import android.telephony.satellite.PointingInfo;
 import android.telephony.satellite.SatelliteCapabilities;
 import android.telephony.satellite.SatelliteDatagram;
+import android.telephony.satellite.SatelliteInfo;
 import android.telephony.satellite.SatelliteManager;
+import android.telephony.satellite.SatelliteModemEnableRequestAttributes;
+import android.telephony.satellite.SatelliteSubscriptionInfo;
+import android.telephony.satellite.SystemSelectionSpecifier;
 import android.telephony.satellite.stub.NTRadioTechnology;
 import android.telephony.satellite.stub.SatelliteModemState;
 import android.telephony.satellite.stub.SatelliteResult;
+import android.text.TextUtils;
 
+import com.android.internal.R;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.subscription.SubscriptionManagerService;
@@ -55,6 +72,21 @@ import java.util.stream.Collectors;
  */
 public class SatelliteServiceUtils {
     private static final String TAG = "SatelliteServiceUtils";
+
+    /**
+     * Converts a carrier roaming NTN (Non-Terrestrial Network) connect type constant
+     * from {@link CarrierConfigManager} to string.
+     * @param type The carrier roaming NTN connect type constant.
+     * @return A string representation of the connect type, or "Unknown(type)" if not recognized.
+     */
+    public static String carrierRoamingNtnConnectTypeToString(
+            @CarrierConfigManager.CARRIER_ROAMING_NTN_CONNECT_TYPE int type) {
+        return switch (type) {
+            case CarrierConfigManager.CARRIER_ROAMING_NTN_CONNECT_AUTOMATIC -> "AUTOMATIC";
+            case CarrierConfigManager.CARRIER_ROAMING_NTN_CONNECT_MANUAL -> "MANUAL";
+            default -> "Unknown(" + type + ")";
+        };
+    }
 
     /**
      * Convert radio technology from service definition to framework definition.
@@ -148,9 +180,9 @@ public class SatelliteServiceUtils {
                 return SatelliteManager.SATELLITE_MODEM_STATE_OFF;
             case SatelliteModemState.SATELLITE_MODEM_STATE_UNAVAILABLE:
                 return SatelliteManager.SATELLITE_MODEM_STATE_UNAVAILABLE;
-            case SatelliteModemState.SATELLITE_MODEM_STATE_NOT_CONNECTED:
+            case SatelliteModemState.SATELLITE_MODEM_STATE_OUT_OF_SERVICE:
                 return SatelliteManager.SATELLITE_MODEM_STATE_NOT_CONNECTED;
-            case SatelliteModemState.SATELLITE_MODEM_STATE_CONNECTED:
+            case SatelliteModemState.SATELLITE_MODEM_STATE_IN_SERVICE:
                 return SatelliteManager.SATELLITE_MODEM_STATE_CONNECTED;
             default:
                 loge("Received invalid modem state: " + modemState);
@@ -234,6 +266,41 @@ public class SatelliteServiceUtils {
     }
 
     /**
+     * Convert SatelliteSubscriptionInfo from framework definition to service definition.
+     * @param info The SatelliteSubscriptionInfo from the framework.
+     * @return The converted SatelliteSubscriptionInfo for the satellite service.
+     */
+    @NonNull public static android.telephony.satellite.stub
+            .SatelliteSubscriptionInfo toSatelliteSubscriptionInfo(
+            @NonNull SatelliteSubscriptionInfo info
+    ) {
+        android.telephony.satellite.stub.SatelliteSubscriptionInfo converted =
+                new android.telephony.satellite.stub.SatelliteSubscriptionInfo();
+        converted.iccId = info.getIccId();
+        converted.niddApn = info.getNiddApn();
+        return converted;
+    }
+
+    /**
+     * Convert SatelliteModemEnableRequestAttributes from framework definition to service definition
+     * @param attributes The SatelliteModemEnableRequestAttributes from the framework.
+     * @return The converted SatelliteModemEnableRequestAttributes for the satellite service.
+     */
+    @NonNull public static android.telephony.satellite.stub
+            .SatelliteModemEnableRequestAttributes toSatelliteModemEnableRequestAttributes(
+            @NonNull SatelliteModemEnableRequestAttributes attributes
+    ) {
+        android.telephony.satellite.stub.SatelliteModemEnableRequestAttributes converted =
+                new android.telephony.satellite.stub.SatelliteModemEnableRequestAttributes();
+        converted.isEnabled = attributes.isEnabled();
+        converted.isDemoMode = attributes.isForDemoMode();
+        converted.isEmergencyMode = attributes.isForEmergencyMode();
+        converted.satelliteSubscriptionInfo = toSatelliteSubscriptionInfo(
+                attributes.getSatelliteSubscriptionInfo());
+        return converted;
+    }
+
+    /**
      * Get the {@link SatelliteManager.SatelliteResult} from the provided result.
      *
      * @param ar AsyncResult used to determine the error code.
@@ -282,6 +349,49 @@ public class SatelliteServiceUtils {
     }
 
     /**
+     * Get the subscription ID which supports OEM based NTN satellite service.
+     *
+     * @return ID of the subscription that supports OEM-based satellite if any,
+     * return {@link SubscriptionManager#INVALID_SUBSCRIPTION_ID} otherwise.
+     */
+    public static int getNtnOnlySubscriptionId(@NonNull Context context) {
+        List<SubscriptionInfo> infoList =
+                SubscriptionManagerService.getInstance().getAllSubInfoList(
+                        context.getOpPackageName(), null);
+
+        int subId = infoList.stream()
+                .filter(info -> info.isOnlyNonTerrestrialNetwork())
+                .mapToInt(SubscriptionInfo::getSubscriptionId)
+                .findFirst()
+                .orElse(SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+        logd("getNtnOnlySubscriptionId: subId=" + subId);
+        return subId;
+    }
+
+    /**
+     * Check if the subscription ID is a NTN only subscription ID.
+     *
+     * @return {@code true} if the subscription ID is a NTN only subscription ID,
+     * {@code false} otherwise.
+    */
+    public static boolean isNtnOnlySubscriptionId(int subId) {
+        SubscriptionManagerService subscriptionManagerService =
+            SubscriptionManagerService.getInstance();
+        if (subscriptionManagerService == null) {
+            logd("isNtnOnlySubscriptionId: subscriptionManagerService is null");
+            return false;
+        }
+
+        SubscriptionInfo subInfo = subscriptionManagerService.getSubscriptionInfo(subId);
+        if (subInfo == null) {
+            logd("isNtnOnlySubscriptionId: subInfo is null for subId=" + subId);
+            return false;
+        }
+
+        return subInfo.isOnlyNonTerrestrialNetwork();
+    }
+
+    /**
      * Expected format of the input dictionary bundle is:
      * <ul>
      *     <li>Key: PLMN string.</li>
@@ -327,8 +437,14 @@ public class SatelliteServiceUtils {
     @NonNull
     public static List<String> mergeStrLists(List<String> strList1, List<String> strList2) {
         Set<String> mergedStrSet = new HashSet<>();
-        mergedStrSet.addAll(strList1);
-        mergedStrSet.addAll(strList2);
+        if (strList1 != null) {
+            mergedStrSet.addAll(strList1);
+        }
+
+        if (strList2 != null) {
+            mergedStrSet.addAll(strList2);
+        }
+
         return mergedStrSet.stream().toList();
     }
 
@@ -347,11 +463,23 @@ public class SatelliteServiceUtils {
     }
 
     /**
-     *
+     * Check if the datagramType is the sos message (DATAGRAM_TYPE_SOS_MESSAGE,
+     * DATAGRAM_TYPE_LAST_SOS_MESSAGE_STILL_NEED_HELP,
+     * DATAGRAM_TYPE_LAST_SOS_MESSAGE_NO_HELP_NEEDED) or not
      */
     public static boolean isSosMessage(int datagramType) {
         return datagramType == SatelliteManager.DATAGRAM_TYPE_SOS_MESSAGE
                 || datagramType == SatelliteManager.DATAGRAM_TYPE_LAST_SOS_MESSAGE_STILL_NEED_HELP
+                || datagramType == SatelliteManager.DATAGRAM_TYPE_LAST_SOS_MESSAGE_NO_HELP_NEEDED;
+    }
+
+    /**
+     * Check if the datagramType is the last sos message
+     * (DATAGRAM_TYPE_LAST_SOS_MESSAGE_STILL_NEED_HELP or
+     * DATAGRAM_TYPE_LAST_SOS_MESSAGE_NO_HELP_NEEDED) or not
+     */
+    public static boolean isLastSosMessage(int datagramType) {
+        return datagramType == SatelliteManager.DATAGRAM_TYPE_LAST_SOS_MESSAGE_STILL_NEED_HELP
                 || datagramType == SatelliteManager.DATAGRAM_TYPE_LAST_SOS_MESSAGE_NO_HELP_NEEDED;
     }
 
@@ -373,11 +501,199 @@ public class SatelliteServiceUtils {
         return PhoneFactory.getPhone(SubscriptionManager.getPhoneId(subId));
     }
 
+    /** Return {@code true} if device has cellular coverage, else return {@code false}. */
+    public static boolean isCellularAvailable() {
+        for (Phone phone : PhoneFactory.getPhones()) {
+            ServiceState serviceState = phone.getServiceState();
+            if (serviceState != null) {
+                int state = serviceState.getState();
+                if ((state == STATE_IN_SERVICE || state == STATE_EMERGENCY_ONLY
+                        || serviceState.isEmergencyOnly())
+                        && !isSatellitePlmn(phone.getSubId(), serviceState)) {
+                    logd("isCellularAvailable true");
+                    return true;
+                }
+            }
+        }
+        logd("isCellularAvailable false");
+        return false;
+    }
+
+    /** Check whether device is connected to satellite PLMN */
+    public static boolean isSatellitePlmn(int subId, @NonNull ServiceState serviceState) {
+        List<String> satellitePlmnList =
+                SatelliteController.getInstance().getSatellitePlmnsForCarrier(subId);
+        if (satellitePlmnList.isEmpty()) {
+            logd("isSatellitePlmn: satellitePlmnList is empty");
+            return false;
+        }
+
+        for (NetworkRegistrationInfo nri :
+                serviceState.getNetworkRegistrationInfoListForTransportType(
+                        AccessNetworkConstants.TRANSPORT_TYPE_WWAN)) {
+            String registeredPlmn = nri.getRegisteredPlmn();
+            if (TextUtils.isEmpty(registeredPlmn)) {
+                logd("isSatellitePlmn: registeredPlmn is empty");
+                continue;
+            }
+
+            String mccmnc = getMccMnc(nri);
+            for (String satellitePlmn : satellitePlmnList) {
+                if (TextUtils.equals(satellitePlmn, registeredPlmn)
+                        || TextUtils.equals(satellitePlmn, mccmnc)) {
+                    logd("isSatellitePlmn: return true, satellitePlmn:" + satellitePlmn
+                            + " registeredPlmn:" + registeredPlmn + " mccmnc:" + mccmnc);
+                    return true;
+                }
+            }
+        }
+
+        logd("isSatellitePlmn: return false");
+        return false;
+    }
+
+    /** Get mccmnc string from NetworkRegistrationInfo. */
+    @Nullable
+    public static String getMccMnc(@NonNull NetworkRegistrationInfo nri) {
+        CellIdentity cellIdentity = nri.getCellIdentity();
+        if (cellIdentity == null) {
+            logd("getMccMnc: cellIdentity is null");
+            return null;
+        }
+
+        String mcc = cellIdentity.getMccString();
+        String mnc = cellIdentity.getMncString();
+        if (mcc == null || mnc == null) {
+            logd("getMccMnc: mcc or mnc is null. mcc=" + mcc + " mnc=" + mnc);
+            return null;
+        }
+
+        return mcc + mnc;
+    }
+
+    @NonNull
+    private static android.telephony.satellite.stub
+            .SystemSelectionSpecifier convertSystemSelectionSpecifierToHALFormat(
+            @NonNull SystemSelectionSpecifier systemSelectionSpecifier) {
+        android.telephony.satellite.stub.SystemSelectionSpecifier convertedSpecifier =
+                new android.telephony.satellite.stub.SystemSelectionSpecifier();
+
+        convertedSpecifier.mMccMnc = systemSelectionSpecifier.getMccMnc();
+        convertedSpecifier.mBands = systemSelectionSpecifier.getBands();
+        convertedSpecifier.mEarfcs = systemSelectionSpecifier.getEarfcns();
+        SatelliteInfo[] satelliteInfos = systemSelectionSpecifier.getSatelliteInfos()
+                .toArray(new SatelliteInfo[0]);
+        android.telephony.satellite.stub.SatelliteInfo[] halSatelliteInfos =
+                new android.telephony.satellite.stub.SatelliteInfo[satelliteInfos.length];
+        for (int i = 0; i < satelliteInfos.length; i++) {
+            halSatelliteInfos[i] = new android.telephony.satellite.stub.SatelliteInfo();
+
+            halSatelliteInfos[i].id = new android.telephony.satellite.stub.UUID();
+            halSatelliteInfos[i].id.mostSigBits =
+                    satelliteInfos[i].getSatelliteId().getMostSignificantBits();
+            halSatelliteInfos[i].id.leastSigBits =
+                    satelliteInfos[i].getSatelliteId().getLeastSignificantBits();
+
+            halSatelliteInfos[i].position =
+                    new android.telephony.satellite.stub.SatellitePosition();
+            halSatelliteInfos[i].position.longitudeDegree =
+                    satelliteInfos[i].getSatellitePosition().getLongitudeDegrees();
+            halSatelliteInfos[i].position.altitudeKm =
+                    satelliteInfos[i].getSatellitePosition().getAltitudeKm();
+
+            halSatelliteInfos[i].bands = satelliteInfos[i].getBands().stream().mapToInt(
+                    Integer::intValue).toArray();
+
+            List<EarfcnRange> earfcnRangeList = satelliteInfos[i].getEarfcnRanges();
+            halSatelliteInfos[i].earfcnRanges =
+                    new android.telephony.satellite.stub.EarfcnRange[earfcnRangeList.size()];
+            for (int j = 0; j < earfcnRangeList.size(); j++) {
+                halSatelliteInfos[i].earfcnRanges[j] =
+                        new android.telephony.satellite.stub.EarfcnRange();
+                halSatelliteInfos[i].earfcnRanges[j].startEarfcn = earfcnRangeList.get(
+                        j).getStartEarfcn();
+                halSatelliteInfos[i].earfcnRanges[j].endEarfcn = earfcnRangeList.get(
+                        j).getEndEarfcn();
+            }
+        }
+        convertedSpecifier.satelliteInfos = halSatelliteInfos;
+        convertedSpecifier.tagIds = systemSelectionSpecifier.getTagIds();
+        return convertedSpecifier;
+    }
+
+    /**
+     * Convert SystemSelectionSpecifier from framework definition to service definition
+     * @param systemSelectionSpecifier The SystemSelectionSpecifier from the framework.
+     * @return The converted SystemSelectionSpecifier for the satellite service.
+     */
+    @NonNull
+    public static List<android.telephony.satellite.stub
+            .SystemSelectionSpecifier> toSystemSelectionSpecifier(
+            @NonNull List<SystemSelectionSpecifier> systemSelectionSpecifier) {
+        return systemSelectionSpecifier.stream().map(
+                SatelliteServiceUtils::convertSystemSelectionSpecifierToHALFormat).collect(
+                Collectors.toList());
+    }
+
+    /**
+     * Expected format of the input dictionary bundle is:
+     * <ul>
+     *     <li>Key: Regional satellite config Id string.</li>
+     *     <li>Value: Integer arrays of earfcns in the corresponding regions."</li>
+     * </ul>
+     * @return The map of earfcns with key: regional satellite config Id,
+     * value: set of earfcns in the corresponding regions.
+     */
+    @NonNull
+    public static Map<String, Set<Integer>> parseRegionalSatelliteEarfcns(
+            @Nullable PersistableBundle earfcnsBundle) {
+        Map<String, Set<Integer>> earfcnsMap = new HashMap<>();
+        if (earfcnsBundle == null || earfcnsBundle.isEmpty()) {
+            logd("parseRegionalSatelliteEarfcns: earfcnsBundle is null or empty");
+            return earfcnsMap;
+        }
+
+        for (String configId : earfcnsBundle.keySet()) {
+            Set<Integer> earfcnsSet = new HashSet<>();
+            for (int earfcn : earfcnsBundle.getIntArray(configId)) {
+                earfcnsSet.add(earfcn);
+            }
+            logd("parseRegionalSatelliteEarfcns: configId = " + configId + ", earfcns ="
+                    + earfcnsSet.stream().map(String::valueOf).collect(joining(",")));
+            earfcnsMap.put(configId, earfcnsSet);
+        }
+        return earfcnsMap;
+    }
+
+    /**
+     * Returns a persistent logger to persist important log because logcat logs may not be
+     * retained long enough.
+     *
+     * @return a PersistentLogger, return {@code null} if it is not supported or encounters
+     * exception.
+     */
+    @Nullable
+    public static PersistentLogger getPersistentLogger(@NonNull Context context) {
+        try {
+            if (context.getResources().getBoolean(
+                    R.bool.config_dropboxmanager_persistent_logging_enabled)) {
+                return new PersistentLogger(DropBoxManagerLoggerBackend.getInstance(context));
+            }
+        } catch (RuntimeException ex) {
+            loge("getPersistentLogger: RuntimeException ex=" + ex);
+        }
+        return null;
+    }
+
     private static void logd(@NonNull String log) {
         Rlog.d(TAG, log);
     }
 
     private static void loge(@NonNull String log) {
         Rlog.e(TAG, log);
+    }
+
+    private static void logv(@NonNull String log) {
+        Rlog.v(TAG, log);
     }
 }

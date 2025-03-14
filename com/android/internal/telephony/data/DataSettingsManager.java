@@ -47,6 +47,7 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneFactory;
 import com.android.internal.telephony.SettingsObserver;
+import com.android.internal.telephony.TelephonyCapabilities;
 import com.android.internal.telephony.data.DataConfigManager.DataConfigManagerCallback;
 import com.android.internal.telephony.flags.FeatureFlags;
 import com.android.internal.telephony.metrics.DeviceTelephonyPropertiesStats;
@@ -91,7 +92,8 @@ public class DataSettingsManager extends Handler {
     private static final int EVENT_INITIALIZE = 11;
 
     private final Phone mPhone;
-    private final @NonNull FeatureFlags mFeatureFlags;
+    @NonNull
+    private final FeatureFlags mFeatureFlags;
     private final ContentResolver mResolver;
     private final SettingsObserver mSettingsObserver;
     private final String mLogTag;
@@ -100,11 +102,12 @@ public class DataSettingsManager extends Handler {
     private int mSubId;
 
     /** Data config manager */
-    private final @NonNull DataConfigManager mDataConfigManager;
+    @NonNull
+    private final DataConfigManager mDataConfigManager;
 
     /** Data settings manager callbacks. */
-    private final @NonNull Set<DataSettingsManagerCallback> mDataSettingsManagerCallbacks =
-            new ArraySet<>();
+    @NonNull
+    private final Set<DataSettingsManagerCallback> mDataSettingsManagerCallbacks = new ArraySet<>();
 
     /** Mapping of {@link TelephonyManager.DataEnabledReason} to data enabled values. */
     private final Map<Integer, Boolean> mDataEnabledSettings = new ArrayMap<>();
@@ -271,7 +274,7 @@ public class DataSettingsManager extends Handler {
     }
 
     private boolean hasCalling() {
-        if (!mFeatureFlags.minimalTelephonyCdmCheck()) return true;
+        if (!TelephonyCapabilities.minimalTelephonyCdmCheck(mFeatureFlags)) return true;
         return mPhone.getContext().getPackageManager().hasSystemFeature(
             PackageManager.FEATURE_TELEPHONY_CALLING);
     }
@@ -323,7 +326,7 @@ public class DataSettingsManager extends Handler {
                     @Override
                     public void onUserDataEnabledChanged(boolean enabled,
                             @NonNull String callingPackage) {
-                        log("phone" + phone.getPhoneId() + " onUserDataEnabledChanged "
+                        log("phone " + phone.getPhoneId() + " onUserDataEnabledChanged "
                                 + enabled + " by " + callingPackage
                                 + ", reevaluating mobile data policies");
                         DataSettingsManager.this.updateDataEnabledAndNotify(
@@ -332,6 +335,16 @@ public class DataSettingsManager extends Handler {
                 });
             }
         }
+        SubscriptionManagerService.getInstance().registerCallback(
+                new SubscriptionManagerService.SubscriptionManagerServiceCallback(this::post) {
+                    @Override
+                    public void onDefaultDataSubscriptionChanged(int subId) {
+                        log((subId == mSubId ? "Became" : "Not")
+                                + " default data sub, reevaluating mobile data policies");
+                        DataSettingsManager.this.updateDataEnabledAndNotify(
+                                TelephonyManager.DATA_ENABLED_REASON_OVERRIDE);
+                    }
+                });
         updateDataEnabledAndNotify(TelephonyManager.DATA_ENABLED_REASON_UNKNOWN);
     }
 
@@ -718,8 +731,9 @@ public class DataSettingsManager extends Handler {
      * @param policies New mobile data policies in String format.
      * @return A Set of parsed mobile data policies.
      */
-    public @NonNull @MobileDataPolicy Set<Integer> getMobileDataPolicyEnabled(
-            @NonNull String policies) {
+    @NonNull
+    @MobileDataPolicy
+    public Set<Integer> getMobileDataPolicyEnabled(@NonNull String policies) {
         Set<Integer> mobileDataPolicies = new HashSet<>();
         String[] rulesString = policies.trim().split("\\s*,\\s*");
         for (String rule : rulesString) {
@@ -741,7 +755,8 @@ public class DataSettingsManager extends Handler {
      * @return Parsed mobile data policy. {@link #INVALID_MOBILE_DATA_POLICY} if string can't be
      * parsed into a mobile data policy.
      */
-    private @MobileDataPolicy int parsePolicyFrom(@NonNull String policy) {
+    @MobileDataPolicy
+    private int parsePolicyFrom(@NonNull String policy) {
         int dataPolicy;
         try {
             // parse as new override policy
@@ -810,20 +825,14 @@ public class DataSettingsManager extends Handler {
 
     private static String dataEnabledChangedReasonToString(
             @TelephonyManager.DataEnabledChangedReason int reason) {
-        switch (reason) {
-            case TelephonyManager.DATA_ENABLED_REASON_USER:
-                return "USER";
-            case TelephonyManager.DATA_ENABLED_REASON_POLICY:
-                return "POLICY";
-            case TelephonyManager.DATA_ENABLED_REASON_CARRIER:
-                return "CARRIER";
-            case TelephonyManager.DATA_ENABLED_REASON_THERMAL:
-                return "THERMAL";
-            case TelephonyManager.DATA_ENABLED_REASON_OVERRIDE:
-                return "OVERRIDE";
-            default:
-                return "UNKNOWN";
-        }
+        return switch (reason) {
+            case TelephonyManager.DATA_ENABLED_REASON_USER -> "USER";
+            case TelephonyManager.DATA_ENABLED_REASON_POLICY -> "POLICY";
+            case TelephonyManager.DATA_ENABLED_REASON_CARRIER -> "CARRIER";
+            case TelephonyManager.DATA_ENABLED_REASON_THERMAL -> "THERMAL";
+            case TelephonyManager.DATA_ENABLED_REASON_OVERRIDE -> "OVERRIDE";
+            default -> "UNKNOWN";
+        };
     }
 
     @Override

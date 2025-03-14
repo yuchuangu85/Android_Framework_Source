@@ -35,13 +35,13 @@ import javax.security.auth.x500.X500Principal;
 import com.android.org.bouncycastle.asn1.ASN1BitString;
 import com.android.org.bouncycastle.asn1.ASN1Encodable;
 import com.android.org.bouncycastle.asn1.ASN1Encoding;
+import com.android.org.bouncycastle.asn1.ASN1IA5String;
 import com.android.org.bouncycastle.asn1.ASN1InputStream;
+import com.android.org.bouncycastle.asn1.ASN1Integer;
 import com.android.org.bouncycastle.asn1.ASN1ObjectIdentifier;
 import com.android.org.bouncycastle.asn1.ASN1Primitive;
 import com.android.org.bouncycastle.asn1.ASN1Sequence;
 import com.android.org.bouncycastle.asn1.ASN1String;
-import com.android.org.bouncycastle.asn1.DERBitString;
-import com.android.org.bouncycastle.asn1.DERIA5String;
 import com.android.org.bouncycastle.asn1.DERNull;
 import com.android.org.bouncycastle.asn1.DEROctetString;
 import com.android.org.bouncycastle.asn1.misc.MiscObjectIdentifiers;
@@ -110,7 +110,7 @@ public class X509CertificateObject
             byte[] bytes = this.getExtensionBytes("2.5.29.15");
             if (bytes != null)
             {
-                ASN1BitString bits = DERBitString.getInstance(ASN1Primitive.fromByteArray(bytes));
+                ASN1BitString bits = ASN1BitString.getInstance(ASN1Primitive.fromByteArray(bytes));
 
                 bytes = bits.getBytes();
                 int length = (bytes.length * 8) - bits.getPadBits();
@@ -293,7 +293,7 @@ public class X509CertificateObject
 
     public boolean[] getIssuerUniqueID()
     {
-        DERBitString    id = c.getTBSCertificate().getIssuerUniqueId();
+        ASN1BitString    id = c.getTBSCertificate().getIssuerUniqueId();
 
         if (id != null)
         {
@@ -313,7 +313,7 @@ public class X509CertificateObject
 
     public boolean[] getSubjectUniqueID()
     {
-        DERBitString    id = c.getTBSCertificate().getSubjectUniqueId();
+        ASN1BitString    id = c.getTBSCertificate().getSubjectUniqueId();
 
         if (id != null)
         {
@@ -367,26 +367,18 @@ public class X509CertificateObject
     
     public int getBasicConstraints()
     {
-        if (basicConstraints != null)
+        if (basicConstraints == null || !basicConstraints.isCA())
         {
-            if (basicConstraints.isCA())
-            {
-                if (basicConstraints.getPathLenConstraint() == null)
-                {
-                    return Integer.MAX_VALUE;
-                }
-                else
-                {
-                    return basicConstraints.getPathLenConstraint().intValue();
-                }
-            }
-            else
-            {
-                return -1;
-            }
+            return -1;
         }
 
-        return -1;
+        ASN1Integer pathLenConstraint = basicConstraints.getPathLenConstraintInteger();
+        if (pathLenConstraint == null)
+        {
+            return Integer.MAX_VALUE;
+        }
+
+        return pathLenConstraint.intPositiveValueExact();
     }
 
     public Collection getSubjectAlternativeNames()
@@ -712,15 +704,15 @@ public class X509CertificateObject
                         }
                         else if (oid.equals(MiscObjectIdentifiers.netscapeCertType))
                         {
-                            buf.append(new NetscapeCertType((DERBitString)dIn.readObject())).append(nl);
+                            buf.append(new NetscapeCertType((ASN1BitString)dIn.readObject())).append(nl);
                         }
                         else if (oid.equals(MiscObjectIdentifiers.netscapeRevocationURL))
                         {
-                            buf.append(new NetscapeRevocationURL((DERIA5String)dIn.readObject())).append(nl);
+                            buf.append(new NetscapeRevocationURL((ASN1IA5String)dIn.readObject())).append(nl);
                         }
                         else if (oid.equals(MiscObjectIdentifiers.verisignCzagExtension))
                         {
-                            buf.append(new VerisignCzagExtension((DERIA5String)dIn.readObject())).append(nl);
+                            buf.append(new VerisignCzagExtension((ASN1IA5String)dIn.readObject())).append(nl);
                         }
                         else 
                         {

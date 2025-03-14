@@ -31,6 +31,8 @@ import java.util.Objects;
  * <p>See {@link GlobalSearchSession#reportSystemUsage} for a detailed description of usage
  * reporting.
  */
+// TODO(b/384721898): Switch to JSpecify annotations
+@SuppressWarnings("JSpecifyNullness")
 public final class ReportSystemUsageRequest {
     private final String mPackageName;
     private final String mDatabase;
@@ -52,26 +54,22 @@ public final class ReportSystemUsageRequest {
     }
 
     /** Returns the package name of the app which owns the document that was used. */
-    @NonNull
-    public String getPackageName() {
+    public @NonNull String getPackageName() {
         return mPackageName;
     }
 
     /** Returns the database in which the document that was used resides. */
-    @NonNull
-    public String getDatabaseName() {
+    public @NonNull String getDatabaseName() {
         return mDatabase;
     }
 
     /** Returns the namespace of the document that was used. */
-    @NonNull
-    public String getNamespace() {
+    public @NonNull String getNamespace() {
         return mNamespace;
     }
 
     /** Returns the ID of document that was used. */
-    @NonNull
-    public String getDocumentId() {
+    public @NonNull String getDocumentId() {
         return mDocumentId;
     }
 
@@ -127,16 +125,14 @@ public final class ReportSystemUsageRequest {
          * ReportSystemUsageRequest} is constructed.
          */
         @CanIgnoreReturnValue
-        @NonNull
-        public ReportSystemUsageRequest.Builder setUsageTimestampMillis(
+        public @NonNull ReportSystemUsageRequest.Builder setUsageTimestampMillis(
                 @CurrentTimeMillisLong long usageTimestampMillis) {
             mUsageTimestampMillis = usageTimestampMillis;
             return this;
         }
 
         /** Builds a new {@link ReportSystemUsageRequest}. */
-        @NonNull
-        public ReportSystemUsageRequest build() {
+        public @NonNull ReportSystemUsageRequest build() {
             if (mUsageTimestampMillis == null) {
                 mUsageTimestampMillis = System.currentTimeMillis();
             }

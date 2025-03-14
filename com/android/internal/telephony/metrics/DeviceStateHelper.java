@@ -28,21 +28,32 @@ import android.os.Handler;
 import android.os.HandlerExecutor;
 import android.os.HandlerThread;
 
+import com.android.internal.os.BackgroundThread;
 import com.android.internal.telephony.Phone;
+import com.android.internal.telephony.flags.Flags;
 
 /** Device state information like the fold state. */
 public class DeviceStateHelper {
     private int mFoldState = CELLULAR_SERVICE_STATE__FOLD_STATE__STATE_UNKNOWN;
 
     public DeviceStateHelper(Context context) {
-        HandlerThread mHandlerThread = new HandlerThread("DeviceStateHelperThread");
-        mHandlerThread.start();
-        context.getSystemService(DeviceStateManager.class)
-                .registerCallback(
-                        new HandlerExecutor(new Handler(mHandlerThread.getLooper())),
-                        state -> {
-                            updateFoldState(state.getIdentifier());
-                        });
+        if (Flags.threadShred()) {
+            context.getSystemService(DeviceStateManager.class)
+                    .registerCallback(
+                            BackgroundThread.getExecutor(),
+                            state -> {
+                                updateFoldState(state.getIdentifier());
+                            });
+        } else {
+            HandlerThread mHandlerThread = new HandlerThread("DeviceStateHelperThread");
+            mHandlerThread.start();
+            context.getSystemService(DeviceStateManager.class)
+                    .registerCallback(
+                            new HandlerExecutor(new Handler(mHandlerThread.getLooper())),
+                            state -> {
+                                updateFoldState(state.getIdentifier());
+                            });
+        }
     }
 
     private void updateFoldState(int posture) {

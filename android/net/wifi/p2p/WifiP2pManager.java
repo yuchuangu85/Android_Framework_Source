@@ -24,6 +24,7 @@ import android.annotation.Nullable;
 import android.annotation.RequiresPermission;
 import android.annotation.SdkConstant;
 import android.annotation.SdkConstant.SdkConstantType;
+import android.annotation.SuppressLint;
 import android.annotation.SystemApi;
 import android.annotation.SystemService;
 import android.compat.annotation.UnsupportedAppUsage;
@@ -40,6 +41,9 @@ import android.net.wifi.p2p.nsd.WifiP2pServiceRequest;
 import android.net.wifi.p2p.nsd.WifiP2pServiceResponse;
 import android.net.wifi.p2p.nsd.WifiP2pUpnpServiceInfo;
 import android.net.wifi.p2p.nsd.WifiP2pUpnpServiceResponse;
+import android.net.wifi.p2p.nsd.WifiP2pUsdBasedServiceConfig;
+import android.net.wifi.p2p.nsd.WifiP2pUsdBasedServiceResponse;
+import android.net.wifi.util.Environment;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -47,6 +51,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Messenger;
+import android.os.OutcomeReceiver;
 import android.os.RemoteException;
 import android.text.TextUtils;
 import android.util.CloseGuard;
@@ -169,6 +174,13 @@ public class WifiP2pManager {
     public static final long FEATURE_GROUP_CLIENT_REMOVAL       = 1L << 2;
     /** @hide */
     public static final long FEATURE_GROUP_OWNER_IPV6_LINK_LOCAL_ADDRESS_PROVIDED = 1L << 3;
+    /** @hide */
+    public static final long FEATURE_WIFI_DIRECT_R2 = 1L << 4; // Wi-Fi Direct R2 Support
+    /**
+     * Wi-Fi Direct R1/R2 Compatibility Mode support.
+     * @hide
+     */
+    public static final long FEATURE_PCC_MODE_ALLOW_LEGACY_AND_R2_CONNECTION = 1L << 5;
 
     /**
      * Extra for transporting a WifiP2pConfig
@@ -182,6 +194,23 @@ public class WifiP2pManager {
      */
     public static final String EXTRA_PARAM_KEY_SERVICE_INFO =
             "android.net.wifi.p2p.EXTRA_PARAM_KEY_SERVICE_INFO";
+
+    /**
+     * Extra for transporting Un-synchronized service discovery (USD) based service discovery
+     * configuration.
+     * @hide
+     */
+    public static final String EXTRA_PARAM_KEY_USD_BASED_SERVICE_DISCOVERY_CONFIG =
+            "android.net.wifi.p2p.EXTRA_PARAM_KEY_USD_BASED_SERVICE_DISCOVERY_CONFIG";
+
+    /**
+     * Extra for transporting Un-synchronized service discovery (USD) based local service
+     * advertisement configuration.
+     * @hide
+     */
+    public static final String EXTRA_PARAM_KEY_USD_BASED_LOCAL_SERVICE_ADVERTISEMENT_CONFIG =
+            "android.net.wifi.p2p.EXTRA_PARAM_KEY_USD_BASED_LOCAL_SERVICE_ADVERTISEMENT_CONFIG";
+
     /**
      * Extra for transporting a peer discovery frequency.
      * @hide
@@ -589,6 +618,25 @@ public class WifiP2pManager {
      */
     private static final int WIFI_P2P_VENDOR_ELEMENTS_MAXIMUM_LENGTH = 512;
 
+    /**
+     * Run USD based P2P service discovery with a service discovery configuration.
+     * @hide
+     */
+    public static final int WIFI_P2P_USD_BASED_SERVICE_DISCOVERY = 1;
+
+    /**
+     * Add P2P local service with advertisement configuration.
+     * @hide
+     */
+    public static final int WIFI_P2P_USD_BASED_ADD_LOCAL_SERVICE = 1;
+
+    /**
+     * Extra for transporting DIR Information.
+     * @hide
+     */
+    public static final String EXTRA_PARAM_KEY_DIR_INFO =
+            "android.net.wifi.p2p.EXTRA_PARAM_KEY_DIR_INFO";
+
     private Context mContext;
 
     IWifiP2pManager mService;
@@ -864,6 +912,20 @@ public class WifiP2pManager {
     /** @hide */
     public static final int RESPONSE_GET_LISTEN_STATE                 = BASE + 118;
 
+    /** @hide */
+    public static final int GET_DIR_INFO                              = BASE + 119;
+    /** @hide */
+    public static final int GET_DIR_INFO_FAILED                       = BASE + 120;
+    /** @hide */
+    public static final int RESPONSE_GET_DIR_INFO                     = BASE + 121;
+
+    /** @hide */
+    public static final int VALIDATE_DIR_INFO                         = BASE + 122;
+    /** @hide */
+    public static final int VALIDATE_DIR_INFO_FAILED                  = BASE + 123;
+    /** @hide */
+    public static final int RESPONSE_VALIDATE_DIR_INFO                = BASE + 124;
+
     private static final SparseArray<IWifiP2pListener> sWifiP2pListenerMap = new SparseArray<>();
     /**
      * Create a new WifiP2pManager instance. Applications use
@@ -904,6 +966,25 @@ public class WifiP2pManager {
      * request.
      */
     public static final int NO_SERVICE_REQUESTS = 3;
+
+    /**
+     * Passed with {@link ActionListener#onFailure}.
+     * Indicates that the operation failed due to calling app doesn't have permission to call the
+     * API.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public static final int NO_PERMISSION = 4;
+
+    /** @hide */
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(value = {
+            ERROR,
+            P2P_UNSUPPORTED,
+            BUSY,
+            NO_PERMISSION
+    })
+    public @interface FailureReason{}
+
 
     /** Interface for callback invocation when framework channel is lost */
     public interface ChannelListener {
@@ -970,6 +1051,15 @@ public class WifiP2pManager {
          */
         public void onServiceAvailable(int protocolType,
                 byte[] responseData, WifiP2pDevice srcDevice);
+        /**
+        * The requested USD based service response is available.
+        * @param srcDevice source device.
+        * @param usdResponseData {@link WifiP2pUsdBasedServiceResponse}.
+        */
+        @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+        default void onUsdBasedServiceAvailable(@NonNull WifiP2pDevice srcDevice,
+                @NonNull WifiP2pUsdBasedServiceResponse usdResponseData) {
+        }
     }
 
     /**
@@ -1901,6 +1991,31 @@ public class WifiP2pManager {
                                     .onPinGenerated(deviceAddress, pin);
                         }
                         break;
+                    case RESPONSE_GET_DIR_INFO:
+                        if (listener != null) {
+                            if (Flags.wifiDirectR2()) {
+                                ((WifiP2pDirInfoListener) listener)
+                                        .onDirInfoReceived((WifiP2pDirInfo) message.obj);
+                            }
+                        }
+                        break;
+                    case GET_DIR_INFO_FAILED:
+                        if (listener != null) {
+                            ((WifiP2pDirInfoListener) listener)
+                                    .onFailure(message.arg1);
+                        }
+                        break;
+                    case RESPONSE_VALIDATE_DIR_INFO:
+                        if (listener != null) {
+                            ((WifiP2pDirInfoValidationListener) listener)
+                                    .onDirInfoValidation(message.arg1 == 1);
+                        }
+                        break;
+                    case VALIDATE_DIR_INFO_FAILED:
+                        if (listener != null) {
+                            ((WifiP2pDirInfoValidationListener) listener)
+                                    .onFailure(message.arg1);
+                        }
                     default:
                         Log.d(TAG, "Ignored " + message);
                         break;
@@ -1917,8 +2032,13 @@ public class WifiP2pManager {
                 }
             } else {
                 if (mServRspListener != null) {
-                    mServRspListener.onServiceAvailable(resp.getServiceType(),
-                            resp.getRawData(), resp.getSrcDevice());
+                    if (Flags.wifiDirectR2() && resp.getWifiP2pUsdBasedServiceResponse() != null) {
+                        mServRspListener.onUsdBasedServiceAvailable(
+                                resp.getSrcDevice(), resp.getWifiP2pUsdBasedServiceResponse());
+                    } else {
+                        mServRspListener.onServiceAvailable(resp.getServiceType(),
+                                resp.getRawData(), resp.getSrcDevice());
+                    }
                 }
             }
         }
@@ -2247,6 +2367,7 @@ public class WifiP2pManager {
             android.Manifest.permission.ACCESS_FINE_LOCATION
             }, conditional = true)
     @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SuppressLint("ExecutorRegistration") // WifiP2pManager is using the async channel
     public void startPeerDiscovery(
             @NonNull Channel channel,
             @NonNull WifiP2pDiscoveryConfig config,
@@ -2503,6 +2624,7 @@ public class WifiP2pManager {
             android.Manifest.permission.ACCESS_FINE_LOCATION
             }, conditional = true)
     @FlaggedApi(Flags.FLAG_ANDROID_V_WIFI_API)
+    @SuppressLint("ExecutorRegistration") // WifiP2pManager is using the async channel
     public void startListening(
             @NonNull Channel channel,
             @NonNull WifiP2pExtListenParams params,
@@ -2615,9 +2737,76 @@ public class WifiP2pManager {
             ActionListener listener) {
         checkChannel(channel);
         checkServiceInfo(servInfo);
+        if (Environment.isSdkAtLeastB()) {
+            if (servInfo.getWifiP2pUsdBasedServiceConfig() != null) {
+                throw new UnsupportedOperationException("Application must call"
+                        + " WifiP2pManager#startUsdBasedLocalServiceAdvertisement for USD config");
+            }
+        }
         Bundle extras = prepareExtrasBundle(channel);
         extras.putParcelable(EXTRA_PARAM_KEY_SERVICE_INFO, servInfo);
         channel.mAsyncChannel.sendMessage(prepareMessage(ADD_LOCAL_SERVICE, 0,
+                channel.putListener(listener), extras, channel.mContext));
+    }
+
+    /**
+     * Start a service discovery advertisement using Un-synchronized service discovery (USD).
+     * Once {@link #startUsdBasedLocalServiceAdvertisement(Channel, WifiP2pServiceInfo,
+     * WifiP2pUsdBasedLocalServiceAdvertisementConfig, ActionListener)} is called, the device will
+     * go to the channel frequency requested via
+     * {@link WifiP2pUsdBasedLocalServiceAdvertisementConfig} and responds to a service discovery
+     * request from a peer.
+     *
+     * <p> The service information is set through
+     * {@link WifiP2pServiceInfo#WifiP2pServiceInfo(WifiP2pUsdBasedServiceConfig)}
+     *
+     * <p> The function call immediately returns after sending a request to start the service
+     * advertisement to the framework. The application is notified of a success or failure to
+     * start service advertisement through listener callbacks {@link ActionListener#onSuccess} or
+     * {@link ActionListener#onFailure}.
+     *
+     * <p>The service information can be cleared with calls to
+     *  {@link #removeLocalService} or {@link #clearLocalServices}.
+     * <p>
+     * Use {@link #isWiFiDirectR2Supported()} to determine whether the device supports
+     * this feature. If {@link #isWiFiDirectR2Supported()} return {@code false} then
+     * this method will throw {@link UnsupportedOperationException}.
+     * <p>
+     * The application must have {@link android.Manifest.permission#NEARBY_WIFI_DEVICES} with
+     * android:usesPermissionFlags="neverForLocation". If the application does not declare
+     * android:usesPermissionFlags="neverForLocation", then it must also have
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
+     *
+     * @param channel is the channel created at {@link #initialize}
+     * @param servInfo is a local service information.
+     * @param config is the configuration for this service discovery advertisement.
+     * @param listener for callbacks on success or failure. Can be null.
+     */
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+    }, conditional = true)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    @SuppressLint("ExecutorRegistration") // initialize creates a channel and requires a Looper
+    public void startUsdBasedLocalServiceAdvertisement(@NonNull Channel channel,
+            @NonNull WifiP2pServiceInfo servInfo,
+            @NonNull WifiP2pUsdBasedLocalServiceAdvertisementConfig config,
+            @Nullable ActionListener listener) {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        if (!isWiFiDirectR2Supported()) {
+            throw new UnsupportedOperationException();
+        }
+        checkChannel(channel);
+        Objects.requireNonNull(servInfo, "service info cannot be null");
+        Objects.requireNonNull(config, "Advertisement config cannot be null");
+        Bundle extras = prepareExtrasBundle(channel);
+        extras.putParcelable(EXTRA_PARAM_KEY_SERVICE_INFO, servInfo);
+        extras.putParcelable(EXTRA_PARAM_KEY_USD_BASED_LOCAL_SERVICE_ADVERTISEMENT_CONFIG, config);
+        channel.mAsyncChannel.sendMessage(prepareMessage(ADD_LOCAL_SERVICE,
+                WIFI_P2P_USD_BASED_ADD_LOCAL_SERVICE,
                 channel.putListener(listener), extras, channel.mContext));
     }
 
@@ -2746,12 +2935,81 @@ public class WifiP2pManager {
     }
 
     /**
+     * Initiate Un-synchronized service discovery (USD) based service discovery. A discovery
+     * process involves scanning for requested services for the purpose of establishing a
+     * connection to a peer that supports an available service using USD protocol.
+     *
+     * This method accepts a {@link WifiP2pUsdBasedServiceDiscoveryConfig} object specifying the
+     * desired parameters for the service discovery. The configuration object allows to specify
+     * either a band or frequency list to scan for service.
+     *
+     * <p> The function call immediately returns after sending a request to start service
+     * discovery to the framework. The application is notified of a success or failure to initiate
+     * discovery through listener callbacks {@link ActionListener#onSuccess} or
+     * {@link ActionListener#onFailure}.
+     *
+     * <p> The USD based services to be discovered are specified with calls to
+     * {@link #addServiceRequest} with the service request information set through
+     * {@link WifiP2pServiceRequest#WifiP2pServiceRequest(WifiP2pUsdBasedServiceConfig)}
+     *
+     * <p>The application is notified of the response against the service discovery request
+     * via {@link ServiceResponseListener#onUsdBasedServiceAvailable(WifiP2pDevice,
+     * WifiP2pUsdBasedServiceResponse)} listener callback registered by
+     * {@link #setServiceResponseListener(Channel, ServiceResponseListener)} .
+     *
+     * <p>
+     * Use {@link #isWiFiDirectR2Supported()} to determine whether the device supports
+     * this feature. If {@link #isWiFiDirectR2Supported()} return {@code false} then
+     * this method will throw {@link UnsupportedOperationException}.
+     * <p>
+     * The application must have {@link android.Manifest.permission#NEARBY_WIFI_DEVICES} with
+     * android:usesPermissionFlags="neverForLocation". If the application does not declare
+     * android:usesPermissionFlags="neverForLocation", then it must also have
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
+     *
+     * @param channel is the channel created at {@link #initialize}
+     * @param config is the configuration for this USD based service discovery
+     * @param listener for callbacks on success or failure. Can be null.
+     */
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+    }, conditional = true)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    @SuppressLint("ExecutorRegistration") // initialize creates a channel and requires a Looper
+    public void discoverUsdBasedServices(@NonNull Channel channel,
+            @NonNull WifiP2pUsdBasedServiceDiscoveryConfig config,
+            @Nullable ActionListener listener) {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        if (!isWiFiDirectR2Supported()) {
+            throw new UnsupportedOperationException();
+        }
+        checkChannel(channel);
+        Objects.requireNonNull(config, "Service discovery config cannot be null");
+        Bundle extras = prepareExtrasBundle(channel);
+        extras.putParcelable(EXTRA_PARAM_KEY_USD_BASED_SERVICE_DISCOVERY_CONFIG, config);
+        channel.mAsyncChannel.sendMessage(prepareMessage(DISCOVER_SERVICES,
+                WIFI_P2P_USD_BASED_SERVICE_DISCOVERY,
+                channel.putListener(listener), extras, channel.mContext));
+    }
+
+    /**
      * Add a service discovery request.
      *
      * <p> The function call immediately returns after sending a request to add service
      * discovery request to the framework. The application is notified of a success or failure to
      * add service through listener callbacks {@link ActionListener#onSuccess} or
      * {@link ActionListener#onFailure}.
+     *
+     * <p> The USD based service information are set in the service request through
+     * {@link WifiP2pServiceRequest#WifiP2pServiceRequest(WifiP2pUsdBasedServiceConfig)}.
+     * Application must use {@link #isWiFiDirectR2Supported()} to determine whether the device
+     * supports USD based service discovery. If {@link #isWiFiDirectR2Supported()} return
+     * {@code false} then this method will throw {@link UnsupportedOperationException} for service
+     * request information containing USD service configuration.
      *
      * <p>After service discovery request is added, you can initiate service discovery by
      * {@link #discoverServices}.
@@ -2768,6 +3026,11 @@ public class WifiP2pManager {
             WifiP2pServiceRequest req, ActionListener listener) {
         checkChannel(channel);
         checkServiceRequest(req);
+        if (Environment.isSdkAtLeastB()) {
+            if (req.getWifiP2pUsdBasedServiceConfig() != null && !isWiFiDirectR2Supported()) {
+                throw new UnsupportedOperationException();
+            }
+        }
         channel.mAsyncChannel.sendMessage(ADD_SERVICE_REQUEST, 0,
                 channel.putListener(listener), req);
     }
@@ -3199,6 +3462,32 @@ public class WifiP2pManager {
     public boolean isGroupOwnerIPv6LinkLocalAddressProvided() {
         return SdkLevel.isAtLeastT()
                 && isFeatureSupported(FEATURE_GROUP_OWNER_IPV6_LINK_LOCAL_ADDRESS_PROVIDED);
+    }
+
+    /**
+     * Check if this device supports Wi-Fi Direct R2 (P2P2).
+     *
+     * @return true if this device supports Wi-Fi Alliance Wi-Fi Direct R2 (Support for P2P2 IE and
+     * establishing connection by using the P2P pairing protocol), false otherwise.
+     * For more details, visit <a href="https://www.wi-fi.org/">https://www.wi-fi.org/</a> and
+     * search for "Wi-Fi Direct" .
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isWiFiDirectR2Supported() {
+        return isFeatureSupported(FEATURE_WIFI_DIRECT_R2);
+    }
+
+    /**
+     * Check if this device supports P2P Connection Compatibility Mode(R1/R2 compatibility mode).
+     *
+     * @return true if this device supports hosting an autonomous Group Owner which allows
+     * legacy P2P clients and R2 clients to join the group in PCC Mode and also supports connecting
+     * to a Group Owner either using legacy security mode (WPA2-PSK) or R2 mandated security
+     * mode(WPA3-SAE) in PCC Mode.
+     */
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public boolean isPccModeSupported() {
+        return isFeatureSupported(FEATURE_PCC_MODE_ALLOW_LEGACY_AND_R2_CONNECTION);
     }
 
     /**
@@ -3648,5 +3937,187 @@ public class WifiP2pManager {
      */
     public static int getP2pMaxAllowedVendorElementsLengthBytes() {
         return WIFI_P2P_VENDOR_ELEMENTS_MAXIMUM_LENGTH;
+    }
+
+    private static Exception reasonCodeToException(int reason) {
+        if (reason == ERROR) {
+            return new IllegalStateException("Internal error");
+        } else if (reason == BUSY) {
+            return new IllegalStateException("Framework is busy");
+        } else if (Flags.wifiDirectR2() && reason == NO_PERMISSION) {
+            return new SecurityException("Application doesn't have required permission");
+        } else {
+            return new IllegalStateException();
+        }
+    }
+
+    /**
+     * Interface for callback invocation in response to {@link #requestDirInfo}.
+     * @hide
+     */
+    public interface WifiP2pDirInfoListener {
+        /**
+         * The callback to indicate that the system searched for DIR information.
+         * @param dirInfo {@link WifiP2pDirInfo} if exists, otherwise null.
+         */
+        void onDirInfoReceived(@Nullable WifiP2pDirInfo dirInfo);
+
+        /**
+         * The operation failed.
+         * @param reason The reason for failure.
+         */
+        void onFailure(int reason);
+    }
+
+    /**
+     * Get the Device Identity Resolution (DIR) Information.
+     * See {@link WifiP2pDirInfo} for details
+     *
+     * Note: The results callback returns null if the device doesn't have any persistent group
+     * with device identity key information.
+     *
+     * <p>
+     * Use {@link #isWiFiDirectR2Supported()} to determine whether the device supports
+     * this feature. If {@link #isWiFiDirectR2Supported()} return {@code false} then
+     * this method will throw {@link UnsupportedOperationException}.
+     * <p>
+     * The application must have {@link android.Manifest.permission#NEARBY_WIFI_DEVICES} with
+     * android:usesPermissionFlags="neverForLocation". If the application does not declare
+     * android:usesPermissionFlags="neverForLocation", then it must also have
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
+     *
+     * @param c               It is the channel created at {@link #initialize}.
+     * @param executor        The executor on which callback will be invoked.
+     * @param callback        An OutcomeReceiver callback for receiving {@link WifiP2pDirInfo} via
+     *                        {@link OutcomeReceiver#onResult(Object)}. This callback will return
+     *                        null when DIR info doesn't exist.
+     *                        When this API call fails due to permission issues, state machine
+     *                        is busy etc., {@link OutcomeReceiver#onError(Throwable)} is called.
+     */
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+    }, conditional = true)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public void requestDirInfo(@NonNull Channel c, @NonNull @CallbackExecutor Executor executor,
+            @NonNull OutcomeReceiver<WifiP2pDirInfo, Exception> callback) {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        if (!isWiFiDirectR2Supported()) {
+            throw new UnsupportedOperationException();
+        }
+        Objects.requireNonNull(c, "channel cannot be null and needs to be initialized)");
+        Objects.requireNonNull(executor, "executor cannot be null");
+        Objects.requireNonNull(callback, "callback cannot be null");
+        Bundle extras = prepareExtrasBundle(c);
+        c.mAsyncChannel.sendMessage(prepareMessage(GET_DIR_INFO, 0,
+                c.putListener(new WifiP2pDirInfoListener() {
+                    @Override
+                    public void onDirInfoReceived(WifiP2pDirInfo result) {
+                        Binder.clearCallingIdentity();
+                        executor.execute(() -> {
+                            callback.onResult(result);
+                        });
+                    }
+
+                    @Override
+                    public void onFailure(int reason) {
+                        Binder.clearCallingIdentity();
+                        executor.execute(() -> {
+                            callback.onError(reasonCodeToException(reason));
+                        });
+                    }
+                }), extras, c.mContext));
+    }
+
+    /**
+     * Interface for callback invocation when the received DIR information is validated
+     * in response to {@link #validateDirInfo}.
+     * @hide
+     */
+    public interface WifiP2pDirInfoValidationListener {
+        /**
+         * The requested DIR information is validated.
+         * @param result True if a match is found, false otherwise.
+         */
+        void onDirInfoValidation(boolean result);
+
+        /**
+         * The operation failed.
+         * @param reason The reason for failure.
+         */
+        void onFailure(@FailureReason int reason);
+    }
+
+    /**
+     * Validate the Device Identity Resolution (DIR) Information of a P2P device.
+     * See {@link WifiP2pDirInfo} for details.
+     * Framework takes the {@link WifiP2pDirInfo} and derives a set of Tag values based on
+     * the cached Device Identity Keys (DevIK) of all paired peers saved in the device.
+     * If a derived Tag value matches the Tag value received in the {@link WifiP2pDirInfo}, the
+     * device is identified as a paired peer and returns true.
+     *
+     * <p>
+     * Use {@link #isWiFiDirectR2Supported()} to determine whether the device supports
+     * this feature. If {@link #isWiFiDirectR2Supported()} return {@code false} then
+     * this method will throw {@link UnsupportedOperationException}.
+     * <p>
+     * The application must have {@link android.Manifest.permission#NEARBY_WIFI_DEVICES} with
+     * android:usesPermissionFlags="neverForLocation". If the application does not declare
+     * android:usesPermissionFlags="neverForLocation", then it must also have
+     * {@link android.Manifest.permission#ACCESS_FINE_LOCATION}.
+     *
+     * @param c               It is the channel created at {@link #initialize}.
+     * @param dirInfo         {@link WifiP2pDirInfo} to validate.
+     * @param executor        The executor on which callback will be invoked.
+     * @param callback        An OutcomeReceiver callback for receiving the result via
+     *                        {@link OutcomeReceiver#onResult(Object)} indicating whether the DIR
+     *                        info of P2P device is of a paired device. {code true} for paired,
+     *                        {@code false} for not paired.
+     *                        When this API call fails due to permission issues, state machine
+     *                        is busy etc., {@link OutcomeReceiver#onError(Throwable)} is called.
+     */
+    @RequiresPermission(allOf = {
+            android.Manifest.permission.NEARBY_WIFI_DEVICES,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+    }, conditional = true)
+    @RequiresApi(Build.VERSION_CODES.BAKLAVA)
+    @FlaggedApi(Flags.FLAG_WIFI_DIRECT_R2)
+    public void validateDirInfo(@NonNull Channel c, @NonNull WifiP2pDirInfo dirInfo,
+            @NonNull @CallbackExecutor Executor executor,
+            @NonNull OutcomeReceiver<Boolean, Exception> callback) {
+        if (!Environment.isSdkAtLeastB()) {
+            throw new UnsupportedOperationException();
+        }
+        if (!isWiFiDirectR2Supported()) {
+            throw new UnsupportedOperationException();
+        }
+        Objects.requireNonNull(c, "channel cannot be null and needs to be initialized)");
+        Objects.requireNonNull(dirInfo, "dirInfo cannot be null");
+        Objects.requireNonNull(executor, "executor cannot be null");
+        Objects.requireNonNull(callback, "resultsCallback cannot be null");
+        Bundle extras = prepareExtrasBundle(c);
+
+        extras.putParcelable(EXTRA_PARAM_KEY_DIR_INFO, dirInfo);
+        c.mAsyncChannel.sendMessage(prepareMessage(VALIDATE_DIR_INFO, 0,
+                c.putListener(new WifiP2pDirInfoValidationListener() {
+                    @Override
+                    public void onDirInfoValidation(boolean result) {
+                        Binder.clearCallingIdentity();
+                        executor.execute(() -> {
+                            callback.onResult(result);
+                        });
+                    }
+
+                    @Override
+                    public void onFailure(@FailureReason int reason) {
+                        Binder.clearCallingIdentity();
+                        executor.execute(() -> {
+                            callback.onError(reasonCodeToException(reason));
+                        });
+                    }
+                }), extras, c.mContext));
     }
 }

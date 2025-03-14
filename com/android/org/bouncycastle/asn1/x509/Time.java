@@ -17,6 +17,7 @@ import com.android.org.bouncycastle.asn1.ASN1TaggedObject;
 import com.android.org.bouncycastle.asn1.ASN1UTCTime;
 import com.android.org.bouncycastle.asn1.DERGeneralizedTime;
 import com.android.org.bouncycastle.asn1.DERUTCTime;
+import com.android.org.bouncycastle.asn1.LocaleUtil;
 
 /**
  * @hide This class is not part of the Android public SDK API
@@ -31,7 +32,12 @@ public class Time
         ASN1TaggedObject obj,
         boolean          explicit)
     {
-        return getInstance(obj.getObject()); // must be explicitly tagged
+        if (!explicit)
+        {
+            throw new IllegalArgumentException("choice item must be explicitly tagged");
+        }
+
+        return getInstance(obj.getExplicitBaseObject());
     }
 
     public Time(

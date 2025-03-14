@@ -19,14 +19,10 @@ package android.health.connect.datatypes;
 import static android.health.connect.datatypes.validation.ValidationUtils.validateIntDefValue;
 
 import android.annotation.IntDef;
-import android.annotation.NonNull;
 import android.health.connect.HealthConnectManager;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
-import java.util.Collections;
-import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -42,38 +38,29 @@ import java.util.Set;
 public final class AggregationType<T> {
     /** @hide */
     public static final int MAX = 0;
+
     /** @hide */
     public static final int MIN = 1;
+
     /** @hide */
     public static final int AVG = 2;
+
     /** @hide */
     public static final int SUM = 3;
+
     /** @hide */
     public static final int COUNT = 4;
 
     @AggregationTypeIdentifier.Id private final int mId;
     @AggregateOperationType private final int mType;
-    private final List<Integer> mApplicableRecordTypes;
+    @RecordTypeIdentifier.RecordType private final int mApplicableRecordTypeId;
     private final Class<T> mClass;
-    /** @hide */
-    AggregationType(
-            @AggregationTypeIdentifier.Id int id,
-            @AggregateOperationType int type,
-            @NonNull List<Integer> applicableRecordTypes,
-            Class<T> templateClass) {
-        Objects.requireNonNull(applicableRecordTypes);
-
-        mId = id;
-        mType = type;
-        mApplicableRecordTypes = applicableRecordTypes;
-        mClass = templateClass;
-    }
 
     /** @hide */
     AggregationType(
             @AggregationTypeIdentifier.Id int id,
             @AggregateOperationType int type,
-            @NonNull @RecordTypeIdentifier.RecordType int applicableRecordType,
+            @RecordTypeIdentifier.RecordType int applicableRecordTypeId,
             Class<T> templateClass) {
         validateIntDefValue(
                 id,
@@ -84,7 +71,7 @@ public final class AggregationType<T> {
 
         mId = id;
         mType = type;
-        mApplicableRecordTypes = Collections.singletonList(applicableRecordType);
+        mApplicableRecordTypeId = applicableRecordTypeId;
         mClass = templateClass;
     }
 
@@ -95,9 +82,9 @@ public final class AggregationType<T> {
     }
 
     /** @hide */
-    @NonNull
-    public List<Integer> getApplicableRecordTypeIds() {
-        return mApplicableRecordTypes;
+    @RecordTypeIdentifier.RecordType
+    public int getApplicableRecordTypeId() {
+        return mApplicableRecordTypeId;
     }
 
     /** @hide */
@@ -206,6 +193,11 @@ public final class AggregationType<T> {
         int SKIN_TEMPERATURE_RECORD_DELTA_AVG = 84;
         int SKIN_TEMPERATURE_RECORD_DELTA_MIN = 85;
         int SKIN_TEMPERATURE_RECORD_DELTA_MAX = 86;
+        int MINDFULNESS_SESSION_DURATION_TOTAL = 87;
+        int ACTIVITY_INTENSITY_MODERATE_DURATION_TOTAL = 88;
+        int ACTIVITY_INTENSITY_VIGOROUS_DURATION_TOTAL = 89;
+        int ACTIVITY_INTENSITY_DURATION_TOTAL = 90;
+        int ACTIVITY_INTENSITY_MINUTES_TOTAL = 91;
 
         /**
          * Valid set of values for this IntDef. Update this set when add new type or deprecate
@@ -301,7 +293,12 @@ public final class AggregationType<T> {
                         STEPS_CADENCE_RECORD_RATE_MAX,
                         SKIN_TEMPERATURE_RECORD_DELTA_AVG,
                         SKIN_TEMPERATURE_RECORD_DELTA_MIN,
-                        SKIN_TEMPERATURE_RECORD_DELTA_MAX);
+                        SKIN_TEMPERATURE_RECORD_DELTA_MAX,
+                        MINDFULNESS_SESSION_DURATION_TOTAL,
+                        ACTIVITY_INTENSITY_MODERATE_DURATION_TOTAL,
+                        ACTIVITY_INTENSITY_VIGOROUS_DURATION_TOTAL,
+                        ACTIVITY_INTENSITY_DURATION_TOTAL,
+                        ACTIVITY_INTENSITY_MINUTES_TOTAL);
 
         /** @hide */
         @IntDef({
@@ -391,7 +388,12 @@ public final class AggregationType<T> {
             STEPS_CADENCE_RECORD_RATE_MAX,
             SKIN_TEMPERATURE_RECORD_DELTA_AVG,
             SKIN_TEMPERATURE_RECORD_DELTA_MIN,
-            SKIN_TEMPERATURE_RECORD_DELTA_MAX
+            SKIN_TEMPERATURE_RECORD_DELTA_MAX,
+            MINDFULNESS_SESSION_DURATION_TOTAL,
+            ACTIVITY_INTENSITY_MODERATE_DURATION_TOTAL,
+            ACTIVITY_INTENSITY_VIGOROUS_DURATION_TOTAL,
+            ACTIVITY_INTENSITY_DURATION_TOTAL,
+            ACTIVITY_INTENSITY_MINUTES_TOTAL
         })
         @Retention(RetentionPolicy.SOURCE)
         @interface Id {}

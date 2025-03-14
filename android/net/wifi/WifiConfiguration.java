@@ -45,6 +45,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.SparseArray;
 
+import androidx.annotation.Keep;
 import androidx.annotation.RequiresApi;
 
 import com.android.internal.annotations.VisibleForTesting;
@@ -664,6 +665,7 @@ public class WifiConfiguration implements Parcelable {
      *
      * @hide
      */
+    @Keep
     public void addSecurityParams(@SecurityType int securityType) {
         // This ensures that there won't be duplicate security types.
         for (SecurityParams params : mSecurityParamsList) {
@@ -738,6 +740,7 @@ public class WifiConfiguration implements Parcelable {
      * If there is no security params, generate one according to legacy fields.
      * @hide
      */
+    @Keep
     public void convertLegacyFieldsToSecurityParamsIfNeeded() {
         if (!mSecurityParamsList.isEmpty()) return;
         if (allowedKeyManagement.get(KeyMgmt.WAPI_CERT)) {
@@ -886,6 +889,7 @@ public class WifiConfiguration implements Parcelable {
      * @return true if there is a security params matches the type.
      * @hide
      */
+    @Keep
     public boolean isSecurityType(@SecurityType int securityType) {
         for (SecurityParams p : mSecurityParamsList) {
             if (p.isSecurityType(securityType)) {
@@ -913,6 +917,7 @@ public class WifiConfiguration implements Parcelable {
      * @return the default security params.
      * @hide
      */
+    @Keep
     public @NonNull SecurityParams getDefaultSecurityParams() {
         return new SecurityParams(mSecurityParamsList.get(0));
     }
@@ -2721,6 +2726,7 @@ public class WifiConfiguration implements Parcelable {
         }
 
         /** @hide */
+        @Keep
         public boolean hasNeverDetectedCaptivePortal() {
             return mHasNeverDetectedCaptivePortal;
         }
@@ -3943,6 +3949,7 @@ public class WifiConfiguration implements Parcelable {
 
     /** @hide */
     @UnsupportedAppUsage
+    @Keep
     public void setStaticIpConfiguration(StaticIpConfiguration staticIpConfiguration) {
         mIpConfiguration.setStaticIpConfiguration(staticIpConfiguration);
     }
@@ -3953,12 +3960,14 @@ public class WifiConfiguration implements Parcelable {
      */
     @NonNull
     @UnsupportedAppUsage
+    @Keep
     public IpConfiguration.IpAssignment getIpAssignment() {
         return mIpConfiguration.getIpAssignment();
     }
 
     /** @hide */
     @UnsupportedAppUsage
+    @Keep
     public void setIpAssignment(IpConfiguration.IpAssignment ipAssignment) {
         mIpConfiguration.setIpAssignment(ipAssignment);
     }
@@ -4466,6 +4475,7 @@ public class WifiConfiguration implements Parcelable {
      * @return true if preSharedKey is needed, false otherwise.
      * @hide
      */
+    @Keep
     public boolean needsPreSharedKey() {
         for (SecurityParams params : mSecurityParamsList) {
             if (params.isSecurityType(SECURITY_TYPE_PSK)
@@ -4526,6 +4536,7 @@ public class WifiConfiguration implements Parcelable {
      * @return true if preSharedKey encryption is needed, false otherwise.
      * @hide
      */
+    @Keep
     public boolean hasPreSharedKeyChanged() {
         return mHasPreSharedKeyChanged;
     }

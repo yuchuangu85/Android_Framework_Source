@@ -30,6 +30,7 @@ import static android.telephony.TelephonyManager.PHONE_TYPE_CDMA;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AppOpsManager;
 import android.app.BroadcastOptions;
@@ -65,6 +66,7 @@ import android.service.carrier.CarrierMessagingService;
 import android.telephony.SmsMessage;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
+import android.text.TextUtils;
 import android.util.LocalLog;
 import android.util.Pair;
 
@@ -73,7 +75,11 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.SmsConstants.MessageClass;
 import com.android.internal.telephony.analytics.TelephonyAnalytics;
 import com.android.internal.telephony.analytics.TelephonyAnalytics.SmsMmsAnalytics;
+import com.android.internal.telephony.flags.FeatureFlags;
+import com.android.internal.telephony.flags.Flags;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
+import com.android.internal.telephony.satellite.SatelliteController;
+import com.android.internal.telephony.satellite.metrics.CarrierRoamingSatelliteSessionStats;
 import com.android.internal.telephony.util.NotificationChannelController;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.HexDump;
@@ -283,6 +289,8 @@ public abstract class InboundSmsHandler extends StateMachine {
 
     private List<SmsFilter> mSmsFilters;
 
+    protected final @NonNull FeatureFlags mFeatureFlags;
+
     /**
      * Create a new SMS broadcast helper.
      * @param name the class name for logging
@@ -290,18 +298,19 @@ public abstract class InboundSmsHandler extends StateMachine {
      * @param storageMonitor the SmsStorageMonitor to check for storage availability
      */
     protected InboundSmsHandler(String name, Context context, SmsStorageMonitor storageMonitor,
-            Phone phone, Looper looper) {
+            Phone phone, Looper looper, FeatureFlags featureFlags) {
         super(name, looper);
 
+        mFeatureFlags = featureFlags;
         mContext = context;
         mStorageMonitor = storageMonitor;
         mPhone = phone;
         mResolver = context.getContentResolver();
-        mWapPush = new WapPushOverSms(context);
+        mWapPush = new WapPushOverSms(context, mFeatureFlags);
 
-        boolean smsCapable = mContext.getResources().getBoolean(
-                com.android.internal.R.bool.config_sms_capable);
-        mSmsReceiveDisabled = !TelephonyManager.from(mContext).getSmsReceiveCapableForPhone(
+        TelephonyManager telephonyManager = TelephonyManager.from(mContext);
+        boolean smsCapable = telephonyManager.isDeviceSmsCapable();
+        mSmsReceiveDisabled = !telephonyManager.getSmsReceiveCapableForPhone(
                 mPhone.getPhoneId(), smsCapable);
 
         PowerManager pm = (PowerManager) mContext.getSystemService(Context.POWER_SERVICE);
@@ -680,6 +689,16 @@ public abstract class InboundSmsHandler extends StateMachine {
             result = RESULT_SMS_DISPATCH_FAILURE;
         }
 
+        if (mFeatureFlags.carrierRoamingNbIotNtn()) {
+            if (result == Intents.RESULT_SMS_HANDLED) {
+                SatelliteController satelliteController = SatelliteController.getInstance();
+                if (satelliteController != null
+                        && satelliteController.shouldSendSmsToDatagramDispatcher(mPhone)) {
+                    satelliteController.onSmsReceived(mPhone.getSubId());
+                }
+            }
+        }
+
         // RESULT_OK means that the SMS will be acknowledged by special handling,
         // e.g. for SMS-PP data download. Any other result, we should ack here.
         if (result != Activity.RESULT_OK) {
@@ -740,13 +759,28 @@ public abstract class InboundSmsHandler extends StateMachine {
             return Intents.RESULT_SMS_HANDLED;
         }
 
+        if (isMtSmsPollingMessage(smsb)) {
+            log("Received MT SMS polling message. Ignored.");
+            return Intents.RESULT_SMS_HANDLED;
+        }
+
+        if (mFeatureFlags.carrierRoamingNbIotNtn()) {
+            SatelliteController satelliteController = SatelliteController.getInstance();
+            if (satelliteController != null
+                    && satelliteController.shouldDropSms(mPhone)) {
+                log("SMS not supported during satellite session.");
+                return Intents.RESULT_SMS_HANDLED;
+            }
+        }
+
         int result = dispatchMessageRadioSpecific(smsb, smsSource, token);
 
         // In case of error, add to metrics. This is not required in case of success, as the
         // data will be tracked when the message is processed (processMessagePart).
         if (result != Intents.RESULT_SMS_HANDLED && result != Activity.RESULT_OK) {
             mMetrics.writeIncomingSmsError(mPhone.getPhoneId(), is3gpp2(), smsSource, result);
-            mPhone.getSmsStats().onIncomingSmsError(is3gpp2(), smsSource, result);
+            mPhone.getSmsStats().onIncomingSmsError(is3gpp2(), smsSource, result,
+                    isEmergencyNumber(smsb.getOriginatingAddress()));
             if (mPhone != null) {
                 TelephonyAnalytics telephonyAnalytics = mPhone.getTelephonyAnalytics();
                 if (telephonyAnalytics != null) {
@@ -798,7 +832,12 @@ public abstract class InboundSmsHandler extends StateMachine {
             Intent intent = new Intent(Intents.SMS_REJECTED_ACTION);
             intent.putExtra("result", result);
             intent.putExtra("subId", mPhone.getSubId());
-            mContext.sendBroadcast(intent, android.Manifest.permission.RECEIVE_SMS);
+            if (mFeatureFlags.hsumBroadcast()) {
+                mContext.sendBroadcastAsUser(intent, UserHandle.ALL,
+                        android.Manifest.permission.RECEIVE_SMS);
+            } else {
+                mContext.sendBroadcast(intent, android.Manifest.permission.RECEIVE_SMS);
+            }
         }
         acknowledgeLastIncomingSms(success, result, response);
     }
@@ -1019,7 +1058,8 @@ public abstract class InboundSmsHandler extends StateMachine {
                     + (pduList.size() == 0 ? "pduList.size() == 0" : "pduList.contains(null)");
             logeWithLocalLog(errorMsg, tracker.getMessageId());
             mPhone.getSmsStats().onIncomingSmsError(
-                    is3gpp2(), tracker.getSource(), RESULT_SMS_NULL_PDU);
+                    is3gpp2(), tracker.getSource(), RESULT_SMS_NULL_PDU,
+                    isEmergencyNumber(tracker.getAddress()));
             if (mPhone != null) {
                 TelephonyAnalytics telephonyAnalytics = mPhone.getTelephonyAnalytics();
                 if (telephonyAnalytics != null) {
@@ -1048,7 +1088,8 @@ public abstract class InboundSmsHandler extends StateMachine {
                                 SmsConstants.FORMAT_3GPP, timestamps, false,
                                 tracker.getMessageId());
                         mPhone.getSmsStats().onIncomingSmsWapPush(tracker.getSource(),
-                                messageCount, RESULT_SMS_NULL_MESSAGE, tracker.getMessageId());
+                                messageCount, RESULT_SMS_NULL_MESSAGE, tracker.getMessageId(),
+                                isEmergencyNumber(tracker.getAddress()));
                         return false;
                     }
                 }
@@ -1058,7 +1099,7 @@ public abstract class InboundSmsHandler extends StateMachine {
 
         SmsBroadcastReceiver resultReceiver = tracker.getSmsBroadcastReceiver(this);
 
-        if (!mUserManager.isUserUnlocked()) {
+        if (!isMainUserUnlocked()) {
             log("processMessagePart: !isUserUnlocked; calling processMessagePartWithUserLocked. "
                     + "Port: " + destPort, tracker.getMessageId());
             return processMessagePartWithUserLocked(
@@ -1083,7 +1124,7 @@ public abstract class InboundSmsHandler extends StateMachine {
             mMetrics.writeIncomingWapPush(mPhone.getPhoneId(), tracker.getSource(),
                     format, timestamps, wapPushResult, tracker.getMessageId());
             mPhone.getSmsStats().onIncomingSmsWapPush(tracker.getSource(), messageCount,
-                    result, tracker.getMessageId());
+                    result, tracker.getMessageId(), isEmergencyNumber(tracker.getAddress()));
             // result is Activity.RESULT_OK if an ordered broadcast was sent
             if (result == Activity.RESULT_OK) {
                 return true;
@@ -1103,7 +1144,11 @@ public abstract class InboundSmsHandler extends StateMachine {
         mMetrics.writeIncomingSmsSession(mPhone.getPhoneId(), tracker.getSource(),
                 format, timestamps, block, tracker.getMessageId());
         mPhone.getSmsStats().onIncomingSmsSuccess(is3gpp2(), tracker.getSource(),
-                messageCount, block, tracker.getMessageId());
+                messageCount, block, tracker.getMessageId(),
+                isEmergencyNumber(tracker.getAddress()));
+        CarrierRoamingSatelliteSessionStats sessionStats =
+                CarrierRoamingSatelliteSessionStats.getInstance(mPhone.getSubId());
+        sessionStats.onIncomingSms(mPhone.getSubId());
         if (mPhone != null) {
             TelephonyAnalytics telephonyAnalytics = mPhone.getTelephonyAnalytics();
             if (telephonyAnalytics != null) {
@@ -1136,6 +1181,13 @@ public abstract class InboundSmsHandler extends StateMachine {
         }
 
         return true;
+    }
+
+    private boolean isEmergencyNumber(String number) {
+        if (!mPhone.hasCalling()) return false;
+        TelephonyManager manager = TelephonyManager.from(mContext);
+        if (manager == null) return false;
+        return manager.isEmergencyNumber(number);
     }
 
     /**
@@ -1171,6 +1223,15 @@ public abstract class InboundSmsHandler extends StateMachine {
         return false;
     }
 
+    private boolean isMainUserUnlocked() {
+        UserHandle mainUser = mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser() ?
+                mUserManager.getMainUser() : null;
+        if (mainUser != null) {
+            return mUserManager.isUserUnlocked(mainUser);
+        }
+        return mUserManager.isUserUnlocked();
+    }
+
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
     private void showNewMessageNotification() {
         // Do not show the notification on non-FBE devices.
@@ -1194,8 +1255,15 @@ public abstract class InboundSmsHandler extends StateMachine {
                 .setChannelId(NotificationChannelController.CHANNEL_ID_SMS);
         NotificationManager mNotificationManager =
             (NotificationManager) mContext.getSystemService(Context.NOTIFICATION_SERVICE);
-        mNotificationManager.notify(
-                NOTIFICATION_TAG, NOTIFICATION_ID_NEW_MESSAGE, mBuilder.build());
+        UserHandle mainUser = mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser() ?
+                mUserManager.getMainUser() : null;
+        if (mainUser != null) {
+            mNotificationManager.notifyAsUser(
+                    NOTIFICATION_TAG, NOTIFICATION_ID_NEW_MESSAGE, mBuilder.build(), mainUser);
+        } else {
+            mNotificationManager.notify(
+                    NOTIFICATION_TAG, NOTIFICATION_ID_NEW_MESSAGE, mBuilder.build());
+        }
     }
 
     static void cancelNewMessageNotification(Context context) {
@@ -1313,6 +1381,7 @@ public abstract class InboundSmsHandler extends StateMachine {
      * @param user user to deliver the intent to
      */
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)
+    @SuppressLint("MissingPermission")
     public void dispatchIntent(Intent intent, String permission, String appOp,
             Bundle opts, SmsBroadcastReceiver resultReceiver, UserHandle user, int subId) {
         intent.addFlags(Intent.FLAG_RECEIVER_NO_ABORT);
@@ -1341,12 +1410,17 @@ public abstract class InboundSmsHandler extends StateMachine {
             // Get a list of currently started users.
             int[] users = null;
             final List<UserHandle> userHandles = mUserManager.getUserHandles(false);
+            final UserHandle mainUser = mUserManager.getMainUser();
             final List<UserHandle> runningUserHandles = new ArrayList();
             for (UserHandle handle : userHandles) {
                 if (mUserManager.isUserRunning(handle)) {
                     runningUserHandles.add(handle);
                 } else {
-                    if (handle.equals(UserHandle.SYSTEM)) {
+                    if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()
+                            && handle.equals(mainUser)) {
+                        logeWithLocalLog("dispatchIntent: MAIN user is not running",
+                                resultReceiver.mInboundSmsTracker.getMessageId());
+                    } else if (handle.equals(UserHandle.SYSTEM)) {
                         logeWithLocalLog("dispatchIntent: SYSTEM user is not running",
                                 resultReceiver.mInboundSmsTracker.getMessageId());
                     }
@@ -1364,7 +1438,7 @@ public abstract class InboundSmsHandler extends StateMachine {
             // by user policy.
             for (int i = users.length - 1; i >= 0; i--) {
                 UserHandle targetUser = UserHandle.of(users[i]);
-                if (users[i] != UserHandle.SYSTEM.getIdentifier()) {
+                if (!isMainUser(users[i])) {
                     // Is the user not allowed to use SMS?
                     if (hasUserRestriction(UserManager.DISALLOW_SMS, targetUser)) {
                         continue;
@@ -1374,14 +1448,14 @@ public abstract class InboundSmsHandler extends StateMachine {
                         continue;
                     }
                 }
-                // Only pass in the resultReceiver when the user SYSTEM is processed.
+                // Only pass in the resultReceiver when the MAIN user is processed.
                 try {
-                    if (users[i] == UserHandle.SYSTEM.getIdentifier()) {
+                    if (isMainUser(users[i])) {
                         resultReceiver.setWaitingForIntent(intent);
                     }
                     mContext.createPackageContextAsUser(mContext.getPackageName(), 0, targetUser)
                             .sendOrderedBroadcast(intent, Activity.RESULT_OK, permission, appOp,
-                                    users[i] == UserHandle.SYSTEM.getIdentifier()
+                                    isMainUser(users[i])
                                             ? resultReceiver : null, getHandler(),
                                     null /* initialData */, null /* initialExtras */, opts);
                 } catch (PackageManager.NameNotFoundException ignored) {
@@ -1403,6 +1477,15 @@ public abstract class InboundSmsHandler extends StateMachine {
         final List<UserManager.EnforcingUser> sources = mUserManager
                 .getUserRestrictionSources(restrictionKey, userHandle);
         return (sources != null && !sources.isEmpty());
+    }
+
+    @SuppressLint("MissingPermission")
+    private  boolean isMainUser(int userId) {
+        if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()) {
+            return userId == mUserManager.getMainUser().getIdentifier();
+        } else {
+            return userId == UserHandle.SYSTEM.getIdentifier();
+        }
     }
 
     /**
@@ -1500,7 +1583,11 @@ public abstract class InboundSmsHandler extends StateMachine {
         }
 
         if (userHandle == null) {
-            userHandle = UserHandle.SYSTEM;
+            if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()) {
+                userHandle = mUserManager.getMainUser();
+            } else {
+                userHandle = UserHandle.SYSTEM;
+            }
         }
         Bundle options = handleSmsWhitelisting(intent.getComponent(), isClass0);
         dispatchIntent(intent, android.Manifest.permission.RECEIVE_SMS,
@@ -1728,6 +1815,7 @@ public abstract class InboundSmsHandler extends StateMachine {
             handleAction(intent, true);
         }
 
+        @SuppressLint("MissingPermission")
         private synchronized void handleAction(@NonNull Intent intent, boolean onReceive) {
             String action = intent.getAction();
             if (mWaitingForIntent == null || !mWaitingForIntent.getAction().equals(action)) {
@@ -1784,9 +1872,15 @@ public abstract class InboundSmsHandler extends StateMachine {
                 String mimeType = intent.getType();
 
                 setWaitingForIntent(intent);
-                dispatchIntent(intent, WapPushOverSms.getPermissionForType(mimeType),
-                        WapPushOverSms.getAppOpsStringPermissionForIntent(mimeType), options, this,
-                        UserHandle.SYSTEM, subId);
+                if (mFeatureFlags.smsMmsDeliverBroadcastsRedirectToMainUser()) {
+                    dispatchIntent(intent, WapPushOverSms.getPermissionForType(mimeType),
+                            WapPushOverSms.getAppOpsStringPermissionForIntent(mimeType), options,
+                            this, mUserManager.getMainUser(), subId);
+                } else {
+                    dispatchIntent(intent, WapPushOverSms.getPermissionForType(mimeType),
+                            WapPushOverSms.getAppOpsStringPermissionForIntent(mimeType), options,
+                            this, UserHandle.SYSTEM, subId);
+                }
             } else {
                 // Now that the intents have been deleted we can clean up the PDU data.
                 if (!Intents.DATA_SMS_RECEIVED_ACTION.equals(action)
@@ -1904,6 +1998,17 @@ public abstract class InboundSmsHandler extends StateMachine {
         // Needs phone package permissions.
         deleteFromRawTable(receiver.mDeleteWhere, receiver.mDeleteWhereArgs, MARK_DELETED);
         sendMessage(EVENT_BROADCAST_COMPLETE);
+    }
+
+    private boolean isMtSmsPollingMessage(@NonNull SmsMessageBase smsb) {
+        if (!mFeatureFlags.carrierRoamingNbIotNtn()
+                || !mContext.getResources().getBoolean(R.bool.config_enabled_mt_sms_polling)) {
+            return false;
+        }
+        String mtSmsPollingText = mContext.getResources()
+                .getString(R.string.config_mt_sms_polling_text);
+        return !TextUtils.isEmpty(mtSmsPollingText)
+                && mtSmsPollingText.equals(smsb.getMessageBody());
     }
 
     /** Checks whether the flag to skip new message notification is set in the bitmask returned
@@ -2087,11 +2192,16 @@ public abstract class InboundSmsHandler extends StateMachine {
         public void onReceive(Context context, Intent intent) {
             if (ACTION_OPEN_SMS_APP.equals(intent.getAction())) {
                 // do nothing if the user had not unlocked the device yet
+                // TODO(b/355049884): This is looking at sms package of the wrong user!
                 UserManager userManager =
                         (UserManager) context.getSystemService(Context.USER_SERVICE);
+                PackageManager pm = context.getPackageManager();
+                if (Flags.hsumPackageManager()) {
+                    pm = context.createContextAsUser(UserHandle.CURRENT, 0).getPackageManager();
+                }
                 if (userManager.isUserUnlocked()) {
-                    context.startActivity(context.getPackageManager().getLaunchIntentForPackage(
-                            Telephony.Sms.getDefaultSmsPackage(context)));
+                    context.startActivityAsUser(pm.getLaunchIntentForPackage(
+                            Telephony.Sms.getDefaultSmsPackage(context)), UserHandle.CURRENT);
                 }
             }
         }
